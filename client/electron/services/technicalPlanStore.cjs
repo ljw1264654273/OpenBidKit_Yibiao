@@ -461,6 +461,72 @@ function remapContentTaskStats(stats, idMap) {
   };
 }
 
+function collectOutlineNodeMap(items, result = new Map()) {
+  for (const item of items || []) {
+    const nodeId = String(item?.id || '').trim();
+    if (nodeId) result.set(nodeId, item);
+    if (Array.isArray(item?.children)) collectOutlineNodeMap(item.children, result);
+  }
+  return result;
+}
+
+function nextUserSupplementId(records) {
+  const maximum = (records || []).reduce((value, record) => {
+    const match = /^U([1-9]\d*)$/.exec(String(record?.source_id || ''));
+    return match ? Math.max(value, Number(match[1])) : value;
+  }, 0);
+  return `U${maximum + 1}`;
+}
+
+function updateScoreCoverageForOutlineSave({ coverageMap, suppliedCoverageMap, reason, idMap, affectedIds, previousOutline, nextOutline }) {
+  if (reason === 'replace') return suppliedCoverageMap || undefined;
+  if (!coverageMap || !Array.isArray(coverageMap.records)) return coverageMap;
+
+  const previousNodes = collectOutlineNodeMap(previousOutline?.outline || []);
+  const nextNodes = collectOutlineNodeMap(nextOutline?.outline || []);
+  const records = coverageMap.records.map((record) => {
+    const oldNodeIds = Array.isArray(record?.node_ids) ? record.node_ids.map(String) : [];
+    const touched = oldNodeIds.some((nodeId) => affectedIds.has(nodeId));
+    const survivingOldIds = reason === 'delete'
+      ? oldNodeIds.filter((nodeId) => !affectedIds.has(nodeId))
+      : oldNodeIds;
+    const nodeIds = survivingOldIds
+      .map((nodeId) => idMap.get(nodeId) || nodeId)
+      .filter((nodeId, index, values) => nextNodes.has(nodeId) && values.indexOf(nodeId) === index);
+
+    if (reason === 'delete' && touched) {
+      return nodeIds.length
+        ? { ...record, node_ids: nodeIds, user_override: 'partially-removed' }
+        : { ...record, node_ids: [], coverage_location: 'none', user_override: 'removed' };
+    }
+    if (reason === 'edit' && touched) {
+      return { ...record, node_ids: nodeIds, user_override: 'renamed' };
+    }
+    return { ...record, node_ids: nodeIds };
+  });
+
+  if (reason === 'add-root' || reason === 'add-child') {
+    const mappedPreviousIds = new Set(
+      [...previousNodes.keys()].map((nodeId) => idMap.get(nodeId) || nodeId),
+    );
+    for (const [nodeId, node] of nextNodes) {
+      if (mappedPreviousIds.has(nodeId)) continue;
+      const sourceId = nextUserSupplementId(records);
+      records.push({
+        source_id: sourceId,
+        source_kind: 'user-supplement',
+        source_text: String(node?.title || '').trim() || '用户补充目录',
+        node_ids: [nodeId],
+        coverage_location: 'title',
+        user_override: 'added',
+        supplement_kind: 'user-added',
+      });
+    }
+  }
+
+  return { ...coverageMap, records };
+}
+
 function createTechnicalPlanStore({ app, db, fileService, agentService, taskLogStore, configStore }) {
   function deleteOutlineAgentTask() {
     agentService.deletePersistentTask(OUTLINE_AGENT_TASK_KEY);
@@ -2359,8 +2425,29 @@ function createTechnicalPlanStore({ app, db, fileService, agentService, taskLogS
     let savedIllustrationPlan;
     const transaction = db.transaction(() => {
       assertOutlineMutationAllowed();
+      const previousOutline = loadOutlineData(readMetaRow());
+      const outlineTaskRow = db.prepare("SELECT stats_json FROM technical_plan_tasks WHERE type = 'outline-generation'").get();
+      const outlineTaskStats = safeJsonParse(outlineTaskRow?.stats_json, {});
+      const nextScoreCoverageMap = updateScoreCoverageForOutlineSave({
+        coverageMap: outlineTaskStats?.score_coverage_map,
+        suppliedCoverageMap: request?.scoreCoverageMap,
+        reason,
+        idMap,
+        affectedIds,
+        previousOutline,
+        nextOutline: outlineData,
+      });
+      const saveScoreCoverageMap = () => {
+        if (!outlineTaskRow) return;
+        const stats = { ...outlineTaskStats };
+        if (nextScoreCoverageMap === undefined) delete stats.score_coverage_map;
+        else stats.score_coverage_map = nextScoreCoverageMap;
+        db.prepare("UPDATE technical_plan_tasks SET stats_json = ?, updated_at = ? WHERE type = 'outline-generation'")
+          .run(JSON.stringify(stats), now());
+      };
       if (reason === 'sort') {
         saveSortedOutline(outlineData, idMap);
+        saveScoreCoverageMap();
         savedIllustrationPlan = loadContentIllustrationPlan();
         return;
       }
@@ -2380,6 +2467,7 @@ function createTechnicalPlanStore({ app, db, fileService, agentService, taskLogS
         updateMeta({ content_generation_runtime_json: null });
       }
       clearContentIllustrationPlan();
+      saveScoreCoverageMap();
     });
     transaction();
     const sortedContentRuntime = reason === 'sort'
