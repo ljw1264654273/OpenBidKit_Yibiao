@@ -5,7 +5,13 @@ const {
   createInitialPrompt,
   createScorePlanningPrompt,
   createChildrenPrompt,
-  enforceMinimumLeafTarget,
+  MAX_OUTLINE_DEPTH,
+  TECHNICAL_SCORE_GROUPS_SCHEMA,
+  SCORE_DIRECTORY_PLAN_SCHEMA,
+  SCORE_COVERAGE_MAP_SCHEMA,
+  buildCapacityReference,
+  buildOutlineReviewContext,
+  validateFinalOutline,
   buildRemoteKnowledgeFile,
   runOutlineGenerationTaskV2,
 } = require('./outlineGenerationTaskV2.cjs');
@@ -40,25 +46,71 @@ test('独立成册生成子目录时不重复评分项根标题', () => {
   assert.doesNotMatch(prompt, /"title":"技术方案"/);
 });
 
-test('独立成册末级小节目标至少覆盖每个技术分支', () => {
-  assert.equal(enforceMinimumLeafTarget(10, 0, 6), 10);
-  assert.equal(enforceMinimumLeafTarget(14, 0, 6), 14);
-  assert.equal(enforceMinimumLeafTarget(4, 0, 6), 6);
-  assert.equal(enforceMinimumLeafTarget(10, 2, 5), 10);
-  assert.equal(enforceMinimumLeafTarget(null, 0, 6), null);
-  assert.equal(enforceMinimumLeafTarget(2, 0, 1, {
-    maximumWords: 4000,
+test('字数推算仅生成容量参考且不强制匹配叶子数量', () => {
+  assert.deepEqual(buildCapacityReference({
+    minimumWords: 10000,
+    maximumWords: 14000,
     sectionWords: 3000,
-    strictSectionWords: true,
-  }), 1);
-  assert.throws(
-    () => enforceMinimumLeafTarget(4, 0, 6, {
-      maximumWords: 4000,
-      sectionWords: 1000,
-      strictSectionWords: true,
-    }),
-    /最多容纳 5 个 AI 生成小节，但独立成册目录至少需要 6 个/,
-  );
+  }), {
+    suggested_ai_leaf_count: 4,
+    advisory_only: true,
+  });
+});
+
+test('评分规划和完整目录允许七级', () => {
+  assert.equal(MAX_OUTLINE_DEPTH, 7);
+  assert.equal(TECHNICAL_SCORE_GROUPS_SCHEMA.properties.version.const, 2);
+  assert.equal(SCORE_DIRECTORY_PLAN_SCHEMA.properties.branches.items.properties.score_item_level.maximum, 7);
+  assert.equal(SCORE_COVERAGE_MAP_SCHEMA.properties.version.const, 1);
+});
+
+test('目录审核把叶子数量作为参考并报告真实七级深度', () => {
+  const leaf = (id, title) => ({ id, title, description: `${title}的具体响应内容`, content_mode: 'ai-generate' });
+  let current = [leaf('1.1.1.1.1.1.1', '第七级甲'), leaf('1.1.1.1.1.1.2', '第七级乙')];
+  for (let level = 6; level >= 2; level -= 1) {
+    const id = Array.from({ length: level }, () => '1').join('.');
+    current = [{ id, title: `第${level}级`, description: `第${level}级具体范围`, children: current }, leaf(`${id}.2`, `第${level + 1}级并列项`)];
+  }
+  const outline = {
+    outline: [{ id: '1', title: '技术方案', description: '技术方案具体响应范围', attr: '技术', children: current }],
+  };
+  const context = buildOutlineReviewContext({ outline, scoreDirectoryPlan: { branches: [] }, targetLeafCount: 50 });
+
+  assert.equal(context.leaf_count.advisory_only, true);
+  assert.equal(context.leaf_count.suggested, 50);
+  assert.equal('within_acceptable_range' in context.leaf_count, false);
+  assert.equal(context.structure.max_depth, 7);
+});
+
+test('评分覆盖映射缺失时最终门禁失败', () => {
+  const outline = {
+    outline: [{
+      id: '1',
+      title: '项目总体方案',
+      description: '响应项目总体方案评分要求',
+      attr: '技术',
+      content_mode: 'ai-generate',
+    }],
+  };
+  const scorePlan = {
+    version: 2,
+    groups: [{
+      requirement_id: 'R1',
+      source_title: '项目总体方案',
+      target_title: '项目总体方案',
+      source_order: 1,
+      expected_path: ['R1'],
+      criteria: [],
+    }],
+  };
+  const result = validateFinalOutline({
+    outline,
+    scorePlan,
+    scoreCoverageMap: { version: 1, coverage_mode: 'full', records: [] },
+  });
+
+  assert.equal(result.valid, false);
+  assert.ok(result.mandatoryIssues.some((issue) => issue.code === 'score-source-missing'));
 });
 
 test('远程目录参考文件明确标记为不可信材料且不泄露内部来源标识到标题', () => {

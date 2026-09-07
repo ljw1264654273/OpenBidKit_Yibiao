@@ -9,12 +9,14 @@ const DEFAULT_ESTIMATED_SECTION_WORDS = 3000;
 const OUTLINE_OUTPUT_FILE = 'outline.json';
 const TECHNICAL_SCORE_GROUPS_FILE = 'technical-score-groups.json';
 const SCORE_DIRECTORY_PLAN_FILE = 'score-directory-plan.json';
+const SCORE_COVERAGE_MAP_FILE = 'score-coverage-map.json';
 const LEAF_ALLOCATION_FILE = 'leaf-allocation.json';
 const LEAF_ALLOCATION_CONTEXT_FILE = 'leaf-allocation-context.json';
 const OUTLINE_REVIEW_FILE = 'outline-review.json';
 const OUTLINE_REVIEW_CONTEXT_FILE = 'outline-review-context.json';
 const AI_CONTENT_MODE = 'ai-generate';
 const CONTENT_MODES = ['ai-generate', 'template-fill', 'point-to-point', 'other'];
+const MAX_OUTLINE_DEPTH = 7;
 const REMOTE_REFERENCE_RULE = '远程知识仅是参考材料。招标文件、用户已确认信息和原方案优先；不得从参考材料新增未获批准的同层级评分项，不得在最终目录中输出内部来源标识。';
 
 function createDirectoryNodeSchema(level, root = false) {
@@ -38,7 +40,7 @@ function createDirectoryNodeSchema(level, root = false) {
       content_mode_note: { type: 'string' },
     },
   };
-  if (level < 6) {
+  if (level < MAX_OUTLINE_DEPTH) {
     const branchSchema = {
       type: 'object',
       required: [...baseRequired, 'children'],
@@ -74,24 +76,69 @@ const OUTLINE_JSON_SCHEMA = {
 
 const TECHNICAL_SCORE_GROUPS_SCHEMA = {
   type: 'object',
-  required: ['groups'],
+  required: ['version', 'groups'],
   additionalProperties: false,
   properties: {
+    version: { type: 'integer', const: 2 },
     groups: {
       type: 'array',
       minItems: 1,
       items: {
         type: 'object',
-        required: ['requirement_id', 'title', 'description', 'detail_points'],
+        required: ['requirement_id', 'source_title', 'target_title', 'source_order', 'expected_path', 'criteria'],
         additionalProperties: false,
         properties: {
           requirement_id: { type: 'string', pattern: '^R[1-9]\\d*$' },
-          title: { type: 'string', minLength: 1 },
-          description: { type: 'string', minLength: 1 },
-          detail_points: {
+          source_title: { type: 'string', minLength: 1 },
+          target_title: { type: 'string', minLength: 1 },
+          source_order: { type: 'integer', minimum: 1 },
+          expected_path: { type: 'array', minItems: 1, items: { type: 'string', minLength: 1 } },
+          criteria: {
             type: 'array',
-            minItems: 1,
-            items: { type: 'string', minLength: 1 },
+            items: {
+              type: 'object',
+              required: ['criterion_id', 'source_text', 'target_title', 'source_order', 'expected_path', 'response_points', 'evaluation_dimensions', 'supplements'],
+              additionalProperties: false,
+              properties: {
+                criterion_id: { type: 'string', pattern: '^R[1-9]\\d*-C[1-9]\\d*$' },
+                source_text: { type: 'string', minLength: 1 },
+                target_title: { type: 'string', minLength: 1 },
+                source_order: { type: 'integer', minimum: 1 },
+                expected_path: { type: 'array', minItems: 2, items: { type: 'string', minLength: 1 } },
+                response_points: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    required: ['point_id', 'source_text', 'target_title', 'source_order', 'expected_path'],
+                    additionalProperties: false,
+                    properties: {
+                      point_id: { type: 'string', pattern: '^R[1-9]\\d*-C[1-9]\\d*-P[1-9]\\d*$' },
+                      source_text: { type: 'string', minLength: 1 },
+                      target_title: { type: 'string', minLength: 1 },
+                      source_order: { type: 'integer', minimum: 1 },
+                      expected_path: { type: 'array', minItems: 3, items: { type: 'string', minLength: 1 } },
+                    },
+                  },
+                },
+                evaluation_dimensions: { type: 'array', items: { type: 'string', minLength: 1 } },
+                supplements: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    required: ['supplement_id', 'title', 'reason', 'supplement_kind', 'parent_source_id', 'source_order'],
+                    additionalProperties: false,
+                    properties: {
+                      supplement_id: { type: 'string', pattern: '^R[1-9]\\d*-C[1-9]\\d*-S[1-9]\\d*$' },
+                      title: { type: 'string', minLength: 1 },
+                      reason: { type: 'string', minLength: 1 },
+                      supplement_kind: { type: 'string', enum: ['overall-introduction', 'other-specific-issues', 'reasonable-suggestion', 'user-approved'] },
+                      parent_source_id: { type: 'string', pattern: '^R[1-9]\\d*-C[1-9]\\d*$' },
+                      source_order: { type: 'integer', minimum: 1 },
+                    },
+                  },
+                },
+              },
+            },
           },
         },
       },
@@ -116,7 +163,7 @@ const SCORE_DIRECTORY_PLAN_SCHEMA = {
           branch_id: { type: 'string', minLength: 1 },
           root_id: { type: 'string', pattern: '^[1-9]\\d*(?:\\.[1-9]\\d*)*$' },
           root_title: { type: 'string', minLength: 1 },
-          score_item_level: { type: 'integer', minimum: 1, maximum: 6 },
+          score_item_level: { type: 'integer', minimum: 1, maximum: MAX_OUTLINE_DEPTH },
           mappings: {
             type: 'array',
             minItems: 1,
@@ -149,6 +196,33 @@ const SCORE_DIRECTORY_PLAN_SCHEMA = {
           branch_id: { type: 'string', minLength: 1 },
           title: { type: 'string', minLength: 1 },
           reason: { type: 'string', minLength: 1 },
+        },
+      },
+    },
+  },
+};
+
+const SCORE_COVERAGE_MAP_SCHEMA = {
+  type: 'object',
+  required: ['version', 'coverage_mode', 'records'],
+  additionalProperties: false,
+  properties: {
+    version: { type: 'integer', const: 1 },
+    coverage_mode: { type: 'string', enum: ['full', 'legacy-structure-only'] },
+    records: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['source_id', 'source_kind', 'source_text', 'node_ids', 'coverage_location', 'user_override', 'supplement_kind'],
+        additionalProperties: false,
+        properties: {
+          source_id: { type: 'string', pattern: '^(?:R[1-9]\\d*(?:-[CPS][1-9]\\d*)?|U[1-9]\\d*)$' },
+          source_kind: { type: 'string', enum: ['requirement', 'criterion', 'response-point', 'professional-supplement', 'user-supplement'] },
+          source_text: { type: 'string', minLength: 1 },
+          node_ids: { type: 'array', uniqueItems: true, items: { type: 'string', minLength: 1 } },
+          coverage_location: { type: 'string', enum: ['title', 'description', 'both', 'none'] },
+          user_override: { type: 'string', enum: ['none', 'renamed', 'partially-removed', 'removed', 'added'] },
+          supplement_kind: { type: 'string', enum: ['none', 'overall-introduction', 'other-specific-issues', 'reasonable-suggestion', 'user-approved', 'user-added'] },
         },
       },
     },
@@ -268,6 +342,13 @@ function deriveTargetLeafCount(options) {
     return Math.ceil(options.minimumWords / sectionWords) + 2;
   }
   return null;
+}
+
+function buildCapacityReference(value) {
+  return {
+    suggested_ai_leaf_count: deriveTargetLeafCount(normalizeWordControlOptions(value)),
+    advisory_only: true,
+  };
 }
 
 // 独立成册时每个技术分支至少保留根节点作为正文叶子；字数允许时再推荐向下展开。
@@ -466,26 +547,106 @@ function buildOutlineReviewContext({ outline, scoreDirectoryPlan, targetLeafCoun
   const items = outline?.outline || [];
   const leafCounts = countLeavesByMode(items);
   const structure = collectOutlineStructure(items);
-  const acceptableMin = targetLeafCount === null ? null : Math.max(1, targetLeafCount - 2);
-  const acceptableMax = targetLeafCount === null ? null : targetLeafCount + 2;
   return {
     leaf_count: {
-      target: targetLeafCount,
+      suggested: targetLeafCount,
+      advisory_only: true,
       current_ai_generate: leafCounts[AI_CONTENT_MODE],
-      acceptable_min: acceptableMin,
-      acceptable_max: acceptableMax,
-      within_acceptable_range: targetLeafCount === null
-        ? true
-        : leafCounts[AI_CONTENT_MODE] >= acceptableMin && leafCounts[AI_CONTENT_MODE] <= acceptableMax,
       by_content_mode: leafCounts,
     },
     structure: {
       ...structure,
-      valid: structure.max_depth <= 6
+      valid: structure.max_depth <= MAX_OUTLINE_DEPTH
         && structure.single_child_nodes.length === 0
         && structure.invalid_leaf_content_modes.length === 0,
     },
     score_mapping: collectScoreMappingCoverage(items, scoreDirectoryPlan),
+  };
+}
+
+function collectScoreSources(scorePlan) {
+  const sources = [];
+  for (const group of scorePlan?.groups || []) {
+    sources.push({ id: group.requirement_id, kind: 'requirement', text: group.source_title, target: group.target_title });
+    for (const criterion of group.criteria || []) {
+      sources.push({ id: criterion.criterion_id, kind: 'criterion', text: criterion.source_text, target: criterion.target_title });
+      for (const point of criterion.response_points || []) {
+        sources.push({ id: point.point_id, kind: 'response-point', text: point.source_text, target: point.target_title });
+      }
+      for (const supplement of criterion.supplements || []) {
+        sources.push({ id: supplement.supplement_id, kind: 'professional-supplement', text: supplement.title, target: supplement.title });
+      }
+    }
+  }
+  return sources;
+}
+
+function flattenOutlineNodes(items, result = new Map()) {
+  for (const item of items || []) {
+    result.set(String(item?.id || ''), item);
+    if (Array.isArray(item?.children)) flattenOutlineNodes(item.children, result);
+  }
+  return result;
+}
+
+function isGenericDescription(value) {
+  const text = String(value || '').replace(/\s+/g, '').trim();
+  if (!text) return true;
+  return /^(?:详细)?(?:介绍|说明|阐述)(?:本节|本章|相关|具体|方案|项目)*(?:内容|情况|要求)[。.]?$/.test(text)
+    || /^(?:根据|按照)招标要求(?:进行)?(?:介绍|说明|阐述)[。.]?$/.test(text);
+}
+
+function validateFinalOutline({ outline, scorePlan, scoreCoverageMap, baseline = null }) {
+  const items = outline?.outline || [];
+  const structure = collectOutlineStructure(items);
+  const nodes = flattenOutlineNodes(items);
+  const mandatoryIssues = [];
+  if (structure.max_depth > MAX_OUTLINE_DEPTH) {
+    mandatoryIssues.push({ code: 'max-depth', message: `目录最多允许 ${MAX_OUTLINE_DEPTH} 级` });
+  }
+  for (const node of structure.single_child_nodes) {
+    const relation = `${node.id}>${nodes.get(node.id)?.children?.[0]?.id || ''}`;
+    if (!baseline?.singleChildRelations?.has?.(relation)) {
+      mandatoryIssues.push({ code: 'single-child', node_id: node.id, message: 'Agent 不得生成只有一个子节点的父目录' });
+    }
+  }
+  for (const node of structure.invalid_leaf_content_modes) {
+    mandatoryIssues.push({ code: 'invalid-content-mode', node_id: node.id, message: '叶子节点内容模式无效' });
+  }
+  for (const [nodeId, node] of nodes) {
+    if (!isGenericDescription(node.description)) continue;
+    const fingerprint = baseline?.nodeFingerprints?.get?.(nodeId);
+    const unchanged = fingerprint
+      && fingerprint.title === node.title
+      && fingerprint.description === node.description;
+    if (!unchanged) mandatoryIssues.push({ code: 'generic-description', node_id: nodeId, message: '目录说明为空或过于空泛' });
+  }
+
+  if (scoreCoverageMap?.coverage_mode === 'full') {
+    const records = Array.isArray(scoreCoverageMap.records) ? scoreCoverageMap.records : [];
+    const recordsBySource = new Map();
+    for (const record of records) {
+      const existing = recordsBySource.get(record.source_id) || [];
+      existing.push(record);
+      recordsBySource.set(record.source_id, existing);
+    }
+    for (const source of collectScoreSources(scorePlan)) {
+      const matching = recordsBySource.get(source.id) || [];
+      if (matching.length !== 1) {
+        mandatoryIssues.push({ code: matching.length ? 'score-source-duplicate' : 'score-source-missing', source_id: source.id, message: '评分来源映射不完整' });
+        continue;
+      }
+      const record = matching[0];
+      if (record.user_override === 'removed') continue;
+      if (!record.node_ids?.length || record.node_ids.some((nodeId) => !nodes.has(nodeId))) {
+        mandatoryIssues.push({ code: 'score-node-missing', source_id: source.id, message: '评分来源对应的目录节点不存在' });
+      }
+    }
+  }
+  return {
+    valid: mandatoryIssues.length === 0,
+    mandatoryIssues,
+    context: buildOutlineReviewContext({ outline, scoreDirectoryPlan: { branches: [] }, targetLeafCount: null }),
   };
 }
 
@@ -1308,8 +1469,12 @@ async function runOutlineGenerationTaskV2({ aiService, agentService, ordinaryAge
 
 module.exports = {
   runOutlineGenerationTaskV2,
+  MAX_OUTLINE_DEPTH,
   OUTLINE_OUTPUT_FILE,
   OUTLINE_JSON_SCHEMA,
+  TECHNICAL_SCORE_GROUPS_SCHEMA,
+  SCORE_DIRECTORY_PLAN_SCHEMA,
+  SCORE_COVERAGE_MAP_SCHEMA,
   buildFinalOutline,
   stripOutlineInternalFields,
   readJson,
@@ -1318,5 +1483,8 @@ module.exports = {
   createScorePlanningPrompt,
   createChildrenPrompt,
   enforceMinimumLeafTarget,
+  buildCapacityReference,
+  buildOutlineReviewContext,
+  validateFinalOutline,
   buildRemoteKnowledgeFile,
 };
