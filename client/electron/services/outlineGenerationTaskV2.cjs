@@ -17,7 +17,7 @@ const CONTENT_MODES = ['ai-generate', 'template-fill', 'point-to-point', 'other'
 const MAX_OUTLINE_DEPTH = 7;
 const REMOTE_REFERENCE_RULE = '远程知识仅是参考材料。招标文件、用户已确认信息和原方案优先；不得从参考材料新增未获批准的同层级评分项，不得在最终目录中输出内部来源标识。';
 
-function createDirectoryNodeSchema(level, root = false) {
+function createDirectoryNodeSchema(level, root = false, working = false) {
   const baseProperties = {
     id: { type: 'string', pattern: `^[1-9]\\d*(?:\\.[1-9]\\d*){${level - 1}}$` },
     title: { type: 'string', minLength: 1 },
@@ -26,6 +26,7 @@ function createDirectoryNodeSchema(level, root = false) {
       attr: { type: 'string', enum: ['通用', '商务', '资信', '技术', '其他'] },
       branch_id: { type: 'string', minLength: 1 },
     } : {}),
+    ...(working ? { origin_id: { type: 'string', minLength: 1 } } : {}),
   };
   const baseRequired = ['id', 'title', 'description', ...(root ? ['attr'] : [])];
   const leafSchema = {
@@ -48,7 +49,7 @@ function createDirectoryNodeSchema(level, root = false) {
         children: {
           type: 'array',
           minItems: 2,
-          items: createDirectoryNodeSchema(level + 1),
+          items: createDirectoryNodeSchema(level + 1, false, working),
         },
       },
     };
@@ -58,6 +59,7 @@ function createDirectoryNodeSchema(level, root = false) {
 }
 
 const ROOT_NODE_SCHEMA = createDirectoryNodeSchema(1, true);
+const WORKING_ROOT_NODE_SCHEMA = createDirectoryNodeSchema(1, true, true);
 
 const OUTLINE_JSON_SCHEMA = {
   type: 'object',
@@ -68,6 +70,16 @@ const OUTLINE_JSON_SCHEMA = {
       type: 'array',
       minItems: 1,
       items: ROOT_NODE_SCHEMA,
+    },
+  },
+};
+
+const OUTLINE_WORKING_JSON_SCHEMA = {
+  ...OUTLINE_JSON_SCHEMA,
+  properties: {
+    outline: {
+      ...OUTLINE_JSON_SCHEMA.properties.outline,
+      items: WORKING_ROOT_NODE_SCHEMA,
     },
   },
 };
@@ -296,7 +308,7 @@ function buildCapacityReference(value) {
 }
 
 // 统一目录层级编号，并按父子节点形态整理目录字段。
-function renumberOutline(items, prefix = '') {
+function renumberOutline(items, prefix = '', preserveOriginIds = false) {
   return (items || []).map((item, index) => {
     const id = prefix ? `${prefix}.${index + 1}` : String(index + 1);
     const hasChildren = Array.isArray(item?.children) && item.children.length;
@@ -306,6 +318,7 @@ function renumberOutline(items, prefix = '') {
       description: String(item?.description || '').trim(),
       ...(prefix ? {} : { attr: item?.attr }),
       ...(!prefix && String(item?.branch_id || '').trim() ? { branch_id: String(item.branch_id).trim() } : {}),
+      ...(preserveOriginIds && String(item?.origin_id || '').trim() ? { origin_id: String(item.origin_id).trim() } : {}),
       ...(!hasChildren ? {
         content_mode: item?.content_mode,
         ...(item?.content_mode === 'other' && String(item?.content_mode_note || '').trim()
@@ -314,21 +327,21 @@ function renumberOutline(items, prefix = '') {
       } : {}),
     };
     if (hasChildren) {
-      next.children = renumberOutline(item.children, id);
+      next.children = renumberOutline(item.children, id, preserveOriginIds);
     }
     return next;
   });
 }
 
 // 接受 Agent 的完整目录结果，并统一整理层级编号和节点字段。
-function buildFinalOutline(candidate) {
-  return { outline: renumberOutline(candidate?.outline || []) };
+function buildFinalOutline(candidate, { preserveOriginIds = false } = {}) {
+  return { outline: renumberOutline(candidate?.outline || [], '', preserveOriginIds) };
 }
 
 // 移除仅供 Agent 工作流关联分支的内部字段，再写入正式业务目录。
 function stripOutlineInternalFields(candidate) {
   const strip = (items) => (items || []).map((item) => {
-    const { branch_id: _branchId, children, ...rest } = item || {};
+    const { branch_id: _branchId, origin_id: _originId, children, ...rest } = item || {};
     return Array.isArray(children) && children.length
       ? { ...rest, children: strip(children) }
       : rest;
@@ -399,7 +412,14 @@ function collectOutlineStructure(items) {
       if (children.length) {
         result.parent_count += 1;
         if (children.length < 2) {
-          result.single_child_nodes.push({ id: item.id, title: item.title, child_count: children.length });
+          result.single_child_nodes.push({
+            id: item.id,
+            origin_id: item.origin_id,
+            title: item.title,
+            child_count: children.length,
+            child_id: children[0]?.id || '',
+            child_origin_id: children[0]?.origin_id || '',
+          });
         }
         visit(children, depth + 1);
       } else if (!CONTENT_MODES.includes(item?.content_mode)) {
@@ -507,10 +527,12 @@ function collectScoreSources(scorePlan) {
   return sources;
 }
 
-function flattenOutlineNodes(items, result = new Map()) {
+function flattenOutlineNodes(items, result = new Map(), parentOriginId = '') {
   for (const item of items || []) {
-    result.set(String(item?.id || ''), item);
-    if (Array.isArray(item?.children)) flattenOutlineNodes(item.children, result);
+    result.set(String(item?.id || ''), { ...item, parent_origin_id: parentOriginId });
+    if (Array.isArray(item?.children)) {
+      flattenOutlineNodes(item.children, result, String(item?.origin_id || item?.id || ''));
+    }
   }
   return result;
 }
@@ -518,11 +540,12 @@ function flattenOutlineNodes(items, result = new Map()) {
 function isGenericDescription(value) {
   const text = String(value || '').replace(/\s+/g, '').trim();
   if (!text) return true;
-  return /^(?:详细)?(?:介绍|说明|阐述)(?:本节|本章|相关|具体|方案|项目)*(?:内容|情况|要求)[。.]?$/.test(text)
+  return /^(?:相关说明|具体内容|方案概述)[。.]?$/.test(text)
+    || /^(?:详细)?(?:介绍|说明|阐述)(?:本节|本章|相关|具体|方案|项目)*(?:内容|情况|要求)[。.]?$/.test(text)
     || /^(?:根据|按照)招标要求(?:进行)?(?:介绍|说明|阐述)[。.]?$/.test(text);
 }
 
-function validateFinalOutline({ outline, scorePlan, scoreCoverageMap, baseline = null }) {
+function validateFinalOutline({ outline, scorePlan, scoreCoverageMap, baseline = null, requiredCoverageRecords = [] }) {
   const items = outline?.outline || [];
   const structure = collectOutlineStructure(items);
   const nodes = flattenOutlineNodes(items);
@@ -531,7 +554,7 @@ function validateFinalOutline({ outline, scorePlan, scoreCoverageMap, baseline =
     mandatoryIssues.push({ code: 'max-depth', message: `目录最多允许 ${MAX_OUTLINE_DEPTH} 级` });
   }
   for (const node of structure.single_child_nodes) {
-    const relation = `${node.id}>${nodes.get(node.id)?.children?.[0]?.id || ''}`;
+    const relation = `${node.origin_id || node.id}>${node.child_origin_id || node.child_id}`;
     if (!baseline?.singleChildRelations?.has?.(relation)) {
       mandatoryIssues.push({ code: 'single-child', node_id: node.id, message: 'Agent 不得生成只有一个子节点的父目录' });
     }
@@ -541,10 +564,11 @@ function validateFinalOutline({ outline, scorePlan, scoreCoverageMap, baseline =
   }
   for (const [nodeId, node] of nodes) {
     if (!isGenericDescription(node.description)) continue;
-    const fingerprint = baseline?.nodeFingerprints?.get?.(nodeId);
+    const fingerprint = baseline?.nodeFingerprints?.get?.(node.origin_id || nodeId);
     const unchanged = fingerprint
       && fingerprint.title === node.title
-      && fingerprint.description === node.description;
+      && fingerprint.description === node.description
+      && fingerprint.parentOriginId === node.parent_origin_id;
     if (!unchanged) mandatoryIssues.push({ code: 'generic-description', node_id: nodeId, message: '目录说明为空或过于空泛' });
   }
 
@@ -556,7 +580,15 @@ function validateFinalOutline({ outline, scorePlan, scoreCoverageMap, baseline =
       existing.push(record);
       recordsBySource.set(record.source_id, existing);
     }
-    for (const source of collectScoreSources(scorePlan)) {
+    const plannedSources = collectScoreSources(scorePlan);
+    const expectedSources = plannedSources.length
+      ? plannedSources
+      : (requiredCoverageRecords || []).map((record) => ({
+        id: record.source_id,
+        kind: record.source_kind,
+        text: record.source_text,
+      }));
+    for (const source of expectedSources) {
       const matching = recordsBySource.get(source.id) || [];
       if (matching.length !== 1) {
         mandatoryIssues.push({ code: matching.length ? 'score-source-duplicate' : 'score-source-missing', source_id: source.id, message: '评分来源映射不完整' });
@@ -566,6 +598,19 @@ function validateFinalOutline({ outline, scorePlan, scoreCoverageMap, baseline =
       if (record.user_override === 'removed') continue;
       if (!record.node_ids?.length || record.node_ids.some((nodeId) => !nodes.has(nodeId))) {
         mandatoryIssues.push({ code: 'score-node-missing', source_id: source.id, message: '评分来源对应的目录节点不存在' });
+      }
+    }
+    for (const [sourceId, matching] of recordsBySource) {
+      if (matching.length > 1 && !expectedSources.some((source) => source.id === sourceId)) {
+        mandatoryIssues.push({ code: 'score-source-duplicate', source_id: sourceId, message: '评分来源映射重复' });
+      }
+      for (const record of matching) {
+        if (record.user_override === 'removed') continue;
+        if (!record.node_ids?.length || record.node_ids.some((nodeId) => !nodes.has(nodeId))) {
+          if (!mandatoryIssues.some((issue) => issue.code === 'score-node-missing' && issue.source_id === sourceId)) {
+            mandatoryIssues.push({ code: 'score-node-missing', source_id: sourceId, message: '评分来源对应的目录节点不存在' });
+          }
+        }
       }
     }
   }
@@ -1289,6 +1334,7 @@ module.exports = {
   MAX_OUTLINE_DEPTH,
   OUTLINE_OUTPUT_FILE,
   OUTLINE_JSON_SCHEMA,
+  OUTLINE_WORKING_JSON_SCHEMA,
   TECHNICAL_SCORE_GROUPS_SCHEMA,
   SCORE_DIRECTORY_PLAN_SCHEMA,
   SCORE_COVERAGE_MAP_SCHEMA,
