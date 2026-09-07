@@ -16,6 +16,62 @@ const {
   runOutlineGenerationTaskV2,
 } = require('./outlineGenerationTaskV2.cjs');
 
+async function completeScoreDrivenAgentRun(input, root) {
+  const finalRoot = { ...root, branch_id: 'B1' };
+  const outline = { outline: [finalRoot] };
+  const scorePlan = {
+    version: 2,
+    groups: [{
+      requirement_id: 'R1',
+      source_title: root.title,
+      target_title: root.title,
+      source_order: 1,
+      expected_path: ['R1'],
+      criteria: [],
+    }],
+  };
+  const directoryPlan = {
+    allow_root_changes: false,
+    branches: [{
+      branch_id: 'B1',
+      root_id: root.id,
+      root_title: root.title,
+      score_item_level: 1,
+      mappings: [{ requirement_id: 'R1', target_title: root.title }],
+    }],
+    extra_titles: [],
+  };
+  const coverageMap = {
+    version: 1,
+    coverage_mode: 'full',
+    records: [{
+      source_id: 'R1',
+      source_kind: 'requirement',
+      source_text: root.title,
+      node_ids: [root.id],
+      coverage_location: 'title',
+      user_override: 'none',
+      supplement_kind: 'none',
+    }],
+  };
+  const files = new Map([
+    ['technical-score-groups.json', JSON.stringify(scorePlan)],
+    ['score-directory-plan.json', JSON.stringify(directoryPlan)],
+    ['score-coverage-map.json', JSON.stringify(coverageMap)],
+    ['outline-review.json', JSON.stringify({ status: 'passed', issues: [], user_feedback: '', summary: '审核通过' })],
+  ]);
+  const meta = (workflowStage) => ({
+    workflow_stage: workflowStage,
+    user_question_answers: [],
+    readFile: async (name) => files.get(name),
+    writeFiles: async (entries) => entries.forEach((entry) => files.set(entry.path, entry.content)),
+  });
+  await input.continueTask({ output_content: JSON.stringify(outline) }, meta('score-planning'));
+  await input.continueTask({ output_content: JSON.stringify(outline) }, meta('children_generation'));
+  await input.continueTask({ output_content: JSON.stringify(outline) }, meta('outline_review'));
+  return { output_content: JSON.stringify(outline) };
+}
+
 test('独立成册模式直接以技术评分大项作为一级目录', () => {
   const prompt = createInitialPrompt('按响应文件要求生成。', { standaloneTechnical: true });
 
@@ -44,6 +100,34 @@ test('独立成册生成子目录时不重复评分项根标题', () => {
   assert.match(prompt, /现有一级根节点本身就是评分项映射节点/);
   assert.match(prompt, /不得在根节点下面再次生成同名评分项/);
   assert.doesNotMatch(prompt, /"title":"技术方案"/);
+});
+
+test('子目录生成以评分原文为第一结构依据且字数仅作参考', () => {
+  const prompt = createChildrenPrompt({
+    hasOriginalPlan: false,
+    originalOnly: false,
+    targetLeafCount: 10,
+    allowRootChanges: false,
+    standaloneTechnical: false,
+  });
+
+  assert.match(prompt, /字数推算值仅作为正文容量参考/);
+  assert.match(prompt, /不得为了接近建议数量而合并、删除、拆分或补齐目录/);
+  assert.match(prompt, /项目实施过程中/);
+  assert.match(prompt, /总体架构设计/);
+  assert.match(prompt, /最多七级/);
+  assert.doesNotMatch(prompt, /leaf-allocation\.json/);
+});
+
+test('评分规划保留每条评分行、响应点和原文限定词', () => {
+  const prompt = createScorePlanningPrompt({ standaloneTechnical: false });
+
+  assert.match(prompt, /version.*2/s);
+  assert.match(prompt, /每条独立评分行/);
+  assert.match(prompt, /response_points/);
+  assert.match(prompt, /evaluation_dimensions/);
+  assert.match(prompt, /不得删除“项目实施过程中”/);
+  assert.match(prompt, /只允许删除.*评分外壳/s);
 });
 
 test('字数推算仅生成容量参考且不强制匹配叶子数量', () => {
@@ -140,15 +224,12 @@ test('original-only 真实目录任务不调用远程检索，也不注入远程
     readOriginalPlanMarkdown: () => '# 原方案目录',
     hasBidTemplate: () => false,
   };
-  const root = { id: '1', title: '原方案一级', attr: '技术' };
-  const runsOutput = [
-    { outline: [root] },
-    { outline: [{ ...root, content_mode: 'ai-generate' }] },
-  ];
+  const root = { id: '1', title: '原方案一级', description: '原方案一级的具体编写范围', attr: '技术', content_mode: 'ai-generate' };
   const agentService = {
     runTask: async (input) => {
       runs.push(input);
-      return { output_content: JSON.stringify(runsOutput.shift()) };
+      if (runs.length === 1) return { output_content: JSON.stringify({ outline: [root] }) };
+      return completeScoreDrivenAgentRun(input, root);
     },
     updatePersistentTask() {},
   };
@@ -196,15 +277,12 @@ test('非 original-only 真实目录任务按 outline 阶段检索并注入远�
     loadTechnicalPlan: () => storedPlan,
     hasBidTemplate: () => false,
   };
-  const root = { id: '1', title: '平台总体设计', attr: '技术' };
-  const outputs = [
-    { outline: [root] },
-    { outline: [{ ...root, content_mode: 'ai-generate' }] },
-  ];
+  const root = { id: '1', title: '平台总体设计', description: '平台总体设计的具体技术响应范围', attr: '技术', content_mode: 'ai-generate' };
   const agentService = {
     runTask: async (input) => {
       runs.push(input);
-      return { output_content: JSON.stringify(outputs.shift()) };
+      if (runs.length === 1) return { output_content: JSON.stringify({ outline: [root] }) };
+      return completeScoreDrivenAgentRun(input, root);
     },
     updatePersistentTask() {},
   };
@@ -258,4 +336,114 @@ test('非 original-only 真实目录任务按 outline 阶段检索并注入远�
   assert.match(planningPrompt, /技术要求末尾/);
   assert.equal(runs.length, 2);
   assert.ok(runs[1].files.some((file) => file.path === '远程知识参考.md'));
+});
+
+test('Agent 最终审核后产生强制问题时不持久化目录或成功状态', async () => {
+  const checkpointCalls = [];
+  const root = {
+    id: '1',
+    title: '项目总体方案',
+    description: '响应项目总体方案评分要求',
+    attr: '技术',
+    content_mode: 'ai-generate',
+  };
+  const validOutline = { outline: [{ ...root, branch_id: 'B1' }] };
+  const invalidReviewedOutline = {
+    outline: [{
+      id: '1',
+      title: root.title,
+      description: root.description,
+      attr: '技术',
+      branch_id: 'B1',
+      children: [{ id: '1.1', title: '建设目标', description: '明确项目建设目标', content_mode: 'ai-generate' }],
+    }],
+  };
+  const scorePlan = {
+    version: 2,
+    groups: [{
+      requirement_id: 'R1',
+      source_title: root.title,
+      target_title: root.title,
+      source_order: 1,
+      expected_path: ['R1'],
+      criteria: [],
+    }],
+  };
+  const directoryPlan = {
+    allow_root_changes: false,
+    branches: [{
+      branch_id: 'B1',
+      root_id: '1',
+      root_title: root.title,
+      score_item_level: 1,
+      mappings: [{ requirement_id: 'R1', target_title: root.title }],
+    }],
+    extra_titles: [],
+  };
+  const coverageMap = {
+    version: 1,
+    coverage_mode: 'full',
+    records: [{
+      source_id: 'R1',
+      source_kind: 'requirement',
+      source_text: root.title,
+      node_ids: ['1'],
+      coverage_location: 'title',
+      user_override: 'none',
+      supplement_kind: 'none',
+    }],
+  };
+  let runCount = 0;
+  const files = new Map([
+    ['technical-score-groups.json', JSON.stringify(scorePlan)],
+    ['score-directory-plan.json', JSON.stringify(directoryPlan)],
+    ['score-coverage-map.json', JSON.stringify(coverageMap)],
+    ['outline-review.json', JSON.stringify({ status: 'passed', issues: [], user_feedback: '', summary: '审核完成' })],
+  ]);
+  const meta = (stage) => ({
+    workflow_stage: stage,
+    user_question_answers: [],
+    readFile: async (name) => files.get(name),
+    writeFiles: async (entries) => entries.forEach((entry) => files.set(entry.path, entry.content)),
+  });
+  const agentService = {
+    updatePersistentTask() {},
+    runTask: async (input) => {
+      runCount += 1;
+      if (runCount === 1) return { output_content: JSON.stringify({ outline: [root] }) };
+      const childrenStage = await input.continueTask({ output_content: JSON.stringify(validOutline) }, meta('score-planning'));
+      assert.equal(childrenStage.stage, 'children_generation');
+      const reviewStage = await input.continueTask({ output_content: JSON.stringify(validOutline) }, meta('children_generation'));
+      assert.equal(reviewStage.stage, 'outline_review');
+      await input.continueTask({ output_content: JSON.stringify(invalidReviewedOutline) }, meta('outline_review'));
+      return { output_content: JSON.stringify(invalidReviewedOutline) };
+    },
+  };
+  const checkpointTask = (patch, data) => {
+    checkpointCalls.push({ patch, data });
+    return { task: { task_id: 'outline-final-gate', stats: patch.stats || {}, logs: patch.logs || [], ...patch } };
+  };
+
+  await assert.rejects(() => runOutlineGenerationTaskV2({
+    aiService: {},
+    agentService,
+    ordinaryAgentService: {},
+    workspaceStore: {
+      loadTechnicalPlan: () => ({ outlineMode: 'standalone-technical', techRequirements: '项目总体方案评分要求' }),
+      hasBidTemplate: () => false,
+      clearBidTemplate() {},
+    },
+    knowledgeBaseService: {},
+    knowledgeSession: {},
+    openXmlHelperService: {},
+    updateTask: (patch) => ({ task_id: 'outline-final-gate', stats: patch.stats || {}, logs: patch.logs || [], ...patch }),
+    checkpointTask,
+    taskControl: {
+      signal: new AbortController().signal,
+      waitForOutlineSelection: async () => ({ items: [root], selectedIds: ['1'] }),
+    },
+    payload: {},
+  }), /最终校验/);
+  assert.equal(checkpointCalls.some((call) => call.data?.outlineData), false);
+  assert.equal(checkpointCalls.some((call) => call.patch?.status === 'success'), false);
 });
