@@ -272,7 +272,7 @@
 - `version` 固定为整数 `1`；`coverage_mode` 只能为 `full` 或 `legacy-structure-only`；`records` 为数组。
 - `source_id` 引用评分规划中的稳定 ID；仅用户手工补充节点可使用任务内生成的 `U<n>`。`source_kind` 只能为 `requirement`、`criterion`、`response-point`、`professional-supplement` 或 `user-supplement`。
 - `source_text` 保存对应评分原文；专业补充或用户补充保存其标题。`node_ids` 为当前承接来源的正式目录节点 ID 数组；用户明确删除后允许为空数组。
-- `coverage_location` 只能为 `title`、`description`、`both` 或 `none`。`user_override` 只能为 `none`、`renamed`、`removed` 或 `added`。
+- `coverage_location` 只能为 `title`、`description`、`both` 或 `none`。`user_override` 只能为 `none`、`renamed`、`partially-removed`、`removed` 或 `added`。
 - `supplement_kind` 只能为 `none`、`overall-introduction`、`other-specific-issues`、`reasonable-suggestion`、`user-approved` 或 `user-added`。非补充来源必须为 `none`。
 - `coverage_mode=full` 时，评分规划中的每个评分大项、评分行、响应点和专业补充均须有且仅有一条记录；同一正式节点可承接多个来源。`coverage_mode=legacy-structure-only` 时 `records` 可为空，且不得声称已完成评分覆盖检查。
 
@@ -280,11 +280,11 @@
 
 - `sort`：使用同一份 `idMap` 重映射 `node_ids`，不改变来源关系。
 - `edit`：保留节点与来源关系，并记录 `user_override=renamed`；后续 AI 调整保护用户当前标题，不自动恢复旧标题。
-- `delete`：将受影响来源记录为 `user_override=removed`、`node_ids=[]`、`coverage_location=none`，不再把用户明确删除的节点当作未授权遗漏。
+- `delete`：只从受影响记录的 `node_ids` 中移除实际被删除的节点 ID。仍有其他承接节点时保留这些 ID，写入 `user_override=partially-removed`，并按剩余节点重新计算 `coverage_location`；覆盖检查继续验证剩余节点。只有全部承接节点都被删除时才写入 `user_override=removed`、`node_ids=[]`、`coverage_location=none`，并把它视为用户授权缺失。
 - `add-root`、`add-child`：为新增节点创建 `U<n>` 记录，使用 `source_kind=user-supplement`、`user_override=added`、`supplement_kind=user-added`；其他来源关系随 `idMap` 重映射。
 - `replace`：目录生成或 AI 调整必须随新目录提交完整的新映射；没有新映射时不得沿用可能失真的旧映射。
 
-因此手工编辑仍然是用户的权威决定。确定性覆盖检查保护 Agent 生成和 AI 调整不擅自丢失评分要求，但不会撤销用户已经明确完成的改名或删除。`coverage_mode=full` 的完整性检查仍要求保留 `user_override=removed` 的记录，但该记录视为用户授权缺失，不再要求非空 `node_ids` 或文字覆盖。
+因此手工编辑仍然是用户的权威决定。确定性覆盖检查保护 Agent 生成和 AI 调整不擅自丢失评分要求，但不会撤销用户已经明确完成的改名或删除。`coverage_mode=full` 的完整性检查仍要求保留 `user_override=removed` 的记录，但该记录视为用户授权缺失，不再要求非空 `node_ids` 或文字覆盖；`partially-removed` 记录仍须由剩余节点满足覆盖检查。
 
 ## 生成流程
 
@@ -374,15 +374,16 @@ Agent 使用宿主程序检查结果和评分原文，补充语义审核：
 
 目录生成后的 AI 调整复用同一持久 Agent 工作区。调整前覆盖写入用户当前最新目录，但继续读取结构化评分规划和评分原文。
 
-开始调整前，宿主为当前目录工作副本中的每个节点附加任务内稳定的 `origin_id`，并记录所有既有单子节点父子关系。`origin_id` 只用于调整前后比较，落库前移除，不写入正式 `outlineData`。
+开始调整前，宿主为当前目录工作副本中的每个节点附加任务内稳定的 `origin_id`，并记录所有既有单子节点父子关系，以及每个节点的标题、description 和父节点 `origin_id` 指纹。`origin_id` 和指纹只用于调整前后比较，落库前移除，不写入正式 `outlineData`。
 
 调整要求：
 
 - 与用户要求无关的目录保持不变。
 - 不得删除、合并或改写评分来源节点，除非用户明确要求且确认影响。
-- `coverage_mode=full` 时，调整后重新生成完整 `score_coverage_map`，再执行评分覆盖、七级上限、内容模式和 description 质量检查。
+- `coverage_mode=full` 时，调整后重新生成完整 `score_coverage_map`，并从调整前映射继承未被本次用户指令改变的 `renamed`、`partially-removed`、`removed`、`added` 状态，不得把手工覆盖重置为 `none`；随后执行评分覆盖、七级上限、内容模式和 description 质量检查。
 - 父节点数量使用基线比较门禁：调整前已有且父、子 `origin_id` 关系未改变的手工单子节点允许继续存在；Agent 新增的单子节点，或把原有正常分支改成单子节点，均不允许落库。Agent 可按用户明确要求为既有单子节点增加第二个自然子节点。
 - `coverage_mode=legacy-structure-only` 时不伪造评分来源映射，只执行 JSON Schema、七级上限、内容模式、基线比较后的单子节点和 description 质量检查，并在任务结果中标明“旧目录仅完成结构检查，重新生成目录后可启用评分覆盖保护”。
+- description 使用相同的基线比较原则：调整前已存在且标题、description、父节点关系均未变化的节点，即使其手工 description 不满足 Agent 语义质量标准，也不阻止无关调整；所有新增节点，以及标题、description 或父节点关系被 Agent 改动的节点，必须通过 description 质量检查。
 - 落库前执行对应模式的宿主门禁；门禁失败时不覆盖调整前目录。
 - 新增节点继续遵守适度拆解和受控补充规则。
 
@@ -413,6 +414,7 @@ Word 导出当前只配置六套标题样式。内部新增 `Heading7` 样式，
 - 七级上限同时约束 Agent 输出和用户手工新增目录。用户选中七级节点时禁用“添加子目录”，Renderer 在提交用户输入前校验深度；Main 继续信任已经通过 Renderer 的内部 IPC 数据。
 - “父节点至少两个子节点”和自动生成 description 的质量门禁只约束 Agent 生成及 AI 调整结果。手工添加第一个子节点时允许暂时或永久形成单子节点，系统不自动补齐、不阻止保存，也不撤销用户决定。
 - 后续 AI 调整把调整前已经存在的手工单子节点作为允许基线；只要该父子 `origin_id` 关系未被 Agent 改变，就不因它阻止其他位置的调整。该豁免不允许 Agent 创建新的单子节点。
+- 用户手工留下的既有 description 质量问题同样作为允许基线；AI 调整只在对应节点的标题、description 或父节点关系未改变时豁免，不能借此保存 Agent 新增或改坏的空泛说明。
 - 用户手工填写的标题和 description 仍要求非空，但不使用 Agent 的语义质量门禁阻止保存。
 
 ## 前端行为
@@ -534,7 +536,7 @@ Word 导出当前只配置六套标题样式。内部新增 `Heading7` 样式，
 - 新增 `client/electron/services/contentIllustrationPlanning.outlineDepth.test.cjs`
 - 新增 `client/electron/services/duplicateCheckService.outlineDepth.test.cjs`
 
-目录任务测试必须覆盖 Agent 审核前后两次宿主校验、强制校验失败不落库、用户拒绝可选优化仍可落库、用户取消强制修复不落库。Store 测试必须覆盖 `sort`、`edit`、`delete`、`add-*` 和 `replace` 五类 `saveOutline` 协议对来源映射的处理。AI 调整测试必须覆盖既有手工单子节点不阻止无关调整、Agent 新增单子节点仍被拒绝，以及旧目录 `legacy-structure-only` 模式不伪造评分覆盖映射。
+目录任务测试必须覆盖 Agent 审核前后两次宿主校验、强制校验失败不落库、用户拒绝可选优化仍可落库、用户取消强制修复不落库。Store 测试必须覆盖 `sort`、`edit`、`delete`、`add-*` 和 `replace` 五类 `saveOutline` 协议对来源映射的处理，其中删除测试同时覆盖单来源多节点的部分删除和全部删除。AI 调整测试必须覆盖既有手工单子节点及既有手工空泛 description 不阻止无关调整、Agent 新增相同问题仍被拒绝，以及旧目录 `legacy-structure-only` 模式不伪造评分覆盖映射。
 
 ## 验收标准
 
@@ -553,5 +555,7 @@ Word 导出当前只配置六套标题样式。内部新增 `Heading7` 样式，
 13. 目录 AI 调整后仍通过评分覆盖和七级结构检查；失败时保留调整前目录。
 14. 用户不能在七级节点下手工增加子目录；手工单子节点允许保存且不会被自动补齐。
 15. 既有手工单子节点不阻止其他位置的 AI 调整；Agent 不能新增单子节点或制造新的单子节点关系。
-16. 旧目录 AI 调整使用 `legacy-structure-only`，明确提示未做评分覆盖保护且不生成虚假来源映射。
-17. `node --check`、定向 Node 测试和 `npm run build` 通过。
+16. 单个来源由多个节点承接时，手工删除一个节点只移除对应映射；剩余节点仍接受覆盖检查，全部删除后才记为用户授权缺失。
+17. 既有手工空泛 description 不阻止无关位置的 AI 调整；Agent 新增或修改过的节点仍须通过 description 质量检查。
+18. 旧目录 AI 调整使用 `legacy-structure-only`，明确提示未做评分覆盖保护且不生成虚假来源映射。
+19. `node --check`、定向 Node 测试和 `npm run build` 通过。
