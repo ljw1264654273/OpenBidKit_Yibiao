@@ -1221,6 +1221,11 @@ function inferOutlineLevel(number) {
   return 1;
 }
 
+function resolveMarkdownHeadingLevel(hashLevel, markerLevel) {
+  const level = Math.max(1, Math.min(Number(hashLevel) || 1, 6));
+  return level === 6 && Number(markerLevel) >= 7 ? 7 : level;
+}
+
 function isCatalogTitleLine(line) {
   return /^(?:#{1,6}\s*)?(目录|目次|contents)$/i.test(String(line || '').replace(/\s+/g, ''));
 }
@@ -1264,7 +1269,13 @@ function extractHeadingOutline(markdown) {
     const title = cleanOutlineTitle(match[2]);
     if (!title || isCatalogTitleLine(title)) continue;
     const marker = parseOutlineMarker(title);
-    items.push({ number: marker?.number, title: marker?.title || title, level: Math.min(match[1].length, 6), source: 'heading', confidence: 0.82 });
+    items.push({
+      number: marker?.number,
+      title: marker?.title || title,
+      level: resolveMarkdownHeadingLevel(match[1].length, marker?.level),
+      source: 'heading',
+      confidence: 0.82,
+    });
   }
   return items;
 }
@@ -1290,7 +1301,7 @@ function buildOutlineItems(markdown, tenderSentences = []) {
   const items = [];
   const seen = new Set();
   for (const candidate of selected) {
-    let level = Math.max(1, Math.min(Number(candidate.level) || 1, 6));
+    let level = Math.max(1, Math.min(Number(candidate.level) || 1, 7));
     if (level > stack.length + 1) level = stack.length + 1;
     const title = cleanOutlineTitle(candidate.title);
     const normalized = normalizeOutlineTitle(title);
@@ -2020,7 +2031,12 @@ function parseImageContextHeading(line) {
   const hashMatch = String(line || '').match(/^\s{0,3}(#{1,6})\s+(.+)$/);
   if (hashMatch) {
     const title = cleanOutlineTitle(hashMatch[2]);
-    return title ? { level: Math.min(hashMatch[1].length, 6), title } : null;
+    if (!title) return null;
+    const marker = parseOutlineMarker(title);
+    return {
+      level: resolveMarkdownHeadingLevel(hashMatch[1].length, marker?.level),
+      title: marker?.title || title,
+    };
   }
 
   const text = cleanOutlineTitle(line);
@@ -2867,4 +2883,8 @@ function createDuplicateCheckService({ app, configStore, workspaceStore } = {}) 
   };
 }
 
-module.exports = { createDuplicateCheckService };
+module.exports = {
+  createDuplicateCheckService,
+  buildOutlineItems,
+  parseImageContextHeading,
+};

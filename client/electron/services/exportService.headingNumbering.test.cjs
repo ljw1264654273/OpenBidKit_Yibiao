@@ -62,6 +62,25 @@ function createPayload(headingBorderEnabled = false, minHeadingLeftEnabled = fal
   };
 }
 
+function createSevenLevelPayload(levelSixHeading) {
+  const payload = createPayload();
+  payload.export_format.headings[5] = levelSixHeading;
+  let current = {
+    id: '1.1.1.1.1.1.1',
+    title: '七级目录',
+    content: '第七级正文。',
+  };
+  for (let level = 6; level >= 1; level -= 1) {
+    current = {
+      id: Array(level).fill('1').join('.'),
+      title: `${level}级目录`,
+      children: [current],
+    };
+  }
+  payload.outline = [current];
+  return payload;
+}
+
 test('Word export uses template-driven native multilevel numbering for headings', async () => {
   const buffer = await buildDocxBuffer(createPayload());
   const documentXml = readDocxXml(buffer, 'word/document.xml');
@@ -233,3 +252,23 @@ test('a hidden chapter-frame leaf template does not disable native numbering for
   assert.match(parent, /<w:numPr>[\s\S]*<w:ilvl w:val="0"\/>/);
   assert.doesNotMatch(leaf, /<w:numPr>/);
 });
+
+for (const levelSixHeading of [
+  { numbering_format: 'custom', numbering_template: '{full}', font: '微软雅黑', size: '四号', text_color: '#123456' },
+  { numbering_format: 'custom', numbering_template: '{tail}', font: '微软雅黑', size: '四号', text_color: '#123456' },
+  { numbering_format: 'custom', numbering_template: '{num}', font: '微软雅黑', size: '四号', text_color: '#123456' },
+  { numbering_format: 'outline-decimal', numbering_template: '', font: '微软雅黑', size: '四号', text_color: '#123456' },
+]) {
+  test(`level seven uses an explicit full ID with level-six ${levelSixHeading.numbering_format}:${levelSixHeading.numbering_template}`, async () => {
+    const buffer = await buildDocxBuffer(createSevenLevelPayload(levelSixHeading));
+    const documentXml = readDocxXml(buffer, 'word/document.xml');
+    const stylesXml = readDocxXml(buffer, 'word/styles.xml');
+    const paragraph = paragraphContaining(documentXml, '1.1.1.1.1.1.1 七级目录');
+    const heading7Style = stylesXml.match(/<w:style w:type="paragraph" w:styleId="Heading7">[\s\S]*?<\/w:style>/)?.[0] || '';
+
+    assert.match(paragraph, /<w:pStyle w:val="Heading7"\/>/);
+    assert.doesNotMatch(paragraph, /<w:numPr>/);
+    assert.match(heading7Style, /<w:rFonts[^>]*w:ascii="微软雅黑"[^>]*w:eastAsia="微软雅黑"/);
+    assert.match(heading7Style, /<w:sz w:val="28"\/>/);
+  });
+}

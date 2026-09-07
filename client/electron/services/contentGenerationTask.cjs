@@ -1504,6 +1504,27 @@ function escapeSectionAttribute(value) {
     .replace(/>/g, '&gt;');
 }
 
+function renderAgentTechnicalPlanOutline(items, sectionIndex, level = 1, lines = []) {
+  for (const item of items || []) {
+    const id = String(item?.id || '').trim();
+    const title = singleLine(item?.title || '未命名章节');
+    const headingLevel = Math.min(level + 1, 6);
+    lines.push(`${'#'.repeat(headingLevel)} ${id ? `${id} ` : ''}${title}`.trim());
+
+    if (item?.children?.length) {
+      renderAgentTechnicalPlanOutline(item.children, sectionIndex, level + 1, lines);
+      continue;
+    }
+
+    const section = sectionIndex.get(id);
+    if (!section) continue;
+    lines.push(`<!-- yibiao-section-start id="${escapeSectionAttribute(id)}" title="${escapeSectionAttribute(title)}" -->`);
+    lines.push(section.originalContent);
+    lines.push(`<!-- yibiao-section-end id="${escapeSectionAttribute(id)}" -->`);
+  }
+  return lines;
+}
+
 function parseAgentSectionMarkdown(markdown) {
   const sections = new Map();
   const lines = normalizeNewlines(markdown).split('\n');
@@ -5560,29 +5581,6 @@ workspace 文件说明：
     return index;
   }
 
-  function renderAgentTechnicalPlanOutline(items, sectionIndex, level = 1, lines = []) {
-    for (const item of items || []) {
-      const id = String(item?.id || '').trim();
-      const title = singleLine(item?.title || '未命名章节');
-      const headingLevel = Math.min(level + 1, 6);
-      lines.push(`${'#'.repeat(headingLevel)} ${id ? `${id} ` : ''}${title}`.trim());
-
-      if (item?.children?.length) {
-        renderAgentTechnicalPlanOutline(item.children, sectionIndex, level + 1, lines);
-        continue;
-      }
-
-      const section = sectionIndex.get(id);
-      if (!section) {
-        continue;
-      }
-      lines.push(`<!-- yibiao-section-start id="${escapeSectionAttribute(id)}" title="${escapeSectionAttribute(title)}" -->`);
-      lines.push(section.originalContent);
-      lines.push(`<!-- yibiao-section-end id="${escapeSectionAttribute(id)}" -->`);
-    }
-    return lines;
-  }
-
   function buildAgentTechnicalPlanMarkdown(sectionIndex) {
     const lines = ['# 技术方案正文', ''];
     renderAgentTechnicalPlanOutline(outlineData.outline || [], sectionIndex, 1, lines);
@@ -6933,5 +6931,6 @@ module.exports = {
   resolveRemoteKnowledgeContents,
   shouldRetainContentGenerationRuntime,
   buildChapterContentMessages,
+  renderAgentTechnicalPlanOutline,
   __developerContentExpansionPatchRuntime,
 };
