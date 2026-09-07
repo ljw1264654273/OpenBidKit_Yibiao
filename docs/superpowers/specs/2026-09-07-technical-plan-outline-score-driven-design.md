@@ -183,7 +183,7 @@
 - 允许的专业补充项及理由。
 - 每个评分行和响应内容实体对应的预期目录路径或稳定内部标识。
 
-推荐逻辑结构如下，具体字段名在实施计划中确定：
+评分规划中间文件固定使用以下逻辑结构和字段名；实现可增加不改变语义的辅助字段，但覆盖检查不得依赖未在此定义的自由文本字段：
 
 ```json
 {
@@ -206,7 +206,27 @@
 }
 ```
 
-正式目录节点仍只保存现有业务字段。评分来源、内部标识和覆盖关系保留在 Agent 任务工作区，不写入最终 `outlineData`。
+正式目录节点仍只保存现有业务字段。评分来源、内部标识和覆盖关系不写入最终 `outlineData`，但不能只存在于 Agent 临时文件中。
+
+目录生成成功时，同时把一份精简的 `score_coverage_map` 写入现有 `outlineGenerationTask.stats` JSON。该映射至少包含：
+
+- `version`：映射协议版本。
+- `source_id`：评分大项、评分行或明确响应内容的稳定来源标识。
+- `source_text`：用于覆盖检查的评分原文。
+- `node_ids`：当前承接该要求的一个或多个正式目录节点 ID。
+- `coverage_location`：要求由节点标题、节点 description 或两者共同承接。
+- `user_override`：用户是否通过手工编辑明确改名、删除或改变承接方式。
+- `supplement_kind`：节点是否属于总体介绍、合理化建议等受控专业补充。
+
+`score_coverage_map` 使用现有任务状态 JSON 持久化，不新增数据库列。`technicalPlanStore.saveOutline()` 按现有 `reason` 协议同步维护映射：
+
+- `sort`：使用同一份 `idMap` 重映射 `node_ids`，不改变来源关系。
+- `edit`：保留节点与来源关系，并记录 `user_override=renamed`；后续 AI 调整保护用户当前标题，不自动恢复旧标题。
+- `delete`：将受影响来源记录为 `user_override=removed`，不再把用户明确删除的节点当作未授权遗漏。
+- `add-root`、`add-child`：新增节点默认没有评分来源，可按内容标记为用户补充节点；其他来源关系随 `idMap` 重映射。
+- `replace`：目录生成或 AI 调整必须随新目录提交完整的新映射；没有新映射时不得沿用可能失真的旧映射。
+
+因此手工编辑仍然是用户的权威决定。确定性覆盖检查保护 Agent 生成和 AI 调整不擅自丢失评分要求，但不会撤销用户已经明确完成的改名或删除。
 
 ## 生成流程
 
@@ -266,6 +286,13 @@ Agent 先生成评分映射节点，再生成明确响应内容，最后按专�
 
 覆盖检查不再判断叶子数是否等于字数推算值。
 
+宿主检查执行两次：
+
+1. Agent 最终审核前生成确定性审核上下文。
+2. Agent 最终审核返回后、正式落库前，对最终 `outline.json` 和最终 `score_coverage_map` 重新执行权威校验。
+
+第二次校验是落库门禁。JSON Schema、七级上限、父节点至少两个子节点、内容模式、评分分支位置、评分来源覆盖和映射完整性全部通过后才能保存。
+
 ### 6. Agent 最终审核
 
 Agent 使用宿主程序检查结果和评分原文，补充语义审核：
@@ -279,6 +306,8 @@ Agent 使用宿主程序检查结果和评分原文，补充语义审核：
 
 评分来源节点不得静默改名、合并或删除。发现评分覆盖缺失、评分标题变义或需要结构重排时，必须集中向用户确认。只有不涉及评分来源节点的补充节点文案优化和明显空洞说明修复可以静默完成。
 
+`user_refuse` 只允许用于拒绝不影响强制校验的语义优化建议。对于评分来源缺失、映射损坏、超出七级、单子节点或非法内容模式等强制问题，用户可以选择取消本次任务，但不能把未通过校验的目录保存为成功结果。用户取消时：目录生成任务不保存新目录；AI 调整任务保留调整前的现有目录。
+
 ### 7. 保存
 
 继续统一编号并移除内部 `branch_id` 等 Agent 工作字段。正式目录和字数控制快照按现有方式写入 SQLite，后续正文生成状态按现有规则失效。
@@ -291,7 +320,7 @@ Agent 使用宿主程序检查结果和评分原文，补充语义审核：
 
 - 与用户要求无关的目录保持不变。
 - 不得删除、合并或改写评分来源节点，除非用户明确要求且确认影响。
-- 调整后重新执行评分覆盖、七级上限、父节点数量和 description 质量检查。
+- 调整后重新生成 `score_coverage_map`，再执行评分覆盖、七级上限、父节点数量和 description 质量检查。落库前使用与目录生成相同的宿主门禁；门禁失败时不覆盖调整前目录。
 - 新增节点继续遵守适度拆解和受控补充规则。
 
 ## 七级目录联动
@@ -306,15 +335,21 @@ Markdown 原生只支持六级标题。正文审核、图片规划等中间材�
 
 ### Word 导出
 
-Word 导出当前只配置六套标题样式。第七级目录沿用第六级标题的字体、字号、段落、边框和编号样式，不新增第七套用户配置。
+Word 导出当前只配置六套标题样式。内部新增 `Heading7` 样式，但不新增第七套用户配置；`Heading7` 的字体、字号、段落、边框等视觉属性从第六级配置派生。
 
-第七级必须保留完整七级编号，不能被截断为六级编号。原生多级列表最多仍使用现有六级配置；第七级使用沿用六级视觉样式的显式编号文本，避免与第六级编号冲突。
+第七级不解释第六级的 `{num}`、`{zh}`、`{tail}`、`{tail6}`、`{full}` 等编号模板，也不加入前六级原生多级列表。它始终把完整目录 `item.id` 作为显式编号前缀，例如 `1.2.3.4.5.6.1 标题`，从而保证七段编号不会被第六级模板截断。前六级继续按现有原生或自定义编号逻辑输出，两者互不改变。
 
 导出格式页面继续只展示六级标题样式，文案补充说明“七级及更深兼容目录沿用六级样式”；由于目录生成上限为七级，实际只涉及第七级。
 
 ### 其他消费者
 
 正文生成、图片规划和目录查重中对 Markdown 标题级别的六级截断可保留，但必须确认其目录 ID 和父子树没有被截断。目录查重若使用 `level` 判断路径，应能区分真实七级节点，不能把七级节点错误视为六级同级节点。
+
+### 手工编辑
+
+- 七级上限同时约束 Agent 输出和用户手工新增目录。用户选中七级节点时禁用“添加子目录”，Renderer 在提交用户输入前校验深度；Main 继续信任已经通过 Renderer 的内部 IPC 数据。
+- “父节点至少两个子节点”和自动生成 description 的质量门禁只约束 Agent 生成及 AI 调整结果。手工添加第一个子节点时允许暂时或永久形成单子节点，系统不自动补齐、不阻止保存，也不撤销用户决定。
+- 用户手工填写的标题和 description 仍要求非空，但不使用 Agent 的语义质量门禁阻止保存。
 
 ## 前端行为
 
@@ -408,6 +443,7 @@ Word 导出当前只配置六套标题样式。第七级目录沿用第六级标
 - `client/src/features/technical-plan/services/bidAnalysisWorkflow.ts`
 - `client/electron/services/outlineGenerationTaskV2.cjs`
 - `client/electron/services/outlineAdjustmentTask.cjs`
+- `client/electron/services/technicalPlanStore.cjs`
 - `client/electron/resources/agent-workspace.md`
 - `client/src/features/technical-plan/pages/OutlineEditPage.tsx`
 - `client/src/features/technical-plan/pages/TechnicalPlanHome.tsx`
@@ -428,9 +464,12 @@ Word 导出当前只配置六套标题样式。第七级目录沿用第六级标
 - `client/electron/services/exportService.headingNumbering.test.cjs`
 - 新增 `client/electron/services/bidAnalysisTask.test.cjs`
 - 新增 `client/electron/services/outlineAdjustmentTask.test.cjs`
+- 新增 `client/electron/services/technicalPlanStore.scoreCoverageMap.test.cjs`
 - 新增 `client/electron/services/contentGenerationTask.outlineDepth.test.cjs`
 - 新增 `client/electron/services/contentIllustrationPlanning.outlineDepth.test.cjs`
 - 新增 `client/electron/services/duplicateCheckService.outlineDepth.test.cjs`
+
+目录任务测试必须覆盖 Agent 审核前后两次宿主校验、强制校验失败不落库、用户拒绝可选优化仍可落库、用户取消强制修复不落库。Store 测试必须覆盖 `sort`、`edit`、`delete`、`add-*` 和 `replace` 五类 `saveOutline` 协议对来源映射的处理。
 
 ## 验收标准
 
@@ -443,6 +482,9 @@ Word 导出当前只配置六套标题样式。第七级目录沿用第六级标
 7. 评分原文的每个明确响应要求都能映射到目录标题或 description。
 8. 空泛标题或 description 会被最终审核识别并修复或提交用户确认。
 9. 六级目录行为不回归；七级目录可生成、编辑、保存、恢复、生成正文、规划图片和导出 Word。
-10. Word 中第七级沿用第六级视觉样式，并保留完整七级编号。
-11. 目录 AI 调整后仍通过评分覆盖和七级结构检查。
-12. `node --check`、定向 Node 测试和 `npm run build` 通过。
+10. Word 中第七级使用由第六级配置派生的 `Heading7` 视觉样式，并始终输出完整七级 ID；第六级使用 `{full}`、`{tail}`、`{num}` 或其他模板时均不影响第七级编号。
+11. 手工排序后评分来源映射随 ID 重映射；手工改名和删除记录为用户覆盖，AI 调整不得撤销。
+12. Agent 最终审核后宿主再次校验；强制校验失败或用户拒绝强制修复时不保存不合格目录。
+13. 目录 AI 调整后仍通过评分覆盖和七级结构检查；失败时保留调整前目录。
+14. 用户不能在七级节点下手工增加子目录；手工单子节点允许保存且不会被自动补齐。
+15. `node --check`、定向 Node 测试和 `npm run build` 通过。
