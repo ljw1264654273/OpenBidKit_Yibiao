@@ -187,18 +187,48 @@
 
 ```json
 {
+  "version": 2,
   "groups": [
     {
       "requirement_id": "R1",
       "source_title": "项目总体方案",
       "target_title": "项目总体方案",
+      "source_order": 1,
+      "expected_path": ["R1"],
       "criteria": [
         {
           "criterion_id": "R1-C1",
           "source_text": "对本项目的理解：政策背景、项目技术要求理解进行打分……",
           "target_title": "项目的理解",
-          "response_points": ["政策背景", "项目技术要求理解"],
-          "evaluation_dimensions": []
+          "source_order": 1,
+          "expected_path": ["R1", "R1-C1"],
+          "response_points": [
+            {
+              "point_id": "R1-C1-P1",
+              "source_text": "政策背景",
+              "target_title": "政策背景",
+              "source_order": 1,
+              "expected_path": ["R1", "R1-C1", "R1-C1-P1"]
+            },
+            {
+              "point_id": "R1-C1-P2",
+              "source_text": "项目技术要求理解",
+              "target_title": "项目技术要求理解",
+              "source_order": 2,
+              "expected_path": ["R1", "R1-C1", "R1-C1-P2"]
+            }
+          ],
+          "evaluation_dimensions": ["全面性", "合理性"],
+          "supplements": [
+            {
+              "supplement_id": "R1-C1-S1",
+              "title": "总体架构设计",
+              "reason": "评分节点只列出局部技术要素，需要总体性介绍统领后续内容",
+              "supplement_kind": "overall-introduction",
+              "parent_source_id": "R1-C1",
+              "source_order": 1
+            }
+          ]
         }
       ]
     }
@@ -206,27 +236,55 @@
 }
 ```
 
+固定字段约束如下：
+
+- `version` 固定为整数 `2`；`groups`、`criteria`、`response_points`、`evaluation_dimensions`、`supplements` 均为数组，不存在内容时使用空数组。
+- `requirement_id`、`criterion_id`、`point_id`、`supplement_id` 在单次目录任务内唯一且稳定，分别使用 `R<n>`、`R<n>-C<n>`、`R<n>-C<n>-P<n>`、`R<n>-C<n>-S<n>` 格式；后续覆盖映射的 `source_id` 必须引用其中一个 ID，不按标题临时生成 ID。
+- `source_title` 或 `source_text` 保存用于保真和覆盖检查的原文；`target_title` 保存仅去除评分外壳后的目录候选标题；`source_order` 为从 `1` 开始的同级原始顺序整数。
+- `expected_path` 是由稳定来源 ID 组成的数组，声明该来源在评分结构中的预期祖先链；评分大项、评分行和响应点分别具有一段、两段和三段路径。实际目录可因适度下钻增加层级，但不得改变这些来源之间的祖先和顺序关系。
+- `evaluation_dimensions` 只保存评价维度原文，不生成独立来源 ID，统一映射到所属评分行的 description。
+- `supplements` 只允许出现在评分行中。每项必须包含唯一 `supplement_id`、非空 `title`、具体 `reason`、`parent_source_id` 和 `source_order`；`supplement_kind` 只能为 `overall-introduction`、`other-specific-issues`、`reasonable-suggestion` 或 `user-approved`。
+
 正式目录节点仍只保存现有业务字段。评分来源、内部标识和覆盖关系不写入最终 `outlineData`，但不能只存在于 Agent 临时文件中。
 
-目录生成成功时，同时把一份精简的 `score_coverage_map` 写入现有 `outlineGenerationTask.stats` JSON。该映射至少包含：
+目录生成成功时，同时把一份精简的 `score_coverage_map` 写入现有 `outlineGenerationTask.stats` JSON。固定结构如下：
 
-- `version`：映射协议版本。
-- `source_id`：评分大项、评分行或明确响应内容的稳定来源标识。
-- `source_text`：用于覆盖检查的评分原文。
-- `node_ids`：当前承接该要求的一个或多个正式目录节点 ID。
-- `coverage_location`：要求由节点标题、节点 description 或两者共同承接。
-- `user_override`：用户是否通过手工编辑明确改名、删除或改变承接方式。
-- `supplement_kind`：节点是否属于总体介绍、合理化建议等受控专业补充。
+```json
+{
+  "version": 1,
+  "coverage_mode": "full",
+  "records": [
+    {
+      "source_id": "R1-C1-P1",
+      "source_kind": "response-point",
+      "source_text": "政策背景",
+      "node_ids": ["1.1.1"],
+      "coverage_location": "title",
+      "user_override": "none",
+      "supplement_kind": "none"
+    }
+  ]
+}
+```
+
+固定字段约束如下：
+
+- `version` 固定为整数 `1`；`coverage_mode` 只能为 `full` 或 `legacy-structure-only`；`records` 为数组。
+- `source_id` 引用评分规划中的稳定 ID；仅用户手工补充节点可使用任务内生成的 `U<n>`。`source_kind` 只能为 `requirement`、`criterion`、`response-point`、`professional-supplement` 或 `user-supplement`。
+- `source_text` 保存对应评分原文；专业补充或用户补充保存其标题。`node_ids` 为当前承接来源的正式目录节点 ID 数组；用户明确删除后允许为空数组。
+- `coverage_location` 只能为 `title`、`description`、`both` 或 `none`。`user_override` 只能为 `none`、`renamed`、`removed` 或 `added`。
+- `supplement_kind` 只能为 `none`、`overall-introduction`、`other-specific-issues`、`reasonable-suggestion`、`user-approved` 或 `user-added`。非补充来源必须为 `none`。
+- `coverage_mode=full` 时，评分规划中的每个评分大项、评分行、响应点和专业补充均须有且仅有一条记录；同一正式节点可承接多个来源。`coverage_mode=legacy-structure-only` 时 `records` 可为空，且不得声称已完成评分覆盖检查。
 
 `score_coverage_map` 使用现有任务状态 JSON 持久化，不新增数据库列。`technicalPlanStore.saveOutline()` 按现有 `reason` 协议同步维护映射：
 
 - `sort`：使用同一份 `idMap` 重映射 `node_ids`，不改变来源关系。
 - `edit`：保留节点与来源关系，并记录 `user_override=renamed`；后续 AI 调整保护用户当前标题，不自动恢复旧标题。
-- `delete`：将受影响来源记录为 `user_override=removed`，不再把用户明确删除的节点当作未授权遗漏。
-- `add-root`、`add-child`：新增节点默认没有评分来源，可按内容标记为用户补充节点；其他来源关系随 `idMap` 重映射。
+- `delete`：将受影响来源记录为 `user_override=removed`、`node_ids=[]`、`coverage_location=none`，不再把用户明确删除的节点当作未授权遗漏。
+- `add-root`、`add-child`：为新增节点创建 `U<n>` 记录，使用 `source_kind=user-supplement`、`user_override=added`、`supplement_kind=user-added`；其他来源关系随 `idMap` 重映射。
 - `replace`：目录生成或 AI 调整必须随新目录提交完整的新映射；没有新映射时不得沿用可能失真的旧映射。
 
-因此手工编辑仍然是用户的权威决定。确定性覆盖检查保护 Agent 生成和 AI 调整不擅自丢失评分要求，但不会撤销用户已经明确完成的改名或删除。
+因此手工编辑仍然是用户的权威决定。确定性覆盖检查保护 Agent 生成和 AI 调整不擅自丢失评分要求，但不会撤销用户已经明确完成的改名或删除。`coverage_mode=full` 的完整性检查仍要求保留 `user_override=removed` 的记录，但该记录视为用户授权缺失，不再要求非空 `node_ids` 或文字覆盖。
 
 ## 生成流程
 
@@ -291,7 +349,7 @@ Agent 先生成评分映射节点，再生成明确响应内容，最后按专�
 1. Agent 最终审核前生成确定性审核上下文。
 2. Agent 最终审核返回后、正式落库前，对最终 `outline.json` 和最终 `score_coverage_map` 重新执行权威校验。
 
-第二次校验是落库门禁。JSON Schema、七级上限、父节点至少两个子节点、内容模式、评分分支位置、评分来源覆盖和映射完整性全部通过后才能保存。
+第二次校验是落库门禁。新生成目录必须通过 JSON Schema、七级上限、父节点至少两个子节点、内容模式、评分分支位置、评分来源覆盖和映射完整性检查后才能保存。AI 调整按下文定义的基线比较规则处理用户手工形成的既有单子节点，不能简单要求调整后的整棵树不存在单子节点。
 
 ### 6. Agent 最终审核
 
@@ -316,11 +374,16 @@ Agent 使用宿主程序检查结果和评分原文，补充语义审核：
 
 目录生成后的 AI 调整复用同一持久 Agent 工作区。调整前覆盖写入用户当前最新目录，但继续读取结构化评分规划和评分原文。
 
+开始调整前，宿主为当前目录工作副本中的每个节点附加任务内稳定的 `origin_id`，并记录所有既有单子节点父子关系。`origin_id` 只用于调整前后比较，落库前移除，不写入正式 `outlineData`。
+
 调整要求：
 
 - 与用户要求无关的目录保持不变。
 - 不得删除、合并或改写评分来源节点，除非用户明确要求且确认影响。
-- 调整后重新生成 `score_coverage_map`，再执行评分覆盖、七级上限、父节点数量和 description 质量检查。落库前使用与目录生成相同的宿主门禁；门禁失败时不覆盖调整前目录。
+- `coverage_mode=full` 时，调整后重新生成完整 `score_coverage_map`，再执行评分覆盖、七级上限、内容模式和 description 质量检查。
+- 父节点数量使用基线比较门禁：调整前已有且父、子 `origin_id` 关系未改变的手工单子节点允许继续存在；Agent 新增的单子节点，或把原有正常分支改成单子节点，均不允许落库。Agent 可按用户明确要求为既有单子节点增加第二个自然子节点。
+- `coverage_mode=legacy-structure-only` 时不伪造评分来源映射，只执行 JSON Schema、七级上限、内容模式、基线比较后的单子节点和 description 质量检查，并在任务结果中标明“旧目录仅完成结构检查，重新生成目录后可启用评分覆盖保护”。
+- 落库前执行对应模式的宿主门禁；门禁失败时不覆盖调整前目录。
 - 新增节点继续遵守适度拆解和受控补充规则。
 
 ## 七级目录联动
@@ -349,6 +412,7 @@ Word 导出当前只配置六套标题样式。内部新增 `Heading7` 样式，
 
 - 七级上限同时约束 Agent 输出和用户手工新增目录。用户选中七级节点时禁用“添加子目录”，Renderer 在提交用户输入前校验深度；Main 继续信任已经通过 Renderer 的内部 IPC 数据。
 - “父节点至少两个子节点”和自动生成 description 的质量门禁只约束 Agent 生成及 AI 调整结果。手工添加第一个子节点时允许暂时或永久形成单子节点，系统不自动补齐、不阻止保存，也不撤销用户决定。
+- 后续 AI 调整把调整前已经存在的手工单子节点作为允许基线；只要该父子 `origin_id` 关系未被 Agent 改变，就不因它阻止其他位置的调整。该豁免不允许 Agent 创建新的单子节点。
 - 用户手工填写的标题和 description 仍要求非空，但不使用 Agent 的语义质量门禁阻止保存。
 
 ## 前端行为
@@ -425,7 +489,7 @@ Word 导出当前只配置六套标题样式。内部新增 `Heading7` 样式，
 - 正式 `outlineData` 字段不变，因此 SQLite schema、IPC 和 preload 不变。
 - 目录生成一级目录确认阶段的恢复方式不变。
 - 旧持久 Agent Session 由重新生成目录时的现有清理流程删除，不需要兼容旧中间文件 schema。
-- 目录调整只能在同一轮新规则生成的持久工作区中获得完整评分映射；旧目录的调整继续使用现有目录作为输入，但无法获得新增的确定性来源覆盖检查，应提示重新生成目录后再使用完整保护能力。
+- 目录调整只能在同一轮新规则生成的持久工作区中获得完整评分映射。旧目录继续允许 AI 调整，但任务显式使用 `coverage_mode=legacy-structure-only`，仅执行结构门禁并提示“重新生成目录后可启用评分覆盖保护”；不得从标题相似度反推或伪造完整评分映射。
 
 ## 错误处理
 
@@ -465,11 +529,12 @@ Word 导出当前只配置六套标题样式。内部新增 `Heading7` 样式，
 - 新增 `client/electron/services/bidAnalysisTask.test.cjs`
 - 新增 `client/electron/services/outlineAdjustmentTask.test.cjs`
 - 新增 `client/electron/services/technicalPlanStore.scoreCoverageMap.test.cjs`
+- 新增 `client/electron/services/outlineAdjustmentTask.baselineValidation.test.cjs`
 - 新增 `client/electron/services/contentGenerationTask.outlineDepth.test.cjs`
 - 新增 `client/electron/services/contentIllustrationPlanning.outlineDepth.test.cjs`
 - 新增 `client/electron/services/duplicateCheckService.outlineDepth.test.cjs`
 
-目录任务测试必须覆盖 Agent 审核前后两次宿主校验、强制校验失败不落库、用户拒绝可选优化仍可落库、用户取消强制修复不落库。Store 测试必须覆盖 `sort`、`edit`、`delete`、`add-*` 和 `replace` 五类 `saveOutline` 协议对来源映射的处理。
+目录任务测试必须覆盖 Agent 审核前后两次宿主校验、强制校验失败不落库、用户拒绝可选优化仍可落库、用户取消强制修复不落库。Store 测试必须覆盖 `sort`、`edit`、`delete`、`add-*` 和 `replace` 五类 `saveOutline` 协议对来源映射的处理。AI 调整测试必须覆盖既有手工单子节点不阻止无关调整、Agent 新增单子节点仍被拒绝，以及旧目录 `legacy-structure-only` 模式不伪造评分覆盖映射。
 
 ## 验收标准
 
@@ -487,4 +552,6 @@ Word 导出当前只配置六套标题样式。内部新增 `Heading7` 样式，
 12. Agent 最终审核后宿主再次校验；强制校验失败或用户拒绝强制修复时不保存不合格目录。
 13. 目录 AI 调整后仍通过评分覆盖和七级结构检查；失败时保留调整前目录。
 14. 用户不能在七级节点下手工增加子目录；手工单子节点允许保存且不会被自动补齐。
-15. `node --check`、定向 Node 测试和 `npm run build` 通过。
+15. 既有手工单子节点不阻止其他位置的 AI 调整；Agent 不能新增单子节点或制造新的单子节点关系。
+16. 旧目录 AI 调整使用 `legacy-structure-only`，明确提示未做评分覆盖保护且不生成虚假来源映射。
+17. `node --check`、定向 Node 测试和 `npm run build` 通过。
