@@ -5,28 +5,480 @@ const {
   createInitialPrompt,
   createScorePlanningPrompt,
   createChildrenPrompt,
+  createLeafAdjustmentPrompt,
+  createOutlineReviewPrompt,
   enforceMinimumLeafTarget,
+  deriveAcceptableLeafRange,
+  deriveSemanticMinimumLeafTarget,
+  buildOutlineReviewContext,
   buildRemoteKnowledgeFile,
   runOutlineGenerationTaskV2,
 } = require('./outlineGenerationTaskV2.cjs');
 
-test('独立成册模式直接以技术评分大项作为一级目录', () => {
+test('目录字数目标使用可接受范围而不是精确叶子数', () => {
+  assert.deepEqual(deriveAcceptableLeafRange(22, { soft: true }), { minimum: 19, maximum: 25 });
+  assert.deepEqual(deriveAcceptableLeafRange(10, { soft: true }), { minimum: 8, maximum: 12 });
+  assert.deepEqual(deriveAcceptableLeafRange(200), { minimum: 198, maximum: 202 });
+  assert.deepEqual(deriveAcceptableLeafRange(4, { soft: true, maximum: 5 }), { minimum: 2, maximum: 5 });
+  assert.deepEqual(deriveAcceptableLeafRange(null), { minimum: null, maximum: null });
+});
+
+test('语义叶子下限为每个评分条目预留评分要点和正文小节', () => {
+  const plan = {
+    branches: [{
+      branch_id: 'B1',
+      mappings: [
+        { requirement_id: 'R1', target_title: '项目理解' },
+        { requirement_id: 'R2', target_title: '总体方案设计' },
+      ],
+    }],
+  };
+
+  assert.equal(deriveSemanticMinimumLeafTarget(plan, 1), 7);
+
+  const mergedPlan = {
+    branches: [{
+      branch_id: 'B1',
+      mappings: [
+        { requirement_id: 'R1', target_title: '项目理解' },
+        { requirement_id: 'R2', target_title: '项目理解' },
+      ],
+    }],
+  };
+  assert.equal(deriveSemanticMinimumLeafTarget(mergedPlan, 0), 3);
+});
+
+test('最终审核拒绝评分要点直接作为正文叶子以及冗余标题语气词', () => {
+  const outline = {
+    outline: [{
+      id: '1',
+      title: '项目总体方案',
+      description: '项目总体方案',
+      attr: '技术',
+      branch_id: 'B1',
+      children: [{
+        id: '1.1',
+        title: '对本项目的理解',
+        description: '项目理解',
+        children: [
+          { id: '1.1.1', title: '政策背景', description: '政策背景', content_mode: 'ai-generate' },
+          { id: '1.1.2', title: '根据技术要求进行说明', description: '技术要求', content_mode: 'ai-generate' },
+        ],
+      }],
+    }],
+  };
+  const scoreDirectoryPlan = {
+    branches: [{
+      branch_id: 'B1',
+      root_id: '1',
+      root_title: '项目总体方案',
+      score_item_level: 2,
+      mappings: [{ requirement_id: 'R1', target_title: '对本项目的理解' }],
+    }],
+    extra_titles: [],
+  };
+
+  const context = buildOutlineReviewContext({ outline, scoreDirectoryPlan, targetLeafCount: 4, standaloneTechnical: true });
+
+  assert.equal(context.professional_structure.valid, false);
+  assert.deepEqual(
+    context.professional_structure.shallow_score_nodes.map((item) => item.id),
+    ['1.1'],
+  );
+  assert.deepEqual(
+    context.professional_structure.title_style_issues.map((item) => item.id),
+    ['1.1', '1.1.2'],
+  );
+});
+
+test('最终审核接受人工标书式可写层级和简洁名词标题', () => {
+  const outline = {
+    outline: [{
+      id: '1',
+      title: '项目总体方案',
+      description: '项目总体方案',
+      attr: '技术',
+      branch_id: 'B1',
+      children: [{
+        id: '1.1',
+        title: '项目理解',
+        description: '项目理解',
+        children: [
+          {
+            id: '1.1.1',
+            title: '政策背景',
+            description: '政策背景',
+            children: [
+              { id: '1.1.1.1', title: '土地承包经营历史沿革', description: '历史沿革', content_mode: 'ai-generate' },
+              { id: '1.1.1.2', title: '国家政策', description: '国家政策', content_mode: 'ai-generate' },
+            ],
+          },
+          {
+            id: '1.1.2',
+            title: '项目技术要求理解',
+            description: '技术要求理解',
+            children: [
+              { id: '1.1.2.1', title: '项目基本情况', description: '基本情况', content_mode: 'ai-generate' },
+              { id: '1.1.2.2', title: '采购内容', description: '采购内容', content_mode: 'ai-generate' },
+            ],
+          },
+        ],
+      }],
+    }],
+  };
+  const scoreDirectoryPlan = {
+    branches: [{
+      branch_id: 'B1',
+      root_id: '1',
+      root_title: '项目总体方案',
+      score_item_level: 2,
+      mappings: [{ requirement_id: 'R1', target_title: '项目理解' }],
+    }],
+    extra_titles: [],
+  };
+
+  const context = buildOutlineReviewContext({ outline, scoreDirectoryPlan, targetLeafCount: 4, standaloneTechnical: true });
+
+  assert.equal(context.professional_structure.valid, true);
+  assert.deepEqual(context.professional_structure.shallow_score_nodes, []);
+  assert.deepEqual(context.professional_structure.title_style_issues, []);
+});
+
+test('普通响应文件模式不套用独立成册的四层结构门槛', () => {
+  const outline = {
+    outline: [{
+      id: '1',
+      title: '技术方案',
+      description: '技术方案',
+      attr: '技术',
+      branch_id: 'B1',
+      children: [
+        { id: '1.1', title: '项目理解', description: '项目理解', content_mode: 'ai-generate' },
+        { id: '1.2', title: '实施方案', description: '实施方案', content_mode: 'ai-generate' },
+      ],
+    }],
+  };
+  const scoreDirectoryPlan = {
+    branches: [{
+      branch_id: 'B1',
+      root_id: '1',
+      root_title: '技术方案',
+      score_item_level: 2,
+      mappings: [{ requirement_id: 'R1', target_title: '项目理解' }],
+    }],
+    extra_titles: [{ branch_id: 'B1', title: '实施方案', reason: '完整技术方案章节' }],
+  };
+
+  const context = buildOutlineReviewContext({
+    outline,
+    scoreDirectoryPlan,
+    targetLeafCount: 2,
+    standaloneTechnical: false,
+  });
+
+  assert.equal(context.professional_structure.valid, true);
+});
+
+test('独立成册评分条目不得放在第五级或第六级', () => {
+  const leaf = (id, title) => ({ id, title, description: title, content_mode: 'ai-generate' });
+  const outline = {
+    outline: [{
+      id: '1',
+      title: '项目总体方案',
+      description: '项目总体方案',
+      attr: '技术',
+      branch_id: 'B1',
+      children: [{
+        id: '1.1',
+        title: '第一层',
+        description: '第一层',
+        children: [{
+          id: '1.1.1',
+          title: '第二层',
+          description: '第二层',
+          children: [{
+            id: '1.1.1.1',
+            title: '第三层',
+            description: '第三层',
+            children: [{
+              id: '1.1.1.1.1',
+              title: '项目理解',
+              description: '项目理解',
+              children: [
+                leaf('1.1.1.1.1.1', '政策背景'),
+                leaf('1.1.1.1.1.2', '技术要求'),
+              ],
+            }],
+          }],
+        }],
+      }],
+    }],
+  };
+  const scoreDirectoryPlan = {
+    branches: [{
+      branch_id: 'B1', root_id: '1', root_title: '项目总体方案', score_item_level: 5,
+      mappings: [{ requirement_id: 'R1', target_title: '项目理解' }],
+    }],
+    extra_titles: [],
+  };
+
+  const context = buildOutlineReviewContext({ outline, scoreDirectoryPlan, targetLeafCount: null, standaloneTechnical: true });
+
+  assert.equal(context.professional_structure.valid, false);
+  assert.deepEqual(context.professional_structure.invalid_score_item_levels, [{ branch_id: 'B1', score_item_level: 5 }]);
+});
+
+test('用户已接受叶子数量偏差时最终审核不再重复阻断', () => {
+  const context = buildOutlineReviewContext({
+    outline: { outline: [{ id: '1', title: '简要方案', description: '简要方案', attr: '技术', content_mode: 'ai-generate' }] },
+    scoreDirectoryPlan: { branches: [], extra_titles: [] },
+    targetLeafCount: 10,
+    standaloneTechnical: false,
+    acceptedLeafCount: 1,
+  });
+
+  assert.equal(context.leaf_count.within_acceptable_range, false);
+  assert.equal(context.leaf_count.accepted_by_user, true);
+  assert.equal(context.leaf_count.valid, true);
+});
+
+test('叶子数量接受只绑定当时数量且不能越过严格字数上限', () => {
+  const outlineWith = (count) => ({ outline: Array.from({ length: count }, (_, index) => ({
+    id: String(index + 1),
+    title: `章节${index + 1}`,
+    description: `章节${index + 1}`,
+    attr: '技术',
+    content_mode: 'ai-generate',
+  })) });
+  const base = {
+    scoreDirectoryPlan: { branches: [], extra_titles: [] },
+    targetLeafCount: 10,
+    standaloneTechnical: false,
+  };
+
+  assert.equal(buildOutlineReviewContext({ ...base, outline: outlineWith(3), acceptedLeafCount: 4 }).leaf_count.valid, false);
+  assert.equal(buildOutlineReviewContext({ ...base, outline: outlineWith(4), acceptedLeafCount: 4 }).leaf_count.valid, true);
+  assert.equal(buildOutlineReviewContext({
+    ...base,
+    outline: outlineWith(6),
+    targetLeafCount: 4,
+    acceptedLeafCount: 6,
+    maximumLeafCount: 5,
+  }).leaf_count.valid, false);
+});
+
+test('独立成册审核拒绝未绑定评分规划的额外一级目录', () => {
+  const validBranch = {
+    id: '1', title: '项目总体方案', description: '总体方案', attr: '技术', branch_id: 'B1', children: [{
+      id: '1.1', title: '项目理解', description: '项目理解', children: [
+        { id: '1.1.1', title: '政策背景', description: '政策背景', children: [
+          { id: '1.1.1.1', title: '国家政策', description: '国家政策', content_mode: 'ai-generate' },
+          { id: '1.1.1.2', title: '省级政策', description: '省级政策', content_mode: 'ai-generate' },
+        ] },
+        { id: '1.1.2', title: '项目目标', description: '项目目标', content_mode: 'ai-generate' },
+      ],
+    }],
+  };
+  const context = buildOutlineReviewContext({
+    outline: { outline: [validBranch, { id: '2', title: '额外方案', description: '额外方案', attr: '技术', content_mode: 'ai-generate' }] },
+    scoreDirectoryPlan: {
+      branches: [{ branch_id: 'B1', root_id: '1', root_title: '项目总体方案', score_item_level: 2, mappings: [{ requirement_id: 'R1', target_title: '项目理解' }] }],
+      extra_titles: [],
+    },
+    targetLeafCount: null,
+    standaloneTechnical: true,
+  });
+
+  assert.equal(context.professional_structure.valid, false);
+  assert.deepEqual(context.professional_structure.unplanned_root_nodes.map((item) => item.id), ['2']);
+});
+
+test('独立成册审核拒绝多个一级目录复用同一分支标识', () => {
+  const scoreNode = (id) => ({
+    id: `${id}.1`, title: '项目理解', description: '项目理解', children: [
+      { id: `${id}.1.1`, title: '政策背景', description: '政策背景', children: [
+        { id: `${id}.1.1.1`, title: '国家政策', description: '国家政策', content_mode: 'ai-generate' },
+        { id: `${id}.1.1.2`, title: '省级政策', description: '省级政策', content_mode: 'ai-generate' },
+      ] },
+      { id: `${id}.1.2`, title: '项目目标', description: '项目目标', content_mode: 'ai-generate' },
+    ],
+  });
+  const context = buildOutlineReviewContext({
+    outline: { outline: [
+      { id: '1', title: '项目总体方案', description: '总体方案', attr: '技术', branch_id: 'B1', children: [scoreNode('1')] },
+      { id: '2', title: '重复业务主题', description: '重复主题', attr: '技术', branch_id: 'B1', children: [scoreNode('2')] },
+    ] },
+    scoreDirectoryPlan: {
+      branches: [{ branch_id: 'B1', root_id: '1', root_title: '项目总体方案', score_item_level: 2, mappings: [{ requirement_id: 'R1', target_title: '项目理解' }] }],
+      extra_titles: [],
+    },
+    targetLeafCount: null,
+    standaloneTechnical: true,
+  });
+
+  assert.equal(context.score_mapping.valid, false);
+  assert.equal(context.professional_structure.valid, false);
+  assert.deepEqual(context.professional_structure.duplicate_branch_roots, [{ branch_id: 'B1', root_ids: ['1', '2'] }]);
+});
+
+test('评分映射拒绝同层级重复标题', () => {
+  const context = buildOutlineReviewContext({
+    outline: { outline: [{
+      id: '1', title: '项目总体方案', description: '总体方案', attr: '技术', branch_id: 'B1', children: [
+        { id: '1.1', title: '项目理解', description: '项目理解', content_mode: 'ai-generate' },
+        { id: '1.2', title: '项目理解', description: '重复项目理解', content_mode: 'ai-generate' },
+      ],
+    }] },
+    scoreDirectoryPlan: {
+      branches: [{ branch_id: 'B1', root_id: '1', root_title: '项目总体方案', score_item_level: 2, mappings: [{ requirement_id: 'R1', target_title: '项目理解' }] }],
+      extra_titles: [],
+    },
+    targetLeafCount: null,
+    standaloneTechnical: false,
+  });
+
+  assert.equal(context.score_mapping.valid, false);
+  assert.deepEqual(context.score_mapping.branches[0].duplicate_titles, ['项目理解']);
+});
+
+test('独立成册审核拒绝同组下机械重复的“甲与乙”标题', () => {
+  const context = buildOutlineReviewContext({
+    outline: { outline: [{
+      id: '1', title: '项目总体方案', description: '总体方案', attr: '技术', branch_id: 'B1', children: [{
+        id: '1.1', title: '项目理解', description: '项目理解', children: [
+          { id: '1.1.1', title: '项目技术要求理解', description: '技术要求', children: [
+            { id: '1.1.1.1', title: '采购内容与实施范围理解', description: '采购与实施', content_mode: 'ai-generate' },
+            { id: '1.1.1.2', title: '技术标准与作业规范理解', description: '标准与规范', content_mode: 'ai-generate' },
+            { id: '1.1.1.3', title: '测绘精度与数据质量理解', description: '精度与质量', content_mode: 'ai-generate' },
+            { id: '1.1.1.4', title: '数据库规范与系统对接理解', description: '规范与对接', content_mode: 'ai-generate' },
+          ] },
+          { id: '1.1.2', title: '项目目标', description: '项目目标', content_mode: 'ai-generate' },
+        ],
+      }],
+    }] },
+    scoreDirectoryPlan: {
+      branches: [{ branch_id: 'B1', root_id: '1', root_title: '项目总体方案', score_item_level: 2, mappings: [{ requirement_id: 'R1', target_title: '项目理解' }] }],
+      extra_titles: [],
+    },
+    targetLeafCount: null,
+    standaloneTechnical: true,
+  });
+
+  assert.equal(context.professional_structure.valid, false);
+  assert.deepEqual(context.professional_structure.mechanical_connector_groups, [{
+    id: '1.1.1',
+    title: '项目技术要求理解',
+    child_count: 4,
+    connector_title_count: 4,
+  }]);
+});
+
+test('独立成册审核允许人工目录中少量有实际语义的连接词', () => {
+  const context = buildOutlineReviewContext({
+    outline: { outline: [{
+      id: '1', title: '项目总体方案', description: '总体方案', attr: '技术', branch_id: 'B1', children: [{
+        id: '1.1', title: '项目实施过程中的重点、难点问题分析及解决措施', description: '重难点分析', children: [
+          { id: '1.1.1', title: '重点问题分析及解决措施', description: '重点问题', children: [
+            { id: '1.1.1.1', title: '稳定实施，避免引起新矛盾', description: '稳定实施', content_mode: 'ai-generate' },
+            { id: '1.1.1.2', title: '试点工作成效总结', description: '成效总结', content_mode: 'ai-generate' },
+            { id: '1.1.1.3', title: '宣传与群众参与机制', description: '群众参与', content_mode: 'ai-generate' },
+            { id: '1.1.1.4', title: '权属调查', description: '权属调查', content_mode: 'ai-generate' },
+          ] },
+          { id: '1.1.2', title: '难点问题分析及解决措施', description: '难点问题', content_mode: 'ai-generate' },
+        ],
+      }],
+    }] },
+    scoreDirectoryPlan: {
+      branches: [{ branch_id: 'B1', root_id: '1', root_title: '项目总体方案', score_item_level: 2, mappings: [{ requirement_id: 'R1', target_title: '项目实施过程中的重点、难点问题分析及解决措施' }] }],
+      extra_titles: [],
+    },
+    targetLeafCount: null,
+    standaloneTechnical: true,
+  });
+
+  assert.equal(context.professional_structure.mechanical_connector_groups.length, 0);
+  assert.equal(context.professional_structure.valid, true);
+});
+
+test('标题检查覆盖通用语气词且不误伤专业词', () => {
+  const context = buildOutlineReviewContext({
+    outline: { outline: [
+      { id: '1', title: '对施工组织的说明', description: '施工组织', attr: '技术', content_mode: 'ai-generate' },
+      { id: '2', title: '结合部施工工艺', description: '结合部施工', attr: '技术', content_mode: 'ai-generate' },
+      { id: '3', title: '针对性保障措施', description: '保障措施', attr: '技术', content_mode: 'ai-generate' },
+      { id: '4', title: '对流换热计算', description: '换热计算', attr: '技术', content_mode: 'ai-generate' },
+      { id: '5', title: '对流换热分析', description: '换热分析', attr: '技术', content_mode: 'ai-generate' },
+      { id: '6', title: '对讲系统说明', description: '对讲系统', attr: '技术', content_mode: 'ai-generate' },
+    ] },
+    scoreDirectoryPlan: { branches: [], extra_titles: [] },
+    targetLeafCount: null,
+    standaloneTechnical: true,
+  });
+
+  assert.deepEqual(context.professional_structure.title_style_issues.map((item) => item.id), ['1']);
+});
+
+test('普通响应文件模式仍要求精确参考叶子目标', () => {
+  const prompt = createChildrenPrompt({
+    hasOriginalPlan: false,
+    originalOnly: false,
+    targetLeafCount: 200,
+    allowRootChanges: false,
+    standaloneTechnical: false,
+  });
+
+  assert.match(prompt, /严格参考 leaf-allocation\.json 中的分配/);
+  assert.match(prompt, /必须正好生成 200 个/);
+  assert.doesNotMatch(prompt, /约有 200 个/);
+  assert.doesNotMatch(prompt, /正文颗粒度软目标/);
+});
+
+test('普通模式叶子调整不把容差误述为可接受范围', () => {
+  const prompt = createLeafAdjustmentPrompt(200, 199, { standaloneTechnical: false });
+
+  assert.match(prompt, /精确目标是 200 个/);
+  assert.match(prompt, /达到目标数量/);
+  assert.doesNotMatch(prompt, /可接受范围是 198 至 202 个/);
+});
+
+test('最终审核不对用户已接受的当前叶子数量重复询问', () => {
+  const prompt = createOutlineReviewPrompt({
+    targetLeafCount: 10,
+    actualLeafCount: 8,
+    allowRootChanges: false,
+    standaloneTechnical: true,
+    acceptedLeafCount: 8,
+    maximumLeafCount: 12,
+  });
+
+  assert.match(prompt, /不得再列为问题或触发 ask-user/);
+  assert.match(prompt, /静默修复不得改变 AI 生成叶子数量/);
+  assert.doesNotMatch(prompt, /叶子数量超出合理范围必须设为 true/);
+  assert.doesNotMatch(prompt, /不得使 AI 生成叶子数量超出程序给出的合理范围/);
+});
+
+test('独立成册模式按人工标书结构聚合一级目录并精简标题', () => {
   const prompt = createInitialPrompt('按响应文件要求生成。', { standaloneTechnical: true });
 
-  assert.match(prompt, /一级目录必须直接对应技术评分大项/);
-  assert.match(prompt, /不得创建“技术方案”“项目管理方案”“监理大纲”“监理大纲（暗标）”“施工组织设计”“技术标”/);
+  assert.match(prompt, /合并单元格|共同上位主题/);
+  assert.match(prompt, /项目总体方案/);
+  assert.match(prompt, /名词性短语/);
+  assert.match(prompt, /“对”“根据”“依据”“结合”“围绕”“按照”“针对”/);
   assert.match(prompt, /不得加入商务、资信、投标函、授权委托书/);
 });
 
-test('独立成册评分规划把根节点固定为评分项层级', () => {
+test('独立成册评分规划把评分条目放在业务一级目录之下', () => {
   const prompt = createScorePlanningPrompt({ standaloneTechnical: true });
 
-  assert.match(prompt, /score_item_level 固定为 1/);
-  assert.match(prompt, /target_title 必须与 root_title 完全一致/);
-  assert.match(prompt, /不得再创建“技术方案”“项目管理方案”“监理大纲”“监理大纲（暗标）”“施工组织设计”“技术标”/);
+  assert.match(prompt, /score_item_level 原则上为 2/);
+  assert.match(prompt, /同一业务主题下的多个评分条目映射到同一个 branch/);
+  assert.match(prompt, /不承载正文内容的评价等级|不得写入 detail_points/);
+  assert.match(prompt, /重点问题分析及解决措施/);
+  assert.match(prompt, /难点问题分析及解决措施/);
+  assert.match(prompt, /不要机械拆成“问题分析”和“解决措施与对策”/);
 });
 
-test('独立成册生成子目录时不重复评分项根标题', () => {
+test('独立成册按评分条目和评分要点递进生成可写正文小节', () => {
   const prompt = createChildrenPrompt({
     hasOriginalPlan: false,
     originalOnly: false,
@@ -35,9 +487,13 @@ test('独立成册生成子目录时不重复评分项根标题', () => {
     standaloneTechnical: true,
   });
 
-  assert.match(prompt, /现有一级根节点本身就是评分项映射节点/);
-  assert.match(prompt, /不得在根节点下面再次生成同名评分项/);
-  assert.doesNotMatch(prompt, /"title":"技术方案"/);
+  assert.match(prompt, /一级业务主题 → 评分条目 → 评分要点 → 可独立编写的正文小节/);
+  assert.match(prompt, /每个评分条目至少有一个评分要点继续展开/);
+  assert.match(prompt, /标题使用简洁的名词性短语/);
+  assert.match(prompt, /一个标题原则上只表达一个核心主题/);
+  assert.match(prompt, /子目录继承父目录语境/);
+  assert.match(prompt, /采购内容”和“实施范围/);
+  assert.match(prompt, /项目理解/);
 });
 
 test('独立成册末级小节目标至少覆盖每个技术分支', () => {
