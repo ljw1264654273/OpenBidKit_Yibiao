@@ -13,6 +13,7 @@ import { formatOutlineTitle } from '../../../shared/utils/outlineNumbering';
 import OutlineSelectionDialog from '../components/OutlineSelectionDialog';
 import RemoteKnowledgePicker from '../components/RemoteKnowledgePicker';
 import { formatKnowledgeReferenceSummary, isRemoteScopeStale } from '../remoteKnowledgeSelection';
+import { canAddOutlineChild } from '../services/outlineDepth';
 
 interface OutlineEditPageProps {
   workflowKind: TechnicalPlanWorkflowKind;
@@ -123,15 +124,6 @@ function normalizeWordControlDraft(values: {
   };
   if (minimumWords > 0 && maximumWords > 0 && maximumWords < minimumWords) {
     throw new Error('最多字数不能低于最少字数');
-  }
-  const effectiveSectionWords = sectionWords > 0 ? sectionWords : 3000;
-  const minimumLeafCount = minimumWords > 0 ? Math.ceil(minimumWords / effectiveSectionWords) : null;
-  const maximumLeafCount = maximumWords > 0 ? Math.floor(maximumWords / effectiveSectionWords) : null;
-  if (maximumLeafCount !== null && maximumLeafCount < 1) {
-    throw new Error('当前最多字数无法形成有效叶子节点范围，请调整最多字数或每小节字数');
-  }
-  if (minimumLeafCount !== null && maximumLeafCount !== null && minimumLeafCount > maximumLeafCount) {
-    throw new Error('当前设置无法形成有效叶子节点范围，请调整最少字数、最多字数或每小节字数');
   }
   return options;
 }
@@ -827,6 +819,10 @@ function OutlineEditPage({
     if (!outlineData || sorting || outlineMutationLocked) {
       return;
     }
+    if (!canAddOutlineChild(parentId)) {
+      showToast('目录最多支持七级，不能继续添加子目录', 'info');
+      return;
+    }
 
     const parent = findOutlineItem(outlineData.outline, parentId);
     const nextIndex = (parent?.children?.length || 0) + 1;
@@ -1435,7 +1431,7 @@ function OutlineEditPage({
                   )}
                   <div className="outline-detail-actions">
                     <button type="button" className="primary-action" onClick={() => startEditing(selectedItem)} disabled={outlineMutationLocked || sorting}>编辑</button>
-                    <button type="button" className="secondary-action" onClick={() => { void addChildItem(selectedItem.id); }} disabled={outlineMutationLocked || sorting}>添加子目录</button>
+                    <button type="button" className="secondary-action" onClick={() => { void addChildItem(selectedItem.id); }} disabled={outlineMutationLocked || sorting || !canAddOutlineChild(selectedItem.id)}>添加子目录</button>
                     <button type="button" className="danger-action" onClick={() => { void removeItem(selectedItem.id); }} disabled={outlineMutationLocked || sorting}>删除</button>
                   </div>
                 </>
@@ -1477,7 +1473,7 @@ function OutlineEditPage({
                   <div className="content-generation-config-row">
                     <span>
                       <strong>全文字数/页数预设</strong>
-                      <small>在目录生成阶段，就要预设好全文生成的字数，默认0表示不控制</small>
+                      <small>字数设置用于正文容量和小节篇幅控制，仅作为目录拆解参考，默认 0 表示不控制</small>
                     </span>
                   </div>
                   <div className="outline-word-control-options">
