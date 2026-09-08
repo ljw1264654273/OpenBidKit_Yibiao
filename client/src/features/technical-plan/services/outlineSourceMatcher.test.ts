@@ -156,6 +156,40 @@ test('段落分隔符末尾的匹配仍保留相邻上下文和有效范围', ()
   );
 });
 
+test('文档末尾分隔符内的匹配保留完整原始范围', () => {
+  const markdown = 'first\n\nsecond\n\n';
+  const sourceText = 'second\n';
+
+  const result = locateOutlineSourceText(markdown, sourceText);
+
+  assert.equal(result.status, 'located');
+  assert.ok(result.contextStart <= result.matchStart);
+  assert.ok(result.contextEnd >= result.matchEnd);
+  assert.equal(result.contextBefore.includes('first'), true);
+  assert.equal(result.matchedText, markdown.slice(result.matchStart, result.matchEnd));
+  assert.equal(
+    result.contextBefore + result.matchedText + result.contextAfter,
+    markdown.slice(result.contextStart, result.contextEnd),
+  );
+});
+
+test('文档开头分隔符内的匹配保留完整原始范围', () => {
+  const markdown = '\n\nfirst\n\nsecond';
+  const sourceText = '\n\nfirst';
+
+  const result = locateOutlineSourceText(markdown, sourceText);
+
+  assert.equal(result.status, 'located');
+  assert.ok(result.contextStart <= result.matchStart);
+  assert.ok(result.contextEnd >= result.matchEnd);
+  assert.equal(result.contextAfter.includes('second'), true);
+  assert.equal(result.matchedText, markdown.slice(result.matchStart, result.matchEnd));
+  assert.equal(
+    result.contextBefore + result.matchedText + result.contextAfter,
+    markdown.slice(result.contextStart, result.contextEnd),
+  );
+});
+
 test('未匹配来源只返回已保存文本且不猜测相近段落', () => {
   const sourceText = '供应商应提交完全不同的证明材料';
 

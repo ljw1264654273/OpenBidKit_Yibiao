@@ -183,14 +183,16 @@ function createLocatedSource(
   const paragraphs = findParagraphs(markdown);
   const firstParagraphIndex = findParagraphIndex(paragraphs, matchStart, 'after');
   const lastParagraphIndex = findParagraphIndex(paragraphs, Math.max(matchStart, matchEnd - 1), 'before');
-  const contextStart = Math.max(
+  const adjacentContextStart = Math.max(
     paragraphs[Math.max(0, firstParagraphIndex - 1)]?.start ?? 0,
     matchStart - 600,
   );
-  const contextEnd = Math.min(
+  const adjacentContextEnd = Math.min(
     paragraphs[Math.min(paragraphs.length - 1, lastParagraphIndex + 1)]?.end ?? markdown.length,
     matchEnd + 600,
   );
+  const contextStart = Math.min(adjacentContextStart, matchStart);
+  const contextEnd = Math.max(adjacentContextEnd, matchEnd);
 
   return {
     status: 'located',
