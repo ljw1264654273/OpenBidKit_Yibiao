@@ -398,61 +398,16 @@ function synchronizeScoreDirectoryPlan(scoreDirectoryPlan, items) {
   };
 }
 
-// 最终审核只能在独立成册模式下按原映射位置同步标题，不得改写用户已确认的规划结构。
+// 独立成册模式的最终审核不得改写已经确认的评分规划。
 function mergeReviewedScoreDirectoryPlan(confirmedPlan, reviewedPlan, { standaloneTechnical = false } = {}) {
   if (!standaloneTechnical) return confirmedPlan;
 
   const confirmedSnapshot = JSON.parse(JSON.stringify(confirmedPlan));
   const reviewedSnapshot = JSON.parse(JSON.stringify(reviewedPlan));
-  const mergedPlan = JSON.parse(JSON.stringify(confirmedPlan));
-  const confirmedBranches = confirmedSnapshot.branches || [];
-  const reviewedBranches = reviewedSnapshot.branches || [];
-  if (confirmedBranches.length !== reviewedBranches.length) {
-    throw new Error('目录最终审核只能修改评分项标题字段，不得改变评分规划结构');
-  }
-
-  confirmedBranches.forEach((confirmedBranch, branchIndex) => {
-    const reviewedBranch = reviewedBranches[branchIndex];
-    const confirmedMappings = confirmedBranch.mappings || [];
-    const reviewedMappings = reviewedBranch?.mappings || [];
-    if (confirmedMappings.length !== reviewedMappings.length) {
-      throw new Error('目录最终审核只能修改评分项标题字段，不得改变评分规划结构');
-    }
-
-    confirmedMappings.forEach((confirmedMapping, mappingIndex) => {
-      const reviewedMapping = reviewedMappings[mappingIndex];
-      const confirmedHasAdditionalTitles = Object.prototype.hasOwnProperty.call(confirmedMapping, 'additional_titles');
-      const reviewedHasAdditionalTitles = Object.prototype.hasOwnProperty.call(reviewedMapping || {}, 'additional_titles');
-      const confirmedAdditionalTitles = confirmedMapping.additional_titles || [];
-      const reviewedAdditionalTitles = reviewedMapping?.additional_titles || [];
-      if (
-        !reviewedMapping
-        || typeof reviewedMapping.target_title !== 'string'
-        || !reviewedMapping.target_title.trim()
-        || confirmedHasAdditionalTitles !== reviewedHasAdditionalTitles
-        || confirmedAdditionalTitles.length !== reviewedAdditionalTitles.length
-        || reviewedAdditionalTitles.some((title) => typeof title !== 'string' || !title.trim())
-      ) {
-        throw new Error('目录最终审核只能修改评分项标题字段，不得改变评分规划结构');
-      }
-
-      reviewedMapping.target_title = confirmedMapping.target_title;
-      if (confirmedHasAdditionalTitles) {
-        reviewedMapping.additional_titles = [...confirmedAdditionalTitles];
-      }
-      mergedPlan.branches[branchIndex].mappings[mappingIndex].target_title = reviewedPlan.branches[branchIndex].mappings[mappingIndex].target_title;
-      if (confirmedHasAdditionalTitles) {
-        mergedPlan.branches[branchIndex].mappings[mappingIndex].additional_titles = [
-          ...reviewedPlan.branches[branchIndex].mappings[mappingIndex].additional_titles,
-        ];
-      }
-    });
-  });
-
   if (!isDeepStrictEqual(confirmedSnapshot, reviewedSnapshot)) {
-    throw new Error('目录最终审核只能修改评分项标题字段，不得改变评分规划结构');
+    throw new Error('目录最终审核不得修改已确认的评分规划');
   }
-  return mergedPlan;
+  return confirmedPlan;
 }
 
 function countAiLeaves(items) {
@@ -900,7 +855,7 @@ function createInitialPrompt(taskInstruction, { standaloneTechnical = false, has
   const modeRequirements = standaloneTechnical
     ? `6. 本模式只生成技术文件独立分册，attr 必须为“技术”，content_mode 必须为 ai-generate；不得加入商务、资信、投标函、授权委托书等非技术章节。
 7. 一级目录只服从招标文件原有评分层级：存在明确且有业务含义的上级评分分组时，以该分组作为一级目录并保持原顺序；没有明确业务分组时，每个技术评分项分别作为一级目录。不得根据语义、相邻关系或所谓共同主题推断、合并、遗漏或重排评分项。“技术方案（40分）”“技术评分”“技术部分”“技术标”等通用类别或总分表头不是业务分组，不得作为合并依据。${expectedRootTitles.length ? ` 本次一级目录必须依次且完整使用：${expectedRootTitles.join('、')}。` : ''}
-8. title 使用简洁的名词性短语。去掉开头或结尾不承载业务含义的“对”“根据”“依据”“结合”“围绕”“按照”“针对”以及“进行说明”“进行阐述”“进行评审”“进行打分”等表达；保留“政策依据”“需求分析”“难点分析”“解决措施”等有专业含义的词。
+8. 一级目录 title 必须逐字使用上述评分分组或评分项名称，不得同义替换、删词、缩写或进行措辞优化；“项目实施方案”不得缩写为“实施方案”。仅后续生成的评分项下级目录可以进行专业化标题整理。
 9. 完整结构示例：{"outline":[{"id":"1","title":"组织实施方案","description":"招标文件原有业务分组","attr":"技术","content_mode":"ai-generate"},{"id":"2","title":"质量保证方案","description":"无上级业务分组的独立评分项","attr":"技术","content_mode":"ai-generate"}]}。示例只说明字段格式，实际标题、数量和顺序必须服从技术评分信息.md。`
     : `6. 每个一级目录当前都是叶子节点，必须根据它后续应采用的内容处理方式填写 content_mode：技术方案正文使用 ai-generate；需要从招标文件提取并套用表格或格式的商务、资信材料使用 template-fill；需要在全部正文完成并确定 Word 页码后回填的点对点应答表使用 point-to-point；无法归类的特殊内容使用 other，并在 content_mode_note 说明原因。
 7. 完整结构示例：{"outline":[{"id":"1","title":"技术方案","description":"技术方案目录说明","attr":"技术","content_mode":"ai-generate"},{"id":"2","title":"特殊资料","description":"特殊资料目录说明","attr":"其他","content_mode":"other","content_mode_note":"说明特殊处理原因"}]}。content_mode_note 只在 content_mode=other 且确有说明时填写。`;
@@ -945,10 +900,10 @@ function createLeafAllocationPrompt({ standaloneTechnical = false } = {}) {
 
 function createScorePlanningPrompt({ standaloneTechnical = false, hasRemoteKnowledge = false } = {}) {
   const scoreGroupInstruction = standaloneTechnical
-    ? `将评分条目写入 ${TECHNICAL_SCORE_GROUPS_FILE}，完整结构为 {"groups":[{"requirement_id":"R1","title":"项目理解","parent_group":"项目总体方案","description":"项目理解评分关注内容","detail_points":["政策背景","项目技术要求理解"]}]}。parent_group 只能填写技术评分信息.md 中明确记录且有业务含义的“上级评分分组”，无分组或仅有“技术方案（40分）”等通用容器时填写 null，绝不推断。根对象只能包含 groups；保持原顺序、专业术语和正文内容要点，requirement_id 使用连续的 R1、R2 格式。先剔除“根据投标人……进行打分”等评审话术外壳，title 使用简洁名词性短语，删除“对、根据、依据、结合、围绕、按照、针对”等无意义开头和“进行说明、进行阐述、进行评审、进行打分”等空泛结尾，但保留“政策依据、需求分析、难点分析、解决措施”等专业词。例如，将“根据投标人对本项目实施过程中的重点、难点问题分析及解决措施……进行打分”归纳为“项目实施过程中的重点、难点问题分析及解决措施”。若评分项同时要求重点、难点分析及解决措施，应按问题类别组织为“重点问题分析及解决措施”“难点问题分析及解决措施”，并在材料支持时补充“其他具体问题分析与应对”“合理化建议”；不要机械拆成“问题分析”和“解决措施与对策”。`
+    ? `将评分条目写入 ${TECHNICAL_SCORE_GROUPS_FILE}，完整结构为 {"groups":[{"requirement_id":"R1","title":"项目理解","parent_group":"项目总体方案","description":"项目理解评分关注内容","detail_points":["政策背景","项目技术要求理解"]}]}。title 必须逐字复制技术评分信息.md 中的评分项名称，parent_group 必须逐字复制其中明确记录且有业务含义的“上级评分分组”；不得同义替换、删词、缩写或进行措辞优化，“项目实施方案”不得改写为“实施方案”。无分组或仅有“技术方案（40分）”等通用容器时 parent_group 填写 null，绝不推断。根对象只能包含 groups；保持原顺序和正文内容要点，requirement_id 使用连续的 R1、R2 格式。description 和 detail_points 可从评分标准正文提炼需要响应的内容，但不得据此反向归纳或重写 title。例如，评分标准正文中的“根据投标人对本项目实施过程中的重点、难点问题分析及解决措施……进行打分”可以提炼为 detail_points；若评分项同时要求重点、难点分析及解决措施，应按问题类别组织为“重点问题分析及解决措施”“难点问题分析及解决措施”，并在材料支持时补充“其他具体问题分析与应对”“合理化建议”；不要机械拆成“问题分析”和“解决措施与对策”。`
     : `将评分大项写入 ${TECHNICAL_SCORE_GROUPS_FILE}，完整结构为 {"groups":[{"requirement_id":"R1","title":"评分大项","parent_group":null,"description":"关注内容","detail_points":["关键评分细项"]}]}。根对象只能包含 groups；保持原顺序、专业术语和关键评分细项，requirement_id 使用连续的 R1、R2 格式。`;
   const placementInstruction = standaloneTechnical
-    ? `4. 当前采用“技术文件独立成册”：${OUTLINE_OUTPUT_FILE} 的一级根节点已经按招标文件原有评分层级确认。仅当多个评分条目在原文中具有同一个明确业务分组时，才映射到该分组对应的同一个 branch 并使用 score_item_level=2；原文没有明确业务分组时，每个评分条目各自对应一个一级根节点、一个 branch，并使用 score_item_level=1。不得根据语义或相邻关系推断分组，不得自行合并、拆分、遗漏或重排。target_title 基本保持评分条目标题，不得损失专业含义。
+    ? `4. 当前采用“技术文件独立成册”：${OUTLINE_OUTPUT_FILE} 的一级根节点已经按招标文件原有评分层级确认。仅当多个评分条目在原文中具有同一个明确业务分组时，才映射到该分组对应的同一个 branch 并使用 score_item_level=2；原文没有明确业务分组时，每个评分条目各自对应一个一级根节点、一个 branch，并使用 score_item_level=1。不得根据语义或相邻关系推断分组，不得自行合并、拆分、遗漏或重排。mapping 的 target_title 必须逐字使用对应 group.title；未经用户批准拆分时不得填写 additional_titles。
 5. detail_points 只提取评分条目中需要在正文回答的内容维度，例如“政策背景”“项目技术要求理解”；“科学合理、完整可行、内容清晰”“得 5 分/3 分/1 分”等不承载正文内容的评价等级、打分口径和形容词不得写入 detail_points。每个 detail_point 后续还要继续展开为可独立编写的正文小节。`
     : `4. 判断技术方案位于哪些目录分支，以及每个分支内评分项对应节点应统一处于哪个层级。不同分支可以使用不同层级，不预设必须是二级目录。优先选择 attr=技术且 content_mode=ai-generate 的一级目录；template-fill、point-to-point 和 other 是特殊处理叶子，不得作为普通技术方案分支展开，除非先向用户说明并取得调整批准。
 5. 默认每个评分项对应一个独立同层级节点，节点标题与评分大项基本一一对应；detail_points 用于后续生成更下级目录。`;
@@ -963,7 +918,7 @@ function createScorePlanningPrompt({ standaloneTechnical = false, hasRemoteKnowl
 如果技术评分信息中没有任何可用于技术方案目录规划的评分项，立即调用 report-failure，说明需要补充或重新解析技术评分信息；不要调用 ask-user 让用户接受空结果，不要生成空结构、编造评分项或删除、清空文件。
 3. ${scoreGroupInstruction}
 ${placementInstruction}
-6. 只有以下偏离需要用户批准：合并或拆分评分项、遗漏评分项对应节点、增加评分项中不存在的同层级大项、改变分支评分项目标层级，以及新增、删除、合并或调整用户已确认的一级目录。普通标题规范化和评分项下级目录扩展不需要询问。
+6. 只有以下偏离需要用户批准：合并或拆分评分项、遗漏评分项对应节点、增加评分项中不存在的同层级大项、改变分支评分项目标层级，以及新增、删除、合并或调整用户已确认的一级目录。评分项名称和上级评分分组名称不得规范化或改写；仅评分项下级目录扩展不需要询问。
 7. 存在至少一个有效评分项时，无论是否存在偏离，都必须调用一次 ask-user 让用户确认。没有偏离时，question 只说明你分析得出的技术方案所在目录和评分项所在层级，最多使用两句话且不要使用列表；存在偏离时，只补充实际需要用户批准的偏离及影响，存在多个实际确认事项时才使用简单 Markdown 分行列出。question、选项名称和选项说明不得复述、概括或改写本任务 Prompt 中的要求，只呈现你分析后确实需要用户确认的结论或不确定事项。第一项给出推荐方案；另提供一个名为“调整目录安排”等明确业务名称的选项并设置 custom=true，让用户说明希望调整的位置或层级，其他选项均设置 custom=false。
 8. 根据用户回答写入 ${SCORE_DIRECTORY_PLAN_FILE}。完整字段层级示例：${planExample}。branches 中每个分支填写唯一且后续保持不变的 branch_id，并用当前 ${OUTLINE_OUTPUT_FILE} 中尚未调整的一级目录编号和标题填写 root_id、root_title；统一填写 score_item_level，并让每个 requirement_id 在 mappings 中恰好出现一次。后续新增、重排或改名一级目录时，branch_id 仍用于稳定关联同一技术分支，不能随 root_id 改变；程序会在完整目录重新编号后同步 root_id 和 root_title。默认一一对应；经用户批准合并时，多个 mapping 可以使用相同 target_title；经用户批准拆分时才填写 mapping.additional_titles；合并或拆分时才填写 adjustment_note。extra_titles 必须位于根对象，经批准增加同层级大项时才写入条目，否则使用空数组。
 9. 默认锁定一级目录，allow_root_changes=false；只有用户明确批准一级目录调整时才设为 true。
@@ -1006,7 +961,7 @@ function createChildrenPrompt({ hasOriginalPlan, originalOnly, targetLeafCount, 
 1. ${branchInstruction}
 2. 以 ${TECHNICAL_SCORE_GROUPS_FILE} 为技术评分项权威清单，以 ${SCORE_DIRECTORY_PLAN_FILE} 为评分项与目录位置的权威规划。
 3. ${mappingInstruction} branch_id 是技术分支稳定标识：对应的最终一级目录必须保留同名 branch_id，即使一级目录新增、删除、改名、重排或重新编号也不得改变；非技术分支一级目录不要填写 branch_id。默认每个评分项形成一个独立节点；多个 mapping 使用相同 target_title 表示用户已批准合并，additional_titles 表示用户已批准将该评分项拆成多个同级节点。
-4. mappings 中的 target_title 是评分项对应节点标题，必须基本保持评分大项的专业表述；detail_points 主要用于生成其下级目录。
+4. mappings 中的 target_title 和 additional_titles 是评分项对应节点的已确认标题，必须逐字使用，不得同义替换、删词、缩写或进行措辞优化；标题专业化规则只适用于评分项以下的评分要点和正文小节。detail_points 主要用于生成这些下级目录。
 5. extra_titles 是用户已批准增加的同层级大项；除此之外不得自行增加技术评分项中不存在的同层级标题。
 6. “技术评分要求”只能作为评分标准、扣分口径、判定规则和目录说明约束，不能生成独立评分项节点。
 7. ${rootInstruction}
@@ -1079,13 +1034,13 @@ function createOutlineReviewPrompt({
     ? '静默修复不得改变 AI 生成叶子数量。'
     : '静默修复不得使 AI 生成叶子数量超出程序给出的合理范围。';
   const scoreTitleNormalizationRule = standaloneTechnical
-    ? `评分项标题规范化可设为 false，但必须同步修改 ${OUTLINE_OUTPUT_FILE} 中的评分节点标题和 ${SCORE_DIRECTORY_PLAN_FILE} 中对应 mapping 的 target_title 或 additional_titles，不得改变 requirement_id、映射关系、标题数量或目标层级。`
+    ? `评分项标题必须逐字保持技术评分信息.md 中的名称，不得修改 ${SCORE_DIRECTORY_PLAN_FILE} 中 mapping 的 target_title 或 additional_titles，也不得改写 ${OUTLINE_OUTPUT_FILE} 中对应的评分节点标题。标题或说明的专业化优化只允许用于评分项以下的评分要点和正文小节。`
     : `评分项映射节点的标题规范化不得静默执行；不得修改 ${SCORE_DIRECTORY_PLAN_FILE}，且不得改动与其 target_title 或 additional_titles 对应的目录节点标题。`;
   const scorePlanFixRule = standaloneTechnical
-    ? `静默修复不得改变评分项 requirement_id、映射关系、标题数量、目标层级和一级目录；按第 4 条同步规范化评分项标题不属于改变映射关系。`
+    ? `静默修复不得改变评分项 requirement_id、target_title、additional_titles、映射关系、标题数量、目标层级和一级目录。`
     : `静默修复不得改变评分项映射节点、目标层级和一级目录，也不得修改 ${SCORE_DIRECTORY_PLAN_FILE}。`;
   const scorePlanBoundaryRule = standaloneTechnical
-    ? `第 4 条的标题规范化同步不改变映射语义；只能在原 mapping 的 target_title 或原有 additional_titles 位置逐项改名，不得增删标题。`
+    ? `${SCORE_DIRECTORY_PLAN_FILE} 是已确认的只读规划，不得修改其中的 target_title、additional_titles 或其他字段。`
     : `本模式不开放评分规划标题同步，${SCORE_DIRECTORY_PLAN_FILE} 必须保持只读。`;
   const validationRule = standaloneTechnical
     ? `程序已为 ${OUTLINE_OUTPUT_FILE}、${SCORE_DIRECTORY_PLAN_FILE} 和 ${OUTLINE_REVIEW_FILE} 预置 Schema。分别调用 json-validation 校验，只传 file_path；校验失败后必须先修改对应文件，再重新校验。`
@@ -1116,7 +1071,7 @@ function createOutlineReviewPrompt({
 
 function createOutlineReviewCorrectionPrompt({ standaloneTechnical = false, attempt = 1 } = {}) {
   const scorePlanRule = standaloneTechnical
-    ? `评分项标题需要规范化时，只能同步修改 ${OUTLINE_OUTPUT_FILE} 对应节点与 ${SCORE_DIRECTORY_PLAN_FILE} 原 mapping 位置的 target_title 或既有 additional_titles 文本；不得改变评分映射、标题数量、层级或一级目录。`
+    ? `${SCORE_DIRECTORY_PLAN_FILE} 是已确认的只读规划；评分项映射节点标题必须逐字保持其 target_title 或 additional_titles，不得规范化或改写。只允许优化评分项以下的评分要点和正文小节。`
     : `${SCORE_DIRECTORY_PLAN_FILE} 保持只读，不得修改评分映射节点标题。`;
   return `这是目录最终审核后的第 ${attempt} 次自动复检修复。用户已经回答过审核问题，本阶段不得调用 ask-user，也不得重新解释或缩小用户已确认的修复范围。
 
@@ -1127,7 +1082,7 @@ function createOutlineReviewCorrectionPrompt({ standaloneTechnical = false, atte
 2. 逐项修复其余确定性问题，包括叶子数量、评分映射、评分层级展开、单子节点、非法内容模式和标题风格；不得改动已经通过的用户确认边界。
 3. ${scorePlanRule}
 4. 保留 ${OUTLINE_REVIEW_FILE} 中已有的 user_feedback，并更新 issues 和 summary，准确说明本次补充修复结果；不得把未修复问题描述为已完成。
-5. 覆盖写回 ${OUTLINE_OUTPUT_FILE} 和 ${OUTLINE_REVIEW_FILE}${standaloneTechnical ? `；只有发生允许的评分项标题同步时才写回 ${SCORE_DIRECTORY_PLAN_FILE}` : ''}。对实际写入的 JSON 文件分别调用 json-validation 校验，只传 file_path；校验失败后先修改再重新校验。`;
+5. 覆盖写回 ${OUTLINE_OUTPUT_FILE} 和 ${OUTLINE_REVIEW_FILE}，不得写回 ${SCORE_DIRECTORY_PLAN_FILE}。对实际写入的 JSON 文件分别调用 json-validation 校验，只传 file_path；校验失败后先修改再重新校验。`;
 }
 
 // 运行 V2 目录业务任务；开发者模式下一级目录确认后并行调度目录任务和独立模版提取任务。

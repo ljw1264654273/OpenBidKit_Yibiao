@@ -636,7 +636,7 @@ test('最终审核不对用户已接受的当前叶子数量重复询问', () =>
   assert.doesNotMatch(prompt, /不得使 AI 生成叶子数量超出程序给出的合理范围/);
 });
 
-test('最终审核允许同步规范化评分标题但不允许保留硬性失败目录', () => {
+test('最终审核禁止改写评分项标题且不允许保留硬性失败目录', () => {
   const prompt = createOutlineReviewPrompt({
     targetLeafCount: 20,
     actualLeafCount: 20,
@@ -644,12 +644,13 @@ test('最终审核允许同步规范化评分标题但不允许保留硬性失�
     standaloneTechnical: true,
   });
 
-  assert.match(prompt, /评分项标题规范化.*同步修改.*target_title/);
+  assert.match(prompt, /评分项标题必须逐字保持技术评分信息\.md 中的名称/);
+  assert.match(prompt, /不得修改.*target_title.*additional_titles/);
   assert.match(prompt, /确定性检查不通过.*不得提供“保留当前目录”/);
   assert.match(prompt, /user_refuse.*只能用于确定性检查已通过/);
 });
 
-test('评分规划复审只允许独立成册模式按原位置同步标题字段', () => {
+test('评分规划复审不得改写已确认的评分项标题', () => {
   const confirmedPlan = {
     allow_root_changes: false,
     branches: [{
@@ -670,16 +671,16 @@ test('评分规划复审只允许独立成册模式按原位置同步标题字�
   titleOnlyReview.branches[0].mappings[0].target_title = '项目理解';
   titleOnlyReview.branches[0].mappings[0].additional_titles = ['项目背景'];
 
-  assert.deepEqual(
-    mergeReviewedScoreDirectoryPlan(confirmedPlan, titleOnlyReview, { standaloneTechnical: true }),
-    titleOnlyReview,
+  assert.throws(
+    () => mergeReviewedScoreDirectoryPlan(confirmedPlan, titleOnlyReview, { standaloneTechnical: true }),
+    /不得修改已确认的评分规划/,
   );
 
   const tamperedReview = structuredClone(titleOnlyReview);
   tamperedReview.branches[0].mappings[0].requirement_id = 'R2';
   assert.throws(
     () => mergeReviewedScoreDirectoryPlan(confirmedPlan, tamperedReview, { standaloneTechnical: true }),
-    /只能修改评分项标题字段/,
+    /不得修改已确认的评分规划/,
   );
 
   assert.deepEqual(
@@ -710,8 +711,9 @@ test('独立成册模式只按招标文件原有评分层级生成一级目录',
   assert.match(prompt, /不得根据语义、相邻关系或所谓共同主题推断、合并/);
   assert.match(prompt, /本次一级目录必须依次且完整使用：项目理解、质量保证方案/);
   assert.match(prompt, /技术方案（40分）.*不是业务分组/);
-  assert.match(prompt, /名词性短语/);
-  assert.match(prompt, /“对”“根据”“依据”“结合”“围绕”“按照”“针对”/);
+  assert.match(prompt, /一级目录 title 必须逐字使用上述评分分组或评分项名称/);
+  assert.match(prompt, /“项目实施方案”不得缩写为“实施方案”/);
+  assert.doesNotMatch(prompt, /title 使用简洁的名词性短语/);
   assert.match(prompt, /不得加入商务、资信、投标函、授权委托书/);
 });
 
@@ -722,6 +724,9 @@ test('独立成册评分规划严格区分原文分组项和无分组项', () =>
   assert.match(prompt, /原文没有明确业务分组.*score_item_level=1/);
   assert.match(prompt, /不得根据语义或相邻关系推断分组/);
   assert.match(prompt, /"parent_group":"项目总体方案"/);
+  assert.match(prompt, /title 必须逐字复制技术评分信息\.md 中的评分项名称/);
+  assert.match(prompt, /“项目实施方案”不得改写为“实施方案”/);
+  assert.match(prompt, /target_title 必须逐字使用对应 group\.title/);
   assert.match(prompt, /不承载正文内容的评价等级|不得写入 detail_points/);
   assert.match(prompt, /项目实施过程中的重点、难点问题分析及解决措施/);
   assert.match(prompt, /重点问题分析及解决措施/);
@@ -741,6 +746,8 @@ test('独立成册按评分条目和评分要点递进生成可写正文小节',
   assert.match(prompt, /原文业务分组（如有）→ 评分条目 → 评分要点 → 可独立编写的正文小节/);
   assert.match(prompt, /无原文业务分组时从一级评分条目直接向下展开/);
   assert.match(prompt, /每个评分条目至少有一个评分要点继续展开/);
+  assert.match(prompt, /target_title 和 additional_titles.*必须逐字使用/);
+  assert.match(prompt, /标题专业化规则只适用于评分项以下/);
   assert.match(prompt, /标题使用简洁的名词性短语/);
   assert.match(prompt, /一个标题原则上只表达一个核心主题/);
   assert.match(prompt, /子目录继承父目录语境/);
