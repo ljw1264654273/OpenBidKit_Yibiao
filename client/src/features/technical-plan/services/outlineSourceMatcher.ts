@@ -7,6 +7,16 @@ export interface OutlineSourceRecordSet {
   scope: 'direct' | 'descendants' | 'none';
 }
 
+export interface OutlineSourceViewItem {
+  sourceId: string;
+  kind: 'requirement' | 'criterion' | 'response-point';
+  status: 'located' | 'unlocated';
+  sourceText: string;
+  contextBefore: string;
+  matchedText: string;
+  contextAfter: string;
+}
+
 export type LocatedOutlineSource =
   | {
       status: 'located';
@@ -84,6 +94,36 @@ export function locateOutlineSourceText(markdown: string, sourceText: string): L
   const matchStart = normalizedMarkdown.originalIndices[normalizedStart];
   const matchEnd = normalizedMarkdown.originalIndices[normalizedEnd - 1] + 1;
   return createLocatedSource(markdown, sourceText, matchStart, matchEnd);
+}
+
+export function buildOutlineSourceViewItems(
+  outline: OutlineItem[],
+  nodeId: string,
+  records: ScoreCoverageRecord[],
+  markdown: string,
+): { items: OutlineSourceViewItem[]; supplementKind?: 'professional' | 'user'; scope: OutlineSourceRecordSet['scope'] } {
+  const sourceRecords = collectOutlineSourceRecords(outline, nodeId, records);
+  const items = sourceRecords.tenderRecords.map((record) => {
+    const locatedSource = locateOutlineSourceText(markdown, record.source_text);
+    return {
+      sourceId: record.source_id,
+      kind: record.source_kind,
+      status: locatedSource.status,
+      sourceText: record.source_text,
+      contextBefore: locatedSource.status === 'located' ? locatedSource.contextBefore : '',
+      matchedText: locatedSource.status === 'located' ? locatedSource.matchedText : record.source_text,
+      contextAfter: locatedSource.status === 'located' ? locatedSource.contextAfter : '',
+    };
+  }) as OutlineSourceViewItem[];
+
+  const supplementRecord = items.length === 0 ? sourceRecords.supplementRecords[0] : undefined;
+  return {
+    items,
+    ...(supplementRecord
+      ? { supplementKind: supplementRecord.source_kind === 'professional-supplement' ? 'professional' as const : 'user' as const }
+      : {}),
+    scope: sourceRecords.scope,
+  };
 }
 
 function collectRecordsForNodeIds(records: ScoreCoverageRecord[], nodeIds: Set<string>) {

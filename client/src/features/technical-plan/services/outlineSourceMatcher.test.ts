@@ -5,7 +5,7 @@ import type { OutlineItem } from '../../../shared/types';
 import type { ScoreCoverageRecord } from '../types';
 // Node 的类型擦除测试运行器需要显式扩展名，产品代码仍使用标准无扩展名导入。
 // @ts-expect-error allowImportingTsExtensions 仅影响测试运行方式
-import { collectOutlineSourceRecords, locateOutlineSourceText } from './outlineSourceMatcher.ts';
+import { buildOutlineSourceViewItems, collectOutlineSourceRecords, locateOutlineSourceText } from './outlineSourceMatcher.ts';
 
 const outline: OutlineItem[] = [{
   id: '1',
@@ -212,4 +212,76 @@ test('未匹配来源只返回已保存文本且不猜测相近段落', () => {
   const result = locateOutlineSourceText('供应商应提交证明材料。', sourceText);
 
   assert.deepEqual(result, { status: 'unlocated', sourceText });
+});
+
+test('构建已定位的招标来源展示项', () => {
+  const markdown = '前置内容。\n\n供应商应提交资质证明。\n\n后置内容。';
+
+  const result = buildOutlineSourceViewItems(outline, '1.1', [record({
+    source_id: 'requirement-1',
+    source_kind: 'requirement',
+    source_text: '供应商应提交资质证明',
+  })], markdown);
+
+  assert.equal(result.scope, 'direct');
+  assert.equal(result.supplementKind, undefined);
+  assert.deepEqual(result.items, [{
+    sourceId: 'requirement-1',
+    kind: 'requirement',
+    status: 'located',
+    sourceText: '供应商应提交资质证明',
+    contextBefore: '前置内容。\n\n',
+    matchedText: '供应商应提交资质证明',
+    contextAfter: '。\n\n后置内容。',
+  }]);
+});
+
+test('未定位的招标来源展示项只保留存储原文', () => {
+  const result = buildOutlineSourceViewItems(outline, '1.1', [record({
+    source_id: 'criterion-1',
+    source_kind: 'criterion',
+    source_text: '完全不同的评分标准',
+  })], '正文没有对应内容。');
+
+  assert.deepEqual(result.items, [{
+    sourceId: 'criterion-1',
+    kind: 'criterion',
+    status: 'unlocated',
+    sourceText: '完全不同的评分标准',
+    contextBefore: '',
+    matchedText: '完全不同的评分标准',
+    contextAfter: '',
+  }]);
+});
+
+test('只有专业补充时返回专业补充状态且不返回招标来源', () => {
+  const result = buildOutlineSourceViewItems(outline, '1.1', [record({
+    source_id: 'professional-1',
+    source_kind: 'professional-supplement',
+    source_text: '行业建议',
+  })], '行业建议');
+
+  assert.deepEqual(result, { items: [], supplementKind: 'professional', scope: 'direct' });
+});
+
+test('只有用户补充时返回用户补充状态且不返回招标来源', () => {
+  const result = buildOutlineSourceViewItems(outline, '1.1', [record({
+    source_id: 'user-1',
+    source_kind: 'user-supplement',
+    source_text: '用户补充',
+  })], '用户补充');
+
+  assert.deepEqual(result, { items: [], supplementKind: 'user', scope: 'direct' });
+});
+
+test('父级目录展示后代招标来源并保留后代聚合范围', () => {
+  const result = buildOutlineSourceViewItems(outline, '1', [record({
+    source_id: 'child-response',
+    source_text: '子级响应要点',
+  })], '子级响应要点');
+
+  assert.equal(result.scope, 'descendants');
+  assert.equal(result.items.length, 1);
+  assert.equal(result.items[0].sourceId, 'child-response');
+  assert.equal(result.items[0].status, 'located');
 });
