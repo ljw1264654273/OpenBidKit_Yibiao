@@ -402,6 +402,10 @@ function OutlineEditPage({
   const [draggingItemId, setDraggingItemId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<DropTargetState | null>(null);
   const logListRef = useRef<HTMLDivElement | null>(null);
+  const sourceTabRef = useRef<HTMLButtonElement | null>(null);
+  const pendingSourceFocusRef = useRef(false);
+  const processTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const restoreProcessFocusRef = useRef(false);
   const sortIdMapRef = useRef<Record<string, string>>({});
   const sortingSelectedItemIdRef = useRef<string | null>(null);
   const sortingExpandedItemsRef = useRef<Set<string>>(new Set());
@@ -478,6 +482,16 @@ function OutlineEditPage({
   const wordControlRequiresRegeneration = Boolean(outlineData && !areWordControlOptionsEqual(normalizedDraftOptions, outlineWordControlSnapshot));
   const outlineModeRequiresRegeneration = Boolean(outlineData && !isExpansionWorkflow && draftOutlineMode !== outlineMode);
 
+  const showSourcePane = () => {
+    pendingSourceFocusRef.current = sourceTabRef.current?.offsetParent != null;
+    setActiveWorkspacePane('source');
+  };
+
+  const closeProcessPopover = () => {
+    restoreProcessFocusRef.current = true;
+    setProgressCollapsed(true);
+  };
+
   const initializeWordControlDraft = () => {
     setDraftMinimumWords(formatWordCountDraft(outlineWordControlOptions.minimumWords));
     setDraftMaximumWords(formatWordCountDraft(outlineWordControlOptions.maximumWords));
@@ -548,6 +562,20 @@ function OutlineEditPage({
       logListRef.current.scrollTop = logListRef.current.scrollHeight;
     }
   }, [progressCollapsed, progressLogs.length]);
+
+  useEffect(() => {
+    if (!pendingSourceFocusRef.current || activeWorkspacePane !== 'source') return;
+    pendingSourceFocusRef.current = false;
+    if (sourceTabRef.current?.offsetParent != null) {
+      sourceTabRef.current.focus();
+    }
+  }, [activeWorkspacePane]);
+
+  useEffect(() => {
+    if (!progressCollapsed || !restoreProcessFocusRef.current) return;
+    restoreProcessFocusRef.current = false;
+    processTriggerRef.current?.focus();
+  }, [progressCollapsed]);
 
   useEffect(() => {
     if (!generationDialogOpen) {
@@ -1331,6 +1359,7 @@ function OutlineEditPage({
         <div className="outline-command-actions">
           <button
             type="button"
+            ref={processTriggerRef}
             className="secondary-action outline-process-action"
             aria-expanded={!progressCollapsed}
             aria-controls="outline-process-popover"
@@ -1369,10 +1398,21 @@ function OutlineEditPage({
 
       <div className="outline-workspace-shell">
         {!progressCollapsed && (
-          <section id="outline-process-popover" className="outline-process-popover" aria-label="目录生成过程">
+          <section
+            id="outline-process-popover"
+            className="outline-process-popover"
+            aria-label="目录生成过程"
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                event.preventDefault();
+                event.stopPropagation();
+                closeProcessPopover();
+              }
+            }}
+          >
             <header className="outline-process-head">
               <strong>{aiStatusTitle}</strong>
-              <button type="button" className="text-button" onClick={() => setProgressCollapsed(true)}>收起</button>
+              <button type="button" className="text-button" onClick={closeProcessPopover}>收起</button>
             </header>
             <div className={`outline-process-summary${taskFailed ? ' is-error' : ''}`}>
               <p>{statusMessage}</p>
@@ -1404,7 +1444,7 @@ function OutlineEditPage({
             event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')[nextIndex]?.focus();
           }}
         >
-          <button type="button" role="tab" id="outline-source-tab" aria-controls="outline-source-panel" aria-selected={activeWorkspacePane === 'source'} tabIndex={activeWorkspacePane === 'source' ? 0 : -1} onClick={() => setActiveWorkspacePane('source')}>标书原文</button>
+          <button type="button" role="tab" ref={sourceTabRef} id="outline-source-tab" aria-controls="outline-source-panel" aria-selected={activeWorkspacePane === 'source'} tabIndex={activeWorkspacePane === 'source' ? 0 : -1} onClick={() => setActiveWorkspacePane('source')}>标书原文</button>
           <button type="button" role="tab" id="outline-tree-tab" aria-controls="outline-tree-panel" aria-selected={activeWorkspacePane === 'tree'} tabIndex={activeWorkspacePane === 'tree' ? 0 : -1} onClick={() => setActiveWorkspacePane('tree')}>目录结构</button>
           <button type="button" role="tab" id="outline-detail-tab" aria-controls="outline-detail-panel" aria-selected={activeWorkspacePane === 'detail'} tabIndex={activeWorkspacePane === 'detail' ? 0 : -1} onClick={() => setActiveWorkspacePane('detail')}>目录项详情</button>
         </div>
@@ -1532,7 +1572,7 @@ function OutlineEditPage({
                       type="button"
                       className="text-button outline-detail-source-action"
                       disabled={sorting}
-                      onClick={() => setActiveWorkspacePane('source')}
+                      onClick={showSourcePane}
                     >
                       已关联 {selectedSourceCount} 处原文
                     </button>

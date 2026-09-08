@@ -429,3 +429,26 @@ test('目录工作区按容器宽度保持横向三等分或单个标签面板',
   assert.match(cssSource, /\.outline-process-popover\s*\{[^}]*position:\s*absolute;/);
   assert.match(cssSource, /\.outline-workspace-shell \.outline-tree-item\.is-sorting\s*\{\s*grid-template-columns:\s*20px 44px minmax\(0, 1fr\);/);
 });
+
+test('详情跳转原文仅在标签实际可见时于渲染后交接焦点', () => {
+  const pageSource = readFileSync(new URL('../pages/OutlineEditPage.tsx', import.meta.url), 'utf8');
+
+  assert.match(pageSource, /const sourceTabRef = useRef<HTMLButtonElement \| null>\(null\)/);
+  assert.match(pageSource, /const pendingSourceFocusRef = useRef\(false\)/);
+  assert.match(pageSource, /const showSourcePane = \(\) => \{\s*pendingSourceFocusRef\.current = sourceTabRef\.current\?\.offsetParent != null;\s*setActiveWorkspacePane\('source'\);/);
+  assert.match(pageSource, /useEffect\(\(\) => \{\s*if \(!pendingSourceFocusRef\.current \|\| activeWorkspacePane !== 'source'\) return;\s*pendingSourceFocusRef\.current = false;\s*if \(sourceTabRef\.current\?\.offsetParent != null\) \{\s*sourceTabRef\.current\.focus\(\);\s*\}\s*\}, \[activeWorkspacePane\]\)/);
+  assert.match(pageSource, /ref=\{sourceTabRef\}[^>]*id="outline-source-tab"/);
+  assert.match(pageSource, /className="text-button outline-detail-source-action"\s*disabled=\{sorting\}\s*onClick=\{showSourcePane\}/);
+});
+
+test('过程浮层关闭和 Escape 统一在卸载后恢复触发按钮焦点', () => {
+  const pageSource = readFileSync(new URL('../pages/OutlineEditPage.tsx', import.meta.url), 'utf8');
+
+  assert.match(pageSource, /const processTriggerRef = useRef<HTMLButtonElement \| null>\(null\)/);
+  assert.match(pageSource, /const restoreProcessFocusRef = useRef\(false\)/);
+  assert.match(pageSource, /const closeProcessPopover = \(\) => \{\s*restoreProcessFocusRef\.current = true;\s*setProgressCollapsed\(true\);/);
+  assert.match(pageSource, /useEffect\(\(\) => \{\s*if \(!progressCollapsed \|\| !restoreProcessFocusRef\.current\) return;\s*restoreProcessFocusRef\.current = false;\s*processTriggerRef\.current\?\.focus\(\);\s*\}, \[progressCollapsed\]\)/);
+  assert.match(pageSource, /ref=\{processTriggerRef\}\s*className="secondary-action outline-process-action"/);
+  assert.match(pageSource, /if \(event\.key === 'Escape'\) \{\s*event\.preventDefault\(\);\s*event\.stopPropagation\(\);\s*closeProcessPopover\(\);/);
+  assert.match(pageSource, /onClick=\{closeProcessPopover\}>收起<\/button>/);
+});
