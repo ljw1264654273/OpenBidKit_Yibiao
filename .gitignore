@@ -35,6 +35,7 @@ client/vendor/openxml-tools/
 # 临时和缓存文件
 *.tmp
 *.temp
+.worktrees/
 .DS_Store
 Thumbs.db
 
