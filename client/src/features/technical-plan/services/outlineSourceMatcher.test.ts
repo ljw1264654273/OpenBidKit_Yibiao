@@ -449,6 +449,8 @@ test('过程浮层关闭和 Escape 统一在卸载后恢复触发按钮焦点', 
   assert.match(pageSource, /const closeProcessPopover = \(\) => \{\s*restoreProcessFocusRef\.current = true;\s*setProgressCollapsed\(true\);/);
   assert.match(pageSource, /useEffect\(\(\) => \{\s*if \(!progressCollapsed \|\| !restoreProcessFocusRef\.current\) return;\s*restoreProcessFocusRef\.current = false;\s*processTriggerRef\.current\?\.focus\(\);\s*\}, \[progressCollapsed\]\)/);
   assert.match(pageSource, /ref=\{processTriggerRef\}\s*className="secondary-action outline-process-action"/);
+  const processTrigger = pageSource.slice(pageSource.indexOf('ref={processTriggerRef}'), pageSource.indexOf('            过程'));
+  assert.match(processTrigger, /onKeyDown=\{\(event\) => \{\s*if \(event\.key === 'Escape' && !progressCollapsed\) \{[\s\S]*?closeProcessPopover\(\);/);
   assert.match(pageSource, /if \(event\.key === 'Escape'\) \{\s*event\.preventDefault\(\);\s*event\.stopPropagation\(\);\s*closeProcessPopover\(\);/);
   assert.match(pageSource, /onClick=\{closeProcessPopover\}>收起<\/button>/);
 });

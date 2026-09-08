@@ -1364,6 +1364,13 @@ function OutlineEditPage({
             aria-expanded={!progressCollapsed}
             aria-controls="outline-process-popover"
             onClick={() => setProgressCollapsed((collapsed) => !collapsed)}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape' && !progressCollapsed) {
+                event.preventDefault();
+                event.stopPropagation();
+                closeProcessPopover();
+              }
+            }}
           >
             过程
           </button>
