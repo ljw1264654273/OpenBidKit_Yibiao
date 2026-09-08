@@ -138,6 +138,24 @@ test('精确匹配优先保留原始文本范围', () => {
   assert.equal(result.matchedText, sourceText);
 });
 
+test('段落分隔符末尾的匹配仍保留相邻上下文和有效范围', () => {
+  const markdown = 'first\n\nsecond\n\nthird\n\nfourth\n\nfifth';
+  const sourceText = 'fourth\n';
+
+  const result = locateOutlineSourceText(markdown, sourceText);
+
+  assert.equal(result.status, 'located');
+  assert.ok(result.contextStart <= result.matchStart);
+  assert.ok(result.contextEnd >= result.matchEnd);
+  assert.equal(result.contextBefore.includes('third'), true);
+  assert.equal(result.contextAfter.includes('fifth'), true);
+  assert.equal(result.matchedText, markdown.slice(result.matchStart, result.matchEnd));
+  assert.equal(
+    result.contextBefore + result.matchedText + result.contextAfter,
+    markdown.slice(result.contextStart, result.contextEnd),
+  );
+});
+
 test('未匹配来源只返回已保存文本且不猜测相近段落', () => {
   const sourceText = '供应商应提交完全不同的证明材料';
 

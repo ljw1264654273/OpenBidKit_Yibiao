@@ -181,8 +181,8 @@ function createLocatedSource(
   matchEnd: number,
 ): LocatedOutlineSource {
   const paragraphs = findParagraphs(markdown);
-  const firstParagraphIndex = findParagraphIndex(paragraphs, matchStart);
-  const lastParagraphIndex = findParagraphIndex(paragraphs, Math.max(matchStart, matchEnd - 1));
+  const firstParagraphIndex = findParagraphIndex(paragraphs, matchStart, 'after');
+  const lastParagraphIndex = findParagraphIndex(paragraphs, Math.max(matchStart, matchEnd - 1), 'before');
   const contextStart = Math.max(
     paragraphs[Math.max(0, firstParagraphIndex - 1)]?.start ?? 0,
     matchStart - 600,
@@ -223,7 +223,25 @@ function findParagraphs(markdown: string): ParagraphRange[] {
   return paragraphs.length > 0 ? paragraphs : [{ start: 0, end: markdown.length }];
 }
 
-function findParagraphIndex(paragraphs: ParagraphRange[], position: number) {
+function findParagraphIndex(
+  paragraphs: ParagraphRange[],
+  position: number,
+  boundaryDirection: 'before' | 'after',
+) {
   const index = paragraphs.findIndex((paragraph) => position >= paragraph.start && position < paragraph.end);
-  return index >= 0 ? index : 0;
+  if (index >= 0) {
+    return index;
+  }
+
+  if (boundaryDirection === 'before') {
+    for (let paragraphIndex = paragraphs.length - 1; paragraphIndex >= 0; paragraphIndex -= 1) {
+      if (paragraphs[paragraphIndex].end <= position) {
+        return paragraphIndex;
+      }
+    }
+    return 0;
+  }
+
+  const nextParagraphIndex = paragraphs.findIndex((paragraph) => paragraph.start > position);
+  return nextParagraphIndex >= 0 ? nextParagraphIndex : paragraphs.length - 1;
 }
