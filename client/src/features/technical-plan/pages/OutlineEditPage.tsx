@@ -85,7 +85,7 @@ const technicalDocumentModeOptions: Array<{ value: Extract<OutlineMode, 'respons
   {
     value: 'standalone-technical',
     title: '技术文件独立成册',
-    description: '一级目录直接从技术评分大项开始，不再创建技术方案、项目管理方案、监理大纲、施工组织设计或技术标等外层总目录。',
+    description: '按招标文件原有技术评分层级生成一级目录：有明确业务分组时保留分组，无分组时每个评分项独立成章。',
   },
 ];
 
@@ -1263,7 +1263,7 @@ function OutlineEditPage({
         <div>
           <span className="section-kicker">STEP 03</span>
           <strong>目录生成</strong>
-          <p>{isExpansionWorkflow ? `当前原方案目录使用方式：${outlineExpansionModeLabels[outlineExpansionMode]}；参考知识库：${formatKnowledgeReferenceSummary(referenceKnowledgeDocumentIds.length, remoteKnowledgeScopes)}。` : `${outlineMode === 'standalone-technical' ? '技术评分大项直接作为一级目录' : '一级目录依据完整响应文件要求生成'}；参考知识库：${formatKnowledgeReferenceSummary(referenceKnowledgeDocumentIds.length, remoteKnowledgeScopes)}。`}</p>
+          <p>{isExpansionWorkflow ? `当前原方案目录使用方式：${outlineExpansionModeLabels[outlineExpansionMode]}；参考知识库：${formatKnowledgeReferenceSummary(referenceKnowledgeDocumentIds.length, remoteKnowledgeScopes)}。` : `${outlineMode === 'standalone-technical' ? '按招标文件原有技术评分层级生成一级目录' : '一级目录依据完整响应文件要求生成'}；参考知识库：${formatKnowledgeReferenceSummary(referenceKnowledgeDocumentIds.length, remoteKnowledgeScopes)}。`}</p>
         </div>
         <div className="outline-command-actions">
           {awaitingOutlineSelection && (

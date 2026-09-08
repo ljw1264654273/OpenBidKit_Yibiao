@@ -13,8 +13,114 @@ const {
   buildOutlineReviewContext,
   buildRemoteKnowledgeFile,
   mergeReviewedScoreDirectoryPlan,
+  deriveTechnicalScoreHierarchy,
+  assertStandaloneTechnicalRoots,
+  assertStandaloneScoreDirectoryPlan,
   runOutlineGenerationTaskV2,
 } = require('./outlineGenerationTaskV2.cjs');
+
+test('显式评分分组按原文层级生成一级目录', () => {
+  const groupNames = [
+    '项目总体方案',
+    '组织实施方案',
+    '人员配置情况',
+    '设施设备配备情况',
+    '应急预案及保障措施方案',
+    '服务承诺',
+    '安全管理措施',
+    '保密措施',
+  ];
+  const itemCounts = [3, 3, 4, 2, 2, 2, 2, 1];
+  const markdown = ['## 技术评分项'];
+  let itemNumber = 0;
+  groupNames.forEach((group, groupIndex) => {
+    for (let index = 0; index < itemCounts[groupIndex]; index += 1) {
+      itemNumber += 1;
+      markdown.push(`\n【评分项名称】：评分项${itemNumber}`);
+      markdown.push(`【上级评分分组】：${group}`);
+      markdown.push('【权重/分值】：1分');
+    }
+  });
+  markdown.push('\n## 技术评分要求\n没有提及');
+
+  const hierarchy = deriveTechnicalScoreHierarchy(markdown.join('\n'));
+
+  assert.equal(hierarchy.items.length, 19);
+  assert.deepEqual(hierarchy.rootTitles, groupNames);
+});
+
+test('没有业务分组时每个技术评分项独立作为一级目录', () => {
+  const itemTitles = [
+    '项目理解和总体工作思路',
+    '项目重难点及解决方案',
+    '项目权属调查方案',
+    '项目审核公示方案',
+    '项目数据标准化、建库方案',
+    '质量保证方案',
+    '进度安排及控制方案',
+    '安全生产方案',
+  ];
+  const markdown = `## 技术评分项\n\n${itemTitles.map((title) => `【评分项名称】：${title}\n【上级评分分组】：技术方案（40分）\n【权重/分值】：5分`).join('\n\n')}\n\n## 技术评分要求\n没有提及`;
+
+  const hierarchy = deriveTechnicalScoreHierarchy(markdown);
+
+  assert.deepEqual(hierarchy.rootTitles, itemTitles);
+  assert.ok(hierarchy.items.every((item) => item.parentGroup === null));
+  assert.throws(
+    () => assertStandaloneTechnicalRoots([
+      { title: '项目总体方案' },
+      { title: '权属调查与审核公示方案' },
+      { title: '数据标准化与建库方案' },
+      { title: '履约保障方案' },
+    ], hierarchy),
+    /必须严格对应原有评分层级.*期望 8 个.*实际 4 个/,
+  );
+});
+
+test('兼容旧版分组与评分项合并名称', () => {
+  const markdown = `## 技术评分项\n\n【评分项名称】：项目总体方案——对本项目的理解\n【权重/分值】：3分\n\n【评分项名称】：项目总体方案——总体方案设计\n【权重/分值】：4分\n\n【评分项名称】：服务承诺——售后服务承诺\n【权重/分值】：2分`;
+
+  const hierarchy = deriveTechnicalScoreHierarchy(markdown);
+
+  assert.deepEqual(hierarchy.rootTitles, ['项目总体方案', '服务承诺']);
+  assert.deepEqual(hierarchy.items.map((item) => item.title), ['对本项目的理解', '总体方案设计', '售后服务承诺']);
+});
+
+test('默认评分规划按显式分组使用二级且无分组项使用一级', () => {
+  const hierarchy = deriveTechnicalScoreHierarchy(`## 技术评分项
+
+【评分项名称】：项目理解
+【上级评分分组】：项目总体方案
+
+【评分项名称】：总体方案设计
+【上级评分分组】：项目总体方案
+
+【评分项名称】：质量保证方案
+【上级评分分组】：无`);
+  const roots = [{ id: '1', title: '项目总体方案' }, { id: '2', title: '质量保证方案' }];
+  const plan = {
+    allow_root_changes: false,
+    extra_titles: [],
+    branches: [
+      {
+        branch_id: 'B1', root_id: '1', root_title: '项目总体方案', score_item_level: 2,
+        mappings: [{ requirement_id: 'R1', target_title: '项目理解' }, { requirement_id: 'R2', target_title: '总体方案设计' }],
+      },
+      {
+        branch_id: 'B2', root_id: '2', root_title: '质量保证方案', score_item_level: 1,
+        mappings: [{ requirement_id: 'R3', target_title: '质量保证方案' }],
+      },
+    ],
+  };
+
+  assert.doesNotThrow(() => assertStandaloneScoreDirectoryPlan(plan, hierarchy, roots));
+  const wrongLevel = structuredClone(plan);
+  wrongLevel.branches[1].score_item_level = 2;
+  assert.throws(
+    () => assertStandaloneScoreDirectoryPlan(wrongLevel, hierarchy, roots),
+    /评分规划必须保持招标文件原有评分层级/,
+  );
+});
 
 test('目录字数目标使用可接受范围而不是精确叶子数', () => {
   assert.deepEqual(deriveAcceptableLeafRange(22, { soft: true }), { minimum: 19, maximum: 25 });
@@ -594,21 +700,28 @@ test('普通响应文件最终审核不得改写评分规划', () => {
   assert.doesNotMatch(prompt, /同步修改.*target_title/);
 });
 
-test('独立成册模式按人工标书结构聚合一级目录并精简标题', () => {
-  const prompt = createInitialPrompt('按响应文件要求生成。', { standaloneTechnical: true });
+test('独立成册模式只按招标文件原有评分层级生成一级目录', () => {
+  const prompt = createInitialPrompt('按响应文件要求生成。', {
+    standaloneTechnical: true,
+    expectedRootTitles: ['项目理解', '质量保证方案'],
+  });
 
-  assert.match(prompt, /合并单元格|共同上位主题/);
-  assert.match(prompt, /项目总体方案/);
+  assert.match(prompt, /没有明确业务分组时，每个技术评分项分别作为一级目录/);
+  assert.match(prompt, /不得根据语义、相邻关系或所谓共同主题推断、合并/);
+  assert.match(prompt, /本次一级目录必须依次且完整使用：项目理解、质量保证方案/);
+  assert.match(prompt, /技术方案（40分）.*不是业务分组/);
   assert.match(prompt, /名词性短语/);
   assert.match(prompt, /“对”“根据”“依据”“结合”“围绕”“按照”“针对”/);
   assert.match(prompt, /不得加入商务、资信、投标函、授权委托书/);
 });
 
-test('独立成册评分规划把评分条目放在业务一级目录之下', () => {
+test('独立成册评分规划严格区分原文分组项和无分组项', () => {
   const prompt = createScorePlanningPrompt({ standaloneTechnical: true });
 
-  assert.match(prompt, /score_item_level 原则上为 2/);
-  assert.match(prompt, /同一业务主题下的多个评分条目映射到同一个 branch/);
+  assert.match(prompt, /原文中具有同一个明确业务分组.*score_item_level=2/);
+  assert.match(prompt, /原文没有明确业务分组.*score_item_level=1/);
+  assert.match(prompt, /不得根据语义或相邻关系推断分组/);
+  assert.match(prompt, /"parent_group":"项目总体方案"/);
   assert.match(prompt, /不承载正文内容的评价等级|不得写入 detail_points/);
   assert.match(prompt, /项目实施过程中的重点、难点问题分析及解决措施/);
   assert.match(prompt, /重点问题分析及解决措施/);
@@ -625,7 +738,8 @@ test('独立成册按评分条目和评分要点递进生成可写正文小节',
     standaloneTechnical: true,
   });
 
-  assert.match(prompt, /一级业务主题 → 评分条目 → 评分要点 → 可独立编写的正文小节/);
+  assert.match(prompt, /原文业务分组（如有）→ 评分条目 → 评分要点 → 可独立编写的正文小节/);
+  assert.match(prompt, /无原文业务分组时从一级评分条目直接向下展开/);
   assert.match(prompt, /每个评分条目至少有一个评分要点继续展开/);
   assert.match(prompt, /标题使用简洁的名词性短语/);
   assert.match(prompt, /一个标题原则上只表达一个核心主题/);

@@ -84,11 +84,12 @@ const TECHNICAL_SCORE_GROUPS_SCHEMA = {
       minItems: 1,
       items: {
         type: 'object',
-        required: ['requirement_id', 'title', 'description', 'detail_points'],
+        required: ['requirement_id', 'title', 'parent_group', 'description', 'detail_points'],
         additionalProperties: false,
         properties: {
           requirement_id: { type: 'string', pattern: '^R[1-9]\\d*$' },
           title: { type: 'string', minLength: 1 },
+          parent_group: { type: ['string', 'null'] },
           description: { type: 'string', minLength: 1 },
           detail_points: {
             type: 'array',
@@ -756,6 +757,114 @@ function readJson(content, label) {
   }
 }
 
+function cleanScoreHierarchyTitle(value) {
+  return String(value || '')
+    .replace(/^[\s#*]+|[\s#*]+$/g, '')
+    .replace(/[（(]\s*\d+(?:\.\d+)?\s*(?:分|%)\s*[)）]\s*$/u, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function normalizeScoreHierarchyTitle(value) {
+  return cleanScoreHierarchyTitle(value).replace(/\s+/g, '');
+}
+
+function isMeaningfulScoreGroup(value) {
+  const title = normalizeScoreHierarchyTitle(value);
+  if (!title || /^(?:无|没有提及|未提及|无上级分组|无明确分组)$/u.test(title)) return false;
+  return !/^(?:技术方案|技术部分|技术评分|技术评分项|技术类|技术文件|技术标|评分标准|技术方案评分)$/u.test(title);
+}
+
+function deriveTechnicalScoreHierarchy(markdown) {
+  const technicalSection = String(markdown || '')
+    .split(/^##\s*技术评分项\s*$/mu)[1]
+    ?.split(/^##\s+/mu)[0] || '';
+  const blocks = technicalSection.split(/(?=(?:\*\*)?【评分项名称】\s*[：:])/u).slice(1);
+  const items = blocks.map((block) => {
+    const rawTitle = block.match(/【评分项名称】\s*[：:]\s*([^\r\n]+)/u)?.[1]?.trim() || '';
+    const rawParentGroup = block.match(/【上级评分分组】\s*[：:]\s*([^\r\n]+)/u)?.[1]?.trim() || '';
+    const legacyParts = rawParentGroup ? [] : rawTitle.split(/\s*(?:——|-->)\s*/u);
+    const legacyParentGroup = legacyParts.length > 1 ? legacyParts.shift() : '';
+    const itemTitle = legacyParts.length ? legacyParts.join('——') : rawTitle;
+    const parentGroup = isMeaningfulScoreGroup(rawParentGroup || legacyParentGroup)
+      ? cleanScoreHierarchyTitle(rawParentGroup || legacyParentGroup)
+      : null;
+    return {
+      title: cleanScoreHierarchyTitle(itemTitle),
+      parentGroup,
+      rootTitle: parentGroup || cleanScoreHierarchyTitle(itemTitle),
+    };
+  }).filter((item) => item.title && item.rootTitle);
+  const groupRootIndexes = new Map();
+  const rootTitles = [];
+  items.forEach((item) => {
+    if (!item.parentGroup) {
+      item.rootIndex = rootTitles.length;
+      rootTitles.push(item.rootTitle);
+      return;
+    }
+    const groupKey = normalizeScoreHierarchyTitle(item.parentGroup);
+    if (!groupRootIndexes.has(groupKey)) {
+      groupRootIndexes.set(groupKey, rootTitles.length);
+      rootTitles.push(item.parentGroup);
+    }
+    item.rootIndex = groupRootIndexes.get(groupKey);
+  });
+  return {
+    items,
+    rootTitles,
+  };
+}
+
+function assertStandaloneTechnicalRoots(roots, hierarchy) {
+  const expected = hierarchy?.rootTitles || [];
+  if (!expected.length) return;
+  const actual = (Array.isArray(roots) ? roots : []).map((root) => normalizeScoreHierarchyTitle(root?.title));
+  const matches = actual.length === expected.length
+    && actual.every((title, index) => title === normalizeScoreHierarchyTitle(expected[index]));
+  if (!matches) {
+    throw new Error(`独立技术文件一级目录必须严格对应原有评分层级并保持顺序：期望 ${expected.length} 个（${expected.join('、')}），实际 ${actual.length} 个（${actual.join('、')}）。不得推断、合并、遗漏或重排评分项。`);
+  }
+}
+
+function assertStandaloneScoreDirectoryPlan(plan, hierarchy, roots) {
+  const expectedRoots = hierarchy?.rootTitles || [];
+  if (!expectedRoots.length) return;
+  const rootTitles = (Array.isArray(roots) ? roots : []).map((root) => normalizeScoreHierarchyTitle(root?.title));
+  const rootsStillFollowSource = rootTitles.length === expectedRoots.length
+    && rootTitles.every((title, index) => title === normalizeScoreHierarchyTitle(expectedRoots[index]));
+  if (!rootsStillFollowSource) return;
+
+  const branches = Array.isArray(plan?.branches) ? plan.branches : [];
+  const hasApprovedAdjustment = plan?.allow_root_changes === true
+    || (Array.isArray(plan?.extra_titles) && plan.extra_titles.length > 0)
+    || branches.some((branch) => branch.mappings?.some((mapping) => (
+      String(mapping?.adjustment_note || '').trim()
+      || (Array.isArray(mapping?.additional_titles) && mapping.additional_titles.length > 0)
+    )));
+  if (hasApprovedAdjustment) return;
+
+  const valid = branches.length === expectedRoots.length && expectedRoots.every((rootTitle, rootIndex) => {
+    const root = roots[rootIndex];
+    const branch = branches[rootIndex];
+    const expectedItems = hierarchy.items
+      .map((item, itemIndex) => ({ ...item, requirementId: `R${itemIndex + 1}` }))
+      .filter((item) => item.rootIndex === rootIndex);
+    const expectedLevel = expectedItems.some((item) => item.parentGroup) ? 2 : 1;
+    const mappings = Array.isArray(branch?.mappings) ? branch.mappings : [];
+    const targetTitles = mappings.map((mapping) => normalizeScoreHierarchyTitle(mapping?.target_title));
+    return branch?.root_id === root?.id
+      && normalizeScoreHierarchyTitle(branch?.root_title) === normalizeScoreHierarchyTitle(rootTitle)
+      && branch?.score_item_level === expectedLevel
+      && mappings.length === expectedItems.length
+      && mappings.every((mapping, mappingIndex) => mapping?.requirement_id === expectedItems[mappingIndex].requirementId)
+      && new Set(targetTitles).size === targetTitles.length;
+  });
+  if (!valid) {
+    throw new Error('独立技术文件评分规划必须保持招标文件原有评分层级：明确分组下的评分项使用二级，无明确分组的评分项使用一级；不得自行合并、遗漏或重排。');
+  }
+}
+
 function normalizeReferenceDocumentIds(storedPlan) {
   const ids = storedPlan?.referenceKnowledgeDocumentIds || [];
   return Array.isArray(ids) ? [...new Set(ids.map((id) => String(id || '').trim()).filter(Boolean))] : [];
@@ -784,15 +893,15 @@ function buildRemoteKnowledgeFile(items = []) {
   };
 }
 
-function createInitialPrompt(taskInstruction, { standaloneTechnical = false, hasRemoteKnowledge = false } = {}) {
+function createInitialPrompt(taskInstruction, { standaloneTechnical = false, hasRemoteKnowledge = false, expectedRootTitles = [] } = {}) {
   const goal = standaloneTechnical
-    ? '我们的目标是按人工编制标书的专业结构，为单独装订的技术文件准备一级业务主题目录。'
+    ? '我们的目标是按招标文件原有技术评分层级，为单独装订的技术文件准备一级目录。'
     : '我们的目标是为编写响应文件/投标文件准备一级目录。';
   const modeRequirements = standaloneTechnical
     ? `6. 本模式只生成技术文件独立分册，attr 必须为“技术”，content_mode 必须为 ai-generate；不得加入商务、资信、投标函、授权委托书等非技术章节。
-7. 一级目录按评分表的业务分组生成：优先采用评分表合并单元格中的分类标题；材料未显式给出时，将具有共同上位主题的相邻评分条目归入简洁、专业的业务主题。示例：将“项目理解”“总体方案设计”“项目重难点及解决措施”归入“项目总体方案”，不要把每条评分描述都提升为一级目录，也不要增加不承载业务含义的“技术方案”“技术标”等空泛外壳。
+7. 一级目录只服从招标文件原有评分层级：存在明确且有业务含义的上级评分分组时，以该分组作为一级目录并保持原顺序；没有明确业务分组时，每个技术评分项分别作为一级目录。不得根据语义、相邻关系或所谓共同主题推断、合并、遗漏或重排评分项。“技术方案（40分）”“技术评分”“技术部分”“技术标”等通用类别或总分表头不是业务分组，不得作为合并依据。${expectedRootTitles.length ? ` 本次一级目录必须依次且完整使用：${expectedRootTitles.join('、')}。` : ''}
 8. title 使用简洁的名词性短语。去掉开头或结尾不承载业务含义的“对”“根据”“依据”“结合”“围绕”“按照”“针对”以及“进行说明”“进行阐述”“进行评审”“进行打分”等表达；保留“政策依据”“需求分析”“难点分析”“解决措施”等有专业含义的词。
-9. 完整结构示例：{"outline":[{"id":"1","title":"项目总体方案","description":"项目理解、总体设计与重难点响应","attr":"技术","content_mode":"ai-generate"},{"id":"2","title":"履约保障方案","description":"质量、进度和安全保障","attr":"技术","content_mode":"ai-generate"}]}。`
+9. 完整结构示例：{"outline":[{"id":"1","title":"组织实施方案","description":"招标文件原有业务分组","attr":"技术","content_mode":"ai-generate"},{"id":"2","title":"质量保证方案","description":"无上级业务分组的独立评分项","attr":"技术","content_mode":"ai-generate"}]}。示例只说明字段格式，实际标题、数量和顺序必须服从技术评分信息.md。`
     : `6. 每个一级目录当前都是叶子节点，必须根据它后续应采用的内容处理方式填写 content_mode：技术方案正文使用 ai-generate；需要从招标文件提取并套用表格或格式的商务、资信材料使用 template-fill；需要在全部正文完成并确定 Word 页码后回填的点对点应答表使用 point-to-point；无法归类的特殊内容使用 other，并在 content_mode_note 说明原因。
 7. 完整结构示例：{"outline":[{"id":"1","title":"技术方案","description":"技术方案目录说明","attr":"技术","content_mode":"ai-generate"},{"id":"2","title":"特殊资料","description":"特殊资料目录说明","attr":"其他","content_mode":"other","content_mode_note":"说明特殊处理原因"}]}。content_mode_note 只在 content_mode=other 且确有说明时填写。`;
   const finalStepNumber = standaloneTechnical ? 10 : 8;
@@ -836,15 +945,15 @@ function createLeafAllocationPrompt({ standaloneTechnical = false } = {}) {
 
 function createScorePlanningPrompt({ standaloneTechnical = false, hasRemoteKnowledge = false } = {}) {
   const scoreGroupInstruction = standaloneTechnical
-    ? `将评分条目写入 ${TECHNICAL_SCORE_GROUPS_FILE}，完整结构为 {"groups":[{"requirement_id":"R1","title":"项目理解","description":"项目理解评分关注内容","detail_points":["政策背景","项目技术要求理解"]}]}。根对象只能包含 groups；保持原顺序、专业术语和正文内容要点，requirement_id 使用连续的 R1、R2 格式。先剔除“根据投标人……进行打分”等评审话术外壳，title 使用简洁名词性短语，删除“对、根据、依据、结合、围绕、按照、针对”等无意义开头和“进行说明、进行阐述、进行评审、进行打分”等空泛结尾，但保留“政策依据、需求分析、难点分析、解决措施”等专业词。例如，将“根据投标人对本项目实施过程中的重点、难点问题分析及解决措施……进行打分”归纳为“项目实施过程中的重点、难点问题分析及解决措施”。若评分项同时要求重点、难点分析及解决措施，应按问题类别组织为“重点问题分析及解决措施”“难点问题分析及解决措施”，并在材料支持时补充“其他具体问题分析与应对”“合理化建议”；不要机械拆成“问题分析”和“解决措施与对策”。`
-    : `将评分大项写入 ${TECHNICAL_SCORE_GROUPS_FILE}，完整结构为 {"groups":[{"requirement_id":"R1","title":"评分大项","description":"关注内容","detail_points":["关键评分细项"]}]}。根对象只能包含 groups；保持原顺序、专业术语和关键评分细项，requirement_id 使用连续的 R1、R2 格式。`;
+    ? `将评分条目写入 ${TECHNICAL_SCORE_GROUPS_FILE}，完整结构为 {"groups":[{"requirement_id":"R1","title":"项目理解","parent_group":"项目总体方案","description":"项目理解评分关注内容","detail_points":["政策背景","项目技术要求理解"]}]}。parent_group 只能填写技术评分信息.md 中明确记录且有业务含义的“上级评分分组”，无分组或仅有“技术方案（40分）”等通用容器时填写 null，绝不推断。根对象只能包含 groups；保持原顺序、专业术语和正文内容要点，requirement_id 使用连续的 R1、R2 格式。先剔除“根据投标人……进行打分”等评审话术外壳，title 使用简洁名词性短语，删除“对、根据、依据、结合、围绕、按照、针对”等无意义开头和“进行说明、进行阐述、进行评审、进行打分”等空泛结尾，但保留“政策依据、需求分析、难点分析、解决措施”等专业词。例如，将“根据投标人对本项目实施过程中的重点、难点问题分析及解决措施……进行打分”归纳为“项目实施过程中的重点、难点问题分析及解决措施”。若评分项同时要求重点、难点分析及解决措施，应按问题类别组织为“重点问题分析及解决措施”“难点问题分析及解决措施”，并在材料支持时补充“其他具体问题分析与应对”“合理化建议”；不要机械拆成“问题分析”和“解决措施与对策”。`
+    : `将评分大项写入 ${TECHNICAL_SCORE_GROUPS_FILE}，完整结构为 {"groups":[{"requirement_id":"R1","title":"评分大项","parent_group":null,"description":"关注内容","detail_points":["关键评分细项"]}]}。根对象只能包含 groups；保持原顺序、专业术语和关键评分细项，requirement_id 使用连续的 R1、R2 格式。`;
   const placementInstruction = standaloneTechnical
-    ? `4. 当前采用“技术文件独立成册”：${OUTLINE_OUTPUT_FILE} 的一级根节点是用户确认的业务主题。将同一业务主题下的多个评分条目映射到同一个 branch，score_item_level 原则上为 2；只有某个一级根节点本身就是无法再归组的独立评分条目时才使用 1，且不得超过 4，以便为评分要点和正文小节保留层级空间。target_title 使用精简后的评分条目标题，例如将“对本项目的理解”写为“项目理解”，但不得损失专业含义。
+    ? `4. 当前采用“技术文件独立成册”：${OUTLINE_OUTPUT_FILE} 的一级根节点已经按招标文件原有评分层级确认。仅当多个评分条目在原文中具有同一个明确业务分组时，才映射到该分组对应的同一个 branch 并使用 score_item_level=2；原文没有明确业务分组时，每个评分条目各自对应一个一级根节点、一个 branch，并使用 score_item_level=1。不得根据语义或相邻关系推断分组，不得自行合并、拆分、遗漏或重排。target_title 基本保持评分条目标题，不得损失专业含义。
 5. detail_points 只提取评分条目中需要在正文回答的内容维度，例如“政策背景”“项目技术要求理解”；“科学合理、完整可行、内容清晰”“得 5 分/3 分/1 分”等不承载正文内容的评价等级、打分口径和形容词不得写入 detail_points。每个 detail_point 后续还要继续展开为可独立编写的正文小节。`
     : `4. 判断技术方案位于哪些目录分支，以及每个分支内评分项对应节点应统一处于哪个层级。不同分支可以使用不同层级，不预设必须是二级目录。优先选择 attr=技术且 content_mode=ai-generate 的一级目录；template-fill、point-to-point 和 other 是特殊处理叶子，不得作为普通技术方案分支展开，除非先向用户说明并取得调整批准。
 5. 默认每个评分项对应一个独立同层级节点，节点标题与评分大项基本一一对应；detail_points 用于后续生成更下级目录。`;
   const planExample = standaloneTechnical
-    ? `{"branches":[{"branch_id":"B1","root_id":"1","root_title":"项目总体方案","score_item_level":2,"mappings":[{"requirement_id":"R1","target_title":"项目理解"},{"requirement_id":"R2","target_title":"总体方案设计"},{"requirement_id":"R3","target_title":"项目重难点及解决措施"}]}],"extra_titles":[],"allow_root_changes":false}`
+    ? `{"branches":[{"branch_id":"B1","root_id":"1","root_title":"项目总体方案","score_item_level":2,"mappings":[{"requirement_id":"R1","target_title":"项目理解"},{"requirement_id":"R2","target_title":"总体方案设计"}]},{"branch_id":"B2","root_id":"2","root_title":"质量保证方案","score_item_level":1,"mappings":[{"requirement_id":"R3","target_title":"质量保证方案"}]}],"extra_titles":[],"allow_root_changes":false}`
     : `{"branches":[{"branch_id":"B1","root_id":"2","root_title":"技术方案","score_item_level":2,"mappings":[{"requirement_id":"R1","target_title":"评分大项目录标题","additional_titles":["经批准拆分出的同级标题"],"adjustment_note":"用户批准的调整说明"}]}],"extra_titles":[{"branch_id":"B1","title":"经批准增加的同层级标题","reason":"增加原因"}],"allow_root_changes":false}`;
   return `用户已经确认最终保留的一级目录，${OUTLINE_OUTPUT_FILE} 已由程序重新整理并编号。工作区也已加入技术评分信息和用户选择的参考资料。${hasRemoteKnowledge ? `\n\n${REMOTE_REFERENCE_RULE}` : ''}
 
@@ -877,7 +986,7 @@ function createChildrenPrompt({ hasOriginalPlan, originalOnly, targetLeafCount, 
     ? `用户已批准 ${SCORE_DIRECTORY_PLAN_FILE} 中记录的一级目录调整，只能按该规划进行必要修改并重新编号。`
     : '一级目录的数量、顺序、id、title、description、attr 均已由用户确认，必须保持不变；未扩展为父节点的一级目录还必须保留其 content_mode。';
   const mappingInstruction = standaloneTechnical
-    ? '按照每个 branch 的 score_item_level，把评分条目放入用户确认的一级业务主题之下；同一业务主题可以包含多个同层级评分条目。评分条目下先生成评分要点，评分要点再继续展开为可独立编写的正文小节。'
+    ? '严格按照每个 branch 的 score_item_level 放置评分条目：有明确业务分组时，一级目录是原文分组、评分条目位于其下；无明确业务分组时，一级目录本身就是评分条目。评分条目下先生成评分要点，评分要点再继续展开为可独立编写的正文小节。'
     : '每个 branch 的 mappings 必须在该分支的 score_item_level 层级生成对应节点。';
   const standaloneLeafInstruction = standaloneTechnical
     ? '每个评分条目至少生成两个评分要点；宽泛评分要点必须继续拆成至少两个可写正文小节，内容单一、边界清楚的评分要点可以直接作为正文叶子，但每个评分条目至少有一个评分要点继续展开。确有更复杂内容时继续动态展开到五级或六级，不要求所有分支深度一致。'
@@ -886,7 +995,7 @@ function createChildrenPrompt({ hasOriginalPlan, originalOnly, targetLeafCount, 
     ? 'title 只写纯标题，不包含章节编号或 Markdown 标记；标题使用简洁的名词性短语。一个标题原则上只表达一个核心主题；可以独立编写的多个对象优先拆成同级节点，不得批量压缩为“甲与乙”“甲及乙”或“甲、乙”式标题。子目录继承父目录语境，不重复添加父级已明确的“理解”“分析”“措施”“要求”等后缀；例如“项目技术要求理解”下应优先生成“采购内容”和“实施范围”，而不是“采购内容与实施范围理解”。固定术语、不可拆分的业务关系或确实需要共同论述时可保留连接词。去掉开头或结尾不承载业务含义的“对”“根据”“依据”“结合”“围绕”“按照”“针对”以及“进行说明”“进行阐述”“进行评审”“进行打分”等表达；保留“政策依据”“需求分析”“难点分析”“解决措施”“结合部施工”等有专业含义的词。'
     : 'title 只写纯标题，不包含章节编号或 Markdown 标记。';
   const professionalStructureInstruction = standaloneTechnical
-    ? '独立技术文件遵循“一级业务主题 → 评分条目 → 评分要点 → 可独立编写的正文小节”的递进结构。宽泛的“政策背景”“工作思路”“技术要求理解”等评分要点必须结合材料继续展开；内容单一且边界清楚的要点可以直接编写正文。每个评分条目至少有一个评分要点继续展开，直到末级节点主题边界清楚。'
+    ? '独立技术文件遵循“原文业务分组（如有）→ 评分条目 → 评分要点 → 可独立编写的正文小节”的递进结构。无原文业务分组时从一级评分条目直接向下展开。宽泛的“政策背景”“工作思路”“技术要求理解”等评分要点必须结合材料继续展开；内容单一且边界清楚的要点可以直接编写正文。每个评分条目至少有一个评分要点继续展开，直到末级节点主题边界清楚。'
     : '按照评分项目录规划生成必要层级，不额外套用独立成册的四层结构。';
   const outlineExample = standaloneTechnical
     ? `{"outline":[{"id":"1","title":"项目总体方案","description":"总体方案业务主题","attr":"技术","branch_id":"B1","children":[{"id":"1.1","title":"项目理解","description":"项目理解评分条目","children":[{"id":"1.1.1","title":"政策背景","description":"政策背景评分要点","children":[{"id":"1.1.1.1","title":"土地承包经营历史沿革","description":"历史沿革正文小节","content_mode":"ai-generate"},{"id":"1.1.1.2","title":"国家政策","description":"国家政策正文小节","content_mode":"ai-generate"}]},{"id":"1.1.2","title":"项目技术要求理解","description":"技术要求评分要点","children":[{"id":"1.1.2.1","title":"项目基本情况","description":"项目情况正文小节","content_mode":"ai-generate"},{"id":"1.1.2.2","title":"采购内容","description":"采购内容正文小节","content_mode":"ai-generate"}]}]}]}]}`
@@ -960,7 +1069,7 @@ function createOutlineReviewPrompt({
     : '一级目录已经由用户确认，数量、顺序、标题、描述和属性不得修改。';
   const standaloneReviewDimensions = standaloneTechnical
     ? `
-- 递进展开：独立技术文件应遵循“一级业务主题 → 评分条目 → 评分要点 → 可独立编写的正文小节”。评分条目至少包含两个评分要点，宽泛评分要点必须继续拆成正文小节；每个评分条目至少有一个评分要点继续展开，复杂内容可以继续加深。
+- 递进展开：独立技术文件应遵循“原文业务分组（如有）→ 评分条目 → 评分要点 → 可独立编写的正文小节”；无原文业务分组时从一级评分条目直接向下展开。评分条目至少包含两个评分要点，宽泛评分要点必须继续拆成正文小节；每个评分条目至少有一个评分要点继续展开，复杂内容可以继续加深。
 - 标题精简：标题使用名词性短语，一个标题只表达一个核心主题，子目录不重复父级语义。不得在同一组下机械重复使用“甲与乙”式标题，但固定术语和确需合并论述的标题不应机械拆分。删除不承载业务含义的“对、根据、依据、结合、围绕、按照、针对”等开头和“进行说明、进行阐述、进行评审、进行打分”等结尾，但保留“政策依据、需求分析、难点分析、解决措施、结合部施工”等专业词。`
     : '';
   const leafConfirmationRule = leafCountAccepted
@@ -1026,6 +1135,9 @@ async function runOutlineGenerationTaskV2({ aiService, agentService, ordinaryAge
   const storedPlan = workspaceStore.loadTechnicalPlan() || {};
   const restoringOutlineSelection = payload?.agent_resume?.phase === 'outline-selection';
   const standaloneTechnical = storedPlan.outlineMode === 'standalone-technical';
+  const technicalScoreHierarchy = standaloneTechnical
+    ? deriveTechnicalScoreHierarchy(storedPlan.techRequirements || '')
+    : { items: [], rootTitles: [] };
   const hasOriginalPlan = Boolean(storedPlan.originalPlanFile);
   const originalOnly = hasOriginalPlan && storedPlan.outlineExpansionMode === 'original-only';
   const originalPlan = hasOriginalPlan ? workspaceStore.readOriginalPlanMarkdown() : '';
@@ -1056,7 +1168,7 @@ async function runOutlineGenerationTaskV2({ aiService, agentService, ordinaryAge
       ...(hasOriginalPlan ? [{ path: '原方案.md', content: originalPlan }] : []),
     ];
     taskInstruction = standaloneTechnical
-      ? '严格按照技术评分信息.md 组织技术方案独立分册。评分条目原文、顺序和数量是后续评分条目层的权威依据；一级目录优先采用评分表中的业务分组，未显式给出时按相邻评分条目的共同业务主题归组。响应文件要求.md 只提供装订和响应约束，项目概述.md 仅用于理解背景和术语，原方案.md 仅用于参考下级标题表达。'
+      ? '严格按照技术评分信息.md 组织技术方案独立分册。评分条目原文、顺序和数量是后续评分条目层的权威依据；一级目录只采用原文明确且有业务含义的上级评分分组，未显式分组时每个评分项分别作为一级目录，绝不按语义或相邻关系推断合并。响应文件要求.md 只提供装订和响应约束，项目概述.md 仅用于理解背景和术语，原方案.md 仅用于参考下级标题表达。'
       : hasOriginalPlan
         ? '严格按照响应文件要求.md 组织一级目录，它是目录结构和标题来源的唯一依据。项目概述.md 仅用于理解背景和术语，不得据此新增一级目录；原方案.md 仅用于参考标题表达。'
         : '严格按照响应文件要求.md 组织一级目录，它是目录结构和标题来源的唯一依据。项目概述.md 仅用于理解背景和术语，不得据此新增一级目录。';
@@ -1264,7 +1376,10 @@ async function runOutlineGenerationTaskV2({ aiService, agentService, ordinaryAge
     const initialResult = await agentService.runTask({
       task_id: task.task_id,
       title: '技术方案一级目录生成',
-      prompt: createInitialPrompt(taskInstruction, { standaloneTechnical }),
+      prompt: createInitialPrompt(taskInstruction, {
+        standaloneTechnical,
+        expectedRootTitles: technicalScoreHierarchy.rootTitles,
+      }),
       output_file: OUTLINE_OUTPUT_FILE,
       files: initialFiles,
       signal: taskControl.signal,
@@ -1281,6 +1396,7 @@ async function runOutlineGenerationTaskV2({ aiService, agentService, ordinaryAge
     });
     const generated = readJson(initialResult.output_content, OUTLINE_OUTPUT_FILE);
     const items = generated.outline || [];
+    if (standaloneTechnical) assertStandaloneTechnicalRoots(items, technicalScoreHierarchy);
     const defaultSelectedIds = items.filter((item) => item.attr === '技术').map((item) => item.id);
     const selection = { items, selected_ids: defaultSelectedIds, confirmed: false };
     const waitingMessage = '一级目录已生成，等待用户确认';
@@ -1473,6 +1589,9 @@ async function runOutlineGenerationTaskV2({ aiService, agentService, ordinaryAge
 
       if (meta.workflow_stage === 'score-planning') {
         scoreDirectoryPlan = readJson(await meta.readFile(SCORE_DIRECTORY_PLAN_FILE), SCORE_DIRECTORY_PLAN_FILE);
+        if (standaloneTechnical) {
+          assertStandaloneScoreDirectoryPlan(scoreDirectoryPlan, technicalScoreHierarchy, lockedRoots);
+        }
         lockedRoots = attachBranchIdsToRoots(lockedRoots, scoreDirectoryPlan);
         technicalBranches = scoreDirectoryPlan.branches.map((branch) => ({
           branch_id: branch.branch_id,
@@ -1729,4 +1848,7 @@ module.exports = {
   buildOutlineReviewContext,
   buildRemoteKnowledgeFile,
   mergeReviewedScoreDirectoryPlan,
+  deriveTechnicalScoreHierarchy,
+  assertStandaloneTechnicalRoots,
+  assertStandaloneScoreDirectoryPlan,
 };
