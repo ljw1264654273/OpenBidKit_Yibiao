@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import type { OutlineItem } from '../../../shared/types';
@@ -284,4 +285,36 @@ test('父级目录展示后代招标来源并保留后代聚合范围', () => {
   assert.equal(result.items.length, 1);
   assert.equal(result.items[0].sourceId, 'child-response');
   assert.equal(result.items[0].status, 'located');
+});
+
+test('多条来源同时匹配时保留精确、空白归一化和未定位语义', () => {
+  const markdown = '第一段。\n\n供应商应提供  有效\n\n资质证明。\n\n第三段。';
+  const result = buildOutlineSourceViewItems(outline, '1.1', [
+    record({ source_id: 'exact', source_kind: 'requirement', source_text: '第一段' }),
+    record({ source_id: 'normalized', source_kind: 'criterion', source_text: '供应商应提供 有效 资质证明' }),
+    record({ source_id: 'missing', source_text: '不存在的响应要点' }),
+  ], markdown);
+
+  assert.deepEqual(result.items.map((item) => ({
+    sourceId: item.sourceId,
+    status: item.status,
+    matchedText: item.matchedText,
+  })), [
+    { sourceId: 'exact', status: 'located', matchedText: '第一段' },
+    { sourceId: 'normalized', status: 'located', matchedText: '供应商应提供  有效\n\n资质证明' },
+    { sourceId: 'missing', status: 'unlocated', matchedText: '不存在的响应要点' },
+  ]);
+});
+
+test('原文面板数据变更只通过单一 reset effect 回到第一处', () => {
+  const panelPath = new URL('../components/TenderSourcePanel.tsx', import.meta.url);
+  const panelSource = readFileSync(panelPath, 'utf8');
+
+  assert.doesNotMatch(panelSource, /coverageSignature/);
+  assert.doesNotMatch(panelSource, /if \(activeIndex !== safeActiveIndex\)/);
+  assert.match(panelSource, /const selectedItemId = selectedItem\?\.id;/);
+  assert.match(
+    panelSource,
+    /useEffect\(\(\) => \{\s*setActiveIndex\(0\);\s*\}, \[coverageRecords, markdown, selectedItemId\]\);/,
+  );
 });

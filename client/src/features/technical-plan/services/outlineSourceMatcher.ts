@@ -74,26 +74,7 @@ export function collectOutlineSourceRecords(
 }
 
 export function locateOutlineSourceText(markdown: string, sourceText: string): LocatedOutlineSource {
-  if (!sourceText) {
-    return { status: 'unlocated', sourceText };
-  }
-
-  const exactStart = markdown.indexOf(sourceText);
-  if (exactStart >= 0) {
-    return createLocatedSource(markdown, sourceText, exactStart, exactStart + sourceText.length);
-  }
-
-  const normalizedMarkdown = normalizeWhitespace(markdown);
-  const normalizedSource = normalizeWhitespace(sourceText).text;
-  const normalizedStart = normalizedMarkdown.text.indexOf(normalizedSource);
-  if (normalizedStart < 0 || !normalizedSource) {
-    return { status: 'unlocated', sourceText };
-  }
-
-  const normalizedEnd = normalizedStart + normalizedSource.length;
-  const matchStart = normalizedMarkdown.originalIndices[normalizedStart];
-  const matchEnd = normalizedMarkdown.originalIndices[normalizedEnd - 1] + 1;
-  return createLocatedSource(markdown, sourceText, matchStart, matchEnd);
+  return createOutlineSourceLocator(markdown)(sourceText);
 }
 
 export function buildOutlineSourceViewItems(
@@ -103,8 +84,9 @@ export function buildOutlineSourceViewItems(
   markdown: string,
 ): { items: OutlineSourceViewItem[]; supplementKind?: 'professional' | 'user'; scope: OutlineSourceRecordSet['scope'] } {
   const sourceRecords = collectOutlineSourceRecords(outline, nodeId, records);
+  const locateSourceText = createOutlineSourceLocator(markdown);
   const items = sourceRecords.tenderRecords.map((record) => {
-    const locatedSource = locateOutlineSourceText(markdown, record.source_text);
+    const locatedSource = locateSourceText(record.source_text);
     return {
       sourceId: record.source_id,
       kind: record.source_kind,
@@ -214,13 +196,56 @@ function normalizeWhitespace(text: string): NormalizedText {
   return { text: characters.join(''), originalIndices };
 }
 
+function createOutlineSourceLocator(markdown: string) {
+  let normalizedMarkdown: NormalizedText | undefined;
+  let paragraphs: ParagraphRange[] | undefined;
+  const getNormalizedMarkdown = () => {
+    if (!normalizedMarkdown) {
+      normalizedMarkdown = normalizeWhitespace(markdown);
+    }
+    return normalizedMarkdown;
+  };
+  const getParagraphs = () => {
+    if (!paragraphs) {
+      paragraphs = findParagraphs(markdown);
+    }
+    return paragraphs;
+  };
+
+  return (sourceText: string): LocatedOutlineSource => {
+    if (!sourceText) {
+      return { status: 'unlocated', sourceText };
+    }
+
+    const exactStart = markdown.indexOf(sourceText);
+    if (exactStart >= 0) {
+      return createLocatedSource(markdown, sourceText, exactStart, exactStart + sourceText.length, getParagraphs());
+    }
+
+    const normalizedSource = normalizeWhitespace(sourceText).text;
+    if (!normalizedSource) {
+      return { status: 'unlocated', sourceText };
+    }
+    const normalizedStart = getNormalizedMarkdown().text.indexOf(normalizedSource);
+    if (normalizedStart < 0) {
+      return { status: 'unlocated', sourceText };
+    }
+
+    const normalizedEnd = normalizedStart + normalizedSource.length;
+    const normalized = getNormalizedMarkdown();
+    const matchStart = normalized.originalIndices[normalizedStart];
+    const matchEnd = normalized.originalIndices[normalizedEnd - 1] + 1;
+    return createLocatedSource(markdown, sourceText, matchStart, matchEnd, getParagraphs());
+  };
+}
+
 function createLocatedSource(
   markdown: string,
   sourceText: string,
   matchStart: number,
   matchEnd: number,
+  paragraphs: ParagraphRange[],
 ): LocatedOutlineSource {
-  const paragraphs = findParagraphs(markdown);
   const firstParagraphIndex = findParagraphIndex(paragraphs, matchStart, 'after');
   const lastParagraphIndex = findParagraphIndex(paragraphs, Math.max(matchStart, matchEnd - 1), 'before');
   const adjacentContextStart = Math.max(

@@ -34,12 +34,12 @@ function TenderSourcePanel({
   onRetry,
 }: TenderSourcePanelProps) {
   const [activeIndex, setActiveIndex] = useState(0);
-  const coverageSignature = JSON.stringify(coverageRecords);
+  const selectedItemId = selectedItem?.id;
   const viewModel = useMemo(
-    () => selectedItem
-      ? buildOutlineSourceViewItems(outline, selectedItem.id, coverageRecords, markdown)
+    () => selectedItemId
+      ? buildOutlineSourceViewItems(outline, selectedItemId, coverageRecords, markdown)
       : { items: [], scope: 'none' as const },
-    [coverageRecords, markdown, outline, selectedItem],
+    [coverageRecords, markdown, outline, selectedItemId],
   );
   const itemCount = viewModel.items.length;
   const safeActiveIndex = itemCount > 0 ? Math.min(activeIndex, itemCount - 1) : 0;
@@ -49,13 +49,7 @@ function TenderSourcePanel({
 
   useEffect(() => {
     setActiveIndex(0);
-  }, [coverageRecords, coverageSignature, markdown, selectedItem?.id]);
-
-  useEffect(() => {
-    if (activeIndex !== safeActiveIndex) {
-      setActiveIndex(safeActiveIndex);
-    }
-  }, [activeIndex, safeActiveIndex]);
+  }, [coverageRecords, markdown, selectedItemId]);
 
   return (
     <section className="outline-source-panel" aria-label="标书原文">
