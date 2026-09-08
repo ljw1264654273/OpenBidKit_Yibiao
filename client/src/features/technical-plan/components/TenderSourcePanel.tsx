@@ -137,18 +137,18 @@ function TenderSourcePanel({
           </div>
         ) : activeItem.status === 'unlocated' ? (
           <article className="outline-source-panel-source is-unlocated">
-            <span className="outline-source-panel-source-kind">{sourceKindLabels[activeItem.kind]}</span>
             <p>评分原文，未定位到正文上下文</p>
             <div className="outline-source-panel-source-text">{activeItem.sourceText}</div>
+            <span className="outline-source-panel-source-kind">{sourceKindLabels[activeItem.kind]}</span>
           </article>
         ) : (
           <article className="outline-source-panel-source">
-            <span className="outline-source-panel-source-kind">{sourceKindLabels[activeItem.kind]}</span>
             <div className="outline-source-panel-source-text">
               <span>{activeItem.contextBefore}</span>
               <mark>{activeItem.matchedText}</mark>
               <span>{activeItem.contextAfter}</span>
             </div>
+            <span className="outline-source-panel-source-kind">{sourceKindLabels[activeItem.kind]}</span>
           </article>
         )}
       </div>
