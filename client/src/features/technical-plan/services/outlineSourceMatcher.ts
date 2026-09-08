@@ -214,12 +214,12 @@ function findParagraphs(markdown: string): ParagraphRange[] {
   let match: RegExpExecArray | null;
 
   while ((match = separator.exec(markdown)) !== null) {
-    if (start < match.index) {
+    if (start < match.index && markdown.slice(start, match.index).trim()) {
       paragraphs.push({ start, end: match.index });
     }
     start = match.index + match[0].length;
   }
-  if (start < markdown.length) {
+  if (start < markdown.length && markdown.slice(start).trim()) {
     paragraphs.push({ start, end: markdown.length });
   }
   return paragraphs.length > 0 ? paragraphs : [{ start: 0, end: markdown.length }];

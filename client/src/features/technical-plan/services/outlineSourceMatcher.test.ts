@@ -126,16 +126,32 @@ test('空白规范化匹配映射回原始 Markdown 范围', () => {
 });
 
 test('精确匹配优先保留原始文本范围', () => {
-  const markdown = '第一段。\n\n需提交 A  B 两份材料。\n\n第三段。';
+  const markdown = '第一段 A\n\nB。\n\n需提交 A  B 两份材料。\n\n第三段。';
   const sourceText = 'A  B';
 
   const result = locateOutlineSourceText(markdown, sourceText);
-  const matchStart = markdown.indexOf(sourceText);
+  const matchStart = markdown.lastIndexOf(sourceText);
 
   assert.equal(result.status, 'located');
   assert.equal(result.matchStart, matchStart);
   assert.equal(result.matchEnd, matchStart + sourceText.length);
   assert.equal(result.matchedText, sourceText);
+});
+
+test('跳过匹配前后的空白段落以保留相邻正文', () => {
+  const markdown = 'first\n\n \n\nsecond\n\n\t\n\nthird';
+  const sourceText = 'second';
+
+  const result = locateOutlineSourceText(markdown, sourceText);
+
+  assert.equal(result.status, 'located');
+  assert.equal(result.contextBefore.includes('first'), true);
+  assert.equal(result.contextAfter.includes('third'), true);
+  assert.equal(result.matchedText, sourceText);
+  assert.equal(
+    result.contextBefore + result.matchedText + result.contextAfter,
+    markdown.slice(result.contextStart, result.contextEnd),
+  );
 });
 
 test('段落分隔符末尾的匹配仍保留相邻上下文和有效范围', () => {
