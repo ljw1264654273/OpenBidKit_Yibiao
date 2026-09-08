@@ -1,9 +1,9 @@
 import * as Dialog from '@radix-ui/react-dialog';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, DragEvent } from 'react';
 import { trackConfigUsage } from '../../../shared/analytics/analytics';
 import { AppSwitch, ProgressBar, useToast } from '../../../shared/ui';
-import type { BackgroundTaskState, OutlineSelectionItem, RemoteKnowledgeScope, SaveOutlineRequest, SaveOutlineSelectionRequest, TechnicalPlanWorkflowKind } from '../types';
+import type { BackgroundTaskState, OutlineSelectionItem, RemoteKnowledgeScope, SaveOutlineRequest, SaveOutlineSelectionRequest, ScoreCoverageRecord, TechnicalPlanWorkflowKind } from '../types';
 import type { KnowledgeBaseIndex, KnowledgeDocument } from '../../knowledge-base/types';
 import { OUTLINE_CONTENT_MODE_LABELS } from '../../../shared/types';
 import type { OutlineContentMode, OutlineData, OutlineExpansionMode, OutlineItem, OutlineMode, OutlineWordControlOptions } from '../../../shared/types';
@@ -12,8 +12,11 @@ import { DEFAULT_EXPORT_FORMAT } from '../../../shared/types/exportFormat';
 import { formatOutlineTitle } from '../../../shared/utils/outlineNumbering';
 import OutlineSelectionDialog from '../components/OutlineSelectionDialog';
 import RemoteKnowledgePicker from '../components/RemoteKnowledgePicker';
+import TenderSourcePanel from '../components/TenderSourcePanel';
+import type { TenderSourcePanelProps } from '../components/TenderSourcePanel';
 import { formatKnowledgeReferenceSummary, isRemoteScopeStale } from '../remoteKnowledgeSelection';
 import { canAddOutlineChild } from '../services/outlineDepth';
+import { collectOutlineSourceRecords } from '../services/outlineSourceMatcher';
 
 interface OutlineEditPageProps {
   workflowKind: TechnicalPlanWorkflowKind;
@@ -26,6 +29,10 @@ interface OutlineEditPageProps {
   remoteKnowledgeScopes: RemoteKnowledgeScope[];
   outlineData: OutlineData | null;
   task?: BackgroundTaskState;
+  tenderMarkdown: string;
+  tenderMarkdownLoading: boolean;
+  tenderMarkdownError: string;
+  onReloadTenderMarkdown: () => void;
   contentTaskStatus?: BackgroundTaskState['status'];
   aiAdjustmentRunning?: boolean;
   onOutlineConfigChange: (config: { referenceKnowledgeDocumentIds: string[]; remoteKnowledgeScopes: RemoteKnowledgeScope[]; outlineMode: OutlineMode; outlineExpansionMode: OutlineExpansionMode; wordControlOptions: OutlineWordControlOptions }) => Promise<void>;
@@ -41,6 +48,9 @@ interface OutlineSortGuard {
   saveSort: () => Promise<void>;
   discardSort: () => void;
 }
+
+type OutlineWorkspacePane = 'source' | 'tree' | 'detail';
+type OutlineSourceSnapshot = Pick<TenderSourcePanelProps, 'selectedItem' | 'outline' | 'coverageRecords'>;
 
 interface RenumberResult {
   outline: OutlineItem[];
@@ -60,6 +70,8 @@ interface DropTargetState {
 }
 
 const emptyKnowledgeIndex: KnowledgeBaseIndex = { folders: [], documents: [] };
+const emptyOutline: OutlineItem[] = [];
+const emptyCoverageRecords: ScoreCoverageRecord[] = [];
 const outlineExpansionModeLabels: Record<OutlineExpansionMode, string> = {
   'original-only': '仅使用原方案目录',
   'ai-complement': 'AI基于原方案补充',
@@ -339,6 +351,10 @@ function OutlineEditPage({
   remoteKnowledgeScopes,
   outlineData,
   task,
+  tenderMarkdown,
+  tenderMarkdownLoading,
+  tenderMarkdownError,
+  onReloadTenderMarkdown,
   contentTaskStatus,
   aiAdjustmentRunning = false,
   onOutlineConfigChange,
@@ -350,6 +366,8 @@ function OutlineEditPage({
 }: OutlineEditPageProps) {
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
+  const [activeWorkspacePane, setActiveWorkspacePane] = useState<OutlineWorkspacePane>('tree');
+  const [sortingSourceSnapshot, setSortingSourceSnapshot] = useState<OutlineSourceSnapshot | null>(null);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [editDescription, setEditDescription] = useState('');
@@ -389,6 +407,25 @@ function OutlineEditPage({
   const { showToast } = useToast();
   const activeOutlineData = sorting ? draftOutlineData : outlineData;
   const selectedItem = activeOutlineData && selectedItemId ? findOutlineItem(activeOutlineData.outline, selectedItemId) : null;
+  const persistedOutline = outlineData?.outline || emptyOutline;
+  const coverageRecords = task?.stats?.score_coverage_map?.records || emptyCoverageRecords;
+  const sourceSnapshot = sorting && sortingSourceSnapshot
+    ? sortingSourceSnapshot
+    : { selectedItem, outline: persistedOutline, coverageRecords };
+  const sourceCountByNodeId = useMemo(() => {
+    const counts = new Map<string, number>();
+    const visit = (items: OutlineItem[]) => {
+      items.forEach((item) => {
+        counts.set(item.id, collectOutlineSourceRecords(persistedOutline, item.id, coverageRecords).tenderRecords.length);
+        if (item.children?.length) visit(item.children);
+      });
+    };
+    visit(persistedOutline);
+    return counts;
+  }, [coverageRecords, persistedOutline]);
+  const selectedSourceCount = useMemo(() => sourceSnapshot.selectedItem
+    ? collectOutlineSourceRecords(sourceSnapshot.outline, sourceSnapshot.selectedItem.id, sourceSnapshot.coverageRecords).tenderRecords.length
+    : 0, [sourceSnapshot.coverageRecords, sourceSnapshot.outline, sourceSnapshot.selectedItem]);
   const taskRunning = task?.status === 'running';
   const taskFailed = task?.status === 'error';
   const outlineSelection = task?.stats?.outline_selection;
@@ -903,6 +940,7 @@ function OutlineEditPage({
       return;
     }
 
+    setSortingSourceSnapshot({ selectedItem, outline: persistedOutline, coverageRecords });
     setDraftOutlineData(outlineData);
     sortIdMapRef.current = createIdentityIdMap(outlineData.outline);
     setSorting(true);
@@ -915,6 +953,7 @@ function OutlineEditPage({
 
   const discardSorting = () => {
     setSorting(false);
+    setSortingSourceSnapshot(null);
     setDraftOutlineData(null);
     setSortDirty(false);
     setSavingSort(false);
@@ -1069,6 +1108,15 @@ function OutlineEditPage({
             onDoubleClick={() => hasChildren && toggleExpanded(item.id)}
           >
             <strong>{formatOutlineTitle(item.id, item.title, exportFormat.headings[Math.min(item.id.split('.').length - 1, 5)])}</strong>
+            {!sorting && (sourceCountByNodeId.get(item.id) || 0) > 0 && (
+              <small
+                className="outline-tree-source-count"
+                aria-label={`已关联 ${sourceCountByNodeId.get(item.id)} 处招标原文`}
+                title={`已关联 ${sourceCountByNodeId.get(item.id)} 处招标原文`}
+              >
+                原文 {sourceCountByNodeId.get(item.id)}
+              </small>
+            )}
             {!hasChildren && item.content_mode && (
               <span className={`outline-content-mode-badge is-${item.content_mode}`}>{OUTLINE_CONTENT_MODE_LABELS[item.content_mode]}</span>
             )}
@@ -1291,38 +1339,18 @@ function OutlineEditPage({
         </div>
       </section>
 
-      <section className="outline-generation-workspace">
-        <aside className="outline-progress-panel">
-          <div className="analysis-result-head">
-            <strong>生成过程</strong>
-            <span>{statusText}</span>
-          </div>
-          <div className={`content-outline-stats outline-progress-summary${progressCollapsed ? ' is-collapsed' : ''}`}>
-            <button type="button" onClick={() => setProgressCollapsed((prev) => !prev)} aria-expanded={!progressCollapsed}>
-              <span>生成进度</span>
-              <strong>{progress}%</strong>
-              <em>{progressCollapsed ? '展开' : '折叠'}</em>
-            </button>
-            {!progressCollapsed && (
-              <div className="content-outline-stats-body">
-                <ProgressBar value={progress} label={`目录生成进度 ${progress}%`} />
-                <p>{statusMessage}</p>
-                {(elapsedText || staleText) && (
-                  <div className="outline-progress-meta">
-                    {elapsedText && <span>{elapsedText}</span>}
-                    {staleText && <span>{staleText}</span>}
-                  </div>
-                )}
-                {taskFailed && <small>{task?.error || latestLog || '目录生成失败'}</small>}
-              </div>
-            )}
-          </div>
-          <div className="outline-progress-log" ref={logListRef}>
-            {progressLogs.length ? progressLogs.map((item, index) => (
-              <p className={index === progressLogs.length - 1 ? 'is-latest' : ''} key={`${item}-${index}`}>{item}</p>
-            )) : <p>等待生成任务启动。</p>}
-          </div>
-        </aside>
+      <section className="outline-generation-workspace" data-active-pane={activeWorkspacePane}>
+        <TenderSourcePanel
+          selectedItem={sourceSnapshot.selectedItem}
+          outline={sourceSnapshot.outline}
+          coverageRecords={sourceSnapshot.coverageRecords}
+          outlineExpansionMode={outlineExpansionMode}
+          markdown={tenderMarkdown}
+          loading={tenderMarkdownLoading}
+          error={tenderMarkdownError}
+          sorting={sorting}
+          onRetry={onReloadTenderMarkdown}
+        />
 
         <section className="outline-tree-panel">
           <div className="analysis-result-head outline-tree-head">
@@ -1429,6 +1457,14 @@ function OutlineEditPage({
                   {selectedItem.source_requirement_title && (
                     <small>{isExpansionWorkflow && outlineExpansionMode === 'original-only' ? '来源原方案目录' : '来源响应文件目录'}：{selectedItem.source_requirement_title}</small>
                   )}
+                  <button
+                    type="button"
+                    className="text-button outline-detail-source-action"
+                    disabled={sorting}
+                    onClick={() => setActiveWorkspacePane('source')}
+                  >
+                    已关联 {selectedSourceCount} 处原文
+                  </button>
                   <div className="outline-detail-actions">
                     <button type="button" className="primary-action" onClick={() => startEditing(selectedItem)} disabled={outlineMutationLocked || sorting}>编辑</button>
                     <button type="button" className="secondary-action" onClick={() => { void addChildItem(selectedItem.id); }} disabled={outlineMutationLocked || sorting || !canAddOutlineChild(selectedItem.id)}>添加子目录</button>

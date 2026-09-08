@@ -326,3 +326,40 @@ test('原文面板数据变更只通过单一 reset effect 回到第一处', () 
     /onClick=\{\(\) => setActiveIndex\(Math\.min\(itemCount - 1, safeActiveIndex \+ 1\)\)\}/,
   );
 });
+
+test('招标 Markdown 在解析和目录两步加载并提供显式重试状态', () => {
+  const homeSource = readFileSync(new URL('../pages/TechnicalPlanHome.tsx', import.meta.url), 'utf8');
+
+  assert.match(homeSource, /state\.step !== 'document-analysis' && state\.step !== 'outline-generation'/);
+  assert.match(homeSource, /const loadTenderMarkdown = useCallback\(/);
+  assert.match(homeSource, /setTenderMarkdownLoading/);
+  assert.match(homeSource, /setTenderMarkdownError/);
+  assert.match(homeSource, /contentHash \|\| .*updatedAt/);
+  const outlineProps = homeSource.slice(homeSource.indexOf('<OutlineEditPage'), homeSource.indexOf("{state.step === 'global-facts'"));
+  assert.match(outlineProps, /tenderMarkdown=\{tenderMarkdown\}/);
+  assert.match(outlineProps, /tenderMarkdownLoading=\{tenderMarkdownLoading\}/);
+  assert.match(outlineProps, /tenderMarkdownError=\{tenderMarkdownError\}/);
+  assert.match(outlineProps, /onReloadTenderMarkdown=\{loadTenderMarkdown\}/);
+});
+
+test('目录页把保存的覆盖记录和 Markdown 状态接入原文面板', () => {
+  const pageSource = readFileSync(new URL('../pages/OutlineEditPage.tsx', import.meta.url), 'utf8');
+
+  assert.match(pageSource, /import TenderSourcePanel from/);
+  assert.match(pageSource, /score_coverage_map\?\.records/);
+  assert.match(pageSource, /<TenderSourcePanel/);
+  assert.match(pageSource, /markdown=\{tenderMarkdown\}/);
+  assert.match(pageSource, /loading=\{tenderMarkdownLoading\}/);
+  assert.match(pageSource, /error=\{tenderMarkdownError\}/);
+  assert.match(pageSource, /onRetry=\{onReloadTenderMarkdown\}/);
+  assert.match(pageSource, /collectOutlineSourceRecords\(/);
+  assert.match(pageSource, /setActiveWorkspacePane\('source'\)/);
+  assert.doesNotMatch(pageSource, /<aside className="outline-progress-panel">/);
+});
+
+test('目录调整事件按字段存在语义同步最新覆盖映射快照', () => {
+  const homeSource = readFileSync(new URL('../pages/TechnicalPlanHome.tsx', import.meta.url), 'utf8');
+  const adjustmentBranch = homeSource.slice(homeSource.indexOf("if (taskType === 'outline-adjustment')"), homeSource.indexOf("if (taskType === 'global-facts-generation')"));
+
+  assert.match(adjustmentBranch, /outlineGenerationTask: hasOwnField\(technicalPlan, 'outlineGenerationTask'\) \? trimTaskLogs\(technicalPlan\.outlineGenerationTask\) : prev\.outlineGenerationTask/);
+});

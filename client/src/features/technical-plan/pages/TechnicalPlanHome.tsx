@@ -296,6 +296,12 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
   const { hydrated, state, setState } = useTechnicalPlanWorkflow();
   const { showToast } = useToast();
   const [tenderMarkdown, setTenderMarkdown] = useState('');
+  const [tenderMarkdownLoading, setTenderMarkdownLoading] = useState(false);
+  const [tenderMarkdownError, setTenderMarkdownError] = useState('');
+  const tenderMarkdownVersionRef = useRef<string | null>(null);
+  const tenderMarkdownRequestRef = useRef(0);
+  const tenderFileVersion = state.tenderFile ? state.tenderFile.contentHash || state.tenderFile.updatedAt : null;
+  const tenderMarkdownStepActive = state.step === 'document-analysis' || state.step === 'outline-generation';
   const [originalPlanMarkdown, setOriginalPlanMarkdown] = useState('');
   const [exportProgress, setExportProgress] = useState<ExportProgressState>(initialExportProgress);
   const [exportFormat, setExportFormat] = useState<ExportFormatConfig>(DEFAULT_EXPORT_FORMAT);
@@ -753,6 +759,7 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
           return {
             ...prev,
             outlineAdjustmentTask: trimTaskLogs(technicalPlan.outlineAdjustmentTask) || latestTask,
+            outlineGenerationTask: hasOwnField(technicalPlan, 'outlineGenerationTask') ? trimTaskLogs(technicalPlan.outlineGenerationTask) : prev.outlineGenerationTask,
             outlineData: hasOutlineData ? (technicalPlan.outlineData || null) : prev.outlineData,
             contentGenerationTask: hasOwnField(technicalPlan, 'contentGenerationTask') ? trimTaskLogs(technicalPlan.contentGenerationTask) : prev.contentGenerationTask,
             contentGenerationSections: hasOwnField(technicalPlan, 'contentGenerationSections') ? (technicalPlan.contentGenerationSections || {}) : prev.contentGenerationSections,
@@ -832,24 +839,51 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
     return unsubscribe;
   }, [setState, showToast]);
 
-  useEffect(() => {
-    if (state.step !== 'document-analysis') {
-      return;
-    }
-    if (!state.tenderFile) {
+  const loadTenderMarkdown = useCallback(async (force = true) => {
+    if (tenderFileVersion === null) {
+      tenderMarkdownRequestRef.current += 1;
+      tenderMarkdownVersionRef.current = null;
       setTenderMarkdown('');
+      setTenderMarkdownLoading(false);
+      setTenderMarkdownError('');
       return;
     }
-    let mounted = true;
-    window.yibiao?.technicalPlan.readTenderMarkdown().then((markdown) => {
-      if (mounted) setTenderMarkdown(markdown || '');
-    }).catch((error) => {
-      if (mounted) showToast(error instanceof Error ? error.message : '读取招标文件 Markdown 失败', 'error');
-    });
+    if (!tenderMarkdownStepActive || (!force && tenderMarkdownVersionRef.current === tenderFileVersion)) return;
+
+    const requestId = ++tenderMarkdownRequestRef.current;
+    setTenderMarkdownLoading(true);
+    setTenderMarkdownError('');
+    try {
+      const markdown = await window.yibiao?.technicalPlan.readTenderMarkdown();
+      if (requestId !== tenderMarkdownRequestRef.current) return;
+      tenderMarkdownVersionRef.current = tenderFileVersion;
+      setTenderMarkdown(markdown || '');
+    } catch (error) {
+      if (requestId !== tenderMarkdownRequestRef.current) return;
+      const message = `读取招标文件 Markdown 失败${error instanceof Error ? `：${error.message}` : '，请重试'}`;
+      setTenderMarkdownError(message);
+      showToast(message, 'error');
+    } finally {
+      if (requestId === tenderMarkdownRequestRef.current) setTenderMarkdownLoading(false);
+    }
+  }, [showToast, tenderFileVersion, tenderMarkdownStepActive]);
+
+  useEffect(() => {
+    if (tenderMarkdownVersionRef.current !== tenderFileVersion || tenderFileVersion === null) {
+      tenderMarkdownVersionRef.current = null;
+      setTenderMarkdown('');
+      setTenderMarkdownError('');
+    }
+    setTenderMarkdownLoading(false);
+    if (state.step !== 'document-analysis' && state.step !== 'outline-generation') {
+      return;
+    }
+    void loadTenderMarkdown(false);
     return () => {
-      mounted = false;
+      // 只丢弃过期读取结果，不取消 Main 的后台任务。
+      tenderMarkdownRequestRef.current += 1;
     };
-  }, [showToast, state.step, state.tenderFile]);
+  }, [loadTenderMarkdown, tenderFileVersion]);
 
   useEffect(() => {
     if (state.step !== 'document-analysis' || !requiresOriginalPlan) {
@@ -1292,8 +1326,12 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
           originalPlanFile={state.originalPlanFile}
           originalPlanMarkdown={originalPlanMarkdown}
           onFileImported={(nextState, markdown) => {
+            tenderMarkdownRequestRef.current += 1;
+            tenderMarkdownVersionRef.current = nextState.tenderFile ? nextState.tenderFile.contentHash || nextState.tenderFile.updatedAt : null;
             setState((prev) => ({ ...prev, ...nextState }));
-            setTenderMarkdown(markdown);
+            setTenderMarkdown(nextState.tenderFile ? markdown : '');
+            setTenderMarkdownLoading(false);
+            setTenderMarkdownError('');
           }}
           onOriginalPlanImported={(nextState, markdown) => {
             setState((prev) => ({ ...prev, ...nextState }));
@@ -1333,6 +1371,10 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
           remoteKnowledgeScopes={state.remoteKnowledgeScopes}
           outlineData={state.outlineData}
           task={state.outlineGenerationTask}
+          tenderMarkdown={tenderMarkdown}
+          tenderMarkdownLoading={tenderMarkdownLoading}
+          tenderMarkdownError={tenderMarkdownError}
+          onReloadTenderMarkdown={loadTenderMarkdown}
           contentTaskStatus={state.contentGenerationTask?.status}
           aiAdjustmentRunning={isOutlineAdjusting}
           onOutlineConfigChange={saveOutlineConfig}
