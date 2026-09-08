@@ -144,10 +144,17 @@
 ### `OutlineEditPage.tsx`
 
 - 继续负责选中目录节点和页面编排。
-- 在目录数据可用时读取当前标段 Markdown；同一页面挂载周期只读取一次。
+- 接收 `TechnicalPlanHome` 已加载的当前标段 Markdown、加载状态、错误状态和重试回调，不重复调用 bridge。
 - 从 `task.stats.score_coverage_map` 向原文面板传入覆盖记录。
 - 把现有生成进度和日志移动到紧凑状态栏。
 - 不在组件内实现长段匹配算法。
+
+### `TechnicalPlanHome.tsx`
+
+- 复用现有 `tenderMarkdown` 状态和 `technicalPlan.readTenderMarkdown()` 调用。
+- 把现有加载条件从仅 `document-analysis` 扩展为 `document-analysis` 或 `outline-generation`，保证应用重启后直接恢复到 STEP 03 时也能读取原文。
+- 维护加载与错误状态，并向 `OutlineEditPage` 传入 Markdown 和重试回调。
+- 目录生成页卸载后不取消或影响任何 Main 后台任务；这里只取消过期的 Renderer 读文件结果回写。
 
 ### 新增 `TenderSourcePanel.tsx`
 
@@ -190,7 +197,7 @@
 
 ## 状态与错误处理
 
-1. 页面首次进入且目录存在时加载一次 Markdown，加载中在左栏显示 `InlineSpinner`。
+1. `TechnicalPlanHome` 进入文件分析页或目录生成页且存在招标文件时加载 Markdown；同一个 `tenderFile` 内容版本只读取一次，加载中在左栏显示 `InlineSpinner`。
 2. 读取失败时通过 `useToast().error()` 提示，并在左栏提供“重新读取”操作。
 3. 目录生成或重新生成替换 `outlineData` 后，清空当前原文序号并按新的选中节点重新计算。
 4. 选中节点被删除时沿用当前页面的选中节点回退规则，原文栏同步更新。
