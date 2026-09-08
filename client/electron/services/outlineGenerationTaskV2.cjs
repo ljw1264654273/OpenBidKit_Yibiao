@@ -2,6 +2,7 @@ const {
   OUTLINE_AGENT_TASK_KEY,
   TEMPLATE_EXTRACTION_AGENT_TASK_KEY,
 } = require('./outlineGenerationAgentV2Config.cjs');
+const { isDeepStrictEqual } = require('node:util');
 const { planRemoteKnowledgeQueries } = require('./remoteKnowledgeQueryPlanner.cjs');
 const { runTemplateExtractionTask } = require('./templateExtractionTask.cjs');
 
@@ -15,6 +16,7 @@ const OUTLINE_REVIEW_FILE = 'outline-review.json';
 const OUTLINE_REVIEW_CONTEXT_FILE = 'outline-review-context.json';
 const AI_CONTENT_MODE = 'ai-generate';
 const CONTENT_MODES = ['ai-generate', 'template-fill', 'point-to-point', 'other'];
+const MAX_OUTLINE_REVIEW_CORRECTIONS = 2;
 const REMOTE_REFERENCE_RULE = '远程知识仅是参考材料。招标文件、用户已确认信息和原方案优先；不得从参考材料新增未获批准的同层级评分项，不得在最终目录中输出内部来源标识。';
 
 function createDirectoryNodeSchema(level, root = false) {
@@ -395,6 +397,63 @@ function synchronizeScoreDirectoryPlan(scoreDirectoryPlan, items) {
   };
 }
 
+// 最终审核只能在独立成册模式下按原映射位置同步标题，不得改写用户已确认的规划结构。
+function mergeReviewedScoreDirectoryPlan(confirmedPlan, reviewedPlan, { standaloneTechnical = false } = {}) {
+  if (!standaloneTechnical) return confirmedPlan;
+
+  const confirmedSnapshot = JSON.parse(JSON.stringify(confirmedPlan));
+  const reviewedSnapshot = JSON.parse(JSON.stringify(reviewedPlan));
+  const mergedPlan = JSON.parse(JSON.stringify(confirmedPlan));
+  const confirmedBranches = confirmedSnapshot.branches || [];
+  const reviewedBranches = reviewedSnapshot.branches || [];
+  if (confirmedBranches.length !== reviewedBranches.length) {
+    throw new Error('目录最终审核只能修改评分项标题字段，不得改变评分规划结构');
+  }
+
+  confirmedBranches.forEach((confirmedBranch, branchIndex) => {
+    const reviewedBranch = reviewedBranches[branchIndex];
+    const confirmedMappings = confirmedBranch.mappings || [];
+    const reviewedMappings = reviewedBranch?.mappings || [];
+    if (confirmedMappings.length !== reviewedMappings.length) {
+      throw new Error('目录最终审核只能修改评分项标题字段，不得改变评分规划结构');
+    }
+
+    confirmedMappings.forEach((confirmedMapping, mappingIndex) => {
+      const reviewedMapping = reviewedMappings[mappingIndex];
+      const confirmedHasAdditionalTitles = Object.prototype.hasOwnProperty.call(confirmedMapping, 'additional_titles');
+      const reviewedHasAdditionalTitles = Object.prototype.hasOwnProperty.call(reviewedMapping || {}, 'additional_titles');
+      const confirmedAdditionalTitles = confirmedMapping.additional_titles || [];
+      const reviewedAdditionalTitles = reviewedMapping?.additional_titles || [];
+      if (
+        !reviewedMapping
+        || typeof reviewedMapping.target_title !== 'string'
+        || !reviewedMapping.target_title.trim()
+        || confirmedHasAdditionalTitles !== reviewedHasAdditionalTitles
+        || confirmedAdditionalTitles.length !== reviewedAdditionalTitles.length
+        || reviewedAdditionalTitles.some((title) => typeof title !== 'string' || !title.trim())
+      ) {
+        throw new Error('目录最终审核只能修改评分项标题字段，不得改变评分规划结构');
+      }
+
+      reviewedMapping.target_title = confirmedMapping.target_title;
+      if (confirmedHasAdditionalTitles) {
+        reviewedMapping.additional_titles = [...confirmedAdditionalTitles];
+      }
+      mergedPlan.branches[branchIndex].mappings[mappingIndex].target_title = reviewedPlan.branches[branchIndex].mappings[mappingIndex].target_title;
+      if (confirmedHasAdditionalTitles) {
+        mergedPlan.branches[branchIndex].mappings[mappingIndex].additional_titles = [
+          ...reviewedPlan.branches[branchIndex].mappings[mappingIndex].additional_titles,
+        ];
+      }
+    });
+  });
+
+  if (!isDeepStrictEqual(confirmedSnapshot, reviewedSnapshot)) {
+    throw new Error('目录最终审核只能修改评分项标题字段，不得改变评分规划结构');
+  }
+  return mergedPlan;
+}
+
 function countAiLeaves(items) {
   return (items || []).reduce((total, item) => (
     Array.isArray(item?.children) && item.children.length
@@ -524,12 +583,12 @@ function collectTitleStyleIssues(items) {
 }
 
 // 同一父节点下大量使用“甲与乙”通常是模型机械压缩标题，而不是人工目录的自然表达。
-function collectMechanicalConnectorGroups(items) {
+function collectMechanicalConnectorGroups(items, { currentDepth = 1, excludedChildDepth = null } = {}) {
   const groups = [];
-  const visit = (nodes) => {
+  const visit = (nodes, depth) => {
     (nodes || []).forEach((item) => {
       const children = Array.isArray(item?.children) ? item.children : [];
-      if (children.length >= 3) {
+      if (children.length >= 3 && depth + 1 !== excludedChildDepth) {
         const connectorTitleCount = children.filter((child) => String(child?.title || '').includes('与')).length;
         if (connectorTitleCount >= 3 && connectorTitleCount / children.length >= 0.6) {
           groups.push({
@@ -540,10 +599,10 @@ function collectMechanicalConnectorGroups(items) {
           });
         }
       }
-      visit(children);
+      visit(children, depth + 1);
     });
   };
-  visit(items);
+  visit(items, currentDepth);
   return groups;
 }
 
@@ -554,6 +613,7 @@ function collectProfessionalStructure(items, scoreDirectoryPlan, { enabled = fal
   const invalidScoreItemLevels = [];
   const unplannedRootNodes = [];
   const duplicateBranchRoots = [];
+  const mechanicalConnectorGroups = [];
   if (!enabled) {
     return {
       valid: true,
@@ -594,6 +654,10 @@ function collectProfessionalStructure(items, scoreDirectoryPlan, { enabled = fal
     const root = rootsByBranchId.get(branch.branch_id)?.[0];
     if (!root) return;
     const scoreNodes = collectNodesAtLevel(root, 1, branch.score_item_level);
+    mechanicalConnectorGroups.push(...collectMechanicalConnectorGroups([root], {
+      currentDepth: 1,
+      excludedChildDepth: branch.score_item_level,
+    }));
     const scoreNodesByTitle = new Map(scoreNodes.map((item) => [item.title, item]));
     const expectedTitles = (branch.mappings || []).flatMap((mapping) => [
       mapping.target_title,
@@ -616,7 +680,6 @@ function collectProfessionalStructure(items, scoreDirectoryPlan, { enabled = fal
   });
 
   const titleStyleIssues = collectTitleStyleIssues(items);
-  const mechanicalConnectorGroups = collectMechanicalConnectorGroups(items);
   return {
     valid: underexpandedScoreNodes.length === 0
       && shallowScoreNodes.length === 0
@@ -773,7 +836,7 @@ function createLeafAllocationPrompt({ standaloneTechnical = false } = {}) {
 
 function createScorePlanningPrompt({ standaloneTechnical = false, hasRemoteKnowledge = false } = {}) {
   const scoreGroupInstruction = standaloneTechnical
-    ? `将评分条目写入 ${TECHNICAL_SCORE_GROUPS_FILE}，完整结构为 {"groups":[{"requirement_id":"R1","title":"项目理解","description":"项目理解评分关注内容","detail_points":["政策背景","项目技术要求理解"]}]}。根对象只能包含 groups；保持原顺序、专业术语和正文内容要点，requirement_id 使用连续的 R1、R2 格式。先剔除“根据投标人……进行打分”等评审话术外壳，title 使用简洁名词性短语，删除“对、根据、依据、结合、围绕、按照、针对”等无意义开头和“进行说明、进行阐述、进行评审、进行打分”等空泛结尾，但保留“政策依据、需求分析、难点分析、解决措施”等专业词。若评分项同时要求重点、难点分析及解决措施，应按问题类别组织为“重点问题分析及解决措施”“难点问题分析及解决措施”，并在材料支持时补充“其他具体问题分析与应对”“合理化建议”；不要机械拆成“问题分析”和“解决措施与对策”。`
+    ? `将评分条目写入 ${TECHNICAL_SCORE_GROUPS_FILE}，完整结构为 {"groups":[{"requirement_id":"R1","title":"项目理解","description":"项目理解评分关注内容","detail_points":["政策背景","项目技术要求理解"]}]}。根对象只能包含 groups；保持原顺序、专业术语和正文内容要点，requirement_id 使用连续的 R1、R2 格式。先剔除“根据投标人……进行打分”等评审话术外壳，title 使用简洁名词性短语，删除“对、根据、依据、结合、围绕、按照、针对”等无意义开头和“进行说明、进行阐述、进行评审、进行打分”等空泛结尾，但保留“政策依据、需求分析、难点分析、解决措施”等专业词。例如，将“根据投标人对本项目实施过程中的重点、难点问题分析及解决措施……进行打分”归纳为“项目实施过程中的重点、难点问题分析及解决措施”。若评分项同时要求重点、难点分析及解决措施，应按问题类别组织为“重点问题分析及解决措施”“难点问题分析及解决措施”，并在材料支持时补充“其他具体问题分析与应对”“合理化建议”；不要机械拆成“问题分析”和“解决措施与对策”。`
     : `将评分大项写入 ${TECHNICAL_SCORE_GROUPS_FILE}，完整结构为 {"groups":[{"requirement_id":"R1","title":"评分大项","description":"关注内容","detail_points":["关键评分细项"]}]}。根对象只能包含 groups；保持原顺序、专业术语和关键评分细项，requirement_id 使用连续的 R1、R2 格式。`;
   const placementInstruction = standaloneTechnical
     ? `4. 当前采用“技术文件独立成册”：${OUTLINE_OUTPUT_FILE} 的一级根节点是用户确认的业务主题。将同一业务主题下的多个评分条目映射到同一个 branch，score_item_level 原则上为 2；只有某个一级根节点本身就是无法再归组的独立评分条目时才使用 1，且不得超过 4，以便为评分要点和正文小节保留层级空间。target_title 使用精简后的评分条目标题，例如将“对本项目的理解”写为“项目理解”，但不得损失专业含义。
@@ -906,6 +969,18 @@ function createOutlineReviewPrompt({
   const silentFixLeafRule = leafCountAccepted
     ? '静默修复不得改变 AI 生成叶子数量。'
     : '静默修复不得使 AI 生成叶子数量超出程序给出的合理范围。';
+  const scoreTitleNormalizationRule = standaloneTechnical
+    ? `评分项标题规范化可设为 false，但必须同步修改 ${OUTLINE_OUTPUT_FILE} 中的评分节点标题和 ${SCORE_DIRECTORY_PLAN_FILE} 中对应 mapping 的 target_title 或 additional_titles，不得改变 requirement_id、映射关系、标题数量或目标层级。`
+    : `评分项映射节点的标题规范化不得静默执行；不得修改 ${SCORE_DIRECTORY_PLAN_FILE}，且不得改动与其 target_title 或 additional_titles 对应的目录节点标题。`;
+  const scorePlanFixRule = standaloneTechnical
+    ? `静默修复不得改变评分项 requirement_id、映射关系、标题数量、目标层级和一级目录；按第 4 条同步规范化评分项标题不属于改变映射关系。`
+    : `静默修复不得改变评分项映射节点、目标层级和一级目录，也不得修改 ${SCORE_DIRECTORY_PLAN_FILE}。`;
+  const scorePlanBoundaryRule = standaloneTechnical
+    ? `第 4 条的标题规范化同步不改变映射语义；只能在原 mapping 的 target_title 或原有 additional_titles 位置逐项改名，不得增删标题。`
+    : `本模式不开放评分规划标题同步，${SCORE_DIRECTORY_PLAN_FILE} 必须保持只读。`;
+  const validationRule = standaloneTechnical
+    ? `程序已为 ${OUTLINE_OUTPUT_FILE}、${SCORE_DIRECTORY_PLAN_FILE} 和 ${OUTLINE_REVIEW_FILE} 预置 Schema。分别调用 json-validation 校验，只传 file_path；校验失败后必须先修改对应文件，再重新校验。`
+    : `程序已为 ${OUTLINE_OUTPUT_FILE} 和 ${OUTLINE_REVIEW_FILE} 预置 Schema。分别调用 json-validation 校验，只传 file_path；校验失败后必须先修改对应文件，再重新校验。不得修改 ${SCORE_DIRECTORY_PLAN_FILE}。`;
   return `请对当前完整技术方案目录执行最终审核，并在用户确认后完成必要修复。
 
 开始审核时一次性并行读取 ${OUTLINE_REVIEW_CONTEXT_FILE}、${OUTLINE_OUTPUT_FILE}、技术评分信息.md 和 ${SCORE_DIRECTORY_PLAN_FILE}，不要探索工作区或读取其他文件。${OUTLINE_REVIEW_CONTEXT_FILE} 是宿主程序计算的确定性审核结果，叶子数量、内容模式数量、最大层级、父节点数量、单子节点、评分节点机械映射、评分层级展开和标题风格问题均直接采用其中结果，不要重新统计、编写脚本或执行额外结构检查；你负责结合原始评分信息审核评分语义覆盖、近义重复和专业合理性。
@@ -919,15 +994,31 @@ function createOutlineReviewPrompt({
 1. 必须先完整审核并形成问题清单，不得边审核边修改。
 2. 如果没有问题，不要修改 ${OUTLINE_OUTPUT_FILE}；写入 ${OUTLINE_REVIEW_FILE}，status=passed、issues=[]、user_feedback=""，summary 说明通过原因。
 3. 如果发现问题，先为每个问题记录 category、problem、推荐 repair 和 confirmation_required，不得提前修改目录。
-4. 只有以下问题可设 confirmation_required=false：标题或说明的专业化优化；不涉及评分项映射节点、目标层级和一级目录的明显重复或近义子目录合并。评分覆盖缺失、评分项目标层级调整、一级目录调整、增加或拆分目录、跨分支移动以及明显结构重排均必须设为 true。${leafConfirmationRule}
-5. 如果全部问题都不需要确认，可以直接执行文案优化或轻微去重，不得调用 ask-user；完成后设置 status=simple_fix、user_feedback=""。静默修复不得改变评分项映射、评分项目标层级和一级目录。${silentFixLeafRule}
-6. 只要存在一个 confirmation_required=true 的问题，本轮所有问题都不得提前修改。集中调用一次 ask-user，question 使用多行文本完整列出问题及推荐修复方案；提供 2 至 5 个互斥选项，第一项是推荐修复方案，并提供保留当前目录的选项；另提供一个名为“调整修复方案”等明确业务名称的选项并设置 custom=true，让用户说明具体修改要求，其他选项均设置 custom=false。custom=true 的选项最多只能有一个。
-7. 根据 ask-user 返回的 answer 执行最终处理：用户要求全部或部分修改时更新 ${OUTLINE_OUTPUT_FILE} 并设置 status=user_feedback；用户明确拒绝修改或要求保留现状时不得修改目录并设置 status=user_refuse。将 answer 原文完整写入 user_feedback，修改完成后不得再次询问用户。
+4. 只有以下问题可设 confirmation_required=false：标题或说明的专业化优化；不涉及评分项映射节点、目标层级和一级目录的明显重复或近义子目录合并。${scoreTitleNormalizationRule}评分覆盖缺失、评分项目标层级调整、一级目录调整、增加或拆分目录、跨分支移动以及明显结构重排均必须设为 true。${leafConfirmationRule}
+5. 如果全部问题都不需要确认，可以直接执行文案优化或轻微去重，不得调用 ask-user；完成后设置 status=simple_fix、user_feedback=""。${scorePlanFixRule}${silentFixLeafRule}
+6. 只要存在一个 confirmation_required=true 的问题，本轮所有问题都不得提前修改。集中调用一次 ask-user，question 使用多行文本完整列出问题及推荐修复方案；提供 2 至 5 个互斥选项，第一项是推荐修复方案，另提供一个名为“调整修复方案”等明确业务名称的选项并设置 custom=true，让用户说明具体修改要求，其他选项均设置 custom=false。${OUTLINE_REVIEW_CONTEXT_FILE} 的确定性检查全部通过时可以提供“保留当前目录”；任一确定性检查不通过时，不得提供“保留当前目录”。custom=true 的选项最多只能有一个。
+7. 根据 ask-user 返回的 answer 执行最终处理：用户要求全部或部分修改时更新 ${OUTLINE_OUTPUT_FILE} 并设置 status=user_feedback；status=user_refuse 只能用于确定性检查已通过、用户拒绝语义性优化的情况，此时不得修改目录。将 answer 原文完整写入 user_feedback，修改完成后不得再次询问用户。
 8. ${rootRequirement}
-9. 修复必须继续遵守 ${SCORE_DIRECTORY_PLAN_FILE} 中用户确认的评分项映射、目标层级和一级目录调整边界。补回遗漏映射、合并重复目录或优化层级时，不得引入未经用户批准的评分大项规划变更。
+9. 修复必须继续遵守 ${SCORE_DIRECTORY_PLAN_FILE} 中用户确认的评分项映射、目标层级和一级目录调整边界。补回遗漏映射、合并重复目录或优化层级时，不得引入未经用户批准的评分大项规划变更；${scorePlanBoundaryRule}
 10. 技术一级目录必须保留 ${SCORE_DIRECTORY_PLAN_FILE} 中对应的 branch_id；调整一级目录顺序或编号时不得修改 branch_id。结构事实以 ${OUTLINE_REVIEW_CONTEXT_FILE} 为准；如果其中确定性检查不通过，直接依据列出的节点和缺失项形成问题并修复，不要重新统计。任何语义修复仍必须保证叶子保留合法 content_mode、父节点不包含 content_mode 或 content_mode_note、父节点至少有两个 children 且目录最多六级。
 11. 最终将完整问题清单和处理结果写入 ${OUTLINE_REVIEW_FILE}。无问题时完整格式为 {"status":"passed","issues":[],"user_feedback":"","summary":"审核通过原因"}；有问题时完整格式为 {"status":"user_feedback","issues":[{"category":"score-coverage","problem":"问题说明","repair":"修复方案","confirmation_required":true}],"user_feedback":"用户回答原文","summary":"处理结果"}。category 只能是 leaf-count、score-coverage、duplicate-directory、professional-structure；status 按本流程选择 passed、simple_fix、user_feedback 或 user_refuse。
-12. 程序已为 ${OUTLINE_OUTPUT_FILE} 和 ${OUTLINE_REVIEW_FILE} 预置 Schema。分别调用 json-validation 校验，只传 file_path；校验失败后必须先修改对应文件，再重新校验。`;
+12. ${validationRule}`;
+}
+
+function createOutlineReviewCorrectionPrompt({ standaloneTechnical = false, attempt = 1 } = {}) {
+  const scorePlanRule = standaloneTechnical
+    ? `评分项标题需要规范化时，只能同步修改 ${OUTLINE_OUTPUT_FILE} 对应节点与 ${SCORE_DIRECTORY_PLAN_FILE} 原 mapping 位置的 target_title 或既有 additional_titles 文本；不得改变评分映射、标题数量、层级或一级目录。`
+    : `${SCORE_DIRECTORY_PLAN_FILE} 保持只读，不得修改评分映射节点标题。`;
+  return `这是目录最终审核后的第 ${attempt} 次自动复检修复。用户已经回答过审核问题，本阶段不得调用 ask-user，也不得重新解释或缩小用户已确认的修复范围。
+
+一次性读取 ${OUTLINE_REVIEW_CONTEXT_FILE}、${OUTLINE_OUTPUT_FILE}、${SCORE_DIRECTORY_PLAN_FILE} 和 ${OUTLINE_REVIEW_FILE}。${OUTLINE_REVIEW_CONTEXT_FILE} 是宿主基于最新目录重新计算的确定性失败清单；必须修复其中每一项，不得只处理示例或任选部分问题。
+
+修复要求：
+1. mechanical_connector_groups 中的每一个分组都必须处理到不再触发机械连接词门槛：同组含“与”的子标题少于 3 个，或占该组全部子标题的比例低于 60%。优先把可独立编写的对象拆为同级小节或精简为单一主题；固定术语和确需共同论述的标题可以保留，但必须通过优化同组其他标题使整个分组退出机械重复状态。
+2. 逐项修复其余确定性问题，包括叶子数量、评分映射、评分层级展开、单子节点、非法内容模式和标题风格；不得改动已经通过的用户确认边界。
+3. ${scorePlanRule}
+4. 保留 ${OUTLINE_REVIEW_FILE} 中已有的 user_feedback，并更新 issues 和 summary，准确说明本次补充修复结果；不得把未修复问题描述为已完成。
+5. 覆盖写回 ${OUTLINE_OUTPUT_FILE} 和 ${OUTLINE_REVIEW_FILE}${standaloneTechnical ? `；只有发生允许的评分项标题同步时才写回 ${SCORE_DIRECTORY_PLAN_FILE}` : ''}。对实际写入的 JSON 文件分别调用 json-validation 校验，只传 file_path；校验失败后先修改再重新校验。`;
 }
 
 // 运行 V2 目录业务任务；开发者模式下一级目录确认后并行调度目录任务和独立模版提取任务。
@@ -1011,6 +1102,7 @@ async function runOutlineGenerationTaskV2({ aiService, agentService, ordinaryAge
   let acceptedLeafCount = null;
   let wordAdjustmentAttempts = 0;
   let outlineReview = null;
+  let outlineReviewCorrectionAttempts = 0;
 
   function updateAgentState(partial = {}, taskPatch = {}) {
     const checkpoint = checkpointTask({
@@ -1296,12 +1388,18 @@ async function runOutlineGenerationTaskV2({ aiService, agentService, ordinaryAge
     onActivity: publishAgentActivity,
     onCheckpoint: syncAgentCheckpoint,
     continueTask: async (candidate, meta) => {
-      if (meta.workflow_stage === 'outline_review') {
+      if (meta.workflow_stage === 'outline_review' || meta.workflow_stage === 'outline_review_correction') {
         const reviewedOutline = readJson(candidate.output_content, OUTLINE_OUTPUT_FILE);
         const normalizedReviewedOutline = buildFinalOutline(reviewedOutline);
         outlineReview = readJson(await meta.readFile(OUTLINE_REVIEW_FILE), OUTLINE_REVIEW_FILE);
         finalOutline = normalizedReviewedOutline;
-        scoreDirectoryPlan = synchronizeScoreDirectoryPlan(scoreDirectoryPlan, finalOutline.outline);
+        const reviewedScoreDirectoryPlan = standaloneTechnical
+          ? readJson(await meta.readFile(SCORE_DIRECTORY_PLAN_FILE), SCORE_DIRECTORY_PLAN_FILE)
+          : scoreDirectoryPlan;
+        scoreDirectoryPlan = synchronizeScoreDirectoryPlan(
+          mergeReviewedScoreDirectoryPlan(scoreDirectoryPlan, reviewedScoreDirectoryPlan, { standaloneTechnical }),
+          finalOutline.outline,
+        );
         actualLeafCount = countAiLeaves(finalOutline.outline);
         const verifiedReviewContext = buildOutlineReviewContext({
           outline: finalOutline,
@@ -1316,7 +1414,32 @@ async function runOutlineGenerationTaskV2({ aiService, agentService, ordinaryAge
           && verifiedReviewContext.score_mapping.valid
           && verifiedReviewContext.professional_structure.valid;
         if (!deterministicReviewPassed) {
-          throw new Error('目录最终审核仍存在未修复的叶子数量、评分映射、层级展开或标题风格问题');
+          if (outlineReviewCorrectionAttempts >= MAX_OUTLINE_REVIEW_CORRECTIONS) {
+            throw new Error('目录最终审核经过自动复检修复后仍存在叶子数量、评分映射、层级展开或标题风格问题');
+          }
+          outlineReviewCorrectionAttempts += 1;
+          publish(`目录最终审核仍有未修复问题，正在进行第 ${outlineReviewCorrectionAttempts} 次自动复检修复`, 90, {
+            outline: {
+              phase: 'reviewing',
+              current_leaf_count: actualLeafCount,
+              target_leaf_count: targetLeafCount,
+              word_adjustment_attempts: wordAdjustmentAttempts,
+            },
+          });
+          return {
+            stage: 'outline_review_correction',
+            message: `Agent 正在进行第 ${outlineReviewCorrectionAttempts} 次目录复检修复`,
+            prompt: createOutlineReviewCorrectionPrompt({
+              standaloneTechnical,
+              attempt: outlineReviewCorrectionAttempts,
+            }),
+            files: [
+              { path: OUTLINE_OUTPUT_FILE, content: JSON.stringify(finalOutline, null, 2) },
+              { path: SCORE_DIRECTORY_PLAN_FILE, content: JSON.stringify(scoreDirectoryPlan, null, 2) },
+              { path: OUTLINE_REVIEW_CONTEXT_FILE, content: JSON.stringify(verifiedReviewContext, null, 2) },
+              { path: OUTLINE_REVIEW_FILE, content: JSON.stringify(outlineReview, null, 2) },
+            ],
+          };
         }
         await meta.writeFiles([
           { path: OUTLINE_OUTPUT_FILE, content: JSON.stringify(finalOutline, null, 2) },
@@ -1605,4 +1728,5 @@ module.exports = {
   enforceMinimumLeafTarget,
   buildOutlineReviewContext,
   buildRemoteKnowledgeFile,
+  mergeReviewedScoreDirectoryPlan,
 };

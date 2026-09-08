@@ -12,6 +12,7 @@ const {
   deriveSemanticMinimumLeafTarget,
   buildOutlineReviewContext,
   buildRemoteKnowledgeFile,
+  mergeReviewedScoreDirectoryPlan,
   runOutlineGenerationTaskV2,
 } = require('./outlineGenerationTaskV2.cjs');
 
@@ -400,6 +401,78 @@ test('独立成册审核允许人工目录中少量有实际语义的连接词',
   assert.equal(context.professional_structure.valid, true);
 });
 
+test('机械连接词审核不改写用户已确认的评分项标题', () => {
+  const scoreNode = (id, title) => ({
+    id,
+    title,
+    description: title,
+    children: [
+      { id: `${id}.1`, title: '工作思路', description: '工作思路', children: [
+        { id: `${id}.1.1`, title: '总体安排', description: '总体安排', content_mode: 'ai-generate' },
+        { id: `${id}.1.2`, title: '实施步骤', description: '实施步骤', content_mode: 'ai-generate' },
+      ] },
+      { id: `${id}.2`, title: '保障要求', description: '保障要求', content_mode: 'ai-generate' },
+    ],
+  });
+  const titles = ['设计与实施', '质量与进度', '安全与保密'];
+  const context = buildOutlineReviewContext({
+    outline: { outline: [{
+      id: '1', title: '项目总体方案', description: '总体方案', attr: '技术', branch_id: 'B1',
+      children: titles.map((title, index) => scoreNode(`1.${index + 1}`, title)),
+    }] },
+    scoreDirectoryPlan: {
+      branches: [{
+        branch_id: 'B1', root_id: '1', root_title: '项目总体方案', score_item_level: 2,
+        mappings: titles.map((title, index) => ({ requirement_id: `R${index + 1}`, target_title: title })),
+      }],
+      extra_titles: [],
+    },
+    targetLeafCount: null,
+    standaloneTechnical: true,
+  });
+
+  assert.deepEqual(context.professional_structure.mechanical_connector_groups, []);
+  assert.equal(context.professional_structure.valid, true);
+});
+
+test('评分项在三级时连接词审核仍覆盖上方中间分组', () => {
+  const scoreNode = (id, title) => ({
+    id,
+    title,
+    description: title,
+    children: [
+      { id: `${id}.1`, title: '工作思路', description: '工作思路', children: [
+        { id: `${id}.1.1`, title: '总体安排', description: '总体安排', content_mode: 'ai-generate' },
+        { id: `${id}.1.2`, title: '实施步骤', description: '实施步骤', content_mode: 'ai-generate' },
+      ] },
+      { id: `${id}.2`, title: '保障要求', description: '保障要求', content_mode: 'ai-generate' },
+    ],
+  });
+  const groupTitles = ['数据采集与处理', '质量检查与验收', '培训服务与运维'];
+  const context = buildOutlineReviewContext({
+    outline: { outline: [{
+      id: '1', title: '项目总体方案', description: '总体方案', attr: '技术', branch_id: 'B1',
+      children: groupTitles.map((title, index) => ({
+        id: `1.${index + 1}`, title, description: title,
+        children: [scoreNode(`1.${index + 1}.1`, `评分项${index + 1}`)],
+      })),
+    }] },
+    scoreDirectoryPlan: {
+      branches: [{
+        branch_id: 'B1', root_id: '1', root_title: '项目总体方案', score_item_level: 3,
+        mappings: groupTitles.map((_, index) => ({ requirement_id: `R${index + 1}`, target_title: `评分项${index + 1}` })),
+      }],
+      extra_titles: [],
+    },
+    targetLeafCount: null,
+    standaloneTechnical: true,
+  });
+
+  assert.deepEqual(context.professional_structure.mechanical_connector_groups, [{
+    id: '1', title: '项目总体方案', child_count: 3, connector_title_count: 3,
+  }]);
+});
+
 test('标题检查覆盖通用语气词且不误伤专业词', () => {
   const context = buildOutlineReviewContext({
     outline: { outline: [
@@ -457,6 +530,70 @@ test('最终审核不对用户已接受的当前叶子数量重复询问', () =>
   assert.doesNotMatch(prompt, /不得使 AI 生成叶子数量超出程序给出的合理范围/);
 });
 
+test('最终审核允许同步规范化评分标题但不允许保留硬性失败目录', () => {
+  const prompt = createOutlineReviewPrompt({
+    targetLeafCount: 20,
+    actualLeafCount: 20,
+    allowRootChanges: false,
+    standaloneTechnical: true,
+  });
+
+  assert.match(prompt, /评分项标题规范化.*同步修改.*target_title/);
+  assert.match(prompt, /确定性检查不通过.*不得提供“保留当前目录”/);
+  assert.match(prompt, /user_refuse.*只能用于确定性检查已通过/);
+});
+
+test('评分规划复审只允许独立成册模式按原位置同步标题字段', () => {
+  const confirmedPlan = {
+    allow_root_changes: false,
+    branches: [{
+      branch_id: 'B1',
+      root_id: '1',
+      root_title: '项目总体方案',
+      score_item_level: 2,
+      mappings: [{
+        requirement_id: 'R1',
+        target_title: '对本项目的理解',
+        additional_titles: ['对项目背景的理解'],
+        adjustment_note: '用户确认拆分',
+      }],
+    }],
+    extra_titles: [],
+  };
+  const titleOnlyReview = structuredClone(confirmedPlan);
+  titleOnlyReview.branches[0].mappings[0].target_title = '项目理解';
+  titleOnlyReview.branches[0].mappings[0].additional_titles = ['项目背景'];
+
+  assert.deepEqual(
+    mergeReviewedScoreDirectoryPlan(confirmedPlan, titleOnlyReview, { standaloneTechnical: true }),
+    titleOnlyReview,
+  );
+
+  const tamperedReview = structuredClone(titleOnlyReview);
+  tamperedReview.branches[0].mappings[0].requirement_id = 'R2';
+  assert.throws(
+    () => mergeReviewedScoreDirectoryPlan(confirmedPlan, tamperedReview, { standaloneTechnical: true }),
+    /只能修改评分项标题字段/,
+  );
+
+  assert.deepEqual(
+    mergeReviewedScoreDirectoryPlan(confirmedPlan, tamperedReview, { standaloneTechnical: false }),
+    confirmedPlan,
+  );
+});
+
+test('普通响应文件最终审核不得改写评分规划', () => {
+  const prompt = createOutlineReviewPrompt({
+    targetLeafCount: 20,
+    actualLeafCount: 20,
+    allowRootChanges: false,
+    standaloneTechnical: false,
+  });
+
+  assert.match(prompt, /不得修改 score-directory-plan\.json/);
+  assert.doesNotMatch(prompt, /同步修改.*target_title/);
+});
+
 test('独立成册模式按人工标书结构聚合一级目录并精简标题', () => {
   const prompt = createInitialPrompt('按响应文件要求生成。', { standaloneTechnical: true });
 
@@ -473,6 +610,7 @@ test('独立成册评分规划把评分条目放在业务一级目录之下', ()
   assert.match(prompt, /score_item_level 原则上为 2/);
   assert.match(prompt, /同一业务主题下的多个评分条目映射到同一个 branch/);
   assert.match(prompt, /不承载正文内容的评价等级|不得写入 detail_points/);
+  assert.match(prompt, /项目实施过程中的重点、难点问题分析及解决措施/);
   assert.match(prompt, /重点问题分析及解决措施/);
   assert.match(prompt, /难点问题分析及解决措施/);
   assert.match(prompt, /不要机械拆成“问题分析”和“解决措施与对策”/);
@@ -662,4 +800,114 @@ test('非 original-only 真实目录任务按 outline 阶段检索并注入远�
   assert.match(planningPrompt, /技术要求末尾/);
   assert.equal(runs.length, 2);
   assert.ok(runs[1].files.some((file) => file.path === '远程知识参考.md'));
+});
+
+test('最终审核首次修复不彻底时自动进入复检修复而不是在88%终止', async () => {
+  const root = { id: '1', title: '项目总体方案', description: '总体方案', attr: '技术' };
+  const plan = {
+    allow_root_changes: false,
+    branches: [{
+      branch_id: 'B1', root_id: '1', root_title: '项目总体方案', score_item_level: 1,
+      mappings: [{ requirement_id: 'R1', target_title: '项目总体方案' }],
+    }],
+    extra_titles: [],
+  };
+  const makeOutline = (titles) => ({ outline: [{
+    ...root,
+    branch_id: 'B1',
+    children: [
+      {
+        id: '1.1', title: '政策背景', description: '政策背景',
+        children: titles.map((title, index) => ({
+          id: `1.1.${index + 1}`, title, description: title, content_mode: 'ai-generate',
+        })),
+      },
+      { id: '1.2', title: '技术要求', description: '技术要求', content_mode: 'ai-generate' },
+    ],
+  }] });
+  const stillInvalidOutline = makeOutline(['国家政策与省级政策', '行业要求与地方要求', '规划部署与实施要求', '制度沿革与政策背景']);
+  const correctedOutline = makeOutline(['国家政策', '省级政策', '行业要求', '地方要求']);
+  const review = {
+    status: 'user_feedback',
+    issues: [{
+      category: 'professional-structure', problem: '连接词标题密集', repair: '拆分可独立主题', confirmation_required: true,
+    }],
+    user_feedback: '按推荐方案修复',
+    summary: '已按用户意见修复',
+  };
+  const correctionStages = [];
+  let runCount = 0;
+  const agentService = {
+    updatePersistentTask() {},
+    runTask: async (input) => {
+      runCount += 1;
+      if (runCount === 1) return { output_content: JSON.stringify({ outline: [root] }) };
+
+      const writtenFiles = new Map();
+      const createMeta = (workflowStage) => ({
+        workflow_stage: workflowStage,
+        user_question_answers: [],
+        readFile: async (filePath) => {
+          if (filePath === 'score-directory-plan.json') return JSON.stringify(plan);
+          if (filePath === 'outline-review.json') return JSON.stringify(review);
+          return writtenFiles.get(filePath) || '';
+        },
+        writeFiles: async (files) => files.forEach((file) => writtenFiles.set(file.path, file.content)),
+      });
+
+      let continuation = await input.continueTask(
+        { output_content: JSON.stringify({ outline: [root] }) },
+        createMeta('score-planning'),
+      );
+      continuation = await input.continueTask(
+        { output_content: JSON.stringify(stillInvalidOutline) },
+        createMeta(continuation.stage),
+      );
+      continuation = await input.continueTask(
+        { output_content: JSON.stringify(stillInvalidOutline) },
+        createMeta(continuation.stage),
+      );
+      correctionStages.push(continuation.stage);
+      assert.ok(continuation.files.some((file) => file.path === 'outline-review-context.json'));
+
+      const completed = await input.continueTask(
+        { output_content: JSON.stringify(correctedOutline) },
+        createMeta(continuation.stage),
+      );
+      assert.deepEqual(completed, { complete: true });
+      return { output_content: JSON.stringify(correctedOutline) };
+    },
+  };
+  const storedPlan = {
+    outlineMode: 'standalone-technical',
+    techRequirements: '项目理解评分项',
+    bidAnalysisTasks: { responseFileRequirements: { content: '技术方案要求' } },
+  };
+  let latestCheckpoint = null;
+  const checkpointTask = (patch, data) => {
+    latestCheckpoint = { patch, data };
+    return { task: {
+      task_id: 'task-review-correction-test', stats: data || {}, logs: [], ...patch,
+    } };
+  };
+
+  await runOutlineGenerationTaskV2({
+    aiService: {},
+    agentService,
+    ordinaryAgentService: {},
+    workspaceStore: { loadTechnicalPlan: () => storedPlan, hasBidTemplate: () => false },
+    knowledgeBaseService: {},
+    openXmlHelperService: {},
+    updateTask: (patch) => ({ task_id: 'task-review-correction-test', stats: {}, logs: [], ...patch }),
+    checkpointTask,
+    taskControl: {
+      signal: new AbortController().signal,
+      waitForOutlineSelection: async () => ({ items: [root], selectedIds: ['1'] }),
+    },
+    payload: {},
+  });
+
+  assert.deepEqual(correctionStages, ['outline_review_correction']);
+  assert.equal(latestCheckpoint.patch.status, 'success');
+  assert.equal(latestCheckpoint.data.outlineData.outline[0].children[0].children[0].title, '国家政策');
 });
