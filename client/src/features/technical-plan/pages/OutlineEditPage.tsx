@@ -403,6 +403,7 @@ function OutlineEditPage({
   const [dropTarget, setDropTarget] = useState<DropTargetState | null>(null);
   const logListRef = useRef<HTMLDivElement | null>(null);
   const sortIdMapRef = useRef<Record<string, string>>({});
+  const sortingSelectedItemIdRef = useRef<string | null>(null);
   const shownTaskErrorIdRef = useRef<string | null>(null);
   const { showToast } = useToast();
   const activeOutlineData = sorting ? draftOutlineData : outlineData;
@@ -940,6 +941,7 @@ function OutlineEditPage({
       return;
     }
 
+    sortingSelectedItemIdRef.current = selectedItem?.id ?? null;
     setSortingSourceSnapshot({ selectedItem, outline: persistedOutline, coverageRecords });
     setDraftOutlineData(outlineData);
     sortIdMapRef.current = createIdentityIdMap(outlineData.outline);
@@ -951,7 +953,7 @@ function OutlineEditPage({
     showToast('仅支持同级目录排序；拖动只在前端调整，点击保存排序后才会写入数据库。', 'info');
   };
 
-  const discardSorting = () => {
+  const finishSorting = () => {
     setSorting(false);
     setSortingSourceSnapshot(null);
     setDraftOutlineData(null);
@@ -960,6 +962,12 @@ function OutlineEditPage({
     setDraggingItemId(null);
     setDropTarget(null);
     sortIdMapRef.current = {};
+    sortingSelectedItemIdRef.current = null;
+  };
+
+  const discardSorting = () => {
+    setSelectedItemId(sortingSelectedItemIdRef.current);
+    finishSorting();
   };
 
   const saveSorting = async () => {
@@ -983,7 +991,7 @@ function OutlineEditPage({
         reason: 'sort',
         idMap: sortIdMapRef.current,
       });
-      discardSorting();
+      finishSorting();
       showToast('目录排序已保存', 'success');
     } finally {
       setSavingSort(false);
