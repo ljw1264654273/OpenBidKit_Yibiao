@@ -396,3 +396,36 @@ test('放弃排序恢复独立捕获的展开状态而保存排序保留重编�
   assert.match(finishSorting, /sortingExpandedItemsRef\.current = new Set\(\);/);
   assert.doesNotMatch(finishSorting, /setExpandedItems\(/);
 });
+
+test('目录工作区提供三组关联标签和面板并保留紧凑进度浮层', () => {
+  const pageSource = readFileSync(new URL('../pages/OutlineEditPage.tsx', import.meta.url), 'utf8');
+
+  assert.match(pageSource, /outline-workspace-tabs/);
+  assert.match(pageSource, /outline-source-panel/);
+  assert.match(pageSource, /outline-process-popover/);
+  assert.match(pageSource, /\[progressCollapsed, setProgressCollapsed\] = useState\(true\)/);
+  assert.equal((pageSource.match(/<button\b[^>]*\brole="tab"/g) || []).length, 3);
+  assert.equal((pageSource.match(/role="tabpanel"/g) || []).length, 3);
+  for (const pane of ['source', 'tree', 'detail']) {
+    assert.match(pageSource, new RegExp(`id="outline-${pane}-tab"`));
+    assert.match(pageSource, new RegExp(`aria-controls="outline-${pane}-panel"`));
+    assert.match(pageSource, new RegExp(`aria-selected=\\{activeWorkspacePane === '${pane}'\\}`));
+    assert.match(pageSource, new RegExp(`id="outline-${pane}-panel"`));
+    assert.match(pageSource, new RegExp(`aria-labelledby="outline-${pane}-tab"`));
+  }
+  assert.match(pageSource, /aria-expanded=\{!progressCollapsed\}/);
+  assert.match(pageSource, /aria-controls="outline-process-popover"/);
+  assert.match(pageSource, /progressLogs\.map\(/);
+  assert.match(pageSource, /\[progressCollapsed, progressLogs\.length\]/);
+});
+
+test('目录工作区按容器宽度保持横向三等分或单个标签面板', () => {
+  const cssSource = readFileSync(new URL('../../../styles/feature-technical-plan.css', import.meta.url), 'utf8');
+
+  assert.match(cssSource, /\.outline-workspace-shell\s*\{[^}]*container-type:\s*inline-size/);
+  assert.match(cssSource, /\.outline-generation-workspace\s*\{[^}]*grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\)/);
+  assert.match(cssSource, /@container \(max-width: 899px\)/);
+  assert.match(cssSource, /\.outline-generation-workspace > \[role="tabpanel"\]:not\(\.is-active-pane\)\s*\{\s*display:\s*none;/);
+  assert.match(cssSource, /\.outline-process-popover\s*\{[^}]*position:\s*absolute;/);
+  assert.match(cssSource, /\.outline-workspace-shell \.outline-tree-item\.is-sorting\s*\{\s*grid-template-columns:\s*20px 44px minmax\(0, 1fr\);/);
+});

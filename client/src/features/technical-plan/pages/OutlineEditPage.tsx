@@ -374,7 +374,7 @@ function OutlineEditPage({
   const [editContentMode, setEditContentMode] = useState<OutlineContentMode>('ai-generate');
   const [editContentModeNote, setEditContentModeNote] = useState('');
   const [startingOutline, setStartingOutline] = useState(false);
-  const [progressCollapsed, setProgressCollapsed] = useState(false);
+  const [progressCollapsed, setProgressCollapsed] = useState(true);
   const [generationDialogOpen, setGenerationDialogOpen] = useState(false);
   const [draftOutlineMode, setDraftOutlineMode] = useState<OutlineMode>(outlineMode === 'standalone-technical' ? 'standalone-technical' : 'response-file');
   const [draftOutlineExpansionMode, setDraftOutlineExpansionMode] = useState<OutlineExpansionMode>(outlineExpansionMode);
@@ -547,7 +547,7 @@ function OutlineEditPage({
     if (logListRef.current) {
       logListRef.current.scrollTop = logListRef.current.scrollHeight;
     }
-  }, [progressLogs.length]);
+  }, [progressCollapsed, progressLogs.length]);
 
   useEffect(() => {
     if (!generationDialogOpen) {
@@ -1316,12 +1316,28 @@ function OutlineEditPage({
   return (
     <div className="plan-step-body outline-generation-page">
       <section className="outline-command-bar">
-        <div>
-          <span className="section-kicker">STEP 03</span>
-          <strong>目录生成</strong>
+        <div className="outline-command-summary">
+          <div className="outline-command-title">
+            <span className="section-kicker">STEP 03</span>
+            <strong>目录生成</strong>
+          </div>
           <p>{isExpansionWorkflow ? `当前原方案目录使用方式：${outlineExpansionModeLabels[outlineExpansionMode]}；参考知识库：${formatKnowledgeReferenceSummary(referenceKnowledgeDocumentIds.length, remoteKnowledgeScopes)}。` : `${outlineMode === 'standalone-technical' ? '技术评分大项直接作为一级目录' : '一级目录依据完整响应文件要求生成'}；参考知识库：${formatKnowledgeReferenceSummary(referenceKnowledgeDocumentIds.length, remoteKnowledgeScopes)}。`}</p>
         </div>
+        <div className={`outline-command-progress${taskFailed ? ' is-error' : ''}`}>
+          <ProgressBar value={progress} label={`目录生成进度 ${progress}%`} active={generating} tone={taskFailed ? 'warning' : progress === 100 ? 'success' : 'primary'} />
+          <span className="outline-command-percent">{progress}%</span>
+          <span className="outline-command-status" role="status">{statusText}</span>
+        </div>
         <div className="outline-command-actions">
+          <button
+            type="button"
+            className="secondary-action outline-process-action"
+            aria-expanded={!progressCollapsed}
+            aria-controls="outline-process-popover"
+            onClick={() => setProgressCollapsed((collapsed) => !collapsed)}
+          >
+            过程
+          </button>
           {awaitingOutlineSelection && (
             <button type="button" className="secondary-action" onClick={() => setSelectionDialogOpen(true)}>
               确认一级目录
@@ -1351,148 +1367,192 @@ function OutlineEditPage({
         </div>
       </section>
 
-      <section className="outline-generation-workspace" data-active-pane={activeWorkspacePane}>
-        <TenderSourcePanel
-          selectedItem={sourceSnapshot.selectedItem}
-          outline={sourceSnapshot.outline}
-          coverageRecords={sourceSnapshot.coverageRecords}
-          outlineExpansionMode={outlineExpansionMode}
-          markdown={tenderMarkdown}
-          loading={tenderMarkdownLoading}
-          error={tenderMarkdownError}
-          sorting={sorting}
-          onRetry={onReloadTenderMarkdown}
-        />
-
-        <section className="outline-tree-panel">
-          <div className="analysis-result-head outline-tree-head">
-            <div>
-              <strong>目录结构</strong>
-              <span>{activeOutlineData?.outline?.length || 0} 个一级目录{sorting ? ' · 排序中' : ''}</span>
-            </div>
-            <div className="outline-tree-tools">
-              {sorting ? (
-                <>
-                  <button type="button" className="outline-save-sort-action" onClick={() => { void saveSorting().catch((error) => showToast(error instanceof Error ? error.message : '保存排序失败', 'error')); }} disabled={savingSort}>
-                    {savingSort ? '正在保存...' : '保存排序'}
-                  </button>
-                  <button type="button" onClick={expandAllItems} disabled={!activeOutlineData?.outline?.length}>全部展开</button>
-                  <button type="button" onClick={collapseAllItems} disabled={!activeOutlineData?.outline?.length}>全部折叠</button>
-                </>
-              ) : (
-                <>
-                {outlineData && (
-                <button type="button" className="outline-add-root-action" onClick={() => { void addRootItem(); }} disabled={outlineMutationLocked}>
-                  添加一级目录
-                </button>
-                )}
-                {outlineData && (
-                  <button type="button" onClick={startSorting} disabled={outlineMutationLocked || !outlineData?.outline?.length}>目录排序</button>
-                )}
-                <button type="button" onClick={expandAllItems} disabled={!activeOutlineData?.outline?.length}>全部展开</button>
-                <button type="button" onClick={collapseAllItems} disabled={!activeOutlineData?.outline?.length}>全部折叠</button>
-                </>
-              )}
-            </div>
-          </div>
-          {activeOutlineData?.outline?.length ? (
-            <div className={`outline-tree-list${sorting ? ' is-sorting' : ''}`}>
-              {activeOutlineData.outline.map((item) => renderItem(item))}
-            </div>
-          ) : (
-            <div className="markdown-empty-state outline-empty-state">
-              <strong>{awaitingOutlineSelection ? '一级目录已生成' : '尚未生成目录'}</strong>
-              <p>{awaitingOutlineSelection
-                ? '请查看并确认需要继续使用的一级目录。'
-                : taskFailed ? '上次目录生成未完成，请重新生成目录。' : '先完成招标文件解析，再生成技术方案目录。'}</p>
-            </div>
-          )}
-        </section>
-
-        <aside className="outline-detail-panel">
-          <div className="analysis-result-head">
-            <div>
-              <strong>目录项详情</strong>
-              <span>{selectedItem ? selectedItem.id : '未选择'}</span>
-            </div>
-          </div>
-          {selectedItem ? (
-            <div className="outline-detail-body">
-              {(generating || contentMutationLocked || sorting) && (
-                <div className="outline-detail-lock">
-                  {sorting
-                    ? '目录排序中，当前目录暂不可编辑。'
-                    : contentMutationLocked
-                      ? '正文生成任务正在运行或暂停中，当前目录暂不可编辑。'
-                      : '目录生成任务正在运行，当前目录暂不可编辑，避免覆盖后台生成结果。'}
+      <div className="outline-workspace-shell">
+        {!progressCollapsed && (
+          <section id="outline-process-popover" className="outline-process-popover" aria-label="目录生成过程">
+            <header className="outline-process-head">
+              <strong>{aiStatusTitle}</strong>
+              <button type="button" className="text-button" onClick={() => setProgressCollapsed(true)}>收起</button>
+            </header>
+            <div className={`outline-process-summary${taskFailed ? ' is-error' : ''}`}>
+              <p>{statusMessage}</p>
+              {(elapsedText || staleText) && (
+                <div className="outline-progress-meta">
+                  {elapsedText && <span>{elapsedText}</span>}
+                  {staleText && <span>{staleText}</span>}
                 </div>
               )}
-              {editingItemId === selectedItem.id ? (
-                <>
-                  <label>
-                    <span>标题</span>
-                    <input value={editTitle} onChange={(event) => setEditTitle(event.target.value)} disabled={outlineMutationLocked || sorting} />
-                  </label>
-                  <label>
-                    <span>描述</span>
-                    <textarea value={editDescription} onChange={(event) => setEditDescription(event.target.value)} disabled={outlineMutationLocked || sorting} />
-                  </label>
-                  {!selectedItem.children?.length && (
-                    <label>
-                      <span>内容处理模式</span>
-                      <select value={editContentMode} onChange={(event) => setEditContentMode(event.target.value as OutlineContentMode)} disabled={outlineMutationLocked || sorting}>
-                        {contentModeOptions.map((mode) => <option value={mode} key={mode}>{OUTLINE_CONTENT_MODE_LABELS[mode]}</option>)}
-                      </select>
-                    </label>
-                  )}
-                  {!selectedItem.children?.length && editContentMode === 'other' && (
-                    <label>
-                      <span>其他模式说明</span>
-                      <textarea value={editContentModeNote} onChange={(event) => setEditContentModeNote(event.target.value)} disabled={outlineMutationLocked || sorting} />
-                    </label>
-                  )}
-                  <div className="outline-detail-actions">
-                    <button type="button" className="primary-action" onClick={() => { void saveEditing(); }} disabled={outlineMutationLocked || sorting}>保存</button>
-                    <button type="button" className="secondary-action" onClick={() => setEditingItemId(null)}>取消</button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <h3>{selectedItem.title}</h3>
-                  <p>{selectedItem.description || '无描述'}</p>
-                  {!selectedItem.children?.length && selectedItem.content_mode && (
-                    <span className={`outline-content-mode-badge is-${selectedItem.content_mode}`}>{OUTLINE_CONTENT_MODE_LABELS[selectedItem.content_mode]}</span>
-                  )}
-                  {!selectedItem.children?.length && selectedItem.content_mode === 'other' && selectedItem.content_mode_note && (
-                    <small>{selectedItem.content_mode_note}</small>
-                  )}
-                  {selectedItem.source_requirement_title && (
-                    <small>{isExpansionWorkflow && outlineExpansionMode === 'original-only' ? '来源原方案目录' : '来源响应文件目录'}：{selectedItem.source_requirement_title}</small>
-                  )}
-                  <button
-                    type="button"
-                    className="text-button outline-detail-source-action"
-                    disabled={sorting}
-                    onClick={() => setActiveWorkspacePane('source')}
-                  >
-                    已关联 {selectedSourceCount} 处原文
+            </div>
+            <div className="outline-progress-log" ref={logListRef} tabIndex={0} aria-label="目录生成日志">
+              {progressLogs.length ? progressLogs.map((log, index) => (
+                <p className={index === progressLogs.length - 1 ? 'is-latest' : undefined} key={index}>{log}</p>
+              )) : <p>暂无过程记录</p>}
+            </div>
+          </section>
+        )}
+        <div
+          className="outline-workspace-tabs"
+          role="tablist"
+          aria-label="目录工作区"
+          onKeyDown={(event) => {
+            if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+            const panes: OutlineWorkspacePane[] = ['source', 'tree', 'detail'];
+            const currentIndex = panes.indexOf(activeWorkspacePane);
+            const nextIndex = event.key === 'Home' ? 0 : event.key === 'End' ? 2 : (currentIndex + (event.key === 'ArrowRight' ? 1 : 2)) % 3;
+            event.preventDefault();
+            setActiveWorkspacePane(panes[nextIndex]);
+            event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')[nextIndex]?.focus();
+          }}
+        >
+          <button type="button" role="tab" id="outline-source-tab" aria-controls="outline-source-panel" aria-selected={activeWorkspacePane === 'source'} tabIndex={activeWorkspacePane === 'source' ? 0 : -1} onClick={() => setActiveWorkspacePane('source')}>标书原文</button>
+          <button type="button" role="tab" id="outline-tree-tab" aria-controls="outline-tree-panel" aria-selected={activeWorkspacePane === 'tree'} tabIndex={activeWorkspacePane === 'tree' ? 0 : -1} onClick={() => setActiveWorkspacePane('tree')}>目录结构</button>
+          <button type="button" role="tab" id="outline-detail-tab" aria-controls="outline-detail-panel" aria-selected={activeWorkspacePane === 'detail'} tabIndex={activeWorkspacePane === 'detail' ? 0 : -1} onClick={() => setActiveWorkspacePane('detail')}>目录项详情</button>
+        </div>
+        <section className="outline-generation-workspace" data-active-pane={activeWorkspacePane}>
+          <div className={`outline-source-panel-wrapper${activeWorkspacePane === 'source' ? ' is-active-pane' : ''}`} role="tabpanel" id="outline-source-panel" aria-labelledby="outline-source-tab">
+            <TenderSourcePanel
+              selectedItem={sourceSnapshot.selectedItem}
+              outline={sourceSnapshot.outline}
+              coverageRecords={sourceSnapshot.coverageRecords}
+              outlineExpansionMode={outlineExpansionMode}
+              markdown={tenderMarkdown}
+              loading={tenderMarkdownLoading}
+              error={tenderMarkdownError}
+              sorting={sorting}
+              onRetry={onReloadTenderMarkdown}
+            />
+          </div>
+
+          <section className={`outline-tree-panel${activeWorkspacePane === 'tree' ? ' is-active-pane' : ''}`} role="tabpanel" id="outline-tree-panel" aria-labelledby="outline-tree-tab">
+            <div className="analysis-result-head outline-tree-head">
+              <div>
+                <strong>目录结构</strong>
+                <span>{activeOutlineData?.outline?.length || 0} 个一级目录{sorting ? ' · 排序中' : ''}</span>
+              </div>
+              <div className="outline-tree-tools">
+                {sorting ? (
+                  <>
+                    <button type="button" className="outline-save-sort-action" onClick={() => { void saveSorting().catch((error) => showToast(error instanceof Error ? error.message : '保存排序失败', 'error')); }} disabled={savingSort}>
+                      {savingSort ? '正在保存...' : '保存排序'}
+                    </button>
+                    <button type="button" onClick={expandAllItems} disabled={!activeOutlineData?.outline?.length}>全部展开</button>
+                    <button type="button" onClick={collapseAllItems} disabled={!activeOutlineData?.outline?.length}>全部折叠</button>
+                  </>
+                ) : (
+                  <>
+                  {outlineData && (
+                  <button type="button" className="outline-add-root-action" onClick={() => { void addRootItem(); }} disabled={outlineMutationLocked}>
+                    添加一级目录
                   </button>
-                  <div className="outline-detail-actions">
-                    <button type="button" className="primary-action" onClick={() => startEditing(selectedItem)} disabled={outlineMutationLocked || sorting}>编辑</button>
-                    <button type="button" className="secondary-action" onClick={() => { void addChildItem(selectedItem.id); }} disabled={outlineMutationLocked || sorting || !canAddOutlineChild(selectedItem.id)}>添加子目录</button>
-                    <button type="button" className="danger-action" onClick={() => { void removeItem(selectedItem.id); }} disabled={outlineMutationLocked || sorting}>删除</button>
+                  )}
+                  {outlineData && (
+                    <button type="button" onClick={startSorting} disabled={outlineMutationLocked || !outlineData?.outline?.length}>目录排序</button>
+                  )}
+                  <button type="button" onClick={expandAllItems} disabled={!activeOutlineData?.outline?.length}>全部展开</button>
+                  <button type="button" onClick={collapseAllItems} disabled={!activeOutlineData?.outline?.length}>全部折叠</button>
+                  </>
+                )}
+              </div>
+            </div>
+            {activeOutlineData?.outline?.length ? (
+              <div className={`outline-tree-list${sorting ? ' is-sorting' : ''}`}>
+                {activeOutlineData.outline.map((item) => renderItem(item))}
+              </div>
+            ) : (
+              <div className="markdown-empty-state outline-empty-state">
+                <strong>{awaitingOutlineSelection ? '一级目录已生成' : '尚未生成目录'}</strong>
+                <p>{awaitingOutlineSelection
+                  ? '请查看并确认需要继续使用的一级目录。'
+                  : taskFailed ? '上次目录生成未完成，请重新生成目录。' : '先完成招标文件解析，再生成技术方案目录。'}</p>
+              </div>
+            )}
+          </section>
+
+          <aside className={`outline-detail-panel${activeWorkspacePane === 'detail' ? ' is-active-pane' : ''}`} role="tabpanel" id="outline-detail-panel" aria-labelledby="outline-detail-tab">
+            <div className="analysis-result-head">
+              <div>
+                <strong>目录项详情</strong>
+                <span>{selectedItem ? selectedItem.id : '未选择'}</span>
+              </div>
+            </div>
+            {selectedItem ? (
+              <div className="outline-detail-body">
+                {(generating || contentMutationLocked || sorting) && (
+                  <div className="outline-detail-lock">
+                    {sorting
+                      ? '目录排序中，当前目录暂不可编辑。'
+                      : contentMutationLocked
+                        ? '正文生成任务正在运行或暂停中，当前目录暂不可编辑。'
+                        : '目录生成任务正在运行，当前目录暂不可编辑，避免覆盖后台生成结果。'}
                   </div>
-                </>
-              )}
-            </div>
-          ) : (
-            <div className="markdown-empty-state outline-empty-state">
-              <strong>选择一个目录项</strong>
-              <p>在左侧目录树中选择章节后，可查看并编辑标题和描述。</p>
-            </div>
-          )}
-        </aside>
-      </section>
+                )}
+                {editingItemId === selectedItem.id ? (
+                  <>
+                    <label>
+                      <span>标题</span>
+                      <input value={editTitle} onChange={(event) => setEditTitle(event.target.value)} disabled={outlineMutationLocked || sorting} />
+                    </label>
+                    <label>
+                      <span>描述</span>
+                      <textarea value={editDescription} onChange={(event) => setEditDescription(event.target.value)} disabled={outlineMutationLocked || sorting} />
+                    </label>
+                    {!selectedItem.children?.length && (
+                      <label>
+                        <span>内容处理模式</span>
+                        <select value={editContentMode} onChange={(event) => setEditContentMode(event.target.value as OutlineContentMode)} disabled={outlineMutationLocked || sorting}>
+                          {contentModeOptions.map((mode) => <option value={mode} key={mode}>{OUTLINE_CONTENT_MODE_LABELS[mode]}</option>)}
+                        </select>
+                      </label>
+                    )}
+                    {!selectedItem.children?.length && editContentMode === 'other' && (
+                      <label>
+                        <span>其他模式说明</span>
+                        <textarea value={editContentModeNote} onChange={(event) => setEditContentModeNote(event.target.value)} disabled={outlineMutationLocked || sorting} />
+                      </label>
+                    )}
+                    <div className="outline-detail-actions">
+                      <button type="button" className="primary-action" onClick={() => { void saveEditing(); }} disabled={outlineMutationLocked || sorting}>保存</button>
+                      <button type="button" className="secondary-action" onClick={() => setEditingItemId(null)}>取消</button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <h3>{selectedItem.title}</h3>
+                    <p>{selectedItem.description || '无描述'}</p>
+                    {!selectedItem.children?.length && selectedItem.content_mode && (
+                      <span className={`outline-content-mode-badge is-${selectedItem.content_mode}`}>{OUTLINE_CONTENT_MODE_LABELS[selectedItem.content_mode]}</span>
+                    )}
+                    {!selectedItem.children?.length && selectedItem.content_mode === 'other' && selectedItem.content_mode_note && (
+                      <small>{selectedItem.content_mode_note}</small>
+                    )}
+                    {selectedItem.source_requirement_title && (
+                      <small>{isExpansionWorkflow && outlineExpansionMode === 'original-only' ? '来源原方案目录' : '来源响应文件目录'}：{selectedItem.source_requirement_title}</small>
+                    )}
+                    <button
+                      type="button"
+                      className="text-button outline-detail-source-action"
+                      disabled={sorting}
+                      onClick={() => setActiveWorkspacePane('source')}
+                    >
+                      已关联 {selectedSourceCount} 处原文
+                    </button>
+                    <div className="outline-detail-actions">
+                      <button type="button" className="primary-action" onClick={() => startEditing(selectedItem)} disabled={outlineMutationLocked || sorting}>编辑</button>
+                      <button type="button" className="secondary-action" onClick={() => { void addChildItem(selectedItem.id); }} disabled={outlineMutationLocked || sorting || !canAddOutlineChild(selectedItem.id)}>添加子目录</button>
+                      <button type="button" className="danger-action" onClick={() => { void removeItem(selectedItem.id); }} disabled={outlineMutationLocked || sorting}>删除</button>
+                    </div>
+                  </>
+                )}
+              </div>
+            ) : (
+              <div className="markdown-empty-state outline-empty-state">
+                <strong>选择一个目录项</strong>
+                <p>选择目录章节后，可查看并编辑标题和描述。</p>
+              </div>
+            )}
+          </aside>
+        </section>
+      </div>
 
       {outlineSelection && (
         <OutlineSelectionDialog
