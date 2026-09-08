@@ -317,4 +317,12 @@ test('原文面板数据变更只通过单一 reset effect 回到第一处', () 
     panelSource,
     /useEffect\(\(\) => \{\s*setActiveIndex\(0\);\s*\}, \[coverageRecords, markdown, selectedItemId\]\);/,
   );
+  assert.match(
+    panelSource,
+    /onClick=\{\(\) => setActiveIndex\(Math\.max\(0, safeActiveIndex - 1\)\)\}/,
+  );
+  assert.match(
+    panelSource,
+    /onClick=\{\(\) => setActiveIndex\(Math\.min\(itemCount - 1, safeActiveIndex \+ 1\)\)\}/,
+  );
 });

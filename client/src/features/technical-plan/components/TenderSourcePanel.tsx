@@ -67,7 +67,7 @@ function TenderSourcePanel({
             aria-label="上一处招标原文"
             title="上一处招标原文"
             disabled={sourceSwitchDisabled || safeActiveIndex === 0}
-            onClick={() => setActiveIndex((index) => Math.max(0, index - 1))}
+            onClick={() => setActiveIndex(Math.max(0, safeActiveIndex - 1))}
           >
             <ToolbarArrowLeftIcon />
           </button>
@@ -77,7 +77,7 @@ function TenderSourcePanel({
             aria-label="下一处招标原文"
             title="下一处招标原文"
             disabled={sourceSwitchDisabled || safeActiveIndex >= itemCount - 1}
-            onClick={() => setActiveIndex((index) => Math.min(itemCount - 1, index + 1))}
+            onClick={() => setActiveIndex(Math.min(itemCount - 1, safeActiveIndex + 1))}
           >
             <ToolbarArrowRightIcon />
           </button>
