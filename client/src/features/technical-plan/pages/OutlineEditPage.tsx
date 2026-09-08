@@ -404,6 +404,7 @@ function OutlineEditPage({
   const logListRef = useRef<HTMLDivElement | null>(null);
   const sortIdMapRef = useRef<Record<string, string>>({});
   const sortingSelectedItemIdRef = useRef<string | null>(null);
+  const sortingExpandedItemsRef = useRef<Set<string>>(new Set());
   const shownTaskErrorIdRef = useRef<string | null>(null);
   const { showToast } = useToast();
   const activeOutlineData = sorting ? draftOutlineData : outlineData;
@@ -942,6 +943,7 @@ function OutlineEditPage({
     }
 
     sortingSelectedItemIdRef.current = selectedItem?.id ?? null;
+    sortingExpandedItemsRef.current = new Set(expandedItems);
     setSortingSourceSnapshot({ selectedItem, outline: persistedOutline, coverageRecords });
     setDraftOutlineData(outlineData);
     sortIdMapRef.current = createIdentityIdMap(outlineData.outline);
@@ -963,9 +965,11 @@ function OutlineEditPage({
     setDropTarget(null);
     sortIdMapRef.current = {};
     sortingSelectedItemIdRef.current = null;
+    sortingExpandedItemsRef.current = new Set();
   };
 
   const discardSorting = () => {
+    setExpandedItems(sortingExpandedItemsRef.current);
     setSelectedItemId(sortingSelectedItemIdRef.current);
     finishSorting();
   };

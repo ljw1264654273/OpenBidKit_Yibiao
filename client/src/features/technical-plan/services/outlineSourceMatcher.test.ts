@@ -364,7 +364,7 @@ test('目录调整事件按字段存在语义同步最新覆盖映射快照', ()
   assert.match(adjustmentBranch, /outlineGenerationTask: hasOwnField\(technicalPlan, 'outlineGenerationTask'\) \? trimTaskLogs\(technicalPlan\.outlineGenerationTask\) : prev\.outlineGenerationTask/);
 });
 
-test('放弃排序恢复开始时的持久目录选择并允许空选择和重复排序', () => {
+test('放弃排序恢复开始时的持久目录选择且每轮重新捕获', () => {
   const pageSource = readFileSync(new URL('../pages/OutlineEditPage.tsx', import.meta.url), 'utf8');
   const startSorting = pageSource.slice(pageSource.indexOf('const startSorting ='), pageSource.indexOf('const discardSorting ='));
   const discardSorting = pageSource.slice(pageSource.indexOf('const discardSorting ='), pageSource.indexOf('const saveSorting ='));
@@ -383,4 +383,16 @@ test('成功保存排序只清理排序快照并保留重编号后的选择', ()
   assert.match(saveSuccess, /finishSorting\(\);/);
   assert.doesNotMatch(saveSuccess, /discardSorting\(\)/);
   assert.doesNotMatch(finishSorting, /setSelectedItemId\(/);
+});
+
+test('放弃排序恢复独立捕获的展开状态而保存排序保留重编号后的展开状态', () => {
+  const pageSource = readFileSync(new URL('../pages/OutlineEditPage.tsx', import.meta.url), 'utf8');
+  const startSorting = pageSource.slice(pageSource.indexOf('const startSorting ='), pageSource.indexOf('const finishSorting ='));
+  const finishSorting = pageSource.slice(pageSource.indexOf('const finishSorting ='), pageSource.indexOf('const discardSorting ='));
+  const discardSorting = pageSource.slice(pageSource.indexOf('const discardSorting ='), pageSource.indexOf('const saveSorting ='));
+
+  assert.match(startSorting, /sortingExpandedItemsRef\.current = new Set\(expandedItems\);/);
+  assert.match(discardSorting, /setExpandedItems\(sortingExpandedItemsRef\.current\);[\s\S]*?finishSorting\(\);/);
+  assert.match(finishSorting, /sortingExpandedItemsRef\.current = new Set\(\);/);
+  assert.doesNotMatch(finishSorting, /setExpandedItems\(/);
 });
