@@ -11,6 +11,7 @@ const {
   SCORE_COVERAGE_MAP_SCHEMA,
   buildCapacityReference,
   buildOutlineReviewContext,
+  normalizeScoreCoverageMap,
   validateFinalOutline,
   buildRemoteKnowledgeFile,
   runOutlineGenerationTaskV2,
@@ -195,6 +196,59 @@ test('评分覆盖映射缺失时最终门禁失败', () => {
 
   assert.equal(result.valid, false);
   assert.ok(result.mandatoryIssues.some((issue) => issue.code === 'score-source-missing'));
+});
+
+test('评分覆盖映射兼容旧版响应点来源编号', () => {
+  const scorePlan = {
+    version: 2,
+    groups: [{
+      requirement_id: 'R1',
+      source_title: '总体方案',
+      target_title: '总体方案',
+      source_order: 1,
+      expected_path: ['R1'],
+      criteria: [{
+        criterion_id: 'R1-C1',
+        source_text: '方案设计',
+        target_title: '方案设计',
+        source_order: 1,
+        expected_path: ['R1', 'R1-C1'],
+        response_points: [
+          { point_id: 'R1-C1-P1', source_text: '建设目标', target_title: '建设目标', source_order: 1, expected_path: ['R1', 'R1-C1', 'R1-C1-P1'] },
+          { point_id: 'R1-C1-P2', source_text: '技术路线', target_title: '技术路线', source_order: 2, expected_path: ['R1', 'R1-C1', 'R1-C1-P2'] },
+        ],
+        evaluation_dimensions: [],
+        supplements: [],
+      }],
+    }],
+  };
+  const legacyMap = {
+    version: 1,
+    coverage_mode: 'full',
+    records: [
+      { source_id: 'R1', source_kind: 'requirement', source_text: '总体方案', node_ids: ['1'], coverage_location: 'title', user_override: 'none', supplement_kind: 'none' },
+      { source_id: 'R1-C1', source_kind: 'criterion', source_text: '方案设计', node_ids: ['1.1'], coverage_location: 'title', user_override: 'none', supplement_kind: 'none' },
+      { source_id: 'R1-P1', source_kind: 'response-point', source_text: '建设目标', node_ids: ['1.1.1'], coverage_location: 'title', user_override: 'none', supplement_kind: 'none' },
+      { source_id: 'R1-P2', source_kind: 'response-point', source_text: '技术路线', node_ids: ['1.1.2'], coverage_location: 'title', user_override: 'none', supplement_kind: 'none' },
+    ],
+  };
+  const normalized = normalizeScoreCoverageMap(legacyMap, scorePlan);
+  assert.deepEqual(normalized.records.map((record) => record.source_id), ['R1', 'R1-C1', 'R1-C1-P1', 'R1-C1-P2']);
+  const result = validateFinalOutline({
+    outline: {
+      outline: [{
+        id: '1', title: '总体方案', description: '总体方案具体响应范围', attr: '技术', children: [{
+          id: '1.1', title: '方案设计', description: '方案设计具体响应内容', children: [
+            { id: '1.1.1', title: '建设目标', description: '明确项目建设目标', content_mode: 'ai-generate' },
+            { id: '1.1.2', title: '技术路线', description: '明确项目技术路线', content_mode: 'ai-generate' },
+          ],
+        }, { id: '1.2', title: '实施保障', description: '实施保障具体响应内容', content_mode: 'ai-generate' }],
+      }],
+    },
+    scorePlan,
+    scoreCoverageMap: legacyMap,
+  });
+  assert.equal(result.valid, true);
 });
 
 test('远程目录参考文件明确标记为不可信材料且不泄露内部来源标识到标题', () => {

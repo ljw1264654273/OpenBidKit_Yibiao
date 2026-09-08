@@ -527,6 +527,44 @@ function collectScoreSources(scorePlan) {
   return sources;
 }
 
+// 兼容旧版 Agent 将同一评分组的响应点写成 R1-P1 的来源编号。
+function normalizeScoreCoverageMap(scoreCoverageMap, scorePlan) {
+  if (scoreCoverageMap?.coverage_mode !== 'full' || !Array.isArray(scoreCoverageMap.records)) {
+    return scoreCoverageMap;
+  }
+  const expectedIds = new Set(collectScoreSources(scorePlan).map((source) => source.id));
+  const legacyAliases = new Map();
+  for (const group of scorePlan?.groups || []) {
+    let pointIndex = 0;
+    let supplementIndex = 0;
+    for (const criterion of group.criteria || []) {
+      for (const point of criterion.response_points || []) {
+        pointIndex += 1;
+        if (point.point_id) {
+          const alias = `${group.requirement_id}-P${pointIndex}`;
+          legacyAliases.set(alias, legacyAliases.has(alias) ? null : point.point_id);
+        }
+      }
+      for (const supplement of criterion.supplements || []) {
+        supplementIndex += 1;
+        if (supplement.supplement_id) {
+          const alias = `${group.requirement_id}-S${supplementIndex}`;
+          legacyAliases.set(alias, legacyAliases.has(alias) ? null : supplement.supplement_id);
+        }
+      }
+    }
+  }
+  let changed = false;
+  const records = scoreCoverageMap.records.map((record) => {
+    const sourceId = String(record?.source_id || '');
+    const canonicalId = expectedIds.has(sourceId) ? sourceId : legacyAliases.get(sourceId);
+    if (!canonicalId || canonicalId === sourceId) return record;
+    changed = true;
+    return { ...record, source_id: canonicalId };
+  });
+  return changed ? { ...scoreCoverageMap, records } : scoreCoverageMap;
+}
+
 function flattenOutlineNodes(items, result = new Map(), parentOriginId = '') {
   for (const item of items || []) {
     result.set(String(item?.id || ''), { ...item, parent_origin_id: parentOriginId });
@@ -549,6 +587,7 @@ function validateFinalOutline({ outline, scorePlan, scoreCoverageMap, baseline =
   const items = outline?.outline || [];
   const structure = collectOutlineStructure(items);
   const nodes = flattenOutlineNodes(items);
+  const normalizedScoreCoverageMap = normalizeScoreCoverageMap(scoreCoverageMap, scorePlan);
   const mandatoryIssues = [];
   if (structure.max_depth > MAX_OUTLINE_DEPTH) {
     mandatoryIssues.push({ code: 'max-depth', message: `目录最多允许 ${MAX_OUTLINE_DEPTH} 级` });
@@ -572,8 +611,8 @@ function validateFinalOutline({ outline, scorePlan, scoreCoverageMap, baseline =
     if (!unchanged) mandatoryIssues.push({ code: 'generic-description', node_id: nodeId, message: '目录说明为空或过于空泛' });
   }
 
-  if (scoreCoverageMap?.coverage_mode === 'full') {
-    const records = Array.isArray(scoreCoverageMap.records) ? scoreCoverageMap.records : [];
+  if (normalizedScoreCoverageMap?.coverage_mode === 'full') {
+    const records = Array.isArray(normalizedScoreCoverageMap.records) ? normalizedScoreCoverageMap.records : [];
     const recordsBySource = new Map();
     for (const record of records) {
       const existing = recordsBySource.get(record.source_id) || [];
@@ -591,7 +630,11 @@ function validateFinalOutline({ outline, scorePlan, scoreCoverageMap, baseline =
     for (const source of expectedSources) {
       const matching = recordsBySource.get(source.id) || [];
       if (matching.length !== 1) {
-        mandatoryIssues.push({ code: matching.length ? 'score-source-duplicate' : 'score-source-missing', source_id: source.id, message: '评分来源映射不完整' });
+        mandatoryIssues.push({
+          code: matching.length ? 'score-source-duplicate' : 'score-source-missing',
+          source_id: source.id,
+          message: `评分来源映射不完整（来源 ${source.id}）`,
+        });
         continue;
       }
       const record = matching[0];
@@ -752,7 +795,7 @@ function createChildrenPrompt({ hasOriginalPlan, originalOnly, targetLeafCount, 
 16. 只允许加入有明确价值的受控补充，例如总体方案要素前的“总体架构设计”，或问题分析下的“其他具体问题分析与应对”“合理化建议”；补充不得替代评分原文节点。
 17. title 只写纯标题，不包含章节编号或 Markdown 标记。description 必须写明具体对象、范围、方法、措施、交付物或评价维度，不能只重复标题。
 18. ${OUTLINE_OUTPUT_FILE} 的完整结构示例：${outlineExample}。branch_id 只写在评分规划对应的技术一级目录上。
-19. 为 ${TECHNICAL_SCORE_GROUPS_FILE} 中每个 R/C/P/S 来源在 ${SCORE_COVERAGE_MAP_FILE} 写且只写一条记录，coverage_mode=full；node_ids 指向承接该来源的正式目录节点，coverage_location 标明 title、description 或 both。评分来源默认 user_override=none，非补充来源 supplement_kind=none。
+19. 为 ${TECHNICAL_SCORE_GROUPS_FILE} 中每个 R/C/P/S 来源在 ${SCORE_COVERAGE_MAP_FILE} 写且只写一条记录，source_id 必须逐字复制来源对象的 ID（例如响应点必须写 R1-C1-P1，不得简写为 R1-P1），coverage_mode=full；node_ids 指向承接该来源的正式目录节点，coverage_location 标明 title、description 或 both。评分来源默认 user_override=none，非补充来源 supplement_kind=none。
 20. 程序已为 ${OUTLINE_OUTPUT_FILE} 和 ${SCORE_COVERAGE_MAP_FILE} 预置 Schema。覆盖写回两个文件后分别调用 json-validation 校验；失败后必须先修复再继续。`;
 }
 
@@ -1141,7 +1184,10 @@ async function runOutlineGenerationTaskV2({ aiService, agentService, ordinaryAge
         const reviewedOutline = readJson(candidate.output_content, OUTLINE_OUTPUT_FILE);
         const normalizedReviewedOutline = buildFinalOutline(reviewedOutline);
         outlineReview = readJson(await meta.readFile(OUTLINE_REVIEW_FILE), OUTLINE_REVIEW_FILE);
-        scoreCoverageMap = readJson(await meta.readFile(SCORE_COVERAGE_MAP_FILE), SCORE_COVERAGE_MAP_FILE);
+        scoreCoverageMap = normalizeScoreCoverageMap(
+          readJson(await meta.readFile(SCORE_COVERAGE_MAP_FILE), SCORE_COVERAGE_MAP_FILE),
+          scorePlan,
+        );
         finalOutline = normalizedReviewedOutline;
         scoreDirectoryPlan = synchronizeScoreDirectoryPlan(scoreDirectoryPlan, finalOutline.outline);
         actualLeafCount = countAiLeaves(finalOutline.outline);
@@ -1189,7 +1235,10 @@ async function runOutlineGenerationTaskV2({ aiService, agentService, ordinaryAge
       finalOutline = buildFinalOutline(candidateOutline);
       scoreDirectoryPlan = synchronizeScoreDirectoryPlan(scoreDirectoryPlan, finalOutline.outline);
       actualLeafCount = countAiLeaves(finalOutline.outline);
-      scoreCoverageMap = readJson(await meta.readFile(SCORE_COVERAGE_MAP_FILE), SCORE_COVERAGE_MAP_FILE);
+      scoreCoverageMap = normalizeScoreCoverageMap(
+        readJson(await meta.readFile(SCORE_COVERAGE_MAP_FILE), SCORE_COVERAGE_MAP_FILE),
+        scorePlan,
+      );
       return continueWithOutlineReview();
     },
   });
@@ -1347,6 +1396,7 @@ module.exports = {
   createChildrenPrompt,
   buildCapacityReference,
   buildOutlineReviewContext,
+  normalizeScoreCoverageMap,
   validateFinalOutline,
   buildRemoteKnowledgeFile,
 };
