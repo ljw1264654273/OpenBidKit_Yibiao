@@ -2470,12 +2470,14 @@ function createTechnicalPlanStore({ app, db, fileService, agentService, taskLogS
       saveScoreCoverageMap();
     });
     transaction();
+    const outlineGenerationTask = loadTask('outline-generation');
     const sortedContentRuntime = reason === 'sort'
       ? safeJsonParse(readMetaRow().content_generation_runtime_json, undefined)
       : undefined;
     const sortedContentTask = reason === 'sort' ? loadTask('content-generation') : undefined;
     return {
       outlineData: savedOutlineData,
+      outlineGenerationTask,
       contentIllustrationPlan: reason === 'sort' ? savedIllustrationPlan : undefined,
       ...(reason === 'sort' ? {
         contentGenerationTask: sortedContentTask,

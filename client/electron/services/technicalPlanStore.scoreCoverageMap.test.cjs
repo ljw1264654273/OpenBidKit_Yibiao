@@ -72,47 +72,47 @@ async function runAssertions() {
     });
 
     const sortedOutline = outline([leaf('1.1', '建设目标实施要求'), leaf('1.2', '建设目标')]);
-    store.saveOutline({
+    const sortedSaved = store.saveOutline({
       outlineData: sortedOutline,
       reason: 'sort',
       idMap: { '1': '1', '1.1': '1.2', '1.2': '1.1' },
     });
-    let map = store.loadTechnicalPlan().outlineGenerationTask.stats.score_coverage_map;
+    let map = sortedSaved.outlineGenerationTask.stats.score_coverage_map;
     assert.deepEqual(map.records[0].node_ids, ['1.2', '1.1']);
 
     const editedOutline = outline([leaf('1.1', '用户修改的建设要求'), leaf('1.2', '建设目标')]);
-    store.saveOutline({ outlineData: editedOutline, reason: 'edit', affectedNodeIds: ['1.1'] });
-    map = store.loadTechnicalPlan().outlineGenerationTask.stats.score_coverage_map;
+    const editedSaved = store.saveOutline({ outlineData: editedOutline, reason: 'edit', affectedNodeIds: ['1.1'] });
+    map = editedSaved.outlineGenerationTask.stats.score_coverage_map;
     assert.equal(map.records[0].user_override, 'renamed');
 
-    store.saveOutline({
+    const partiallyDeletedSaved = store.saveOutline({
       outlineData: outline([leaf('1.2', '建设目标')]),
       reason: 'delete',
       affectedNodeIds: ['1.1'],
       idMap: { '1': '1', '1.2': '1.2' },
     });
-    map = store.loadTechnicalPlan().outlineGenerationTask.stats.score_coverage_map;
+    map = partiallyDeletedSaved.outlineGenerationTask.stats.score_coverage_map;
     assert.deepEqual(map.records[0].node_ids, ['1.2']);
     assert.equal(map.records[0].user_override, 'partially-removed');
 
-    store.saveOutline({
+    const deletedSaved = store.saveOutline({
       outlineData: outline(),
       reason: 'delete',
       affectedNodeIds: ['1.2'],
       idMap: { '1': '1' },
     });
-    map = store.loadTechnicalPlan().outlineGenerationTask.stats.score_coverage_map;
+    map = deletedSaved.outlineGenerationTask.stats.score_coverage_map;
     assert.deepEqual(map.records[0].node_ids, []);
     assert.equal(map.records[0].coverage_location, 'none');
     assert.equal(map.records[0].user_override, 'removed');
 
-    store.saveOutline({
+    const addedChildSaved = store.saveOutline({
       outlineData: outline([leaf('1.1', '用户补充内容')]),
       reason: 'add-child',
       affectedNodeIds: ['1'],
       idMap: { '1': '1' },
     });
-    map = store.loadTechnicalPlan().outlineGenerationTask.stats.score_coverage_map;
+    map = addedChildSaved.outlineGenerationTask.stats.score_coverage_map;
     const userRecord = map.records.find((record) => record.source_id === 'U1');
     assert.equal(userRecord.source_kind, 'user-supplement');
     assert.deepEqual(userRecord.node_ids, ['1.1']);

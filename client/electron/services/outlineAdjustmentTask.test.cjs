@@ -17,11 +17,12 @@ test('旧目录 AI 调整使用 legacy-structure-only 且不伪造评分来源',
   };
   let saveRequest;
   const checkpointCalls = [];
+  const updatedOutlineTask = { task_id: 'outline-score-map', stats: { score_coverage_map: { records: [] } } };
   const workspaceStore = {
     loadTechnicalPlan: () => ({ outlineData, outlineGenerationTask: { stats: {} } }),
     saveOutline: (request) => {
       saveRequest = request;
-      return { outlineData: request.outlineData };
+      return { outlineData: request.outlineData, outlineGenerationTask: updatedOutlineTask };
     },
   };
   const agentService = {
@@ -57,4 +58,5 @@ test('旧目录 AI 调整使用 legacy-structure-only 且不伪造评分来源',
   assert.deepEqual(saveRequest.scoreCoverageMap.records, []);
   assert.equal(saveRequest.outlineData.outline[0].origin_id, undefined);
   assert.match(checkpointCalls.at(-1).patch.stats.adjustment.notice, /旧目录仅完成结构检查/);
+  assert.equal(checkpointCalls.at(-1).result.technicalPlanPatch.outlineGenerationTask, updatedOutlineTask);
 });

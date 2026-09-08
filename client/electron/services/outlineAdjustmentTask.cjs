@@ -235,6 +235,7 @@ async function runOutlineAdjustmentTask({ agentService, workspaceStore, updateTa
     outlineData: saved.outlineData,
     technicalPlanPatch: {
       outlineData: saved.outlineData,
+      outlineGenerationTask: saved.outlineGenerationTask,
       contentGenerationTask: undefined,
       contentGenerationSections: {},
       contentGenerationPlans: {},
