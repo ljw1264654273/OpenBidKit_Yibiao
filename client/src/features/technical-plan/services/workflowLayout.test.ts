@@ -24,8 +24,9 @@ test('自适应双栏提供两组标签和容器窄屏切换', () => {
   assert.match(source, /role="tablist"/);
   assert.equal((source.match(/role="tab"/g) || []).length, 2);
   assert.equal((source.match(/role="tabpanel"/g) || []).length, 2);
-  assert.match(css, /\.adaptive-workspace-shell\s*\{[^}]*container-type:\s*inline-size/s);
+  assert.match(css, /\.adaptive-workspace-shell\s*\{[^}]*grid-template-rows:\s*auto\s+minmax\(0,\s*1fr\)[^}]*container-type:\s*inline-size/s);
   assert.match(css, /@container\s*\(max-width:\s*759px\)/);
+  assert.doesNotMatch(css, /@container\s*\(max-width:\s*759px\)\s*\{[\s\S]*?\.adaptive-workspace-shell\s*\{/s);
 });
 
 test('招标解析把常显进度和双栏切换放到公共工作区', () => {
@@ -77,4 +78,12 @@ test('扩写步骤只优化真实占位状态而不伪造业务控件', () => {
   assert.match(placeholder, /technical-plan-expand-placeholder/);
   assert.match(placeholder, /feature-under-development-overlay/);
   assert.doesNotMatch(placeholder, /改写设置|重新生成|保存并完成/);
+});
+
+test('窄窗口命令栏把标题、进度和操作分行以保留工作区高度', () => {
+  const css = readFileSync(new URL('../../../styles/feature-technical-plan.css', import.meta.url), 'utf8');
+  const responsiveRules = css.match(/@media\s*\(max-width:\s*1199px\)[\s\S]*$/)?.[0] || '';
+
+  assert.match(responsiveRules, /\.bid-analysis-command-bar,[\s\S]*\.global-facts-command-bar,[\s\S]*\.content-generation-command-bar\s*\{[^}]*grid-template-areas:\s*"title title"\s*"meta actions"/s);
+  assert.match(responsiveRules, /\.bid-analysis-command-bar\s*>\s*:first-child,[\s\S]*\.global-facts-command-bar\s*>\s*:first-child,[\s\S]*\.content-generation-command-bar\s*>\s*:first-child\s*\{[^}]*grid-area:\s*title/s);
 });

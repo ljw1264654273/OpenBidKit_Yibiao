@@ -112,7 +112,7 @@
 
 .adaptive-workspace-shell {
   display: grid;
-  grid-template-rows: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   min-width: 0;
   min-height: 0;
   container-type: inline-size;
@@ -143,10 +143,6 @@
 }
 
 @container (max-width: 759px) {
-  .adaptive-workspace-shell {
-    grid-template-rows: auto minmax(0, 1fr);
-  }
-
   .adaptive-workspace-tabs {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -4868,4 +4864,35 @@
   padding: 2px 0;
   color: #b54708;
   font-size: 12px;
+}
+
+@media (max-width: 1199px) {
+  .bid-analysis-command-bar,
+  .global-facts-command-bar,
+  .content-generation-command-bar {
+    grid-template-areas:
+      "title title"
+      "meta actions";
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .bid-analysis-command-bar > :first-child,
+  .global-facts-command-bar > :first-child,
+  .content-generation-command-bar > :first-child {
+    grid-area: title;
+    min-width: 0;
+  }
+
+  .bid-analysis-command-meta,
+  .global-facts-command-meta,
+  .content-generation-command-meta {
+    grid-area: meta;
+    justify-content: flex-start;
+  }
+
+  .bid-analysis-command-actions,
+  .global-facts-command-actions,
+  .content-generation-actions {
+    grid-area: actions;
+  }
 }
