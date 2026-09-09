@@ -389,24 +389,36 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
-  gap: 18px;
-  padding: 22px 24px;
-  background:
-    radial-gradient(circle at 92% 10%, rgba(91, 84, 211, 0.12), transparent 28%),
-    rgba(255, 255, 255, 0.94);
+  gap: 12px;
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.94);
 }
 
 .bid-analysis-command-bar strong {
   display: block;
-  margin: 7px 0 5px;
+  margin: 2px 0;
   color: var(--yb-text);
-  font-size: 24px;
-  letter-spacing: -0.025em;
+  font-size: 16px;
+  letter-spacing: 0;
 }
 
 .bid-analysis-command-bar p {
   margin: 0;
   color: var(--yb-text-soft);
+  font-size: 12px;
+}
+
+.bid-analysis-command-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+
+.bid-analysis-command-meta .compact-task-progress {
+  min-width: 300px;
 }
 
 .bid-analysis-config-chip {
@@ -489,15 +501,14 @@
 }
 
 .bid-analysis-workspace {
-  display: grid;
-  grid-template-columns: 330px minmax(0, 1fr);
+  --adaptive-navigation-width: 300px;
   min-height: 0;
   overflow: hidden;
 }
 
 .bid-analysis-task-pane {
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   min-width: 0;
   min-height: 0;
   overflow: hidden;
@@ -969,24 +980,36 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
-  gap: 18px;
-  padding: 22px 24px;
-  background:
-    radial-gradient(circle at 92% 10%, rgba(28, 184, 116, 0.14), transparent 28%),
-    rgba(255, 255, 255, 0.94);
+  gap: 12px;
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.94);
 }
 
 .global-facts-command-bar strong {
   display: block;
-  margin: 7px 0 5px;
+  margin: 2px 0;
   color: var(--yb-text);
-  font-size: 24px;
-  letter-spacing: -0.025em;
+  font-size: 16px;
+  letter-spacing: 0;
 }
 
 .global-facts-command-bar p {
   margin: 0;
   color: var(--yb-text-soft);
+  font-size: 12px;
+}
+
+.global-facts-command-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+
+.global-facts-command-meta .compact-task-progress {
+  min-width: 260px;
 }
 
 .global-facts-command-actions {
@@ -1023,8 +1046,7 @@
 }
 
 .global-facts-workspace {
-  display: grid;
-  grid-template-columns: 340px minmax(0, 1fr);
+  --adaptive-navigation-width: 320px;
   min-height: 0;
   overflow: hidden;
 }
@@ -1037,7 +1059,7 @@
 
 .global-facts-panel {
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   background: linear-gradient(180deg, rgba(248, 250, 253, 0.86), #ffffff);
   border-right: 1px solid var(--yb-border-soft);
 }
@@ -1159,7 +1181,7 @@
 
 .global-facts-editor-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.9fr);
+  grid-template-columns: minmax(0, 1fr);
   min-height: 0;
   overflow: hidden;
 }
@@ -1170,7 +1192,6 @@
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  border-right: 1px solid var(--yb-border-soft);
 }
 
 .global-facts-edit-pane label {

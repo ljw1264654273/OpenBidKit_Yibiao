@@ -27,3 +27,23 @@ test('自适应双栏提供两组标签和容器窄屏切换', () => {
   assert.match(css, /\.adaptive-workspace-shell\s*\{[^}]*container-type:\s*inline-size/s);
   assert.match(css, /@container\s*\(max-width:\s*759px\)/);
 });
+
+test('招标解析把常显进度和双栏切换放到公共工作区', () => {
+  const source = readFileSync(new URL('../pages/BidAnalysisPage.tsx', import.meta.url), 'utf8');
+
+  assert.match(source, /<CompactTaskProgress/);
+  assert.match(source, /<AdaptiveTwoPaneWorkspace/);
+  assert.doesNotMatch(source, /progressCollapsed/);
+  assert.match(source, /setWorkspacePane\('content'\)/);
+});
+
+test('全局事实使用单一编辑预览工作面并保留当前模式', () => {
+  const source = readFileSync(new URL('../pages/GlobalFactsPage.tsx', import.meta.url), 'utf8');
+
+  assert.match(source, /<CompactTaskProgress/);
+  assert.match(source, /<AdaptiveTwoPaneWorkspace/);
+  assert.doesNotMatch(source, /progressCollapsed/);
+  assert.match(source, /useState<'edit' \| 'preview'>\('edit'\)/);
+  assert.match(source, /editorMode === 'preview' \? '编辑' : '预览'/);
+  assert.match(source, /editorMode === 'edit' \? \(/);
+});
