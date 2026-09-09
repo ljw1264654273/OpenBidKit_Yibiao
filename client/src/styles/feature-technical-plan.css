@@ -1,7 +1,8 @@
 /* [1735-1775] technical-workbench + plan-step-body grid-template-rows variants */
 .technical-workbench {
+  --technical-workbench-control-radius: 6px;
   position: relative;
-  gap: 18px;
+  gap: 12px;
   height: 100%;
   min-height: 0;
   flex: 1;
@@ -10,7 +11,7 @@
 
 .plan-step-body {
   display: grid;
-  gap: 16px;
+  gap: 12px;
   min-height: 0;
 }
 
@@ -4864,6 +4865,137 @@
   padding: 2px 0;
   color: #b54708;
   font-size: 12px;
+}
+
+/* 技术方案工作台沿用原型的方正分栏；圆角只用于控件、状态和悬浮工具条。 */
+.technical-document-upload-board,
+.technical-document-reader-card,
+.bid-analysis-command-bar,
+.bid-analysis-workspace,
+.outline-command-bar,
+.outline-generation-workspace,
+.global-facts-command-bar,
+.global-facts-workspace,
+.content-generation-command-bar,
+.content-generation-progress-card,
+.content-generation-workspace,
+.technical-plan-expand-placeholder {
+  background: var(--yb-surface);
+  border-color: var(--yb-border);
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.technical-workbench :where(.primary-action, .secondary-action, .danger-action, .outline-config-action, .compact-task-progress-trigger) {
+  border-radius: var(--technical-workbench-control-radius);
+  box-shadow: none;
+}
+
+.technical-workbench .outline-command-summary ~ .outline-command-actions button {
+  border-radius: var(--technical-workbench-control-radius);
+}
+
+.technical-workbench .primary-action {
+  background: var(--yb-primary);
+}
+
+.technical-workbench :where(.primary-action, .secondary-action, .danger-action):hover:not(:disabled) {
+  box-shadow: none;
+}
+
+.technical-workbench :where(input:not([type='checkbox']):not([type='radio']):not([type='range']), textarea, select),
+.technical-document-upload-board :where(.upload-row, .upload-empty, .upload-file-pill, .upload-file-icon, .upload-file-pill button),
+.document-switch-tabs,
+.document-switch-tab,
+.compact-task-progress-popover {
+  border-radius: var(--technical-workbench-control-radius);
+}
+
+.document-switch-tabs,
+.document-switch-tab.is-active {
+  box-shadow: none;
+}
+
+.bid-analysis-task-list,
+.global-facts-list,
+.content-outline-list {
+  gap: 0;
+  padding: 0;
+}
+
+.bid-analysis-task-group {
+  gap: 0;
+}
+
+.bid-analysis-task-group > span {
+  padding: 12px 16px 6px;
+}
+
+.bid-analysis-task-item,
+.global-facts-item,
+.content-outline-item {
+  margin-bottom: 0;
+  border: 0;
+  border-bottom: 1px solid var(--yb-border-soft);
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.bid-analysis-task-item:hover:not(:disabled),
+.bid-analysis-task-item.is-active,
+.global-facts-item:hover,
+.global-facts-item.is-active,
+.content-outline-item:hover,
+.content-outline-item.is-active {
+  border-color: var(--yb-border-soft);
+  box-shadow: none;
+}
+
+.bid-analysis-task-item.is-active::before {
+  top: 0;
+  bottom: 0;
+  border-radius: 0;
+}
+
+.global-facts-item.is-active,
+.content-outline-item.is-active {
+  box-shadow: inset 3px 0 0 var(--yb-primary);
+}
+
+.outline-workspace-shell .outline-tree-list {
+  padding: 0;
+}
+
+.outline-workspace-shell .outline-tree-item {
+  margin-bottom: 0;
+  border: 0;
+  border-bottom: 1px solid var(--yb-border-soft);
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.outline-workspace-shell .outline-tree-item:hover,
+.outline-workspace-shell .outline-tree-item.is-active {
+  border-color: var(--yb-border-soft);
+  box-shadow: inset 3px 0 0 var(--yb-primary);
+}
+
+.technical-plan-expand-placeholder .feature-under-development-overlay {
+  color: var(--yb-text);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.technical-plan-expand-placeholder .feature-under-development-overlay span {
+  color: var(--yb-text-soft);
+}
+
+.technical-workbench .floating-toolbar,
+.technical-workbench .floating-toolbar-drag-handle,
+.technical-workbench .floating-toolbar-button {
+  border-radius: var(--yb-radius-pill);
 }
 
 @media (max-width: 1199px) {
