@@ -327,6 +327,15 @@ test('原文面板数据变更只通过单一 reset effect 回到第一处', () 
   );
 });
 
+test('招标原文全屏内容保留共享 Markdown 滚动容器样式', () => {
+  const panelSource = readFileSync(new URL('../components/TenderSourcePanel.tsx', import.meta.url), 'utf8');
+
+  assert.match(
+    panelSource,
+    /fullscreenClassName="markdown-viewer outline-source-panel-fullscreen-viewer"/,
+  );
+});
+
 test('招标 Markdown 在解析和目录两步加载并提供显式重试状态', () => {
   const homeSource = readFileSync(new URL('../pages/TechnicalPlanHome.tsx', import.meta.url), 'utf8');
 

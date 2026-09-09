@@ -83,6 +83,7 @@ function TenderSourcePanel({
           </button>
           <MarkdownFullscreenViewer
             className="outline-source-panel-fullscreen-viewer"
+            fullscreenClassName="markdown-viewer outline-source-panel-fullscreen-viewer"
             title="招标文件原文"
             description="全屏查看当前招标文件 Markdown 原文。"
             buttonLabel="全屏查看招标原文"
