@@ -1413,7 +1413,7 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
         />
       )}
       {state.step === 'expand' && (
-        <section className="empty-panel compact-placeholder">
+        <section className="empty-panel compact-placeholder technical-plan-expand-placeholder">
           <div className="feature-under-development-overlay" role="status" aria-live="polite">
             <strong>正在开发中，敬请期待</strong>
             <span>此功能尚未完成，请先不要使用。</span>

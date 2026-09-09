@@ -61,3 +61,20 @@ test('正文生成把现有阶段进度原样放入公共命令区', () => {
   assert.doesNotMatch(source, /statsCollapsed/);
   assert.match(source, /setWorkspacePane\('content'\)/);
 });
+
+test('选择标书使用局部紧凑上传样式并保留正文阅读器', () => {
+  const source = readFileSync(new URL('../pages/DocumentAnalysisPage.tsx', import.meta.url), 'utf8');
+
+  assert.match(source, /<UploadBoard[^>]*className="technical-document-upload-board"/s);
+  assert.match(source, /technical-document-reader-card analysis-markdown-card/);
+  assert.match(source, /<MarkdownFullscreenViewer/);
+});
+
+test('扩写步骤只优化真实占位状态而不伪造业务控件', () => {
+  const source = readFileSync(new URL('../pages/TechnicalPlanHome.tsx', import.meta.url), 'utf8');
+  const placeholder = source.split("state.step === 'expand'")[1]?.split('<AppDialog')[0] || '';
+
+  assert.match(placeholder, /technical-plan-expand-placeholder/);
+  assert.match(placeholder, /feature-under-development-overlay/);
+  assert.doesNotMatch(placeholder, /改写设置|重新生成|保存并完成/);
+});

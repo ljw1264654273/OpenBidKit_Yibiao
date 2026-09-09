@@ -238,6 +238,70 @@
 }
 
 /* Step01 上传区已迁移到共享 shared-upload.css（shared/ui/UploadBoard.tsx） */
+.technical-document-upload-board {
+  gap: 10px;
+  padding: 14px 18px 16px;
+}
+
+.technical-document-upload-board .upload-page-title {
+  gap: 12px;
+}
+
+.technical-document-upload-board .upload-page-title h2 {
+  margin-top: 4px;
+  font-size: 18px;
+  letter-spacing: 0;
+}
+
+.technical-document-upload-board .upload-page-title p {
+  margin-top: 3px;
+  font-size: 13px;
+}
+
+.technical-document-upload-board .upload-stack {
+  gap: 8px;
+}
+
+.technical-document-upload-board .upload-row {
+  min-height: 66px;
+  grid-template-columns: 132px minmax(180px, 1fr) auto;
+  gap: 12px;
+  padding: 9px 12px 9px 16px;
+}
+
+.technical-document-upload-board .upload-label {
+  gap: 3px;
+}
+
+.technical-document-upload-board .upload-label strong {
+  font-size: 16px;
+}
+
+.technical-document-upload-board .upload-empty {
+  min-height: 46px;
+  padding: 7px 10px;
+}
+
+.technical-document-upload-board .upload-file-list {
+  max-height: 112px;
+  gap: 6px;
+}
+
+.technical-document-upload-board .upload-file-pill {
+  gap: 8px;
+  padding: 7px 10px;
+}
+
+@media (max-width: 759px) {
+  .technical-document-upload-board .upload-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .technical-document-upload-board .upload-label {
+    grid-column: 1 / -1;
+  }
+}
+
 .technical-document-reader-card {
   background: rgba(255, 255, 255, 0.94);
   border: 1px solid rgba(228, 233, 240, 0.88);
@@ -4573,6 +4637,36 @@
 .compact-placeholder {
   position: relative;
   min-height: 360px;
+}
+
+.technical-plan-expand-placeholder {
+  display: grid;
+  min-height: 0;
+  place-content: center;
+  padding: 24px;
+  overflow: hidden;
+}
+
+.technical-plan-expand-placeholder > .section-kicker,
+.technical-plan-expand-placeholder > h3,
+.technical-plan-expand-placeholder > p {
+  display: none;
+}
+
+.technical-plan-expand-placeholder .feature-under-development-overlay {
+  position: static;
+  width: min(480px, 100%);
+  padding: 18px 24px;
+  transform: none;
+}
+
+.technical-plan-expand-placeholder .feature-under-development-overlay strong {
+  font-size: 26px;
+  letter-spacing: 0;
+}
+
+.technical-plan-expand-placeholder .feature-under-development-overlay span {
+  font-size: 15px;
 }
 
 /* [6301-6332] feature-under-development-overlay */
