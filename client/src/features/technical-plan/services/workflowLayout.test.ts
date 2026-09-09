@@ -88,6 +88,17 @@ test('窄窗口命令栏把标题、进度和操作分行以保留工作区高�
   assert.match(responsiveRules, /\.bid-analysis-command-bar\s*>\s*:first-child,[\s\S]*\.global-facts-command-bar\s*>\s*:first-child,[\s\S]*\.content-generation-command-bar\s*>\s*:first-child\s*\{[^}]*grid-area:\s*title/s);
 });
 
+test('目录生成状态栏以两行摘要配合同排进度和操作保持紧凑', () => {
+  const source = readFileSync(new URL('../pages/OutlineEditPage.tsx', import.meta.url), 'utf8');
+  const css = readFileSync(new URL('../../../styles/feature-technical-plan.css', import.meta.url), 'utf8');
+
+  assert.match(source, /<div className="outline-command-title">\s*<span className="section-kicker">STEP 03<\/span>\s*<strong>目录生成<\/strong>\s*<\/div>\s*<p>/s);
+  assert.match(css, /\.outline-command-bar:has\(> \.outline-command-summary\)\s*\{[^}]*display:\s*grid;[^}]*grid-template-areas:\s*"summary progress actions";[^}]*padding:\s*8px 12px;/s);
+  assert.match(css, /\.outline-command-summary\s*\{[^}]*grid-area:\s*summary;[^}]*display:\s*grid;[^}]*gap:\s*2px;/s);
+  assert.match(css, /\.outline-command-progress\s*\{[^}]*grid-area:\s*progress;/s);
+  assert.match(css, /\.outline-command-summary\s*~\s*\.outline-command-actions\s*\{[^}]*grid-area:\s*actions;[^}]*flex-wrap:\s*nowrap;/s);
+});
+
 test('技术方案工作台使用原型的直角面板和小圆角控件', () => {
   const css = readFileSync(new URL('../../../styles/feature-technical-plan.css', import.meta.url), 'utf8');
 

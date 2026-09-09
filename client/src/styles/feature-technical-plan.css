@@ -3702,11 +3702,12 @@
 }
 
 .outline-command-bar:has(> .outline-command-summary) {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px 16px;
+  display: grid;
+  grid-template-areas: "summary progress actions";
+  grid-template-columns: minmax(260px, 1fr) minmax(150px, 240px) auto;
+  gap: 8px 12px;
   min-width: 0;
-  padding: 10px 14px;
+  padding: 8px 12px;
   background: var(--yb-surface);
   border: 0;
   border-bottom: 1px solid var(--yb-border);
@@ -3715,13 +3716,14 @@
 }
 
 .outline-command-summary {
-  flex: 1 1 280px;
+  grid-area: summary;
+  display: grid;
+  gap: 2px;
   min-width: 0;
 }
 
 .outline-command-title {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
 }
@@ -3734,20 +3736,19 @@
 }
 
 .outline-command-summary p {
-  margin-top: 3px;
+  margin: 0;
   font-size: 12px;
-  line-height: 1.5;
+  line-height: 1.4;
   overflow-wrap: anywhere;
 }
 
 .outline-command-progress {
   display: grid;
-  flex: 1 1 170px;
+  grid-area: progress;
   grid-template-columns: minmax(48px, 1fr) 4ch auto;
   align-items: center;
   gap: 8px;
-  max-width: 240px;
-  min-width: 150px;
+  min-width: 0;
   font-size: 12px;
 }
 
@@ -3767,24 +3768,25 @@
 }
 
 .outline-command-summary ~ .outline-command-actions {
-  flex-wrap: wrap;
+  grid-area: actions;
+  flex-wrap: nowrap;
   gap: 6px;
   min-width: 0;
   max-width: 100%;
-  margin-left: auto;
+  justify-content: flex-end;
 }
 
 .outline-command-summary ~ .outline-command-actions button {
-  min-height: 36px;
-  padding: 7px 10px;
+  min-height: 32px;
+  padding: 5px 9px;
   font-size: 12px;
   border-radius: var(--yb-radius-sm);
 }
 
 .outline-command-summary ~ .outline-command-actions .outline-config-action {
-  width: 36px;
-  height: 36px;
-  padding: 7px;
+  width: 32px;
+  height: 32px;
+  padding: 5px;
 }
 
 .outline-process-action[aria-expanded="true"] {
@@ -4999,6 +5001,13 @@
 }
 
 @media (max-width: 1199px) {
+  .outline-command-bar:has(> .outline-command-summary) {
+    grid-template-areas:
+      "summary summary"
+      "progress actions";
+    grid-template-columns: minmax(150px, 1fr) auto;
+  }
+
   .bid-analysis-command-bar,
   .global-facts-command-bar,
   .content-generation-command-bar {
