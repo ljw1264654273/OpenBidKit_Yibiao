@@ -8,6 +8,8 @@
 
 **Tech Stack:** React 19, TypeScript, Radix Popover, global CSS, Node test runner, Vite/Electron.
 
+**Command Working Directory:** Unless a step explicitly says otherwise, run every `node`, `npm`, Vite and Electron command below from `client/`; the repository root has no `package.json`.
+
 ---
 
 ## File Map
@@ -208,6 +210,13 @@ Run: `npm run dev`
 
 Check STEP 01-06 at `1440x920` and `1040x720`, with sidebar expanded and collapsed. Verify internal scrolling, popover focus/Escape, adaptive tabs, STEP 04 draft-preserving mode switch, STEP 05 pause/failure controls and the bottom `FloatingToolbar`.
 
+For STEP 05, use controlled local workspace snapshots to inspect this explicit matrix without sending new model requests:
+
+- phases: 编排、原方案还原、小节/全文字数调整、内容矫正、图片编排、图片生成;
+- states: 运行、暂停中、已暂停、失败待决策;
+- actions: 暂停/继续、重试失败小节、继续后续流程;
+- narrow layout: after switching to “正文内容”, the common progress bar and “过程” trigger remain visible above both pane tabs.
+
 - [ ] **Step 4: Capture screenshots and fix verified defects**
 
 Capture representative screenshots for STEP 01, 02, 04, 05 and narrow adaptive mode. Re-run focused tests and build after any fix.
@@ -218,6 +227,6 @@ Run: `git diff --check` and `git status --short`.
 
 Expected: no whitespace errors; only intended files and the pre-existing fullscreen regression fix are present.
 
-- [ ] **Step 6: Commit verified fixes**
+- [ ] **Step 6: Commit verified fixes only when needed**
 
-Commit: `fix: polish technical plan workflow layouts`
+If visual QA found and fixed a defect, commit: `fix: polish technical plan workflow layouts`. If no code changed during verification, do not create an empty commit.
