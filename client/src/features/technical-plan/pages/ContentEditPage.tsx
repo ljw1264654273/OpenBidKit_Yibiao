@@ -2,7 +2,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 import * as Popover from '@radix-ui/react-popover';
 import { memo, useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import { trackConfigUsage } from '../../../shared/analytics/analytics';
-import { AppSwitch, MarkdownEditor, MarkdownFullscreenViewer, MarkdownRenderer, ProgressBar, useToast } from '../../../shared/ui';
+import { AppSwitch, MarkdownEditor, MarkdownFullscreenViewer, MarkdownRenderer, useToast } from '../../../shared/ui';
 import { OUTLINE_CONTENT_MODE_LABELS } from '../../../shared/types';
 import type { ClientConfig, ImageModelStatus, OutlineContentMode, OutlineData, OutlineItem, OutlineWordControlOptions } from '../../../shared/types';
 import { countReadableWords } from '../../../shared/utils/wordCount';
@@ -14,6 +14,8 @@ import { formatOutlineTitle } from '../../../shared/utils/outlineNumbering';
 import aiImageExampleUrl from '../../../../assets/generate_img_example/ai.png';
 import mermaidImageExampleUrl from '../../../../assets/generate_img_example/mermaid.png';
 import htmlImageExampleUrl from '../../../../assets/generate_img_example/html.png';
+import AdaptiveTwoPaneWorkspace, { type WorkspacePane } from '../components/AdaptiveTwoPaneWorkspace';
+import CompactTaskProgress from '../components/CompactTaskProgress';
 
 interface ContentEditPageProps {
   workflowKind: TechnicalPlanWorkflowKind;
@@ -310,7 +312,7 @@ function ContentEditPage({
   const [confirmRegenerateItem, setConfirmRegenerateItem] = useState<OutlineItem | null>(null);
   const [requirementItem, setRequirementItem] = useState<OutlineItem | null>(null);
   const [regenerateRequirement, setRegenerateRequirement] = useState('');
-  const [statsCollapsed, setStatsCollapsed] = useState(false);
+  const [workspacePane, setWorkspacePane] = useState<WorkspacePane>('navigation');
   const [imageModelStatus, setImageModelStatus] = useState<ImageModelStatus>('untested');
   const [generationDialogOpen, setGenerationDialogOpen] = useState(false);
   const [continuePostProcessingDialogOpen, setContinuePostProcessingDialogOpen] = useState(false);
@@ -989,7 +991,10 @@ function ContentEditPage({
         <button
           type="button"
           className={`content-outline-item is-${status}${selectedItemId === item.id ? ' is-active' : ''}`}
-          onClick={() => setSelectedItemId(item.id)}
+          onClick={() => {
+            setSelectedItemId(item.id);
+            setWorkspacePane('content');
+          }}
         >
           <span className="content-outline-dot" aria-hidden="true" />
           <span className="content-outline-text">
@@ -1058,12 +1063,26 @@ function ContentEditPage({
           <strong>正文生成</strong>
           <p>只对标记为“AI生成”的叶子小节生成正文，其他模式保留为待处理。</p>
         </div>
-        <div className="content-generation-stats" aria-label="正文生成统计">
-          <span><strong>{leaves.length}</strong> 个 AI 小节</span>
-          <span><strong>{completedCount}</strong> 已生成</span>
-          {ignoredCount > 0 && <span><strong>{ignoredCount}</strong> 已忽略</span>}
-          <span title={`模板填写 ${modeCounts['template-fill']}，点对点应答表 ${modeCounts['point-to-point']}，其他模式 ${modeCounts.other}`}><strong>{pendingCount}</strong> 待处理</span>
-          <span><strong>{totalWords}</strong> 字</span>
+        <div className="content-generation-command-meta">
+          <CompactTaskProgress
+            value={displayProgress}
+            label={`${progressPhaseLabel}进度 ${displayProgress}%`}
+            summary={displayProgressCount}
+            status={displayProgressLabel}
+            tone={progressTone}
+            active={progressActive}
+            error={taskFailed}
+          >
+            <p>{progressDescription}</p>
+            {failedCount > 0 && <small>失败 {failedCount} 个小节</small>}
+          </CompactTaskProgress>
+          <div className="content-generation-stats" aria-label="正文生成统计">
+            <span><strong>{leaves.length}</strong> 个 AI 小节</span>
+            <span><strong>{completedCount}</strong> 已生成</span>
+            {ignoredCount > 0 && <span><strong>{ignoredCount}</strong> 已忽略</span>}
+            <span title={`模板填写 ${modeCounts['template-fill']}，点对点应答表 ${modeCounts['point-to-point']}，其他模式 ${modeCounts.other}`}><strong>{pendingCount}</strong> 待处理</span>
+            <span><strong>{totalWords}</strong> 字</span>
+          </div>
         </div>
         <div className="content-generation-actions">
           <button
@@ -1120,32 +1139,26 @@ function ContentEditPage({
         </aside>
       )}
 
-      <section className="content-generation-workspace">
-        <aside className="content-outline-panel">
+      <AdaptiveTwoPaneWorkspace
+        id="content-generation-workspace"
+        className="content-generation-workspace"
+        navigationLabel="标书目录"
+        contentLabel="正文内容"
+        activePane={workspacePane}
+        onPaneChange={setWorkspacePane}
+        navigation={(
+          <aside className="content-outline-panel">
           <div className="analysis-result-head">
             <strong>标书目录</strong>
             <span>{leaves.length} 个小节</span>
           </div>
-          <div className={`content-outline-stats${statsCollapsed ? ' is-collapsed' : ''}`}>
-            <button type="button" onClick={() => setStatsCollapsed((prev) => !prev)} aria-expanded={!statsCollapsed}>
-              <span>{displayProgressLabel}</span>
-              <strong>{displayProgressCount}</strong>
-              <em>{statsCollapsed ? '展开' : '折叠'}</em>
-            </button>
-            {!statsCollapsed && (
-              <div className="content-outline-stats-body">
-                <ProgressBar value={displayProgress} tone={progressTone} active={progressActive} label={`${progressPhaseLabel}进度 ${displayProgress}%`} />
-                <p>{progressDescription}</p>
-                {failedCount > 0 && <small>失败 {failedCount} 个小节</small>}
-              </div>
-            )}
-          </div>
           <div className="content-outline-list">
             {renderTree(outlineData.outline)}
           </div>
-        </aside>
-
-        <article className="content-reader-panel">
+          </aside>
+        )}
+        content={(
+          <article className="content-reader-panel">
           <div className="content-reader-head">
             <div>
               <span className="section-kicker">正文内容</span>
@@ -1206,8 +1219,9 @@ function ContentEditPage({
               <p>该目录下包含 {selectedItem?.children ? collectLeafItems(selectedItem.children).length : 0} 个小节，请选择叶子小节查看具体正文。</p>
             </div>
           )}
-        </article>
-      </section>
+          </article>
+        )}
+      />
 
       <Dialog.Root open={continuePostProcessingDialogOpen} onOpenChange={setContinuePostProcessingDialogOpen}>
         <Dialog.Portal>

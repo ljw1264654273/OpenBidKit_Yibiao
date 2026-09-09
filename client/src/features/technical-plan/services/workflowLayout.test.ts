@@ -47,3 +47,17 @@ test('全局事实使用单一编辑预览工作面并保留当前模式', () =>
   assert.match(source, /editorMode === 'preview' \? '编辑' : '预览'/);
   assert.match(source, /editorMode === 'edit' \? \(/);
 });
+
+test('正文生成把现有阶段进度原样放入公共命令区', () => {
+  const source = readFileSync(new URL('../pages/ContentEditPage.tsx', import.meta.url), 'utf8');
+
+  assert.match(source, /<CompactTaskProgress/);
+  assert.match(source, /value=\{displayProgress\}/);
+  assert.match(source, /summary=\{displayProgressCount\}/);
+  assert.match(source, /status=\{displayProgressLabel\}/);
+  assert.match(source, /tone=\{progressTone\}/);
+  assert.match(source, /active=\{progressActive\}/);
+  assert.match(source, /<AdaptiveTwoPaneWorkspace/);
+  assert.doesNotMatch(source, /statsCollapsed/);
+  assert.match(source, /setWorkspacePane\('content'\)/);
+});
