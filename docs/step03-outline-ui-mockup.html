@@ -1,0 +1,759 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-page-node-id="ns9xvYtYGlnOYapj7jCEbP">
+<head data-page-node-id="8jsQua5l1HSVqlNp1PAYGT">
+<meta charset="UTF-8" data-page-node-id="1DDO0BL3zrNqmAS2xhvs8h">
+<meta name="viewport" content="width=device-width, initial-scale=1.0" data-page-node-id="jQ1dC4q1EAXf3Yh18IYs97">
+<title>目录生成 Step 03 · 分屏优化效果图</title>
+<style>
+  :root {
+    --yb-primary: #2174fd;
+    --yb-primary-hover: #4098fc;
+    --yb-primary-deep: #155bd7;
+    --yb-bg: #fafcff;
+    --yb-surface: #ffffff;
+    --yb-border: #e6e9f0;
+    --yb-border-soft: #eef2f9;
+    --yb-text: #1c2536;
+    --yb-text-soft: #66707f;
+    --yb-text-muted: #98a2b3;
+    --yb-success: #168a4a;
+    --yb-success-soft: #e9f7ef;
+    --yb-success-border: #bfe5cd;
+    --yb-warning: #f28a00;
+    --yb-warning-soft: #fdf3e4;
+    --yb-warning-border: #f2d8ab;
+    --yb-violet: #5b54d3;
+    --yb-radius-sm: 8px;
+    --yb-radius-md: 12px;
+    --yb-radius-pill: 999px;
+    --mark-bg: #fdeeb0;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: "PingFang SC", "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
+    background: var(--yb-bg);
+    color: var(--yb-text);
+    font-size: 13px;
+    line-height: 1.6;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ============ 原型说明条（仅效果图用，实际产品不含） ============ */
+  .proto-note {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 16px;
+    background: linear-gradient(90deg, rgba(33,116,253,.08), rgba(91,84,211,.08));
+    border-bottom: 1px solid var(--yb-border-soft);
+    color: var(--yb-text-soft);
+    font-size: 12px;
+  }
+  .proto-note strong { color: var(--yb-primary-deep); }
+  .proto-note kbd {
+    font-family: inherit;
+    background: #fff;
+    border: 1px solid var(--yb-border);
+    border-radius: 4px;
+    padding: 0 6px;
+    font-size: 11px;
+    color: var(--yb-text);
+  }
+
+  /* ============ 步骤条 ============ */
+  .steps-bar {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 12px 20px 10px;
+    background: var(--yb-surface);
+    border-bottom: 1px solid var(--yb-border-soft);
+    overflow-x: auto;
+  }
+  .step-item {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 5px 12px;
+    border-radius: var(--yb-radius-pill);
+    white-space: nowrap;
+    color: var(--yb-text-muted);
+  }
+  .step-item .num {
+    width: 20px; height: 20px;
+    border-radius: 50%;
+    display: grid; place-items: center;
+    font-size: 11px;
+    background: var(--yb-border-soft);
+    color: var(--yb-text-soft);
+  }
+  .step-item.is-done { color: var(--yb-text-soft); }
+  .step-item.is-done .num { background: var(--yb-success-soft); color: var(--yb-success); }
+  .step-item.is-active {
+    background: rgba(33,116,253,.08);
+    color: var(--yb-primary-deep);
+    font-weight: 600;
+  }
+  .step-item.is-active .num { background: var(--yb-primary); color: #fff; }
+  .step-arrow { color: var(--yb-border); flex-shrink: 0; }
+
+  /* ============ 命令栏 ============ */
+  .command-bar {
+    flex-shrink: 0;
+    display: grid;
+    grid-template-columns: minmax(260px, 1fr) minmax(150px, 220px) auto;
+    gap: 12px;
+    align-items: center;
+    padding: 10px 20px;
+    background: var(--yb-surface);
+    border-bottom: 1px solid var(--yb-border);
+  }
+  .command-title { display: flex; align-items: baseline; gap: 8px; }
+  .command-title strong { font-size: 14px; }
+  .command-title .status-dot {
+    font-size: 12px;
+    color: var(--yb-success);
+    display: inline-flex; align-items: center; gap: 5px;
+  }
+  .status-dot::before {
+    content: ""; width: 7px; height: 7px; border-radius: 50%;
+    background: var(--yb-success); display: inline-block;
+  }
+  .command-progress { display: grid; gap: 4px; }
+  .command-progress .track {
+    height: 6px; border-radius: 3px;
+    background: var(--yb-border-soft); overflow: hidden;
+  }
+  .command-progress .fill { height: 100%; width: 100%; border-radius: 3px; background: var(--yb-success); }
+  .command-progress .meta { font-size: 11px; color: var(--yb-text-muted); display: flex; justify-content: space-between; }
+  .command-actions { display: flex; gap: 8px; }
+  .btn {
+    border: 1px solid var(--yb-border);
+    background: var(--yb-surface);
+    color: var(--yb-text);
+    border-radius: var(--yb-radius-sm);
+    padding: 6px 14px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all .14s;
+    font-family: inherit;
+  }
+  .btn:hover { border-color: var(--yb-primary); color: var(--yb-primary); }
+  .btn.primary {
+    background: var(--yb-primary); border-color: var(--yb-primary); color: #fff;
+  }
+  .btn.primary:hover { background: var(--yb-primary-hover); }
+
+  /* ============ 顶部切换条（分屏显示/隐藏） ============ */
+  .seg-bar {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 20px;
+    background: var(--yb-surface);
+    border-bottom: 1px solid var(--yb-border-soft);
+  }
+  .seg-group { display: flex; gap: 8px; }
+  .seg-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px;
+    border-radius: var(--yb-radius-pill);
+    border: 1px solid var(--yb-border);
+    background: var(--yb-surface);
+    color: var(--yb-text-muted);
+    font-size: 12px;
+    cursor: pointer;
+    transition: all .14s;
+    font-family: inherit;
+  }
+  .seg-btn svg { width: 13px; height: 13px; }
+  .seg-btn:hover { border-color: var(--yb-primary); color: var(--yb-primary); }
+  .seg-btn.on {
+    background: rgba(33,116,253,.08);
+    border-color: rgba(33,116,253,.45);
+    color: var(--yb-primary-deep);
+    font-weight: 600;
+  }
+  .seg-hint { font-size: 11px; color: var(--yb-text-muted); }
+  .seg-hint kbd {
+    font-family: inherit;
+    background: #fff; border: 1px solid var(--yb-border);
+    border-radius: 4px; padding: 0 5px; font-size: 10px;
+  }
+
+  /* ============ 三分屏工作区 ============ */
+  .workspace {
+    flex: 1 1 0;
+    min-height: 0;
+    display: flex;
+    background: var(--yb-surface);
+    overflow: hidden;
+  }
+  .pane {
+    flex: 0 0 auto;
+    min-width: 240px;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+    background: var(--yb-surface);
+    transition: opacity .18s;
+  }
+  .pane-head {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--yb-border-soft);
+  }
+  .pane-head-titles { display: grid; gap: 2px; min-width: 0; }
+  .pane-head-titles strong { font-size: 13px; color: var(--yb-text); }
+  .pane-head-titles span { font-size: 11px; color: var(--yb-text-muted); }
+  .pane-head-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+  .icon-btn {
+    width: 24px; height: 24px;
+    display: grid; place-items: center;
+    border: none; background: transparent;
+    border-radius: 6px;
+    color: var(--yb-text-muted);
+    cursor: pointer;
+    transition: all .14s;
+  }
+  .icon-btn svg { width: 14px; height: 14px; }
+  .icon-btn:hover { background: rgba(33,116,253,.08); color: var(--yb-primary); }
+  /* 隐藏分屏按钮：默认低密度，悬停 pane-head 时浮现 */
+  .pane-hide-btn { opacity: .35; }
+  .pane-head:hover .pane-hide-btn, .pane-hide-btn:focus-visible { opacity: 1; }
+  .pane-body {
+    flex: 1 1 0;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 0;
+  }
+
+  /* ---------- 分割线（可拖拽） ---------- */
+  .split {
+    flex: 0 0 7px;
+    cursor: col-resize;
+    position: relative;
+    background: transparent;
+    z-index: 5;
+  }
+  .split::after {
+    content: "";
+    position: absolute;
+    left: 3px; top: 0; bottom: 0;
+    width: 1px;
+    background: var(--yb-border);
+    transition: background .14s, width .14s, left .14s;
+  }
+  .split:hover::after, .split.is-dragging::after {
+    background: var(--yb-primary);
+    width: 3px;
+    left: 2px;
+    border-radius: 2px;
+  }
+  body.is-resizing { cursor: col-resize; user-select: none; }
+  body.is-resizing .pane-body { pointer-events: none; }
+
+  /* ---------- 标书原文：按块堆叠 ---------- */
+  .src-block {
+    border-bottom: 1px solid var(--yb-border-soft);
+    padding: 10px 12px 14px;
+  }
+  .src-block:last-child { border-bottom: none; }
+  .src-block-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 2px 0 8px;
+    position: sticky;
+    top: 0;
+    background: var(--yb-surface);
+    z-index: 2;
+  }
+  .src-block-head .ord {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--yb-primary-deep);
+    background: rgba(33,116,253,.08);
+    border-radius: 6px;
+    padding: 1px 8px;
+  }
+  .src-block-head .kind {
+    font-size: 11px;
+    border-radius: var(--yb-radius-pill);
+    padding: 1px 8px;
+    border: 1px solid;
+  }
+  .kind.requirement { color: var(--yb-primary-deep); background: rgba(33,116,253,.06); border-color: rgba(33,116,253,.25); }
+  .kind.criterion { color: var(--yb-warning); background: var(--yb-warning-soft); border-color: var(--yb-warning-border); }
+  .kind['response-point'] { color: var(--yb-violet); background: rgba(91,84,211,.07); border-color: rgba(91,84,211,.25); }
+  .src-block-text {
+    font-size: 12.5px;
+    color: var(--yb-text);
+  }
+  .src-block-text p { margin: 0 0 8px; }
+  .src-block-text p:last-child { margin-bottom: 0; }
+  mark { background: var(--mark-bg); color: inherit; border-radius: 3px; padding: 0 2px; }
+
+  /* ---------- 目录结构树 ---------- */
+  .tree-tools { display: flex; gap: 6px; }
+  .tree-tools .btn { padding: 3px 10px; font-size: 11px; }
+  .tree-list { padding: 6px 8px 16px; }
+  .tree-node { user-select: none; }
+  .tree-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 8px;
+    border-radius: var(--yb-radius-sm);
+    cursor: pointer;
+    color: var(--yb-text);
+  }
+  .tree-row:hover { background: var(--yb-border-soft); }
+  .tree-row.selected { background: rgba(33,116,253,.1); color: var(--yb-primary-deep); font-weight: 600; }
+  .tree-row .caret {
+    width: 14px; height: 14px; flex-shrink: 0;
+    color: var(--yb-text-muted);
+    transition: transform .14s;
+    display: grid; place-items: center;
+    font-size: 10px;
+  }
+  .tree-row .caret.leaf { visibility: hidden; }
+  .tree-node.open > .tree-row .caret { transform: rotate(90deg); }
+  .tree-row .title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
+  .tree-row .src-count {
+    flex-shrink: 0;
+    font-size: 10px;
+    color: var(--yb-text-muted);
+    background: var(--yb-border-soft);
+    border-radius: var(--yb-radius-pill);
+    padding: 0 6px;
+  }
+  .tree-row.selected .src-count { background: rgba(33,116,253,.15); color: var(--yb-primary-deep); }
+  .tree-children { display: none; padding-left: 16px; border-left: 1px dashed var(--yb-border); margin-left: 13px; }
+  .tree-node.open > .tree-children { display: block; }
+
+  /* ---------- 目录项详情 ---------- */
+  .detail-body { padding: 14px 16px 24px; display: grid; gap: 14px; }
+  .field { display: grid; gap: 5px; }
+  .field label { font-size: 11px; color: var(--yb-text-soft); }
+  .field .control {
+    border: 1px solid var(--yb-border);
+    border-radius: var(--yb-radius-sm);
+    padding: 7px 10px;
+    font-size: 12.5px;
+    background: var(--yb-surface);
+    color: var(--yb-text);
+  }
+  .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .link-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 11px;
+    color: var(--yb-primary-deep);
+    background: rgba(33,116,253,.06);
+    border: 1px solid rgba(33,116,253,.22);
+    border-radius: var(--yb-radius-sm);
+    padding: 4px 10px;
+    cursor: pointer;
+  }
+  .link-chip:hover { background: rgba(33,116,253,.12); }
+  .detail-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+  /* ---------- toast ---------- */
+  .toast {
+    position: fixed;
+    left: 50%; bottom: 28px;
+    transform: translate(-50%, 20px);
+    background: var(--yb-text);
+    color: #fff;
+    font-size: 12px;
+    border-radius: var(--yb-radius-pill);
+    padding: 8px 18px;
+    opacity: 0;
+    pointer-events: none;
+    transition: all .22s;
+    z-index: 99;
+    box-shadow: 0 10px 30px rgba(23,32,51,.25);
+  }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+</style>
+</head>
+<body data-page-node-id="K9K6t4eBF8vHwuaIBjcb24">
+
+<div class="proto-note" data-page-node-id="iO3uxBpJp2aN75GufbvLSk">
+  <strong data-page-node-id="Z1WK5cOgUuLw4eqxAqrAd4">交互原型</strong>
+  <span data-page-node-id="12NYI5lEBFvKfZAxBLm2Fv">本页可真实操作：<kbd data-page-node-id="rmDAVzjYBtZOXIYGZt3PH6">拖动分割线</kbd> 调整分屏宽度 · <kbd data-page-node-id="VnogT8EOJl78XF86y3cYsG">双击分割线</kbd> 恢复等宽 · 点击每屏右上角 <kbd data-page-node-id="FNTKQUH7g7zFIkdcpkaHeF">隐藏按钮</kbd> 收起分屏 · 顶部切换条随时恢复。实际落地样式以现有客户端设计变量为准。</span>
+</div>
+
+<!-- 步骤条 -->
+<div class="steps-bar" data-page-node-id="Q6tRzi0tgeOsQxvV9ZfBWx">
+  <div class="step-item is-done" data-page-node-id="SY6y7QMYVCtAWVfCXJPaNE"><span class="num" data-page-node-id="w1AAHIWhjY3drGJxLJquhZ">✓</span>选择标书</div>
+  <span class="step-arrow" data-page-node-id="nKZGGBnfs9u1wEXxEBs68p">›</span>
+  <div class="step-item is-done" data-page-node-id="mVdStbwRLSzW91nBtmF7Gu"><span class="num" data-page-node-id="0hF7ftaFQ9uzp35WNJEos8">✓</span>招标文件解析</div>
+  <span class="step-arrow" data-page-node-id="22LfLx3t9U1aNA6wSAuCzs">›</span>
+  <div class="step-item is-active" data-page-node-id="kDhzDqNYh90RxoxL5jud1L"><span class="num" data-page-node-id="TmwIIUDz2ALpGb5ztcynwD">3</span>目录生成</div>
+  <span class="step-arrow" data-page-node-id="RdfylxWzqHGHyAEeJxxiUy">›</span>
+  <div class="step-item" data-page-node-id="hHKahnUGOlx0E7k1thoFPf"><span class="num" data-page-node-id="GDnQ1dckK5RHfmN4XvrWIu">4</span>全局事实设定</div>
+  <span class="step-arrow" data-page-node-id="nk3LblAHlRmHCS9nzHKNkZ">›</span>
+  <div class="step-item" data-page-node-id="XNX99zSqnCQxgFVLB9uhEv"><span class="num" data-page-node-id="F2yucFschCKhGX1n6M69N1">5</span>生成正文</div>
+  <span class="step-arrow" data-page-node-id="i8KI6d18bfp9KtdKxHfMvx">›</span>
+  <div class="step-item" data-page-node-id="E6cwi415cS2GrnOPH2X2Mz"><span class="num" data-page-node-id="pYtSDKQJBUlB70Vk7Vk4pq">6</span>扩写改写</div>
+</div>
+
+<!-- 命令栏 -->
+<div class="command-bar" data-page-node-id="xTxmti59ABTEJMzG0T3qr4">
+  <div class="command-title" data-page-node-id="N7PRjnC5kxIFozWfxEi5Rw">
+    <strong data-page-node-id="8AFj6yZiVkSFakVBzybqnI">目录已生成，建议人工核对</strong>
+    <span class="status-dot" data-page-node-id="5L9Na9Nc9HdajensLpmNg8">生成完成</span>
+  </div>
+  <div class="command-progress" data-page-node-id="SBXLdoNQ8QQjDNL8kCwqB7">
+    <div class="track" data-page-node-id="0KOcMJY95RhfVE0fIHzFh9"><div class="fill" data-page-node-id="fVvU7hc0T8RSGgKRLNVUpS"></div></div>
+    <div class="meta" data-page-node-id="kL63cBiu7RzQh2JEoiGX4f"><span data-page-node-id="cU9uaHPj1ch6oqQ29mSd5e">一级目录 6 个</span><span data-page-node-id="1ex1CUsmHwMh84pqZACpzg">100%</span></div>
+  </div>
+  <div class="command-actions" data-page-node-id="FqoNMTRrfaTNGJ87SsVyPI">
+    <button class="btn" data-page-node-id="S9g0HtL8F5BAzVvZ5Y8lJr">重新生成目录</button>
+    <button class="btn" data-page-node-id="mdW517E1Sgi5QcSf5miZ4Z">上一步</button>
+    <button class="btn primary" data-page-node-id="xSkNsJ7FccGfRRnSqxpTHX">下一步</button>
+  </div>
+</div>
+
+<!-- 顶部切换条：分屏显示 / 隐藏 / 恢复 -->
+<div class="seg-bar" data-page-node-id="UoBWVOYA0Un92YAE836vXj">
+  <div class="seg-group" id="segGroup" data-page-node-id="icgBtU1kxZYKWAqwyoasIi">
+    <button class="seg-btn on" data-pane="source" data-page-node-id="txD8jpqTrRh2tnJHq8IfmL">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" data-page-node-id="fJqf3zC2skDX6TflpXxIcC"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" data-page-node-id="JpFh6SfIPtEnOOormOaEwT"/><circle cx="12" cy="12" r="3" data-page-node-id="t2EbrxnxmbXiGrRFPpW9k7"/></svg>
+      标书原文
+    </button>
+    <button class="seg-btn on" data-pane="tree" data-page-node-id="boslhZDUOHTQpMqZxC0Hic">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" data-page-node-id="kvlbGHZBVAgQSfK0ejcu1n"><path d="M8 6h13M8 12h13M8 18h13" data-page-node-id="TaNTRswAiU90GYTefbKeFI"/><circle cx="3.5" cy="6" r="1" data-page-node-id="UJj8YBjrvKGxcjnxsP53Rc"/><circle cx="3.5" cy="12" r="1" data-page-node-id="80WeUtr4r3D63EsQx1Ipwu"/><circle cx="3.5" cy="18" r="1" data-page-node-id="JQsx1qQlmFLIQn3lpGBdLU"/></svg>
+      目录结构
+    </button>
+    <button class="seg-btn on" data-pane="detail" data-page-node-id="NIgctTF96xWXfV643RgJbh">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" data-page-node-id="MkwKD92LLp3k73hNWSJI88"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" data-page-node-id="YSN7kygfIyfBDBXHeMdBfp"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" data-page-node-id="DjZ4LI7fvTRuwfHm6L96cS"/></svg>
+      目录项详情
+    </button>
+  </div>
+  <div class="seg-hint" data-page-node-id="21PBjDXSMe33NmE72FZHwd">高亮 = 显示中，点击可隐藏 / 恢复 · <kbd data-page-node-id="MFcBRAV83DOqj2VESZqbqU">双击分割线</kbd> 恢复等宽</div>
+</div>
+
+<!-- 三分屏工作区 -->
+<div class="workspace" id="workspace" data-page-node-id="N0dCpCuHp9AmVHN4rEuSGk">
+
+  <!-- 分屏 1：标书原文（多处按块堆叠展示） -->
+  <section class="pane" data-pane="source" data-page-node-id="TeLBtjwHsoCEbzTJpcQW8o">
+    <div class="pane-head" data-page-node-id="CwJdao5DAPeEbWFjp42f6E">
+      <div class="pane-head-titles" data-page-node-id="DHwBNtZMrI5w69QYhwXnmj">
+        <strong data-page-node-id="cM6hrWT3zPsOAAF57fl8EM">标书原文</strong>
+        <span data-page-node-id="9WQAgwOsISnqxBWsGLCYpA">3 处关联 · 已按块展开</span>
+      </div>
+      <div class="pane-head-actions" data-page-node-id="iJbS3q3vECxlIZu5gRH9TG">
+        <button class="icon-btn" title="全屏查看招标原文" data-page-node-id="ylEG1AgZxoSx3t0OixF5ZY">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" data-page-node-id="LK8hhmwcd3GTZNIUjNIjg0"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" data-page-node-id="TQXNsbqv8jAiSoUYE2qFy4"/></svg>
+        </button>
+        <button class="icon-btn pane-hide-btn" data-hide="source" title="隐藏该分屏" data-page-node-id="carSJDlHiXDEpWgQEWrtAH">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" data-page-node-id="bc4kLUmw1TQhMvY3MdKkFG"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" data-page-node-id="kp4StHxdFNVK0ZKtFmGmsO"/><line x1="1" y1="1" x2="23" y2="23" data-page-node-id="2CueLuUfFJnBPszBSYX1pn"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="pane-body" data-page-node-id="GqyGWqQ4qhKsRchDsarJmY">
+      <article class="src-block" data-page-node-id="VoDuB34GkoeW90x5iJ5EZW">
+        <div class="src-block-head" data-page-node-id="BGfYTtVvWb2I4i3wBHhiDf">
+          <span class="ord" data-page-node-id="yJF9ad4bGwAGuu42Q9FhI3">第一处</span>
+          <span class="kind requirement" data-page-node-id="Ez9XbV7626pJXgPlixyucr">招标要求</span>
+        </div>
+        <div class="src-block-text" data-page-node-id="EyJFhO8ufKWLwzjeANRicj">
+          <p data-page-node-id="5HpLH3y55yUi8j5T60ceCY">投标人应充分理解本项目<mark data-page-node-id="tEJ4yPpQHredEGuZp8BTks">智慧园区综合管理平台</mark>建设目标，基于成熟的<mark data-page-node-id="Wrjb23VFIR4abEN6nNSFDw">微服务架构</mark>完成系统设计，支持与园区现有<mark data-page-node-id="Ou8HmlFP3Oe015JapZHGf9">一卡通系统</mark>、能耗监测系统的数据对接……</p>
+          <p data-page-node-id="2KSLc7Km74P1YoyIDRl8OE">系统需满足等保二级要求，核心业务数据留存时间不少于 <mark data-page-node-id="EDaHD73fa5HbPavQemlcD4">三年</mark>，并提供完整的数据备份与容灾方案。</p>
+        </div>
+      </article>
+      <article class="src-block" data-page-node-id="dIA6WJeVRwkbZrorhDeKl5">
+        <div class="src-block-head" data-page-node-id="IxmhI421cHXjyB277wWTR1">
+          <span class="ord" data-page-node-id="fZXqXkCzfL4G2PljTFgaNp">第二处</span>
+          <span class="kind criterion" data-page-node-id="auOpEVDf6r41TsHTQRNY23">评分标准</span>
+        </div>
+        <div class="src-block-text" data-page-node-id="KX3ewdnwptN0tuGeVlk0w6">
+          <p data-page-node-id="iHNjZ3ChRD93k6i4wgICdb">技术方案中对<mark data-page-node-id="EHQKILFBS8nrRYK9Pq4tWu">数据库设计</mark>的完整性、规范性进行评价：提供完整的数据字典、<mark data-page-node-id="Zlb3kGylWzxV777RIWufMd">ER 模型</mark>与数据治理方案得 5 分；仅有表结构说明得 2 分；未提供不得分。</p>
+        </div>
+      </article>
+      <article class="src-block" data-page-node-id="Svw4QBBD7supsODiKcaCE4">
+        <div class="src-block-head" data-page-node-id="FErTkYqqYQXsyXQ2HxzIUS">
+          <span class="ord" data-page-node-id="wUE7w6bRfb8wHyv7K8TN02">第三处</span>
+          <span class="kind response-point" data-page-node-id="IE0QdQnRysepNkoDfjRMAm">响应要点</span>
+        </div>
+        <div class="src-block-text" data-page-node-id="EH3HAhvHVahK8rkXMVshhG">
+          <p data-page-node-id="nMieSCz6GbPQTFSUwW2gnX">正文须逐项响应<mark data-page-node-id="5TnuMDbgDbEifwvDweTv5i">平台架构设计</mark>章节要求，明确技术选型（应用中间件、<mark data-page-node-id="leQqo370QSch1VXPtblvbR">数据库</mark>、GIS 引擎）与版本，并说明与招标技术参数的对应关系。</p>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <div class="split" data-split="source|tree" title="拖动调整宽度，双击恢复等宽" data-page-node-id="YSldK7siqsgU9WmdKAksUo"></div>
+
+  <!-- 分屏 2：目录结构 -->
+  <section class="pane" data-pane="tree" data-page-node-id="mKTEBPUsX2FUuIaWUwD2sk">
+    <div class="pane-head" data-page-node-id="ng2kxIckUNrx4kGXLJURXB">
+      <div class="pane-head-titles" data-page-node-id="fUDP0TYH20qQbBQcS44G20">
+        <strong data-page-node-id="xvKlEwwwJCoXYg8GLgSQay">目录结构</strong>
+        <span data-page-node-id="CrVJwLrobqbkThSmM1PlBY">6 个一级目录</span>
+      </div>
+      <div class="pane-head-actions" data-page-node-id="vUM96yaHdLQ1BQkP8F9pmt">
+        <div class="tree-tools" data-page-node-id="cIhcIEYkO3DNPletCzIAUS">
+          <button class="btn" data-page-node-id="SSAAq7kNinbZndwU9tKApL">添加一级目录</button>
+          <button class="btn" data-page-node-id="XnueObJ2K1dCUefG7E4Xhh">目录排序</button>
+        </div>
+        <button class="icon-btn pane-hide-btn" data-hide="tree" title="隐藏该分屏" data-page-node-id="WouSRbKy6epCBCPHI8DZwE">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" data-page-node-id="lLKOPkGiNBDBMUO32xrN2R"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" data-page-node-id="x55Bb6XmCa9NqjOjhL8F33"/><line x1="1" y1="1" x2="23" y2="23" data-page-node-id="oPe2xQ6UgA08Wdynp8dFj5"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="pane-body" data-page-node-id="XdMNCEHs6wF9gUDFDyFSCQ">
+      <div class="tree-list" data-page-node-id="ma1G8sCjPjOjSfNiDcecU8">
+        <div class="tree-node open" data-page-node-id="EbcaDhMMq3o2Go49g1mp5N">
+          <div class="tree-row" data-select data-page-node-id="tXgnEatwwJTP1OnmxfaPhG"><span class="caret" data-page-node-id="ffoxPlPgiedqM295I83C7u">▶</span><span class="title" data-page-node-id="r6VSsQOs1gP3uMIGI1EkwF">1 项目概述</span><span class="src-count" data-page-node-id="FoskfMG8Fz5xzcyfsZAFGt">2 处</span></div>
+          <div class="tree-children" data-page-node-id="aQfWNcEUXGmtzCgIWWPfDo">
+            <div class="tree-node" data-page-node-id="Mi4PPxoAW5Fej2EWCO7C8r"><div class="tree-row" data-select data-page-node-id="KHZOLwMggMBzVhvHZRMVD5"><span class="caret leaf" data-page-node-id="cxoSRBY77B3Sjlsp2Rbf2m">▶</span><span class="title" data-page-node-id="wWJzx1TnyrzkA9WMCBGaQN">1.1 项目背景与建设目标</span></div></div>
+            <div class="tree-node" data-page-node-id="QWUsVaMrlErq3urwUEl9Ue"><div class="tree-row" data-select data-page-node-id="B1j5rC325fkuFyXbt4BA3z"><span class="caret leaf" data-page-node-id="GZTCafHtar0uFK4tVHyS8y">▶</span><span class="title" data-page-node-id="5FFKr8nIg0Id0Uev1QaT0B">1.2 对招标需求的理解</span></div></div>
+          </div>
+        </div>
+        <div class="tree-node open" data-page-node-id="WK8HWziUCpdfN0BjSXKFq8">
+          <div class="tree-row" data-select data-page-node-id="HDUxaMY67s2CuQ3D4gjoJs"><span class="caret" data-page-node-id="IuhcF3FHDVmym7WS9xO9fD">▶</span><span class="title" data-page-node-id="Ti5YA4NPSBBjTwcGgq6NmI">2 总体建设方案</span><span class="src-count" data-page-node-id="mdcaH2u154suE0p3gv9fPd">1 处</span></div>
+          <div class="tree-children" data-page-node-id="iOxjE8MapDYhyVpAKiudHf">
+            <div class="tree-node" data-page-node-id="eLLH8wbLV4dTIff6yAvV7C"><div class="tree-row" data-select data-page-node-id="JnvDyLMm3ulb8lyhGxIeoJ"><span class="caret leaf" data-page-node-id="74uUChr7QTvywmutlKrCZe">▶</span><span class="title" data-page-node-id="5imGjVHgX8w6FVHnWflkAZ">2.1 建设原则与总体思路</span></div></div>
+          </div>
+        </div>
+        <div class="tree-node open" data-page-node-id="Sv0wVuqG8jyWOliLNXqP9y">
+          <div class="tree-row" data-select data-page-node-id="vHqwWVhaFnrB9MEQSIk2Iy"><span class="caret" data-page-node-id="eeTk9XVv7ojrrNdPMr78tT">▶</span><span class="title" data-page-node-id="IZ0XIa14DFjkxlIf6M0VJj">3 平台架构设计</span><span class="src-count" data-page-node-id="GkP0BZOVJ9Um5UJ91awjZD">3 处</span></div>
+          <div class="tree-children" data-page-node-id="0DM7gy1c8E6M9Asw1ze4DM">
+            <div class="tree-node" data-page-node-id="Zb5DkNlB7L5EFqvGCgTZby"><div class="tree-row" data-select data-page-node-id="CoC5TJLiSvOYEcIuh221ov"><span class="caret leaf" data-page-node-id="Zt3wPnm997kskhTklF35Ob">▶</span><span class="title" data-page-node-id="i4r2Ofsq316hPC5MMcUJz1">3.1 技术选型与架构说明</span></div></div>
+            <div class="tree-node" data-page-node-id="AAkvI4puVzRkwkOT5PbX3x"><div class="tree-row selected" data-select data-page-node-id="UpHlbcWkjB2SCIjF6VsWQF"><span class="caret leaf" data-page-node-id="NAHuiHCbF3pMbTmebKrgOv">▶</span><span class="title" data-page-node-id="qxZtVpr9OD8zjHXYRHqOGD">3.2 数据库设计与建模</span></div></div>
+            <div class="tree-node" data-page-node-id="1t54N2KugmBoOyD0w7WTX7"><div class="tree-row" data-select data-page-node-id="SxfE9FWNK6GxZ3eHHRupsD"><span class="caret leaf" data-page-node-id="sXgfBDXKqvjhlBPbRnEGxz">▶</span><span class="title" data-page-node-id="lI7qxj2BWQTKq9Mha4TXv8">3.3 系统接口与集成方案</span></div></div>
+          </div>
+        </div>
+        <div class="tree-node" data-page-node-id="opOamje5uoeS7lKr7UYSTs">
+          <div class="tree-row" data-select data-page-node-id="FwFGQCXotlBEYX9XGTniTf"><span class="caret" data-page-node-id="wbUMp2CVXhXSnFm8xy4EIt">▶</span><span class="title" data-page-node-id="1pxUAT7AvjViAVqEx7cOhm">4 数据治理与数据安全</span><span class="src-count" data-page-node-id="gjd2V26RQUZAb5M2fsfojQ">1 处</span></div>
+          <div class="tree-children" data-page-node-id="CDFh2U5enQknvnZCXsBKLo">
+            <div class="tree-node" data-page-node-id="7eXrwih8YRCYBHtygLRWHA"><div class="tree-row" data-select data-page-node-id="as8JGnD6hNWU7n3v5GJD3C"><span class="caret leaf" data-page-node-id="HLlMKEVRLSEHjPDD4XBMx6">▶</span><span class="title" data-page-node-id="OnMCVpHnj4GGOZpQKwJ3BE">4.1 数据备份与容灾</span></div></div>
+          </div>
+        </div>
+        <div class="tree-node" data-page-node-id="UuUl0Flw75E0JNpdv9tn84">
+          <div class="tree-row" data-select data-page-node-id="LYRZd0i5I2YlYSuWNS8yDC"><span class="caret" data-page-node-id="XkA8SPf9u1ZWcxqs61I0nl">▶</span><span class="title" data-page-node-id="SB0K3pi2ysq8UGA1lH5x2S">5 实施部署与进度计划</span></div>
+          <div class="tree-children" data-page-node-id="N6TCVEDkETRrFFNMKzL47i"></div>
+        </div>
+        <div class="tree-node" data-page-node-id="KDNUBxt9IbKRojT4PPA8U3">
+          <div class="tree-row" data-select data-page-node-id="04cYAiMiq6ksLbP5HiAzLh"><span class="caret" data-page-node-id="sDBjXXMLcBOmY5ppgS76dv">▶</span><span class="title" data-page-node-id="CR0YgnW1ZV6SZAbCtz3c0W">6 售后服务与培训</span></div>
+          <div class="tree-children" data-page-node-id="4yFYn8546TZ0mCqvfaVqa9"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="split" data-split="tree|detail" title="拖动调整宽度，双击恢复等宽" data-page-node-id="38L1xHstAFL1k7DC5K8v87"></div>
+
+  <!-- 分屏 3：目录项详情 -->
+  <aside class="pane" data-pane="detail" data-page-node-id="AxUmAs80bGRtHV90Ah4UyA">
+    <div class="pane-head" data-page-node-id="uTPlADznwAAxTusgSEGThN">
+      <div class="pane-head-titles" data-page-node-id="GaGTCgAsWGmOMYClTx5yEO">
+        <strong data-page-node-id="kZQsARdPMFfUaLb5WaXYZp">目录项详情</strong>
+        <span data-page-node-id="7UY8v4FrhihL1MPpEZteed">3.2 数据库设计与建模</span>
+      </div>
+      <div class="pane-head-actions" data-page-node-id="2AMvpAGVsn1crrG9agI7XB">
+        <button class="icon-btn pane-hide-btn" data-hide="detail" title="隐藏该分屏" data-page-node-id="wwLaedsFERZFgXdvFAE1gM">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" data-page-node-id="CQQLaWWRxfBHHRXOsi42Ux"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" data-page-node-id="2JVDvcM25mnm7L5GvDuR94"/><line x1="1" y1="1" x2="23" y2="23" data-page-node-id="DXJl4dGtXkYWd58SuNDzCU"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="pane-body" data-page-node-id="ON3uA5gAacV9JMD5CXLxt2">
+      <div class="detail-body" data-page-node-id="dkfaIHF1fuAfXTA9a05jXo">
+        <div class="field" data-page-node-id="32xxeRehCBeVbf8ByhYdCD">
+          <label data-page-node-id="f2DFmTYVHQGIWtzgFyNBZy">目录标题</label>
+          <div class="control" data-page-node-id="f8fkRIPgb1jl2nvDtvzTLw">数据库设计与建模</div>
+        </div>
+        <div class="field-row" data-page-node-id="LR6d2hulZhxxlKeKAW0QKa">
+          <div class="field" data-page-node-id="yjDBTsQosoRr2MCnnwchlG">
+            <label data-page-node-id="nVQWVkdcH5Khumg4Uy4sBO">层级</label>
+            <div class="control" data-page-node-id="AxKaUBW8X8eV4Q70anqlaA">二级目录</div>
+          </div>
+          <div class="field" data-page-node-id="hx7RoDosxThsSWTRVI7OIu">
+            <label data-page-node-id="IWORbYYMOuLdZVFuPHqyPA">建议字数</label>
+            <div class="control" data-page-node-id="pYGf4le52uDGEe8hsMnsYE">2000 - 4000 字</div>
+          </div>
+        </div>
+        <div class="field" data-page-node-id="okoMQZlLiPtYlO8icsFUAe">
+          <label data-page-node-id="3dUKECv8zEjKdeGQ9AUdd4">关联招标原文（3 处）</label>
+          <div style="display:flex; flex-direction:column; gap:6px;" data-page-node-id="1vYK1390PhCpA3dVXjTdxZ">
+            <span class="link-chip" data-page-node-id="kzw28kPV0cPzpvaq0rDrYr">第一处 · 招标要求</span>
+            <span class="link-chip" data-page-node-id="i6vbNOI5Dbyft4x64fbmlG">第二处 · 评分标准</span>
+            <span class="link-chip" data-page-node-id="RtPUCqZwwrHrRlOlFUiPIL">第三处 · 响应要点</span>
+          </div>
+        </div>
+        <div class="detail-actions" data-page-node-id="W8POdzr2d6xtIwzli6eFos">
+          <button class="btn primary" data-page-node-id="1WmFLSy9fIynIXIsM0Z2qh">保存修改</button>
+          <button class="btn" data-page-node-id="TItLDLGi0ioFbeFy1aCsPw">添加子目录</button>
+          <button class="btn" data-page-node-id="lblzzDTvOB4C4NTTJZAPCe">删除目录</button>
+        </div>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<div class="toast" id="toast" data-page-node-id="EGCrgsDuqE0TUj9WyTcVGr"></div>
+
+<script>
+(function () {
+  var workspace = document.getElementById('workspace');
+  var panes = {
+    source: workspace.querySelector('[data-pane="source"]'),
+    tree: workspace.querySelector('[data-pane="tree"]'),
+    detail: workspace.querySelector('[data-pane="detail"]')
+  };
+  var splits = workspace.querySelectorAll('.split');
+  var segBtns = document.querySelectorAll('.seg-btn');
+  var toast = document.getElementById('toast');
+  var toastTimer = null;
+
+  var visible = { source: true, tree: true, detail: true };
+  var MIN_W = 240;
+
+  function showToast(msg) {
+    toast.textContent = msg;
+    toast.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { toast.classList.remove('show'); }, 2200);
+  }
+
+  /* ---------- 布局：按可见分屏等分宽度 ---------- */
+  function layout() {
+    var names = ['source', 'tree', 'detail'].filter(function (n) { return visible[n]; });
+    var total = workspace.clientWidth - splitsVisibleCount() * 7;
+    var each = Math.floor(total / names.length);
+    names.forEach(function (n) { panes[n].style.flexBasis = each + 'px'; });
+  }
+
+  function splitsVisibleCount() {
+    var count = 0;
+    splits.forEach(function (s) {
+      var pair = s.getAttribute('data-split').split('|');
+      s.style.display = (visible[pair[0]] && visible[pair[1]]) ? '' : 'none';
+      if (s.style.display !== 'none') count++;
+    });
+    return count;
+  }
+
+  /* ---------- 显示 / 隐藏 ---------- */
+  function setVisible(name, on, silent) {
+    visible[name] = on;
+    panes[name].style.display = on ? '' : 'none';
+    segBtns.forEach(function (b) {
+      if (b.getAttribute('data-pane') === name) b.classList.toggle('on', on);
+    });
+    layout();
+    if (!silent) {
+      showToast(on ? '已恢复「' + labelOf(name) + '」分屏' : '已隐藏「' + labelOf(name) + '」分屏，可通过顶部切换条恢复');
+    }
+  }
+
+  function labelOf(name) {
+    return { source: '标书原文', tree: '目录结构', detail: '目录项详情' }[name];
+  }
+
+  segBtns.forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var name = btn.getAttribute('data-pane');
+      var openNames = Object.keys(visible).filter(function (n) { return visible[n]; });
+      if (visible[name]) {
+        if (openNames.length <= 1) { showToast('至少保留一个分屏'); return; }
+        setVisible(name, false);
+      } else {
+        setVisible(name, true);
+      }
+    });
+  });
+
+  document.querySelectorAll('[data-hide]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var name = btn.getAttribute('data-hide');
+      var openNames = Object.keys(visible).filter(function (n) { return visible[n]; });
+      if (openNames.length <= 1) { showToast('至少保留一个分屏'); return; }
+      setVisible(name, false);
+    });
+  });
+
+  /* ---------- 拖拽分割线 ---------- */
+  splits.forEach(function (split) {
+    split.addEventListener('dblclick', layout);
+
+    split.addEventListener('mousedown', function (e) {
+      e.preventDefault();
+      var pair = split.getAttribute('data-split').split('|');
+      var leftPane = panes[pair[0]];
+      var rightPane = panes[pair[1]];
+      if (!leftPane || !rightPane) return;
+
+      // 拖动只影响左右相邻两个分屏，其余保持不动
+      var startX = e.clientX;
+      var startLeft = leftPane.getBoundingClientRect().width;
+      var startRight = rightPane.getBoundingClientRect().width;
+      // 左右两侧还存在其他分屏时，允许的拖动余量
+      var leftLimit = MIN_W - startLeft;                      // 向左最多拖到左屏最小宽
+      var rightLimit = startRight - MIN_W;                    // 向右最多拖到右屏最小宽
+
+      split.classList.add('is-dragging');
+      document.body.classList.add('is-resizing');
+
+      function onMove(ev) {
+        var dx = ev.clientX - startX;
+        if (dx < leftLimit) dx = leftLimit;
+        if (dx > rightLimit) dx = rightLimit;
+        leftPane.style.flexBasis = (startLeft + dx) + 'px';
+        rightPane.style.flexBasis = (startRight - dx) + 'px';
+      }
+      function onUp() {
+        split.classList.remove('is-dragging');
+        document.body.classList.remove('is-resizing');
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+      }
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+  });
+
+  /* ---------- 目录树交互 ---------- */
+  document.querySelectorAll('.tree-row').forEach(function (row) {
+    row.addEventListener('click', function (e) {
+      var caret = row.querySelector('.caret');
+      if (caret && !caret.classList.contains('leaf') && e.target.closest('.caret')) {
+        row.parentElement.classList.toggle('open');
+        return;
+      }
+      document.querySelectorAll('.tree-row.selected').forEach(function (r) { r.classList.remove('selected'); });
+      row.classList.add('selected');
+    });
+    row.querySelector('.caret') && row.querySelector('.caret').addEventListener('click', function (e) {
+      e.stopPropagation();
+      row.parentElement.classList.toggle('open');
+    });
+  });
+
+  /* ---------- 窗口尺寸变化时重排 ---------- */
+  window.addEventListener('resize', layout);
+
+  splitsVisibleCount();
+  layout();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>目录生成布局预览 v4 · 可调节三分屏</title>
+  <style>
+    :root {
+      --bg: #f3f7fd; --panel: #fff; --line: #e3e9f2; --line-strong: #cbd7e8;
+      --text: #1c293b; --muted: #6f7f95; --soft: #96a4b7; --blue: #2874ef;
+      --blue-deep: #145bd4; --blue-soft: #edf4ff; --green: #168a4a;
+      --green-soft: #eaf8f0; --amber: #a96608; --amber-soft: #fff6df;
+      --danger: #c93f35; --danger-soft: #fff1ef; --radius: 10px;
+      --shadow: 0 14px 34px rgba(31, 64, 110, .08);
+      font-family: Inter, "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+      color: var(--text); background: var(--bg);
+    }
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; margin: 0; }
+    body { overflow: hidden; }
+    button { font: inherit; cursor: pointer; }
+    svg { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; }
+
+    .app { display: grid; grid-template-columns: 70px minmax(0, 1fr); width: 100vw; height: 100vh; background: linear-gradient(135deg, #f7faff, #eef4fc); }
+    .rail { display: flex; flex-direction: column; align-items: center; padding: 22px 8px 16px; border-right: 1px solid #e1e9f4; background: rgba(250, 252, 255, .88); }
+    .brand { display: grid; place-items: center; width: 42px; height: 42px; margin-bottom: 28px; color: #fff; background: linear-gradient(145deg, #3cc1ff, #3659ec); border-radius: 13px; box-shadow: 0 9px 20px rgba(47, 105, 235, .22); }
+    .brand svg { width: 23px; height: 23px; stroke-width: 1.8; }
+    .nav { display: grid; gap: 14px; }
+    .nav-btn { display: grid; place-items: center; width: 42px; height: 42px; color: #8da0b9; background: transparent; border: 1px solid transparent; border-radius: 12px; }
+    .nav-btn svg { width: 19px; height: 19px; stroke-width: 1.8; }
+    .nav-btn.is-active { color: var(--blue); background: #eaf2ff; border-color: #c9dcfb; }
+    .rail-spacer { flex: 1; }
+
+    .page { display: grid; grid-template-rows: 78px minmax(0, 1fr) 58px; gap: 10px; min-width: 0; min-height: 0; padding: 12px 16px 14px; }
+    .command-bar { display: grid; grid-template-columns: minmax(280px, 1fr) auto auto; align-items: center; gap: 16px; min-width: 0; padding: 0 16px; background: rgba(255,255,255,.94); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
+    .command-title { display: flex; align-items: center; gap: 11px; }
+    .step { color: var(--blue); font-size: 12px; font-weight: 800; letter-spacing: .15em; }
+    h1 { margin: 0; font-size: 19px; letter-spacing: 0; }
+    .command-copy { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
+    .progress { display: grid; grid-template-columns: 148px auto; align-items: center; gap: 9px; color: var(--muted); font-size: 12px; }
+    .track { height: 7px; overflow: hidden; background: #e7edf5; border-radius: 99px; }
+    .track span { display: block; width: 100%; height: 100%; background: linear-gradient(90deg, var(--blue), #4fc28d); }
+    .command-actions { display: flex; align-items: center; gap: 7px; }
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 32px; padding: 0 11px; color: var(--blue-deep); background: #fff; border: 1px solid #ccdcf4; border-radius: 8px; font-size: 12px; font-weight: 700; }
+    .btn svg { width: 15px; height: 15px; stroke-width: 1.9; }
+    .btn.primary { color: #fff; background: var(--blue); border-color: var(--blue); box-shadow: 0 7px 16px rgba(40,116,239,.2); }
+    .btn:hover { border-color: #8fb4f3; }
+
+    .workspace-shell { position: relative; display: grid; grid-template-rows: auto minmax(0, 1fr); min-width: 0; min-height: 0; overflow: hidden; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
+    .layout-strip { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 38px; padding: 5px 12px; color: var(--muted); background: #f9fbfe; border-bottom: 1px solid var(--line); font-size: 11px; }
+    .layout-hint { display: inline-flex; align-items: center; gap: 7px; }
+    .layout-hint svg { width: 14px; height: 14px; stroke-width: 1.8; }
+    .restore-area { display: flex; align-items: center; gap: 6px; }
+    .restore-label { display: none; color: var(--soft); }
+    .restore-area.has-hidden .restore-label { display: inline; }
+    .restore-btn { display: none; align-items: center; gap: 5px; min-height: 26px; padding: 0 8px; color: var(--blue-deep); background: #fff; border: 1px solid #cbdcf6; border-radius: 7px; font-size: 11px; font-weight: 700; }
+    .restore-btn.is-visible { display: inline-flex; }
+    .restore-btn svg { width: 13px; height: 13px; stroke-width: 1.9; }
+
+    .panes { display: flex; min-width: 0; min-height: 0; overflow: hidden; background: #fff; }
+    .pane { display: grid; flex: 1 1 0; grid-template-rows: auto minmax(0, 1fr); min-width: 230px; min-height: 0; overflow: hidden; background: #fff; }
+    .pane.is-hidden { display: none; }
+    .pane-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 61px; padding: 11px 12px 10px 14px; border-bottom: 1px solid var(--line); }
+    .pane-head h2 { margin: 0; font-size: 14px; letter-spacing: 0; }
+    .pane-meta { display: block; margin-top: 4px; color: var(--muted); font-size: 11px; }
+    .pane-tools { display: flex; align-items: center; gap: 5px; min-width: 0; }
+    .icon-btn { display: grid; place-items: center; flex: 0 0 auto; width: 29px; height: 29px; color: var(--muted); background: #fff; border: 1px solid var(--line); border-radius: 7px; }
+    .icon-btn:hover { color: var(--blue-deep); border-color: #a8c4f1; background: #f7faff; }
+    .icon-btn svg { width: 15px; height: 15px; stroke-width: 1.9; }
+    .hide-pane:disabled { cursor: not-allowed; opacity: .35; }
+
+    .divider { position: relative; z-index: 4; display: block; flex: 0 0 9px; width: 9px; cursor: col-resize; background: #f8fafd; border-inline: 1px solid var(--line); touch-action: none; }
+    .divider::before { position: absolute; top: 50%; left: 50%; width: 3px; height: 42px; content: ""; background: #b7c4d7; border-radius: 99px; transform: translate(-50%, -50%); transition: height .14s ease, background .14s ease, box-shadow .14s ease; }
+    .divider:hover::before, .divider.is-dragging::before { height: 64px; background: var(--blue); box-shadow: 0 0 0 4px rgba(40,116,239,.1); }
+    body.is-resizing { cursor: col-resize; user-select: none; }
+
+    .source-body, .tree-body, .detail-body { min-width: 0; min-height: 0; overflow: auto; scrollbar-gutter: stable; }
+    .source-body { padding: 12px; background: #fafcff; }
+    .source-summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 2px 10px; color: var(--muted); font-size: 11px; }
+    .source-summary strong { color: var(--green); }
+    .source-block { margin-bottom: 12px; overflow: hidden; background: #fff; border: 1px solid var(--line); border-radius: 9px; }
+    .source-block:last-child { margin-bottom: 0; }
+    .source-block-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 11px; color: var(--text); background: #f5f8fc; border-bottom: 1px solid var(--line); }
+    .source-order { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 800; }
+    .source-order span { display: grid; place-items: center; width: 22px; height: 22px; color: var(--blue); background: var(--blue-soft); border-radius: 6px; font-size: 10px; }
+    .source-kind { color: var(--green); font-size: 10px; }
+    .source-content { padding: 14px; color: #47566a; font-size: 12px; line-height: 1.75; }
+    .source-content h3 { margin: 0 0 10px; color: var(--text); font-size: 18px; }
+    .source-content p { margin: 0 0 10px; }
+    .table-wrap { width: 100%; overflow-x: hidden; }
+    table { width: 100%; min-width: 0; border-collapse: collapse; table-layout: fixed; }
+    th, td { padding: 8px 9px; text-align: left; vertical-align: top; border: 1px solid #dde5ef; overflow-wrap: anywhere; }
+    th { color: #65758b; background: #f6f8fb; }
+    th:first-child, td:first-child { width: 36%; }
+    tr.is-hit td { background: #fff8e8; }
+    mark { padding: 1px 3px; color: var(--amber); background: #ffedb9; border-radius: 3px; }
+    .quote { padding: 10px 11px; color: #455469; background: #f8fafc; border-left: 3px solid #b8c9df; }
+
+    .tree-body { padding: 10px 9px 18px; }
+    .tree-toolbar { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; padding: 0 3px; }
+    .mini-btn { min-height: 27px; padding: 0 8px; color: var(--muted); background: #f8fafd; border: 1px solid var(--line); border-radius: 7px; font-size: 10px; font-weight: 700; }
+    .mini-btn.accent { color: var(--blue-deep); background: var(--blue-soft); border-color: #cadcff; }
+    .tree-list { display: grid; gap: 2px; }
+    .tree-row { display: grid; grid-template-columns: 25px minmax(0, 1fr) auto; align-items: center; gap: 5px; min-height: 35px; padding: 3px 6px; border: 1px solid transparent; border-radius: 8px; }
+    .tree-row.level-2 { padding-left: 22px; }
+    .tree-row.level-3 { padding-left: 40px; }
+    .tree-row.is-selected { background: var(--blue-soft); border-color: #c7dcff; box-shadow: inset 3px 0 0 var(--blue); }
+    .tree-toggle { display: grid; place-items: center; width: 23px; height: 23px; color: var(--blue); background: #edf4ff; border: 1px solid #cee0ff; border-radius: 6px; font-size: 11px; }
+    .tree-toggle svg { width: 12px; height: 12px; stroke-width: 2; }
+    .tree-title { min-width: 0; overflow: hidden; color: var(--text); font-size: 12px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+    .count { color: var(--green); font-size: 10px; white-space: nowrap; }
+    .ai-tag { padding: 3px 6px; color: var(--blue); background: #f3f7ff; border: 1px solid #d4e2fb; border-radius: 99px; font-size: 9px; white-space: nowrap; }
+
+    .detail-body { display: flex; flex-direction: column; }
+    .detail-main { padding: 16px 15px 12px; }
+    .detail-kicker { color: var(--blue); font-size: 9px; font-weight: 800; letter-spacing: .13em; }
+    .detail-main h3 { margin: 7px 0 8px; font-size: 17px; line-height: 1.45; }
+    .detail-main p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.75; }
+    .mode { display: inline-flex; margin-top: 11px; padding: 4px 7px; color: var(--blue-deep); background: var(--blue-soft); border: 1px solid #cde0ff; border-radius: 99px; font-size: 10px; font-weight: 700; }
+    .detail-section { padding: 12px 15px; border-top: 1px solid var(--line); }
+    .section-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; font-size: 11px; }
+    .section-head span { color: var(--muted); font-size: 10px; }
+    .linked { display: grid; gap: 6px; }
+    .linked-row { display: grid; grid-template-columns: 23px minmax(0, 1fr); align-items: center; gap: 7px; padding: 7px; background: #f8fafc; border: 1px solid var(--line); border-radius: 7px; }
+    .linked-row span { display: grid; place-items: center; width: 21px; height: 21px; color: var(--green); background: var(--green-soft); border-radius: 5px; font-size: 9px; font-weight: 800; }
+    .linked-row strong { overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+    .detail-spacer { flex: 1; min-height: 6px; }
+    .detail-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; padding: 11px 15px 14px; border-top: 1px solid var(--line); background: #fff; }
+    .detail-actions .btn { min-width: 0; padding-inline: 7px; }
+    .detail-actions .danger { color: var(--danger); background: var(--danger-soft); border-color: #efc9c5; }
+
+    .bottom-bar { display: flex; align-items: center; justify-content: center; gap: 5px; background: rgba(255,255,255,.94); border: 1px solid var(--line); border-radius: 999px; box-shadow: var(--shadow); }
+    .bottom-bar .btn { min-width: 105px; border: 0; background: transparent; }
+    .bottom-bar .btn.primary { background: var(--blue); }
+    .bottom-bar .btn.ai { color: #fff; background: #7251e6; }
+    .bottom-bar .btn.reset { color: var(--danger); }
+
+    .toast { position: fixed; top: 104px; left: 50%; z-index: 20; padding: 8px 12px; color: #fff; background: #26364c; border-radius: 8px; box-shadow: 0 10px 28px rgba(25,43,67,.22); font-size: 11px; opacity: 0; pointer-events: none; transform: translate(-50%, -8px); transition: .18s ease; }
+    .toast.is-showing { opacity: 1; transform: translate(-50%, 0); }
+
+    @media (max-width: 1040px) {
+      .page { padding-inline: 10px; }
+      .command-bar { grid-template-columns: minmax(240px, 1fr) auto; }
+      .progress { display: none; }
+      .pane { min-width: 190px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <aside class="rail" aria-label="主导航">
+      <div class="brand"><svg viewBox="0 0 24 24"><circle cx="11" cy="12" r="7.5"/><circle cx="11" cy="12" r="3"/><path d="m16.5 6.5 2-2M18.2 9.8h2.5M16.7 16.7l1.8 1.8"/></svg></div>
+      <nav class="nav">
+        <button class="nav-btn is-active" title="技术方案"><svg viewBox="0 0 24 24"><path d="M6 3.5h9l3 3v14H6z"/><path d="M15 3.5v4h4M9 12h6M9 15.5h6"/></svg></button>
+        <button class="nav-btn" title="标书分析"><svg viewBox="0 0 24 24"><path d="M5 4.5h14v15H5z"/><path d="M8.5 8h7M8.5 11.5h7M8.5 15h4"/></svg></button>
+        <button class="nav-btn" title="知识库"><svg viewBox="0 0 24 24"><path d="M5 5h14v14H5z"/><path d="M8 8.5h8M8 12h8M8 15.5h5"/></svg></button>
+        <button class="nav-btn" title="导出"><svg viewBox="0 0 24 24"><path d="M6 4.5h12v15H6z"/><path d="M9 9h6M9 12.5h6M9 16h4"/></svg></button>
+      </nav>
+      <div class="rail-spacer"></div>
+      <button class="nav-btn" title="设置"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1l1.3-1-1.7-3-1.6.6a7 7 0 0 0-1.8-1L14.8 5h-3.5L11 6.6a7 7 0 0 0-1.8 1L7.6 7 5.9 10l1.3 1a7 7 0 0 0 0 2l-1.3 1 1.7 3 1.6-.6a7 7 0 0 0 1.8 1l.3 1.6h3.5l.3-1.6a7 7 0 0 0 1.8-1l1.6.6 1.7-3-1.3-1c.1-.3.1-.7.1-1Z"/></svg></button>
+    </aside>
+
+    <section class="page">
+      <header class="command-bar">
+        <div><div class="command-title"><span class="step">STEP 03</span><h1>目录生成</h1></div><p class="command-copy">技术评分大项直接作为一级目录；参考知识库：未选择。</p></div>
+        <div class="progress"><div class="track"><span></span></div><strong>100% 已完成</strong></div>
+        <div class="command-actions"><button class="btn">过程</button><button class="btn" title="目录生成配置"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1l1.3-1-1.7-3-1.6.6a7 7 0 0 0-1.8-1L14.8 5h-3.5L11 6.6a7 7 0 0 0-1.8 1L7.6 7 5.9 10l1.3 1a7 7 0 0 0 0 2l-1.3 1 1.7 3 1.6-.6a7 7 0 0 0 1.8 1l.3 1.6h3.5l.3-1.6a7 7 0 0 0 1.8-1l1.6.6 1.7-3-1.3-1c.1-.3.1-.7.1-1Z"/></svg></button><button class="btn primary">重新生成目录</button></div>
+      </header>
+
+      <section class="workspace-shell">
+        <div class="layout-strip">
+          <span class="layout-hint"><svg viewBox="0 0 24 24"><path d="M8 5v14M16 5v14M5 8l3-3 3 3M13 16l3 3 3-3"/></svg>拖动竖向分隔线可调整各分屏宽度</span>
+          <div class="restore-area" id="restoreArea"><span class="restore-label">显示分屏：</span>
+            <button class="restore-btn" data-restore="source"><svg viewBox="0 0 24 24"><path d="M3 12s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6Z"/><circle cx="12" cy="12" r="2.5"/></svg>标书原文</button>
+            <button class="restore-btn" data-restore="tree"><svg viewBox="0 0 24 24"><path d="M3 12s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6Z"/><circle cx="12" cy="12" r="2.5"/></svg>目录结构</button>
+            <button class="restore-btn" data-restore="detail"><svg viewBox="0 0 24 24"><path d="M3 12s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6Z"/><circle cx="12" cy="12" r="2.5"/></svg>目录项详情</button>
+          </div>
+        </div>
+
+        <div class="panes" id="panes">
+          <section class="pane" data-pane="source">
+            <header class="pane-head"><div><h2>标书原文</h2><span class="pane-meta">共 3 处关联原文</span></div><div class="pane-tools"><button class="btn">全屏查看</button><button class="icon-btn hide-pane" data-hide="source" title="隐藏标书原文" aria-label="隐藏标书原文"><svg viewBox="0 0 24 24"><path d="M3 12s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6Z"/><path d="m4 4 16 16"/></svg></button></div></header>
+            <div class="source-body">
+              <div class="source-summary"><strong>已按关联顺序全部展开</strong><span>无需逐条切换</span></div>
+              <article class="source-block"><header class="source-block-head"><span class="source-order"><span>01</span>第一处</span><span class="source-kind">评分标准</span></header><div class="source-content"><h3>二、评分标准</h3><p>评分内容和分值如下：</p><div class="table-wrap"><table><thead><tr><th>评分点</th><th>评审内容</th></tr></thead><tbody><tr><td>价格（10分）</td><td>报价（10分）</td></tr><tr class="is-hit"><td>技术方案（40分）</td><td><mark>项目理解</mark>和总体工作思路（5分）</td></tr><tr><td>项目重难点（6分）</td><td>根据投标人对项目重难点及解决方案的理解程度评分。</td></tr></tbody></table></div></div></article>
+              <article class="source-block"><header class="source-block-head"><span class="source-order"><span>02</span>第二处</span><span class="source-kind">响应要求</span></header><div class="source-content"><h3>3.2 项目总体要求</h3><p class="quote">结合双凤镇 9 个村第二轮土地承包到期后再延长 30 年的政策依据、采购需求和成果要求，说明对项目建设目标、服务范围和技术标准的理解。</p></div></article>
+              <article class="source-block"><header class="source-block-head"><span class="source-order"><span>03</span>第三处</span><span class="source-kind">技术要求</span></header><div class="source-content"><h3>5.1 服务内容</h3><p>投标人应明确调查准备、权属调查、成果整理、质量检查与验收交付等阶段的工作安排。</p></div></article>
+            </div>
+          </section>
+
+          <div class="divider" data-divider="one" role="separator" aria-orientation="vertical" aria-label="调整标书原文与目录结构宽度"></div>
+
+          <section class="pane" data-pane="tree">
+            <header class="pane-head"><div><h2>目录结构</h2><span class="pane-meta">8 个一级目录</span></div><div class="pane-tools"><button class="icon-btn hide-pane" data-hide="tree" title="隐藏目录结构" aria-label="隐藏目录结构"><svg viewBox="0 0 24 24"><path d="M3 12s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6Z"/><path d="m4 4 16 16"/></svg></button></div></header>
+            <div class="tree-body"><div class="tree-toolbar"><button class="mini-btn accent">添加一级目录</button><button class="mini-btn">目录排序</button><button class="mini-btn">全部展开</button><button class="mini-btn">全部折叠</button></div><div class="tree-list">
+              <div class="tree-row"><button class="tree-toggle"><svg viewBox="0 0 24 24"><path d="m8 10 4 4 4-4"/></svg></button><span class="tree-title">第一章 项目理解和总体工作思路</span><span class="count">原文 2</span></div>
+              <div class="tree-row level-2 is-selected"><button class="tree-toggle"><svg viewBox="0 0 24 24"><path d="m8 10 4 4 4-4"/></svg></button><span class="tree-title">第一节 项目理解</span><span class="count">原文 3</span></div>
+              <div class="tree-row level-3"><button class="tree-toggle"><svg viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg></button><span class="tree-title">1 项目背景与政策依据理解</span><span class="ai-tag">AI生成</span></div>
+              <div class="tree-row level-3"><button class="tree-toggle">•</button><span class="tree-title">2 建设目标与工作范围理解</span><span class="ai-tag">AI生成</span></div>
+              <div class="tree-row level-3"><button class="tree-toggle">•</button><span class="tree-title">3 服务内容与技术要求理解</span><span class="ai-tag">AI生成</span></div>
+              <div class="tree-row level-3"><button class="tree-toggle">•</button><span class="tree-title">4 成果与验收要求理解</span><span class="ai-tag">AI生成</span></div>
+              <div class="tree-row level-2"><button class="tree-toggle"><svg viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg></button><span class="tree-title">第二节 总体工作思路</span><span class="count">原文 1</span></div>
+              <div class="tree-row"><button class="tree-toggle"><svg viewBox="0 0 24 24"><path d="m8 10 4 4 4-4"/></svg></button><span class="tree-title">第二章 项目重难点及解决方案</span><span class="count">原文 2</span></div>
+              <div class="tree-row level-2"><button class="tree-toggle"><svg viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg></button><span class="tree-title">第一节 项目重难点分析</span><span class="count">原文 1</span></div>
+              <div class="tree-row level-2"><button class="tree-toggle"><svg viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg></button><span class="tree-title">第二节 解决措施</span><span class="count">原文 1</span></div>
+              <div class="tree-row"><button class="tree-toggle"><svg viewBox="0 0 24 24"><path d="m8 10 4 4 4-4"/></svg></button><span class="tree-title">第三章 项目权属调查方案</span><span class="count">原文 2</span></div>
+            </div></div>
+          </section>
+
+          <div class="divider" data-divider="two" role="separator" aria-orientation="vertical" aria-label="调整目录结构与目录项详情宽度"></div>
+
+          <aside class="pane" data-pane="detail">
+            <header class="pane-head"><div><h2>目录项详情</h2><span class="pane-meta">1.1 · 当前选中</span></div><div class="pane-tools"><button class="icon-btn hide-pane" data-hide="detail" title="隐藏目录项详情" aria-label="隐藏目录项详情"><svg viewBox="0 0 24 24"><path d="M3 12s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6Z"/><path d="m4 4 16 16"/></svg></button></div></header>
+            <div class="detail-body"><div class="detail-main"><div class="detail-kicker">SELECTED OUTLINE ITEM</div><h3>第一节 项目理解</h3><p>结合政策依据、采购需求和成果要求，说明对项目建设目标、服务范围、工作内容与技术标准的理解。</p><span class="mode">AI生成正文</span></div><section class="detail-section"><div class="section-head"><strong>关联原文</strong><span>3 处</span></div><div class="linked"><div class="linked-row"><span>01</span><strong>技术方案（40分）</strong></div><div class="linked-row"><span>02</span><strong>项目总体要求</strong></div><div class="linked-row"><span>03</span><strong>服务内容与技术要求</strong></div></div></section><div class="detail-spacer"></div><div class="detail-actions"><button class="btn primary">编辑</button><button class="btn">添加子目录</button><button class="btn">AI 添加子目录</button><button class="btn danger">删除</button></div></div>
+          </aside>
+        </div>
+      </section>
+
+      <footer class="bottom-bar"><button class="btn reset">重置</button><button class="btn">首页</button><button class="btn ai">AI调整</button><button class="btn">‹ 上一步</button><button class="btn primary">下一步 ›</button></footer>
+    </section>
+  </main>
+  <div class="toast" id="toast" role="status"></div>
+  <script>
+    const panesRoot = document.getElementById('panes');
+    const paneOrder = ['source', 'tree', 'detail'];
+    const paneLabels = { source: '标书原文', tree: '目录结构', detail: '目录项详情' };
+    const paneElements = Object.fromEntries(paneOrder.map((id) => [id, document.querySelector(`[data-pane="${id}"]`)]));
+    const dividers = [...document.querySelectorAll('.divider')];
+    const restoreArea = document.getElementById('restoreArea');
+    const toast = document.getElementById('toast');
+    let hidden = new Set();
+    let toastTimer;
+
+    function showToast(message) {
+      toast.textContent = message;
+      toast.classList.add('is-showing');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toast.classList.remove('is-showing'), 1300);
+    }
+
+    function visibleIds() { return paneOrder.filter((id) => !hidden.has(id)); }
+
+    function applyEqualWidths() {
+      visibleIds().forEach((id) => { paneElements[id].style.flex = '1 1 0'; paneElements[id].style.flexBasis = '0px'; });
+    }
+
+    function syncLayout() {
+      paneOrder.forEach((id) => paneElements[id].classList.toggle('is-hidden', hidden.has(id)));
+      const visible = visibleIds();
+      dividers.forEach((divider, index) => {
+        const show = index < visible.length - 1;
+        divider.style.display = show ? 'block' : 'none';
+        divider.dataset.left = show ? visible[index] : '';
+        divider.dataset.right = show ? visible[index + 1] : '';
+        divider.setAttribute('aria-label', show ? `调整${paneLabels[visible[index]]}与${paneLabels[visible[index + 1]]}宽度` : '');
+      });
+      document.querySelectorAll('[data-restore]').forEach((button) => button.classList.toggle('is-visible', hidden.has(button.dataset.restore)));
+      restoreArea.classList.toggle('has-hidden', hidden.size > 0);
+      document.querySelectorAll('.hide-pane').forEach((button) => { button.disabled = visible.length === 1; });
+      applyEqualWidths();
+    }
+
+    document.querySelectorAll('[data-hide]').forEach((button) => button.addEventListener('click', () => {
+      if (visibleIds().length === 1) return;
+      const id = button.dataset.hide;
+      hidden.add(id);
+      syncLayout();
+      showToast(`${paneLabels[id]}已隐藏，可从顶部恢复`);
+    }));
+
+    document.querySelectorAll('[data-restore]').forEach((button) => button.addEventListener('click', () => {
+      const id = button.dataset.restore;
+      hidden.delete(id);
+      syncLayout();
+      showToast(`${paneLabels[id]}已恢复`);
+    }));
+
+    dividers.forEach((divider) => divider.addEventListener('pointerdown', (event) => {
+      const left = paneElements[divider.dataset.left];
+      const right = paneElements[divider.dataset.right];
+      if (!left || !right) return;
+      event.preventDefault();
+      divider.setPointerCapture(event.pointerId);
+      divider.classList.add('is-dragging');
+      document.body.classList.add('is-resizing');
+      const startX = event.clientX;
+      const leftStart = left.getBoundingClientRect().width;
+      const rightStart = right.getBoundingClientRect().width;
+      const minimum = 230;
+      visibleIds().forEach((id) => {
+        const width = paneElements[id].getBoundingClientRect().width;
+        paneElements[id].style.flex = `0 0 ${width}px`;
+      });
+
+      const move = (moveEvent) => {
+        const delta = moveEvent.clientX - startX;
+        const safeDelta = Math.max(minimum - leftStart, Math.min(rightStart - minimum, delta));
+        left.style.flexBasis = `${leftStart + safeDelta}px`;
+        right.style.flexBasis = `${rightStart - safeDelta}px`;
+      };
+      const end = () => {
+        divider.classList.remove('is-dragging');
+        document.body.classList.remove('is-resizing');
+        divider.removeEventListener('pointermove', move);
+        divider.removeEventListener('pointerup', end);
+        divider.removeEventListener('pointercancel', end);
+      };
+      divider.addEventListener('pointermove', move);
+      divider.addEventListener('pointerup', end);
+      divider.addEventListener('pointercancel', end);
+    }));
+
+    syncLayout();
+  </script>
+</body>
+</html>

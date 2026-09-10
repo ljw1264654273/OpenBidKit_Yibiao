@@ -106,7 +106,7 @@ test('目录原文面板保留全屏入口并按 Markdown 结构渲染 HTML 表�
   assert.match(source, /buttonLabel="全屏查看招标原文"/);
   assert.match(source, /fullscreenChildren=\{<MarkdownRenderer allowRawHtml highlightTerms=\{sourceKeywords\}>/);
   assert.match(source, /normalizeTableFragments/);
-  assert.match(source, /<MarkdownRenderer allowRawHtml highlightTerms=\{sourceKeywords\}>\{activeMarkdown\}/);
+  assert.match(source, /<MarkdownRenderer allowRawHtml highlightTerms=\{sourceKeywords\}>\{normalizeTableFragments\(itemMarkdown\)\}<\/MarkdownRenderer>/);
 });
 
 test('目录详情提供 AI 添加子目录并直接使用 add-child 持久化', () => {

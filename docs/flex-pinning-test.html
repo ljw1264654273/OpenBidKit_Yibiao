@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<title>flex 锁定行为验证</title>
+<style>
+  :root { --yb-radius-sm: 6px; }
+  body { margin: 0; font-family: system-ui, sans-serif; }
+  .shell { display: flex; flex-direction: column; height: 100vh; }
+  .workspace { display: flex; flex: 1 1 0; flex-direction: row; align-items: stretch; min-height: 0; }
+  .pane { flex: 1 1 0; min-width: 240px; min-height: 0; border: 1px solid #d0d7e2; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 16px; }
+  .pane[data-pane="source"] { background: #f97316; }
+  .pane[data-pane="tree"] { background: #16a34a; }
+  .pane[data-pane="detail"] { background: #2563eb; }
+  .divider { flex: 0 0 6px; cursor: col-resize; background: transparent; border-left: 1px solid #e3e8ef; }
+  .is-resizing .divider { background-color: rgba(33, 116, 253, 0.22); }
+  .is-resizing { cursor: col-resize; user-select: none; }
+  .is-resizing > * { pointer-events: none; }
+  .is-resizing .divider { pointer-events: auto; }
+  .controls { padding: 12px; background: #f3f4f6; border-bottom: 1px solid #d0d7e2; display: flex; gap: 8px; }
+  .readout { padding: 8px 12px; font-family: ui-monospace, monospace; background: #fff; border-bottom: 1px solid #d0d7e2; }
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="controls">
+    <button id="resetBtn">重置 inline style</button>
+    <span>三 pane，flex 1 1 0，固定 12px dividers，容器 100vw</span>
+  </div>
+  <div class="readout" id="readout">等分</div>
+  <div class="workspace" id="workspace">
+    <div class="pane" data-pane="source">标书原文</div>
+    <div class="divider" data-slot="0" aria-label="左分割线"></div>
+    <div class="pane" data-pane="tree">目录结构</div>
+    <div class="divider" data-slot="1" aria-label="右分割线"></div>
+    <div class="pane" data-pane="detail">目录项详情</div>
+  </div>
+</div>
+<script>
+const MIN_WIDTH = 240;
+const workspace = document.getElementById('workspace');
+const readout = document.getElementById('readout');
+const sourceEl = workspace.querySelector('[data-pane="source"]');
+const treeEl = workspace.querySelector('[data-pane="tree"]');
+const detailEl = workspace.querySelector('[data-pane="detail"]');
+
+function readWidths() {
+  return {
+    source: Math.round(sourceEl.getBoundingClientRect().width),
+    tree: Math.round(treeEl.getBoundingClientRect().width),
+    detail: Math.round(detailEl.getBoundingClientRect().width),
+  };
+}
+function printWidths() {
+  const w = readWidths();
+  readout.textContent = `source=${w.source}  tree=${w.tree}  detail=${w.detail}  total=${w.source+w.tree+w.detail}`;
+}
+window.addEventListener('resize', printWidths);
+printWidths();
+
+document.getElementById('resetBtn').addEventListener('click', () => {
+  [sourceEl, treeEl, detailEl].forEach(el => {
+    el.style.flexGrow = '';
+    el.style.flexShrink = '';
+    el.style.flexBasis = '';
+  });
+  printWidths();
+});
+
+workspace.querySelectorAll('.divider').forEach((divider, slotIndex) => {
+  divider.addEventListener('pointerdown', (event) => {
+    event.preventDefault();
+    const order = ['source', 'tree', 'detail'];
+    const leftName = order[slotIndex];
+    const rightName = order[slotIndex + 1];
+    const leftEl = workspace.querySelector(`[data-pane="${leftName}"]`);
+    const rightEl = workspace.querySelector(`[data-pane="${rightName}"]`);
+    if (!leftEl || !rightEl) return;
+    const startX = event.clientX;
+    const startLeftWidth = leftEl.getBoundingClientRect().width;
+    const startRightWidth = rightEl.getBoundingClientRect().width;
+    workspace.querySelectorAll('[data-pane]').forEach(p => {
+      if (p === leftEl || p === rightEl) return;
+      const w = p.getBoundingClientRect().width;
+      if (w <= 0) return;
+      p.style.flexGrow = '0';
+      p.style.flexShrink = '0';
+      p.style.flexBasis = `${w}px`;
+    });
+    workspace.classList.add('is-resizing');
+    const onMove = (e) => {
+      const delta = Math.min(
+        Math.max(e.clientX - startX, MIN_WIDTH - startLeftWidth),
+        startRightWidth - MIN_WIDTH,
+      );
+      leftEl.style.flexBasis = `${startLeftWidth + delta}px`;
+      rightEl.style.flexBasis = `${startRightWidth - delta}px`;
+      printWidths();
+    };
+    const onUp = () => {
+      workspace.classList.remove('is-resizing');
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+    };
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+  });
+});
+</script>
+</body>
+</html>

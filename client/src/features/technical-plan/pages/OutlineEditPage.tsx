@@ -1,6 +1,6 @@
 import * as Dialog from '@radix-ui/react-dialog';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { CSSProperties, DragEvent } from 'react';
+import type { CSSProperties, DragEvent, PointerEvent as ReactPointerEvent } from 'react';
 import { trackConfigUsage } from '../../../shared/analytics/analytics';
 import { AppSwitch, ProgressBar, useToast } from '../../../shared/ui';
 import type { BackgroundTaskState, OutlineSelectionItem, RemoteKnowledgeScope, SaveOutlineRequest, SaveOutlineSelectionRequest, ScoreCoverageRecord, TechnicalPlanWorkflowKind } from '../types';
@@ -72,6 +72,23 @@ interface DropTargetState {
 const emptyKnowledgeIndex: KnowledgeBaseIndex = { folders: [], documents: [] };
 const emptyOutline: OutlineItem[] = [];
 const emptyCoverageRecords: ScoreCoverageRecord[] = [];
+const outlinePaneOrder: OutlineWorkspacePane[] = ['source', 'tree', 'detail'];
+const outlinePaneLabels: Record<OutlineWorkspacePane, string> = {
+  source: '标书原文',
+  tree: '目录结构',
+  detail: '目录项详情',
+};
+const OUTLINE_MIN_PANE_WIDTH = 240;
+const OUTLINE_COMPACT_BREAKPOINT = 900;
+
+function PaneHideIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M3 12s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6Z" />
+      <path d="m4 4 16 16" />
+    </svg>
+  );
+}
 const outlineExpansionModeLabels: Record<OutlineExpansionMode, string> = {
   'original-only': '仅使用原方案目录',
   'ai-complement': 'AI基于原方案补充',
@@ -367,6 +384,8 @@ function OutlineEditPage({
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [activeWorkspacePane, setActiveWorkspacePane] = useState<OutlineWorkspacePane>('tree');
+  const [visibleWorkspacePanes, setVisibleWorkspacePanes] = useState<OutlineWorkspacePane[]>(() => [...outlinePaneOrder]);
+  const [workspaceCompact, setWorkspaceCompact] = useState(false);
   const [sortingSourceSnapshot, setSortingSourceSnapshot] = useState<OutlineSourceSnapshot | null>(null);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
@@ -406,6 +425,7 @@ function OutlineEditPage({
   const [aiChildrenBusy, setAiChildrenBusy] = useState(false);
   const logListRef = useRef<HTMLDivElement | null>(null);
   const sourceTabRef = useRef<HTMLButtonElement | null>(null);
+  const workspaceShellRef = useRef<HTMLDivElement | null>(null);
   const pendingSourceFocusRef = useRef(false);
   const processTriggerRef = useRef<HTMLButtonElement | null>(null);
   const restoreProcessFocusRef = useRef(false);
@@ -488,11 +508,94 @@ function OutlineEditPage({
   const showSourcePane = () => {
     pendingSourceFocusRef.current = sourceTabRef.current?.offsetParent != null;
     setActiveWorkspacePane('source');
+    setVisibleWorkspacePanes((prev) => (prev.includes('source')
+      ? prev
+      : outlinePaneOrder.filter((pane) => prev.includes(pane) || pane === 'source')));
   };
 
   const closeProcessPopover = () => {
     restoreProcessFocusRef.current = true;
     setProgressCollapsed(true);
+  };
+
+  const resetWorkspacePaneWidths = () => {
+    workspaceShellRef.current?.querySelectorAll<HTMLElement>('[data-pane]').forEach((paneElement) => {
+      paneElement.style.flexGrow = '';
+      paneElement.style.flexShrink = '';
+      paneElement.style.flexBasis = '';
+    });
+  };
+
+  const toggleWorkspacePane = (pane: OutlineWorkspacePane) => {
+    if (visibleWorkspacePanes.includes(pane) && visibleWorkspacePanes.length <= 1) {
+      showToast('至少保留一个分屏，可通过顶部切换条恢复', 'info');
+      return;
+    }
+    setVisibleWorkspacePanes((prev) => (prev.includes(pane)
+      ? prev.filter((candidate) => candidate !== pane)
+      : outlinePaneOrder.filter((candidate) => prev.includes(candidate) || candidate === pane)));
+    resetWorkspacePaneWidths();
+  };
+
+  const startWorkspaceResize = (event: ReactPointerEvent<HTMLDivElement>, leftPane: OutlineWorkspacePane, rightPane: OutlineWorkspacePane) => {
+    if (workspaceCompact) return;
+    event.preventDefault();
+    const workspaceElement = event.currentTarget.parentElement;
+    if (!workspaceElement) return;
+    const leftPaneElement = workspaceElement.querySelector<HTMLElement>(`[data-pane="${leftPane}"]`);
+    const rightPaneElement = workspaceElement.querySelector<HTMLElement>(`[data-pane="${rightPane}"]`);
+    if (!leftPaneElement || !rightPaneElement) return;
+    const startX = event.clientX;
+    const startLeftWidth = leftPaneElement.getBoundingClientRect().width;
+    const startRightWidth = rightPaneElement.getBoundingClientRect().width;
+    // 锁定 leftPane/rightPane 不参与 grow/shrink，让其它 pane（含第三 pane）保持 CSS 默认 flex:1 1 0 自动占据剩余空间
+    leftPaneElement.style.flexGrow = '0';
+    leftPaneElement.style.flexShrink = '0';
+    leftPaneElement.style.flexBasis = `${startLeftWidth}px`;
+    rightPaneElement.style.flexGrow = '0';
+    rightPaneElement.style.flexShrink = '0';
+    rightPaneElement.style.flexBasis = `${startRightWidth}px`;
+    workspaceElement.classList.add('is-resizing');
+    const handleMove = (moveEvent: PointerEvent) => {
+      const delta = Math.min(
+        Math.max(moveEvent.clientX - startX, OUTLINE_MIN_PANE_WIDTH - startLeftWidth),
+        startRightWidth - OUTLINE_MIN_PANE_WIDTH,
+      );
+      leftPaneElement.style.flexBasis = `${startLeftWidth + delta}px`;
+      rightPaneElement.style.flexBasis = `${startRightWidth - delta}px`;
+    };
+    const handleUp = () => {
+      workspaceElement.classList.remove('is-resizing');
+      document.removeEventListener('pointermove', handleMove);
+      document.removeEventListener('pointerup', handleUp);
+    };
+    document.addEventListener('pointermove', handleMove);
+    document.addEventListener('pointerup', handleUp);
+  };
+
+  const renderWorkspaceDivider = (slotIndex: number) => {
+    if (workspaceCompact) return null;
+    const findNearestVisiblePane = (fromIndex: number, direction: -1 | 1): OutlineWorkspacePane | null => {
+      for (let index = fromIndex; index >= 0 && index < outlinePaneOrder.length; index += direction) {
+        const pane = outlinePaneOrder[index];
+        if (visibleWorkspacePanes.includes(pane)) return pane;
+      }
+      return null;
+    };
+    const leftPane = findNearestVisiblePane(slotIndex, -1);
+    const rightPane = findNearestVisiblePane(slotIndex + 1, 1);
+    if (!leftPane || !rightPane) return null;
+    return (
+      <div
+        className="outline-workspace-divider"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="调整分屏宽度"
+        title="拖动调整宽度，双击恢复等分"
+        onPointerDown={(event) => startWorkspaceResize(event, leftPane, rightPane)}
+        onDoubleClick={resetWorkspacePaneWidths}
+      />
+    );
   };
 
   const initializeWordControlDraft = () => {
@@ -573,6 +676,18 @@ function OutlineEditPage({
       sourceTabRef.current.focus();
     }
   }, [activeWorkspacePane]);
+
+  useEffect(() => {
+    const shellElement = workspaceShellRef.current;
+    if (!shellElement || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setWorkspaceCompact(entry.contentRect.width < OUTLINE_COMPACT_BREAKPOINT);
+      }
+    });
+    observer.observe(shellElement);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     if (!progressCollapsed || !restoreProcessFocusRef.current) return;
@@ -1477,7 +1592,7 @@ function OutlineEditPage({
         </div>
       </section>
 
-      <div className="outline-workspace-shell">
+      <div className="outline-workspace-shell" ref={workspaceShellRef}>
         {!progressCollapsed && (
           <section
             id="outline-process-popover"
@@ -1511,6 +1626,23 @@ function OutlineEditPage({
             </div>
           </section>
         )}
+        <div className="outline-workspace-restore-bar" role="group" aria-label="分屏显示控制">
+          {outlinePaneOrder.map((pane) => {
+            const paneVisible = visibleWorkspacePanes.includes(pane);
+            return (
+              <button
+                type="button"
+                key={pane}
+                className={`outline-workspace-restore-toggle${paneVisible ? ' is-on' : ''}`}
+                aria-pressed={paneVisible}
+                title={paneVisible ? `隐藏${outlinePaneLabels[pane]}分屏` : `恢复${outlinePaneLabels[pane]}分屏`}
+                onClick={() => toggleWorkspacePane(pane)}
+              >
+                {outlinePaneLabels[pane]}
+              </button>
+            );
+          })}
+        </div>
         <div
           className="outline-workspace-tabs"
           role="tablist"
@@ -1530,7 +1662,7 @@ function OutlineEditPage({
           <button type="button" role="tab" id="outline-detail-tab" aria-controls="outline-detail-panel" aria-selected={activeWorkspacePane === 'detail'} tabIndex={activeWorkspacePane === 'detail' ? 0 : -1} onClick={() => setActiveWorkspacePane('detail')}>目录项详情</button>
         </div>
         <section className="outline-generation-workspace" data-active-pane={activeWorkspacePane}>
-          <div className={`outline-source-panel-wrapper${activeWorkspacePane === 'source' ? ' is-active-pane' : ''}`} role="tabpanel" id="outline-source-panel" aria-labelledby="outline-source-tab">
+          <div className={`outline-source-panel-wrapper${visibleWorkspacePanes.includes('source') ? '' : ' is-hidden'}${activeWorkspacePane === 'source' ? ' is-active-pane' : ''}`} role="tabpanel" id="outline-source-panel" aria-labelledby="outline-source-tab" aria-hidden={!visibleWorkspacePanes.includes('source')} data-pane="source">
             <TenderSourcePanel
               selectedItem={sourceSnapshot.selectedItem}
               outline={sourceSnapshot.outline}
@@ -1541,10 +1673,30 @@ function OutlineEditPage({
               error={tenderMarkdownError}
               sorting={sorting}
               onRetry={onReloadTenderMarkdown}
+              headerAction={(
+                <button
+                  type="button"
+                  className="outline-pane-hide-action"
+                  aria-label="隐藏标书原文分屏"
+                  title="隐藏分屏"
+                  onClick={() => toggleWorkspacePane('source')}
+                >
+                  <PaneHideIcon />
+                </button>
+              )}
             />
           </div>
 
-          <section className={`outline-tree-panel${activeWorkspacePane === 'tree' ? ' is-active-pane' : ''}`} role="tabpanel" id="outline-tree-panel" aria-labelledby="outline-tree-tab">
+          {renderWorkspaceDivider(0)}
+
+          <section
+            className={`outline-tree-panel${visibleWorkspacePanes.includes('tree') ? '' : ' is-hidden'}${activeWorkspacePane === 'tree' ? ' is-active-pane' : ''}`}
+            role="tabpanel"
+            id="outline-tree-panel"
+            aria-labelledby="outline-tree-tab"
+            aria-hidden={!visibleWorkspacePanes.includes('tree')}
+            data-pane="tree"
+          >
             <div className="analysis-result-head outline-tree-head">
               <div>
                 <strong>目录结构</strong>
@@ -1574,6 +1726,15 @@ function OutlineEditPage({
                   </>
                 )}
               </div>
+              <button
+                type="button"
+                className="outline-pane-hide-action"
+                aria-label="隐藏目录结构分屏"
+                title="隐藏分屏"
+                onClick={() => toggleWorkspacePane('tree')}
+              >
+                <PaneHideIcon />
+              </button>
             </div>
             {activeOutlineData?.outline?.length ? (
               <div className={`outline-tree-list${sorting ? ' is-sorting' : ''}`}>
@@ -1589,11 +1750,31 @@ function OutlineEditPage({
             )}
           </section>
 
-          <aside className={`outline-detail-panel${activeWorkspacePane === 'detail' ? ' is-active-pane' : ''}`} role="tabpanel" id="outline-detail-panel" aria-labelledby="outline-detail-tab">
+          {renderWorkspaceDivider(1)}
+
+          <aside
+            className={`outline-detail-panel${visibleWorkspacePanes.includes('detail') ? '' : ' is-hidden'}${activeWorkspacePane === 'detail' ? ' is-active-pane' : ''}`}
+            role="tabpanel"
+            id="outline-detail-panel"
+            aria-labelledby="outline-detail-tab"
+            aria-hidden={!visibleWorkspacePanes.includes('detail')}
+            data-pane="detail"
+          >
             <div className="analysis-result-head">
               <div>
                 <strong>目录项详情</strong>
                 <span>{selectedItem ? selectedItem.id : '未选择'}</span>
+              </div>
+              <div className="outline-detail-tools">
+                <button
+                  type="button"
+                  className="outline-pane-hide-action"
+                  aria-label="隐藏目录项详情分屏"
+                  title="隐藏分屏"
+                  onClick={() => toggleWorkspacePane('detail')}
+                >
+                  <PaneHideIcon />
+                </button>
               </div>
             </div>
             {selectedItem ? (

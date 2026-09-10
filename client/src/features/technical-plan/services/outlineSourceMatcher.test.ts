@@ -306,25 +306,15 @@ test('多条来源同时匹配时保留精确、空白归一化和未定位语�
   ]);
 });
 
-test('原文面板数据变更只通过单一 reset effect 回到第一处', () => {
+test('原文面板按来源顺序连续展示全部关联内容而不要求手动切换', () => {
   const panelPath = new URL('../components/TenderSourcePanel.tsx', import.meta.url);
   const panelSource = readFileSync(panelPath, 'utf8');
 
-  assert.doesNotMatch(panelSource, /coverageSignature/);
-  assert.doesNotMatch(panelSource, /if \(activeIndex !== safeActiveIndex\)/);
-  assert.match(panelSource, /const selectedItemId = selectedItem\?\.id;/);
-  assert.match(
-    panelSource,
-    /useEffect\(\(\) => \{\s*setActiveIndex\(0\);\s*\}, \[coverageRecords, markdown, selectedItemId\]\);/,
-  );
-  assert.match(
-    panelSource,
-    /onClick=\{\(\) => setActiveIndex\(Math\.max\(0, safeActiveIndex - 1\)\)\}/,
-  );
-  assert.match(
-    panelSource,
-    /onClick=\{\(\) => setActiveIndex\(Math\.min\(itemCount - 1, safeActiveIndex \+ 1\)\)\}/,
-  );
+  assert.doesNotMatch(panelSource, /activeIndex|safeActiveIndex|setActiveIndex/);
+  assert.doesNotMatch(panelSource, /上一处招标原文|下一处招标原文/);
+  assert.match(panelSource, /viewModel\.items\.map\(\(item, index\) =>/);
+  assert.match(panelSource, /第\{formatChineseSourceIndex\(index\)\}处/);
+  assert.match(panelSource, /outline-source-panel-source-block/);
 });
 
 test('招标原文全屏内容保留共享 Markdown 滚动容器样式', () => {
@@ -428,11 +418,20 @@ test('目录工作区提供三组关联标签和面板并保留紧凑进度浮�
   assert.match(pageSource, /\[progressCollapsed, progressLogs\.length\]/);
 });
 
-test('目录工作区按容器宽度保持横向三等分或单个标签面板', () => {
+test('目录工作区桌面端支持拖拽调宽、隐藏和恢复分屏', () => {
+  const pageSource = readFileSync(new URL('../pages/OutlineEditPage.tsx', import.meta.url), 'utf8');
   const cssSource = readFileSync(new URL('../../../styles/feature-technical-plan.css', import.meta.url), 'utf8');
 
   assert.match(cssSource, /\.outline-workspace-shell\s*\{[^}]*container-type:\s*inline-size/);
-  assert.match(cssSource, /\.outline-generation-workspace\s*\{[^}]*grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\)/);
+  assert.match(pageSource, /const \[visibleWorkspacePanes, setVisibleWorkspacePanes\]/);
+  assert.match(pageSource, /className="outline-workspace-restore-bar"/);
+  assert.match(pageSource, /className="outline-workspace-divider"/);
+  assert.match(pageSource, /onPointerDown=\{\(event\) => startWorkspaceResize/);
+  assert.equal((pageSource.match(/className="outline-pane-hide-action"/g) || []).length, 3);
+  assert.match(cssSource, /\.outline-workspace-shell > \.outline-generation-workspace\s*\{[^}]*display:\s*flex;/s);
+  assert.match(cssSource, /\.outline-workspace-divider\s*\{[^}]*cursor:\s*col-resize;/s);
+  assert.match(cssSource, /\.outline-workspace-restore-bar\s*\{/);
+  assert.match(cssSource, /\.outline-pane-hide-action\s*\{/);
   assert.match(cssSource, /@container \(max-width: 899px\)/);
   assert.match(cssSource, /\.outline-generation-workspace > \[role="tabpanel"\]:not\(\.is-active-pane\)\s*\{\s*display:\s*none;/);
   assert.match(cssSource, /\.outline-process-popover\s*\{[^}]*position:\s*absolute;/);

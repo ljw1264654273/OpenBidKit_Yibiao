@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
+import type { ReactNode } from 'react';
 import type { OutlineExpansionMode, OutlineItem } from '../../../shared/types';
-import { MarkdownFullscreenViewer, MarkdownRenderer, ToolbarArrowLeftIcon, ToolbarArrowRightIcon } from '../../../shared/ui';
+import { MarkdownFullscreenViewer, MarkdownRenderer } from '../../../shared/ui';
 import type { ScoreCoverageRecord } from '../types';
 import { buildOutlineSourceViewItems } from '../services/outlineSourceMatcher';
 import type { OutlineSourceViewItem } from '../services/outlineSourceMatcher';
@@ -15,6 +16,7 @@ export interface TenderSourcePanelProps {
   error: string;
   sorting: boolean;
   onRetry: () => void;
+  headerAction?: ReactNode;
 }
 
 const sourceKindLabels = {
@@ -45,6 +47,16 @@ function normalizeTableFragments(markdown: string) {
     .replace(/((?:<(?:td|th)\b[\s\S]*?<\/(?:td|th)>\s*)+)/gi, '<table><tbody><tr>$1</tr></tbody></table>');
 }
 
+function formatChineseSourceIndex(index: number) {
+  const value = index + 1;
+  const digits = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九'];
+  if (value < 10) return digits[value];
+  if (value === 10) return '十';
+  if (value < 20) return `十${digits[value % 10]}`;
+  if (value < 100) return `${digits[Math.floor(value / 10)]}十${value % 10 ? digits[value % 10] : ''}`;
+  return String(value);
+}
+
 function TenderSourcePanel({
   selectedItem,
   outline,
@@ -55,8 +67,8 @@ function TenderSourcePanel({
   error,
   sorting,
   onRetry,
+  headerAction,
 }: TenderSourcePanelProps) {
-  const [activeIndex, setActiveIndex] = useState(0);
   const selectedItemId = selectedItem?.id;
   const viewModel = useMemo(
     () => selectedItemId
@@ -65,18 +77,8 @@ function TenderSourcePanel({
     [coverageRecords, markdown, outline, selectedItemId],
   );
   const itemCount = viewModel.items.length;
-  const safeActiveIndex = itemCount > 0 ? Math.min(activeIndex, itemCount - 1) : 0;
-  const activeItem = viewModel.items[safeActiveIndex];
   const sourceKeywords = useMemo(() => extractSourceKeywords(selectedItem, viewModel.items), [selectedItem, viewModel.items]);
-  const activeMarkdown = activeItem
-    ? normalizeTableFragments(`${activeItem.contextBefore}${activeItem.matchedText}${activeItem.contextAfter}`)
-    : '';
-  const sourceSwitchDisabled = sorting || itemCount <= 1;
   const fullSourceDisabled = sorting || loading || Boolean(error) || !markdown;
-
-  useEffect(() => {
-    setActiveIndex(0);
-  }, [coverageRecords, markdown, selectedItemId]);
 
   return (
     <section className="outline-source-panel" aria-label="标书原文">
@@ -84,30 +86,10 @@ function TenderSourcePanel({
         <div>
           <strong>标书原文</strong>
           <span aria-live="polite">
-            {itemCount > 0 ? `${itemCount} 处 · ${safeActiveIndex + 1}/${itemCount}` : '0 处'}
+            {itemCount > 0 ? `共 ${itemCount} 处关联原文` : '0 处'}
           </span>
         </div>
         <div className="outline-source-panel-actions">
-          <button
-            type="button"
-            className="outline-source-panel-icon-button"
-            aria-label="上一处招标原文"
-            title="上一处招标原文"
-            disabled={sourceSwitchDisabled || safeActiveIndex === 0}
-            onClick={() => setActiveIndex(Math.max(0, safeActiveIndex - 1))}
-          >
-            <ToolbarArrowLeftIcon />
-          </button>
-          <button
-            type="button"
-            className="outline-source-panel-icon-button"
-            aria-label="下一处招标原文"
-            title="下一处招标原文"
-            disabled={sourceSwitchDisabled || safeActiveIndex >= itemCount - 1}
-            onClick={() => setActiveIndex(Math.min(itemCount - 1, safeActiveIndex + 1))}
-          >
-            <ToolbarArrowRightIcon />
-          </button>
           <MarkdownFullscreenViewer
             className="outline-source-panel-fullscreen-viewer"
             fullscreenClassName="markdown-viewer outline-source-panel-fullscreen-viewer"
@@ -120,6 +102,7 @@ function TenderSourcePanel({
           >
             <span className="outline-source-panel-fullscreen-placeholder" aria-hidden="true" />
           </MarkdownFullscreenViewer>
+          {headerAction}
         </div>
       </header>
 
@@ -154,25 +137,30 @@ function TenderSourcePanel({
           <div className="outline-source-panel-state">
             <strong>当前目录仅包含用户补充内容，暂无招标原文关联</strong>
           </div>
-        ) : !activeItem ? (
+        ) : !viewModel.items.length ? (
           <div className="outline-source-panel-state">
             <strong>当前目录暂无招标原文关联</strong>
           </div>
-        ) : activeItem.status === 'unlocated' ? (
-          <article className="outline-source-panel-source is-unlocated">
-            <p>评分原文，未定位到正文上下文</p>
-            <div className="outline-source-panel-source-text markdown-viewer">
-              <MarkdownRenderer allowRawHtml highlightTerms={sourceKeywords}>{normalizeTableFragments(activeItem.sourceText)}</MarkdownRenderer>
-            </div>
-            <span className="outline-source-panel-source-kind">{sourceKindLabels[activeItem.kind]}</span>
-          </article>
         ) : (
-          <article className="outline-source-panel-source">
-            <div className="outline-source-panel-source-text markdown-viewer">
-              <MarkdownRenderer allowRawHtml highlightTerms={sourceKeywords}>{activeMarkdown}</MarkdownRenderer>
-            </div>
-            <span className="outline-source-panel-source-kind">{sourceKindLabels[activeItem.kind]}</span>
-          </article>
+          <div className="outline-source-panel-source-list">
+            {viewModel.items.map((item, index) => {
+              const itemMarkdown = item.status === 'unlocated'
+                ? item.sourceText
+                : `${item.contextBefore}${item.matchedText}${item.contextAfter}`;
+              return (
+                <article className={`outline-source-panel-source-block${item.status === 'unlocated' ? ' is-unlocated' : ''}`} key={item.sourceId}>
+                  <header className="outline-source-panel-source-head">
+                    <strong>第{formatChineseSourceIndex(index)}处</strong>
+                    <span className={`is-${item.kind}`}>{sourceKindLabels[item.kind]}</span>
+                  </header>
+                  {item.status === 'unlocated' && <p className="outline-source-panel-unlocated-notice">未定位到正文上下文，以下为已保存原文</p>}
+                  <div className="outline-source-panel-source-text markdown-viewer">
+                    <MarkdownRenderer allowRawHtml highlightTerms={sourceKeywords}>{normalizeTableFragments(itemMarkdown)}</MarkdownRenderer>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
         )}
       </div>
     </section>
