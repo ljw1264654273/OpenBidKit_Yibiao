@@ -401,6 +401,9 @@ function OutlineEditPage({
   const [savingOutlineSelection, setSavingOutlineSelection] = useState(false);
   const [draggingItemId, setDraggingItemId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<DropTargetState | null>(null);
+  const [aiChildrenOpen, setAiChildrenOpen] = useState(false);
+  const [aiChildrenRequirement, setAiChildrenRequirement] = useState('');
+  const [aiChildrenBusy, setAiChildrenBusy] = useState(false);
   const logListRef = useRef<HTMLDivElement | null>(null);
   const sourceTabRef = useRef<HTMLButtonElement | null>(null);
   const pendingSourceFocusRef = useRef(false);
@@ -915,6 +918,77 @@ function OutlineEditPage({
       showToast('子目录已添加，父目录正文已清空', 'success');
     } catch (error) {
       showToast(error instanceof Error ? error.message : '添加子目录失败', 'error');
+    }
+  };
+
+  const addAiChildren = async () => {
+    if (!outlineData || !selectedItem || outlineMutationLocked || sorting || aiChildrenBusy) return;
+    const requirement = aiChildrenRequirement.trim();
+    if (!requirement) {
+      showToast('请先输入对子目录的要求', 'info');
+      return;
+    }
+    if (!canAddOutlineChild(selectedItem.id)) {
+      showToast('当前目录已达到七级，不能继续添加子目录', 'info');
+      return;
+    }
+
+    setAiChildrenBusy(true);
+    try {
+      const result = await window.yibiao?.ai?.requestJson<{
+        children?: Array<{ title?: string; description?: string; content_mode?: OutlineContentMode; content_mode_note?: string }>;
+      }>({
+        progressLabel: 'AI 添加子目录',
+        failureMessage: 'AI 添加子目录失败，请稍后重试',
+        max_retries: 1,
+        messages: [
+          {
+            role: 'system',
+            content: '你是专业投标文件目录设计助手。只返回 JSON，不要输出 Markdown 或解释。根据当前目录标题和用户要求，生成 2 到 8 个直接可写正文的叶子子目录。标题具体、互不重复、覆盖用户要求；不要生成 children。每个对象必须有 title、description、content_mode，其中 content_mode 只能是 ai-generate、template-fill、point-to-point、other。',
+          },
+          {
+            role: 'user',
+            content: JSON.stringify({
+              current_title: selectedItem.title,
+              current_description: selectedItem.description,
+              user_requirement: requirement,
+              output_shape: { children: [{ title: '子目录标题', description: '该叶子需要编写的具体内容', content_mode: 'ai-generate' }] },
+            }),
+          },
+        ],
+      });
+      const rawChildren = Array.isArray(result?.children) ? result.children : [];
+      const children = rawChildren
+        .map((child) => ({
+          title: String(child?.title || '').trim(),
+          description: String(child?.description || '').trim(),
+          content_mode: child?.content_mode && ['ai-generate', 'template-fill', 'point-to-point', 'other'].includes(child.content_mode)
+            ? child.content_mode
+            : 'ai-generate' as const,
+          ...(child?.content_mode === 'other' && String(child?.content_mode_note || '').trim()
+            ? { content_mode_note: String(child.content_mode_note).trim() }
+            : {}),
+        }))
+        .filter((child) => child.title)
+        .filter((child, index, list) => list.findIndex((candidate) => candidate.title === child.title) === index)
+        .map((child) => ({ ...child, description: child.description || child.title }))
+        .slice(0, 8);
+      if (!children.length) throw new Error('AI 未返回有效的子目录');
+      const nextIndex = (selectedItem.children?.length || 0) + 1;
+      const nextChildren = children.map((child, index) => ({ ...child, id: `${selectedItem.id}.${nextIndex + index}` }));
+      await saveOutlineChange(updateOutlineItem(outlineData.outline, selectedItem.id, (item) => ({
+        ...item,
+        children: [...(item.children || []), ...nextChildren],
+      })), 'add-child', [selectedItem.id]);
+      setExpandedItems((prev) => new Set(prev).add(selectedItem.id));
+      setSelectedItemId(nextChildren[0].id);
+      setAiChildrenRequirement('');
+      setAiChildrenOpen(false);
+      showToast(`已添加 ${nextChildren.length} 个 AI 子目录`, 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'AI 添加子目录失败', 'error');
+    } finally {
+      setAiChildrenBusy(false);
     }
   };
 
@@ -1583,9 +1657,36 @@ function OutlineEditPage({
                     >
                       已关联 {selectedSourceCount} 处原文
                     </button>
+                    {aiChildrenOpen && (
+                      <div className="outline-ai-children-box">
+                        <label>
+                          <span>子目录需求</span>
+                          <textarea
+                            value={aiChildrenRequirement}
+                            onChange={(event) => setAiChildrenRequirement(event.target.value)}
+                            placeholder="例如：按施工准备、现场实施、质量验收拆分为可直接编写正文的叶子目录"
+                            disabled={outlineMutationLocked || sorting || aiChildrenBusy}
+                          />
+                        </label>
+                        <div className="outline-detail-actions">
+                          <button
+                            type="button"
+                            className="primary-action"
+                            onClick={() => { void addAiChildren(); }}
+                            disabled={outlineMutationLocked || sorting || aiChildrenBusy || !canAddOutlineChild(selectedItem.id)}
+                          >
+                            {aiChildrenBusy ? 'AI 生成中...' : '直接添加'}
+                          </button>
+                          <button type="button" className="secondary-action" onClick={() => setAiChildrenOpen(false)} disabled={aiChildrenBusy}>取消</button>
+                        </div>
+                      </div>
+                    )}
                     <div className="outline-detail-actions">
                       <button type="button" className="primary-action" onClick={() => startEditing(selectedItem)} disabled={outlineMutationLocked || sorting}>编辑</button>
                       <button type="button" className="secondary-action" onClick={() => { void addChildItem(selectedItem.id); }} disabled={outlineMutationLocked || sorting || !canAddOutlineChild(selectedItem.id)}>添加子目录</button>
+                      <button type="button" className="secondary-action outline-ai-children-action" onClick={() => setAiChildrenOpen((prev) => !prev)} disabled={outlineMutationLocked || sorting || !canAddOutlineChild(selectedItem.id)}>
+                        {aiChildrenOpen ? '收起 AI 添加' : 'AI 添加子目录'}
+                      </button>
                       <button type="button" className="danger-action" onClick={() => { void removeItem(selectedItem.id); }} disabled={outlineMutationLocked || sorting}>删除</button>
                     </div>
                   </>

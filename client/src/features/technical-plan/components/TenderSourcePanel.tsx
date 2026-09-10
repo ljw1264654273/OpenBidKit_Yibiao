@@ -3,6 +3,7 @@ import type { OutlineExpansionMode, OutlineItem } from '../../../shared/types';
 import { MarkdownFullscreenViewer, MarkdownRenderer, ToolbarArrowLeftIcon, ToolbarArrowRightIcon } from '../../../shared/ui';
 import type { ScoreCoverageRecord } from '../types';
 import { buildOutlineSourceViewItems } from '../services/outlineSourceMatcher';
+import type { OutlineSourceViewItem } from '../services/outlineSourceMatcher';
 
 export interface TenderSourcePanelProps {
   selectedItem: OutlineItem | null;
@@ -21,6 +22,28 @@ const sourceKindLabels = {
   criterion: '评分标准',
   'response-point': '响应要点',
 };
+
+function extractSourceKeywords(selectedItem: OutlineItem | null, items: Array<Pick<OutlineSourceViewItem, 'sourceText'>>) {
+  const values = [
+    selectedItem?.title,
+    selectedItem?.source_requirement_title,
+    selectedItem?.description,
+    ...items.map((item) => item.sourceText),
+  ].filter(Boolean).join(' ');
+  const candidates = values
+    .split(/[\s,，。；;：:、（）()【】\[\]{}“”"'‘’/\\|<>]+/)
+    .map((value) => value.trim())
+    .filter((value) => value.length >= 2);
+  return [...new Set(candidates)].sort((left, right) => right.length - left.length).slice(0, 24);
+}
+
+function normalizeTableFragments(markdown: string) {
+  const value = String(markdown || '');
+  if (!/<(?:tr|td|th)\b/i.test(value) || /<table\b/i.test(value)) return value;
+  return value
+    .replace(/((?:<tr\b[\s\S]*?<\/tr>\s*)+)/gi, '<table><tbody>$1</tbody></table>')
+    .replace(/((?:<(?:td|th)\b[\s\S]*?<\/(?:td|th)>\s*)+)/gi, '<table><tbody><tr>$1</tr></tbody></table>');
+}
 
 function TenderSourcePanel({
   selectedItem,
@@ -44,6 +67,10 @@ function TenderSourcePanel({
   const itemCount = viewModel.items.length;
   const safeActiveIndex = itemCount > 0 ? Math.min(activeIndex, itemCount - 1) : 0;
   const activeItem = viewModel.items[safeActiveIndex];
+  const sourceKeywords = useMemo(() => extractSourceKeywords(selectedItem, viewModel.items), [selectedItem, viewModel.items]);
+  const activeMarkdown = activeItem
+    ? normalizeTableFragments(`${activeItem.contextBefore}${activeItem.matchedText}${activeItem.contextAfter}`)
+    : '';
   const sourceSwitchDisabled = sorting || itemCount <= 1;
   const fullSourceDisabled = sorting || loading || Boolean(error) || !markdown;
 
@@ -88,7 +115,8 @@ function TenderSourcePanel({
             description="全屏查看当前招标文件 Markdown 原文。"
             buttonLabel="全屏查看招标原文"
             disabled={fullSourceDisabled}
-            fullscreenChildren={<MarkdownRenderer allowRawHtml={false}>{markdown}</MarkdownRenderer>}
+            autoScrollToHighlight
+            fullscreenChildren={<MarkdownRenderer allowRawHtml highlightTerms={sourceKeywords}>{markdown}</MarkdownRenderer>}
           >
             <span className="outline-source-panel-fullscreen-placeholder" aria-hidden="true" />
           </MarkdownFullscreenViewer>
@@ -133,15 +161,15 @@ function TenderSourcePanel({
         ) : activeItem.status === 'unlocated' ? (
           <article className="outline-source-panel-source is-unlocated">
             <p>评分原文，未定位到正文上下文</p>
-            <div className="outline-source-panel-source-text">{activeItem.sourceText}</div>
+            <div className="outline-source-panel-source-text markdown-viewer">
+              <MarkdownRenderer allowRawHtml highlightTerms={sourceKeywords}>{normalizeTableFragments(activeItem.sourceText)}</MarkdownRenderer>
+            </div>
             <span className="outline-source-panel-source-kind">{sourceKindLabels[activeItem.kind]}</span>
           </article>
         ) : (
           <article className="outline-source-panel-source">
-            <div className="outline-source-panel-source-text">
-              <span>{activeItem.contextBefore}</span>
-              <mark>{activeItem.matchedText}</mark>
-              <span>{activeItem.contextAfter}</span>
+            <div className="outline-source-panel-source-text markdown-viewer">
+              <MarkdownRenderer allowRawHtml highlightTerms={sourceKeywords}>{activeMarkdown}</MarkdownRenderer>
             </div>
             <span className="outline-source-panel-source-kind">{sourceKindLabels[activeItem.kind]}</span>
           </article>

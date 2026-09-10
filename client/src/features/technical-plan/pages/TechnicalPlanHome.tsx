@@ -1413,15 +1413,21 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
         />
       )}
       {state.step === 'expand' && (
-        <section className="empty-panel compact-placeholder technical-plan-expand-placeholder">
-          <div className="feature-under-development-overlay" role="status" aria-live="polite">
-            <strong>正在开发中，敬请期待</strong>
-            <span>此功能尚未完成，请先不要使用。</span>
-          </div>
-          <span className="section-kicker">STEP 06</span>
-          <h3>扩写改写</h3>
-          <p>后续接入旧方案导入、章节扩写和人工校准。</p>
-        </section>
+        <div className="plan-step-body technical-plan-expand-page">
+          <section className="technical-plan-expand-command-bar">
+            <div>
+              <span className="section-kicker">STEP 06</span>
+              <strong>扩写改写</strong>
+              <p>后续接入旧方案导入、章节扩写和人工校准。</p>
+            </div>
+          </section>
+          <section className="empty-panel compact-placeholder technical-plan-expand-placeholder">
+            <div className="feature-under-development-overlay" role="status" aria-live="polite">
+              <strong>正在开发中，敬请期待</strong>
+              <span>此功能尚未完成，请先不要使用。</span>
+            </div>
+          </section>
+        </div>
       )}
 
       <AppDialog

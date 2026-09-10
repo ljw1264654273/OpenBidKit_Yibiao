@@ -3981,6 +3981,25 @@
   overflow-wrap: anywhere;
 }
 
+.outline-source-panel-source-text.markdown-viewer {
+  min-height: 0;
+  padding: 0;
+  overflow: visible;
+  white-space: normal;
+}
+
+.outline-source-panel-source-text.markdown-viewer > *:first-child {
+  margin-top: 0;
+}
+
+.outline-source-panel-source-text.markdown-viewer > *:last-child {
+  margin-bottom: 0;
+}
+
+.outline-source-panel-source-text.markdown-viewer .markdown-table-scroll {
+  max-height: 360px;
+}
+
 .outline-source-panel-source-text mark {
   padding: 2px 0;
   color: var(--yb-warning-deep);
@@ -4005,6 +4024,33 @@
   color: var(--yb-warning-deep);
   font-size: 12px;
   line-height: 1.5;
+}
+
+.markdown-highlight {
+  padding: 1px 3px;
+  color: #6c4300;
+  background: rgba(255, 210, 77, 0.52);
+  border-radius: 3px;
+  box-decoration-break: clone;
+}
+
+.outline-ai-children-box {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  background: rgba(33, 116, 253, 0.045);
+  border: 1px solid rgba(33, 116, 253, 0.14);
+  border-radius: var(--yb-radius-md);
+}
+
+.outline-ai-children-box textarea {
+  min-height: 110px;
+}
+
+.outline-ai-children-action {
+  color: var(--yb-primary) !important;
+  background: rgba(33, 116, 253, 0.1) !important;
+  border-color: rgba(33, 116, 253, 0.18) !important;
 }
 
 .outline-tree-source-count {
@@ -4638,18 +4684,16 @@
   min-height: 360px;
 }
 
+.technical-plan-expand-page {
+  overflow: hidden;
+}
+
 .technical-plan-expand-placeholder {
   display: grid;
   min-height: 0;
   place-content: center;
   padding: 24px;
   overflow: hidden;
-}
-
-.technical-plan-expand-placeholder > .section-kicker,
-.technical-plan-expand-placeholder > h3,
-.technical-plan-expand-placeholder > p {
-  display: none;
 }
 
 .technical-plan-expand-placeholder .feature-under-development-overlay {
@@ -4869,6 +4913,131 @@
   font-size: 12px;
 }
 
+.technical-document-upload-board {
+  gap: 0;
+  padding: 0;
+}
+
+.technical-document-upload-board .upload-page-title {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--yb-border);
+}
+
+.technical-document-upload-board .upload-stack {
+  gap: 8px;
+  padding: 8px 12px 12px;
+}
+
+.technical-document-upload-board .upload-page-title > div:first-child,
+.bid-analysis-command-bar > :first-child,
+.global-facts-command-bar > :first-child,
+.content-generation-command-bar > :first-child,
+.technical-plan-expand-command-bar > div {
+  display: grid;
+  grid-template-areas:
+    "kicker title"
+    "description description";
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: center;
+  gap: 2px 10px;
+  min-width: 0;
+}
+
+.technical-document-upload-board .upload-page-title > div:first-child > .section-kicker,
+.bid-analysis-command-bar > :first-child > .section-kicker,
+.global-facts-command-bar > :first-child > .section-kicker,
+.content-generation-command-bar > :first-child > .section-kicker,
+.technical-plan-expand-command-bar > div > .section-kicker {
+  grid-area: kicker;
+}
+
+.technical-document-upload-board .upload-page-title > div:first-child > h2,
+.bid-analysis-command-bar > :first-child > strong,
+.global-facts-command-bar > :first-child > strong,
+.content-generation-command-bar > :first-child > strong,
+.technical-plan-expand-command-bar > div > strong {
+  grid-area: title;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.technical-document-upload-board .upload-page-title > div:first-child > p,
+.bid-analysis-command-bar > :first-child > p,
+.global-facts-command-bar > :first-child > p,
+.content-generation-command-bar > :first-child > p,
+.technical-plan-expand-command-bar > div > p {
+  grid-area: description;
+  margin: 0;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.technical-plan-expand-command-bar {
+  display: grid;
+  align-items: center;
+  min-width: 0;
+  padding: 8px 12px;
+  background: var(--yb-surface);
+  border-bottom: 1px solid var(--yb-border);
+}
+
+.technical-plan-expand-command-bar strong {
+  color: var(--yb-text);
+  font-size: 16px;
+}
+
+.technical-plan-expand-command-bar p {
+  color: var(--yb-text-soft);
+  font-size: 12px;
+}
+
+.bid-analysis-command-bar,
+.global-facts-command-bar,
+.content-generation-command-bar {
+  grid-template-areas: "title meta actions";
+  grid-template-columns: minmax(260px, 1fr) auto auto;
+  gap: 8px 12px;
+  padding: 8px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--yb-border);
+}
+
+.bid-analysis-command-bar > :first-child,
+.global-facts-command-bar > :first-child,
+.content-generation-command-bar > :first-child {
+  grid-area: title;
+}
+
+.bid-analysis-command-meta,
+.global-facts-command-meta,
+.content-generation-command-meta {
+  grid-area: meta;
+}
+
+.bid-analysis-command-actions,
+.global-facts-command-actions,
+.content-generation-actions {
+  grid-area: actions;
+  gap: 6px;
+}
+
+.technical-workbench :where(.bid-analysis-command-actions, .global-facts-command-actions, .content-generation-actions) button {
+  min-height: 32px;
+  padding: 5px 9px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.technical-workbench :where(.bid-analysis-command-actions, .global-facts-command-actions, .content-generation-actions) .outline-config-action {
+  width: 32px;
+  height: 32px;
+  padding: 5px;
+}
+
+.bid-analysis-command-meta .compact-task-progress {
+  min-width: 260px;
+}
+
 /* 技术方案工作台沿用原型的方正分栏；圆角只用于控件、状态和悬浮工具条。 */
 .technical-document-upload-board,
 .technical-document-reader-card,
@@ -4881,6 +5050,7 @@
 .content-generation-command-bar,
 .content-generation-progress-card,
 .content-generation-workspace,
+.technical-plan-expand-command-bar,
 .technical-plan-expand-placeholder {
   background: var(--yb-surface);
   border-color: var(--yb-border);

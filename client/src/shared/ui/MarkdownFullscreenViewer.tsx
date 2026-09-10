@@ -1,5 +1,5 @@
 import * as Dialog from '@radix-ui/react-dialog';
-import type { CSSProperties, ReactNode } from 'react';
+import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 
 export interface MarkdownFullscreenViewerProps {
   children: ReactNode;
@@ -13,6 +13,7 @@ export interface MarkdownFullscreenViewerProps {
   fullscreenClassName?: string;
   fullscreenStyle?: CSSProperties;
   fullscreenChildren?: ReactNode;
+  autoScrollToHighlight?: boolean;
 }
 
 function MarkdownFullscreenViewer({
@@ -27,13 +28,23 @@ function MarkdownFullscreenViewer({
   fullscreenClassName,
   fullscreenStyle,
   fullscreenChildren,
+  autoScrollToHighlight = false,
 }: MarkdownFullscreenViewerProps) {
   const normalClassName = className;
   const dialogContentClassName = fullscreenClassName || className || 'markdown-viewer';
   const dialogStyle = fullscreenStyle || style;
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (!open || !autoScrollToHighlight) return undefined;
+    const timer = window.setTimeout(() => {
+      document.querySelector('.markdown-fullscreen-content .markdown-highlight')?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }, 80);
+    return () => window.clearTimeout(timer);
+  }, [autoScrollToHighlight, open]);
 
   return (
-    <Dialog.Root>
+    <Dialog.Root open={open} onOpenChange={setOpen}>
       <div className="markdown-fullscreen-frame">
         <div className={normalClassName} style={style}>{children}</div>
         {showFullscreen && (

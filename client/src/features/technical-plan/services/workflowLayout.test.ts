@@ -75,6 +75,8 @@ test('扩写步骤只优化真实占位状态而不伪造业务控件', () => {
   const source = readFileSync(new URL('../pages/TechnicalPlanHome.tsx', import.meta.url), 'utf8');
   const placeholder = source.split("state.step === 'expand'")[1]?.split('<AppDialog')[0] || '';
 
+  assert.match(placeholder, /className="plan-step-body technical-plan-expand-page"/);
+  assert.match(placeholder, /className="technical-plan-expand-command-bar"[\s\S]*STEP 06[\s\S]*扩写改写/);
   assert.match(placeholder, /technical-plan-expand-placeholder/);
   assert.match(placeholder, /feature-under-development-overlay/);
   assert.doesNotMatch(placeholder, /改写设置|重新生成|保存并完成/);
@@ -97,6 +99,15 @@ test('目录生成状态栏以两行摘要配合同排进度和操作保持紧�
   assert.match(css, /\.outline-command-summary\s*\{[^}]*grid-area:\s*summary;[^}]*display:\s*grid;[^}]*gap:\s*2px;/s);
   assert.match(css, /\.outline-command-progress\s*\{[^}]*grid-area:\s*progress;/s);
   assert.match(css, /\.outline-command-summary\s*~\s*\.outline-command-actions\s*\{[^}]*grid-area:\s*actions;[^}]*flex-wrap:\s*nowrap;/s);
+});
+
+test('其余活动步骤沿用两行摘要和紧凑命令栏标准', () => {
+  const css = readFileSync(new URL('../../../styles/feature-technical-plan.css', import.meta.url), 'utf8');
+
+  assert.match(css, /\.technical-document-upload-board \.upload-page-title > div:first-child,[\s\S]*\.bid-analysis-command-bar > :first-child,[\s\S]*\.global-facts-command-bar > :first-child,[\s\S]*\.content-generation-command-bar > :first-child,[\s\S]*\.technical-plan-expand-command-bar > div\s*\{[^}]*display:\s*grid;[^}]*grid-template-areas:\s*"kicker title"\s*"description description";[^}]*gap:\s*2px 10px;/s);
+  assert.match(css, /\.bid-analysis-command-bar,[\s\S]*\.global-facts-command-bar,[\s\S]*\.content-generation-command-bar\s*\{[^}]*grid-template-areas:\s*"title meta actions";[^}]*gap:\s*8px 12px;[^}]*padding:\s*8px 12px;/s);
+  assert.match(css, /\.technical-workbench :where\(\.bid-analysis-command-actions, \.global-facts-command-actions, \.content-generation-actions\) button\s*\{[^}]*min-height:\s*32px;[^}]*padding:\s*5px 9px;/s);
+  assert.match(css, /\.technical-workbench :where\(\.bid-analysis-command-actions, \.global-facts-command-actions, \.content-generation-actions\) \.outline-config-action\s*\{[^}]*width:\s*32px;[^}]*height:\s*32px;/s);
 });
 
 test('技术方案工作台使用原型的直角面板和小圆角控件', () => {

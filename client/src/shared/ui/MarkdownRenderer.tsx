@@ -8,6 +8,7 @@ interface MarkdownRendererProps {
   children: string;
   allowRawHtml?: boolean;
   enableGfm?: boolean;
+  highlightTerms?: string[];
   imageMode?: MarkdownImageMode;
   imageClassName?: string;
   linkMode?: MarkdownLinkMode;
@@ -113,6 +114,51 @@ function getElementStyle(element: Element): CSSProperties | undefined {
   ])) as CSSProperties;
 }
 
+function highlightTextNodes(root: Element, terms: string[]) {
+  const usableTerms = [...new Set(terms
+    .map((term) => String(term || '').trim())
+    .filter((term) => term.length >= 2))]
+    .sort((left, right) => right.length - left.length);
+  if (!usableTerms.length) return;
+
+  const pattern = new RegExp(
+    `(${usableTerms.map((term) => term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`,
+    'gi',
+  );
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const textNodes: Text[] = [];
+  let current: Node | null = walker.nextNode();
+  while (current) {
+    const parent = current.parentElement;
+    if (parent && !['CODE', 'PRE', 'SCRIPT', 'STYLE', 'MARK'].includes(parent.tagName)) {
+      textNodes.push(current as Text);
+    }
+    current = walker.nextNode();
+  }
+
+  textNodes.forEach((node) => {
+    const value = node.textContent || '';
+    if (!pattern.test(value)) {
+      pattern.lastIndex = 0;
+      return;
+    }
+    pattern.lastIndex = 0;
+    const fragment = document.createDocumentFragment();
+    let lastIndex = 0;
+    value.replace(pattern, (match, _group, offset: number) => {
+      if (offset > lastIndex) fragment.appendChild(document.createTextNode(value.slice(lastIndex, offset)));
+      const mark = document.createElement('mark');
+      mark.className = 'markdown-highlight';
+      mark.textContent = match;
+      fragment.appendChild(mark);
+      lastIndex = offset + match.length;
+      return match;
+    });
+    if (lastIndex < value.length) fragment.appendChild(document.createTextNode(value.slice(lastIndex)));
+    node.parentNode?.replaceChild(fragment, node);
+  });
+}
+
 function childrenFromDom(nodes: ChildNode[], renderNode: (node: ChildNode, index: number) => ReactNode) {
   return nodes.map((node, index) => renderNode(node, index));
 }
@@ -121,6 +167,7 @@ function MarkdownRenderer({
   children,
   allowRawHtml = true,
   enableGfm = true,
+  highlightTerms = [],
   imageMode = 'default',
   imageClassName,
   linkMode = 'external',
@@ -134,6 +181,7 @@ function MarkdownRenderer({
   const content = useMemo(() => {
     const document = new DOMParser().parseFromString(`<div>${html}</div>`, 'text/html');
     const root = document.body.firstElementChild;
+    if (root) highlightTextNodes(root, highlightTerms);
     const renderNode = (node: ChildNode, index: number): ReactNode => {
       if (node.nodeType === Node.TEXT_NODE) return node.textContent || '';
       if (node.nodeType !== Node.ELEMENT_NODE) return null;
@@ -279,7 +327,7 @@ function MarkdownRenderer({
     };
 
     return Array.from(root?.childNodes || []).map((node, index) => renderNode(node, index));
-  }, [enableGfm, html, imageClassName, imageMode, linkMode, linkTextClassName, onPreviewImage, previewImageTitle, renderMermaid]);
+  }, [enableGfm, highlightTerms, html, imageClassName, imageMode, linkMode, linkTextClassName, onPreviewImage, previewImageTitle, renderMermaid]);
 
   return <>{content}</>;
 }
