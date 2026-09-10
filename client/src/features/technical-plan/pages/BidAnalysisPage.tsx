@@ -2,8 +2,10 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { useEffect, useMemo, useState } from 'react';
 import { trackConfigUsage } from '../../../shared/analytics/analytics';
 import { bidAnalysisTasks, getBidAnalysisTasks, isMissingBidAnalysisResult } from '../services/bidAnalysisWorkflow';
-import { MarkdownFullscreenViewer, MarkdownRenderer, ProgressBar, useToast } from '../../../shared/ui';
+import { MarkdownFullscreenViewer, MarkdownRenderer, useToast } from '../../../shared/ui';
+import AdaptiveTwoPaneWorkspace, { type WorkspacePane } from '../components/AdaptiveTwoPaneWorkspace';
 import BidSectionSelectorDialog from '../components/BidSectionSelectorDialog';
+import CompactTaskProgress from '../components/CompactTaskProgress';
 import type { BackgroundTaskState, BidAnalysisMode, BidAnalysisTasks, BidAnalysisTaskState, BidSectionExtractionStatus, BidSectionMode, DetectedBidSection, TechnicalPlanState } from '../types';
 
 interface BidAnalysisPageProps {
@@ -229,7 +231,7 @@ function BidAnalysisPage({
     taskIds?: string[];
     nextTaskIds: string[];
   } | null>(null);
-  const [progressCollapsed, setProgressCollapsed] = useState(false);
+  const [workspacePane, setWorkspacePane] = useState<WorkspacePane>('navigation');
   const { showToast } = useToast();
   const effectiveSelectedTaskIds = useMemo(() => getSelectedTaskIdsForMode(mode, selectedTaskIds), [mode, selectedTaskIds]);
   const selectedTasks = useMemo(() => {
@@ -585,9 +587,21 @@ function BidAnalysisPage({
           <strong>招标文件解析</strong>
           <p>并发解析招标文件，全部选中解析项结束后进入目录生成。</p>
         </div>
-        <div className="bid-analysis-config-chip" title="当前解析配置">
-          <span>{configLabel}</span>
-          <small>{selectedTasks.length} 项</small>
+        <div className="bid-analysis-command-meta">
+          <CompactTaskProgress
+            value={progress}
+            label={`解析进度 ${progress}%`}
+            summary={`${doneCount}/${selectedTasks.length}`}
+            status={taskRunning ? '解析中' : task?.status === 'error' ? '解析失败' : progress >= 100 ? '已完成' : '未开始'}
+            active={taskRunning}
+            error={task?.status === 'error' || Boolean(firstMissingSelectedTask)}
+          >
+            <p>{progressMessage}</p>
+          </CompactTaskProgress>
+          <div className="bid-analysis-config-chip" title="当前解析配置">
+            <span>{configLabel}</span>
+            <small>{selectedTasks.length} 项</small>
+          </div>
         </div>
         <div className="bid-analysis-command-actions">
           <button
@@ -609,24 +623,18 @@ function BidAnalysisPage({
         </div>
       </section>
 
-      <section className="bid-analysis-workspace">
-        <aside className="bid-analysis-task-pane" aria-label="解析任务列表">
+      <AdaptiveTwoPaneWorkspace
+        id="bid-analysis-workspace"
+        className="bid-analysis-workspace"
+        navigationLabel="解析项目"
+        contentLabel="解析结果"
+        activePane={workspacePane}
+        onPaneChange={setWorkspacePane}
+        navigation={(
+          <aside className="bid-analysis-task-pane" aria-label="解析任务列表">
           <div className="analysis-result-head bid-analysis-task-head">
             <strong>核心信息</strong>
             <span>{doneCount}/{selectedTasks.length} 项</span>
-          </div>
-          <div className={`content-outline-stats bid-analysis-progress-summary${progressCollapsed ? ' is-collapsed' : ''}`}>
-            <button type="button" onClick={() => setProgressCollapsed((prev) => !prev)} aria-expanded={!progressCollapsed}>
-              <span>解析进度</span>
-              <strong>{doneCount}/{selectedTasks.length}</strong>
-              <em>{progressCollapsed ? '展开' : '折叠'}</em>
-            </button>
-            {!progressCollapsed && (
-              <div className="content-outline-stats-body">
-                <ProgressBar value={progress} label={`解析进度 ${progress}%`} />
-                <p>{progressMessage}</p>
-              </div>
-            )}
           </div>
           <div className="bid-analysis-task-list">
             {taskGroups.map((group) => {
@@ -648,7 +656,10 @@ function BidAnalysisPage({
                         type="button"
                         className={`bid-analysis-task-item is-${missingResult ? 'error' : status}${visibleSelectedTaskId === task.id ? ' is-active' : ''}`}
                         key={task.id}
-                        onClick={() => setSelectedTaskId(task.id)}
+                        onClick={() => {
+                          setSelectedTaskId(task.id);
+                          setWorkspacePane('content');
+                        }}
                       >
                         <strong>{task.label}</strong>
                         <small>{content ? `${content.length} 字` : task.description}</small>
@@ -660,9 +671,10 @@ function BidAnalysisPage({
               );
             })}
           </div>
-        </aside>
-
-        <article className="bid-analysis-reader">
+          </aside>
+        )}
+        content={(
+          <article className="bid-analysis-reader">
           <div className="bid-analysis-reader-head">
             <div>
               <span className="section-kicker">解析结果</span>
@@ -694,8 +706,9 @@ function BidAnalysisPage({
               <p>{activeTaskStatus === 'idle' ? '点击开始解析后，左侧任务会并发运行；选择任一任务查看实时输出。' : '正在等待模型返回内容。'}</p>
             </div>
           )}
-        </article>
-      </section>
+          </article>
+        )}
+      />
 
       <Dialog.Root open={settingsOpen} onOpenChange={setSettingsOpen}>
         <Dialog.Portal>

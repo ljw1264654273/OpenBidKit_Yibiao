@@ -187,33 +187,12 @@ function formatCountRange(minimum: number, maximum: number, unit: string) {
 // 根据任务最终统计构建需要用户处理的字数警告弹窗。
 function buildWordControlWarningDialog(task: BackgroundTaskState, state: TechnicalPlanState): WordControlWarningDialogState | null {
   const outlineStats = task.stats?.outline;
-  if (outlineStats?.word_adjustment_warning) {
-    // 质量类：叶子数量已达标，仅二审发现可优化点，不展示会误导的叶子数对比。
-    if (outlineStats.word_adjustment_warning_kind === 'quality') {
-      return {
-        taskId: task.task_id,
-        title: '目录已生成，建议人工核对',
-        message: outlineStats.word_adjustment_warning,
-        metrics: [],
-        sections: [],
-      };
-    }
-    // 数量类：叶子数量未进入区间，展示预期与实际对比。
-    const minimumLeafCount = outlineStats.minimum_leaf_count || 0;
-    const maximumLeafCount = outlineStats.maximum_leaf_count || 0;
-    const targetLeafCount = outlineStats.target_leaf_count;
-    const currentLeafCount = outlineStats.current_leaf_count || 0;
+  if (outlineStats?.word_adjustment_warning && outlineStats.word_adjustment_warning_kind === 'quality') {
     return {
       taskId: task.task_id,
-      title: 'AI生成小节数量未达到预期',
+      title: '目录已生成，建议人工核对',
       message: outlineStats.word_adjustment_warning,
-      metrics: [{
-        label: 'AI生成小节',
-        expected: typeof targetLeafCount === 'number'
-          ? `${targetLeafCount.toLocaleString('zh-CN')} 个`
-          : formatCountRange(minimumLeafCount, maximumLeafCount, '个'),
-        actual: `${currentLeafCount.toLocaleString('zh-CN')} 个`,
-      }],
+      metrics: [],
       sections: [],
     };
   }
@@ -327,6 +306,12 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
   const { hydrated, state, setState } = useTechnicalPlanWorkflow();
   const { showToast } = useToast();
   const [tenderMarkdown, setTenderMarkdown] = useState('');
+  const [tenderMarkdownLoading, setTenderMarkdownLoading] = useState(false);
+  const [tenderMarkdownError, setTenderMarkdownError] = useState('');
+  const tenderMarkdownVersionRef = useRef<string | null>(null);
+  const tenderMarkdownRequestRef = useRef(0);
+  const tenderFileVersion = state.tenderFile ? state.tenderFile.contentHash || state.tenderFile.updatedAt : null;
+  const tenderMarkdownStepActive = state.step === 'document-analysis' || state.step === 'outline-generation';
   const [originalPlanMarkdown, setOriginalPlanMarkdown] = useState('');
   const [exportProgress, setExportProgress] = useState<ExportProgressState>(initialExportProgress);
   const [exportFormat, setExportFormat] = useState<ExportFormatConfig>(DEFAULT_EXPORT_FORMAT);
@@ -336,7 +321,6 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
   const [exportTemplateSearch, setExportTemplateSearch] = useState('');
   const [selectedExportTemplateId, setSelectedExportTemplateId] = useState('');
   const [sortLeaveDialogOpen, setSortLeaveDialogOpen] = useState(false);
-  const [outlineWordControlLeaveDialogOpen, setOutlineWordControlLeaveDialogOpen] = useState(false);
   const [wordControlWarningDialog, setWordControlWarningDialog] = useState<WordControlWarningDialogState | null>(null);
   const [pendingWordControlWarningTaskId, setPendingWordControlWarningTaskId] = useState<string | null>(null);
   const [savingSortBeforeLeave, setSavingSortBeforeLeave] = useState(false);
@@ -349,7 +333,6 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
   const [isResetting, setIsResetting] = useState(false);
   const sortGuardRef = useRef<OutlineSortGuard | null>(null);
   const sortLeaveResolverRef = useRef<((allowed: boolean) => void) | null>(null);
-  const outlineWordControlLeaveResolverRef = useRef<((allowed: boolean) => void) | null>(null);
   const shownWordControlWarningTaskIdsRef = useRef(new Set<string>());
   const workflowSwitchResolverRef = useRef<((allowed: boolean) => void) | null>(null);
   const skippedWorkflowSwitchPromptRef = useRef<TechnicalPlanWorkflowKind | null>(null);
@@ -422,19 +405,6 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
     sortLeaveResolverRef.current?.(allowed);
     sortLeaveResolverRef.current = null;
     setSortLeaveDialogOpen(false);
-  };
-
-  const resolveOutlineWordControlLeave = (allowed: boolean) => {
-    outlineWordControlLeaveResolverRef.current?.(allowed);
-    outlineWordControlLeaveResolverRef.current = null;
-    setOutlineWordControlLeaveDialogOpen(false);
-  };
-
-  const confirmOutlineWordControlLeave = () => {
-    setOutlineWordControlLeaveDialogOpen(true);
-    return new Promise<boolean>((resolve) => {
-      outlineWordControlLeaveResolverRef.current = resolve;
-    });
   };
 
   const executeWorkflowSwitch = useCallback(async (targetWorkflowKind: TechnicalPlanWorkflowKind) => {
@@ -663,10 +633,6 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
         showToast('当前目录缺少字数控制生效配置，请重新生成目录后再进入下一步', 'info');
         return;
       }
-      if (finalOutlineData && snapshot && isOutlineLeafCountOutsideRange(finalOutlineData, snapshot)) {
-        const continueAnyway = await confirmOutlineWordControlLeave();
-        if (!continueAnyway) return;
-      }
     }
 
     setState((prev) => ({ ...prev, step }));
@@ -697,7 +663,9 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
       }
 
       if (latestTask?.status === 'success' && !shownWordControlWarningTaskIdsRef.current.has(latestTask.task_id)) {
-        const warning = latestTask.stats?.outline?.word_adjustment_warning || latestTask.stats?.content?.word_control_warning;
+        const warning = latestTask.stats?.outline?.word_adjustment_warning_kind === 'quality'
+          ? latestTask.stats.outline.word_adjustment_warning
+          : latestTask.stats?.content?.word_control_warning;
         if (warning) {
           setPendingWordControlWarningTaskId(latestTask.task_id);
         }
@@ -801,6 +769,7 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
           return {
             ...prev,
             outlineAdjustmentTask: trimTaskLogs(technicalPlan.outlineAdjustmentTask) || latestTask,
+            outlineGenerationTask: hasOwnField(technicalPlan, 'outlineGenerationTask') ? trimTaskLogs(technicalPlan.outlineGenerationTask) : prev.outlineGenerationTask,
             outlineData: hasOutlineData ? (technicalPlan.outlineData || null) : prev.outlineData,
             contentGenerationTask: hasOwnField(technicalPlan, 'contentGenerationTask') ? trimTaskLogs(technicalPlan.contentGenerationTask) : prev.contentGenerationTask,
             contentGenerationSections: hasOwnField(technicalPlan, 'contentGenerationSections') ? (technicalPlan.contentGenerationSections || {}) : prev.contentGenerationSections,
@@ -880,24 +849,51 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
     return unsubscribe;
   }, [setState, showToast]);
 
-  useEffect(() => {
-    if (state.step !== 'document-analysis') {
-      return;
-    }
-    if (!state.tenderFile) {
+  const loadTenderMarkdown = useCallback(async (force = true) => {
+    if (tenderFileVersion === null) {
+      tenderMarkdownRequestRef.current += 1;
+      tenderMarkdownVersionRef.current = null;
       setTenderMarkdown('');
+      setTenderMarkdownLoading(false);
+      setTenderMarkdownError('');
       return;
     }
-    let mounted = true;
-    window.yibiao?.technicalPlan.readTenderMarkdown().then((markdown) => {
-      if (mounted) setTenderMarkdown(markdown || '');
-    }).catch((error) => {
-      if (mounted) showToast(error instanceof Error ? error.message : '读取招标文件 Markdown 失败', 'error');
-    });
+    if (!tenderMarkdownStepActive || (!force && tenderMarkdownVersionRef.current === tenderFileVersion)) return;
+
+    const requestId = ++tenderMarkdownRequestRef.current;
+    setTenderMarkdownLoading(true);
+    setTenderMarkdownError('');
+    try {
+      const markdown = await window.yibiao?.technicalPlan.readTenderMarkdown();
+      if (requestId !== tenderMarkdownRequestRef.current) return;
+      tenderMarkdownVersionRef.current = tenderFileVersion;
+      setTenderMarkdown(markdown || '');
+    } catch (error) {
+      if (requestId !== tenderMarkdownRequestRef.current) return;
+      const message = `读取招标文件 Markdown 失败${error instanceof Error ? `：${error.message}` : '，请重试'}`;
+      setTenderMarkdownError(message);
+      showToast(message, 'error');
+    } finally {
+      if (requestId === tenderMarkdownRequestRef.current) setTenderMarkdownLoading(false);
+    }
+  }, [showToast, tenderFileVersion, tenderMarkdownStepActive]);
+
+  useEffect(() => {
+    if (tenderMarkdownVersionRef.current !== tenderFileVersion || tenderFileVersion === null) {
+      tenderMarkdownVersionRef.current = null;
+      setTenderMarkdown('');
+      setTenderMarkdownError('');
+    }
+    setTenderMarkdownLoading(false);
+    if (state.step !== 'document-analysis' && state.step !== 'outline-generation') {
+      return;
+    }
+    void loadTenderMarkdown(false);
     return () => {
-      mounted = false;
+      // 只丢弃过期读取结果，不取消 Main 的后台任务。
+      tenderMarkdownRequestRef.current += 1;
     };
-  }, [showToast, state.step, state.tenderFile]);
+  }, [loadTenderMarkdown, tenderFileVersion]);
 
   useEffect(() => {
     if (state.step !== 'document-analysis' || !requiresOriginalPlan) {
@@ -1340,8 +1336,12 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
           originalPlanFile={state.originalPlanFile}
           originalPlanMarkdown={originalPlanMarkdown}
           onFileImported={(nextState, markdown) => {
+            tenderMarkdownRequestRef.current += 1;
+            tenderMarkdownVersionRef.current = nextState.tenderFile ? nextState.tenderFile.contentHash || nextState.tenderFile.updatedAt : null;
             setState((prev) => ({ ...prev, ...nextState }));
-            setTenderMarkdown(markdown);
+            setTenderMarkdown(nextState.tenderFile ? markdown : '');
+            setTenderMarkdownLoading(false);
+            setTenderMarkdownError('');
           }}
           onOriginalPlanImported={(nextState, markdown) => {
             setState((prev) => ({ ...prev, ...nextState }));
@@ -1381,6 +1381,10 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
           remoteKnowledgeScopes={state.remoteKnowledgeScopes}
           outlineData={state.outlineData}
           task={state.outlineGenerationTask}
+          tenderMarkdown={tenderMarkdown}
+          tenderMarkdownLoading={tenderMarkdownLoading}
+          tenderMarkdownError={tenderMarkdownError}
+          onReloadTenderMarkdown={loadTenderMarkdown}
           contentTaskStatus={state.contentGenerationTask?.status}
           aiAdjustmentRunning={isOutlineAdjusting}
           onOutlineConfigChange={saveOutlineConfig}
@@ -1419,15 +1423,21 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
         />
       )}
       {state.step === 'expand' && (
-        <section className="empty-panel compact-placeholder">
-          <div className="feature-under-development-overlay" role="status" aria-live="polite">
-            <strong>正在开发中，敬请期待</strong>
-            <span>此功能尚未完成，请先不要使用。</span>
-          </div>
-          <span className="section-kicker">STEP 06</span>
-          <h3>扩写改写</h3>
-          <p>后续接入旧方案导入、章节扩写和人工校准。</p>
-        </section>
+        <div className="plan-step-body technical-plan-expand-page">
+          <section className="technical-plan-expand-command-bar">
+            <div>
+              <span className="section-kicker">STEP 06</span>
+              <strong>扩写改写</strong>
+              <p>后续接入旧方案导入、章节扩写和人工校准。</p>
+            </div>
+          </section>
+          <section className="empty-panel compact-placeholder technical-plan-expand-placeholder">
+            <div className="feature-under-development-overlay" role="status" aria-live="polite">
+              <strong>正在开发中，敬请期待</strong>
+              <span>此功能尚未完成，请先不要使用。</span>
+            </div>
+          </section>
+        </div>
       )}
 
       <AppDialog
@@ -1506,20 +1516,6 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
             <button type="button" className="primary-action" onClick={() => { void installPetPluginAndOpenChat(); }} disabled={installingPetPlugin}>
               {installingPetPlugin ? '正在安装...' : '安装并启用'}
             </button>
-          </>
-        )}
-      />
-
-      <AppDialog
-        open={outlineWordControlLeaveDialogOpen}
-        onOpenChange={(open) => !open && resolveOutlineWordControlLeave(false)}
-        kicker="字数检查"
-        title="AI生成小节数量未达预期"
-        description="您手动修改的目录可能导致生成正文字数不符合预期"
-        actions={(
-          <>
-            <button type="button" className="secondary-action" onClick={() => resolveOutlineWordControlLeave(false)}>再修改目录</button>
-            <button type="button" className="primary-action" onClick={() => resolveOutlineWordControlLeave(true)}>仍然继续</button>
           </>
         )}
       />

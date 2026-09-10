@@ -13,6 +13,7 @@ const {
   buildIllustrationExecutionContexts,
   generateAiIllustration,
   generateHtmlIllustration,
+  generateMermaidAiIllustration,
   generateMermaidIllustration,
   stripGeneratedIllustrationsFromDocument,
 } = require('./contentIllustrationGeneration.cjs');
@@ -208,6 +209,37 @@ function normalizeGeneratedMarkdown(content) {
       return normalizedLine.replace(/\s*<br \/>\s*/g, '  \n');
     })
     .join('\n');
+}
+
+function normalizeGeneratedLeadInPunctuation(content) {
+  let inFence = false;
+  return String(content || '').split(/\r?\n/).map((line) => {
+    if (/^\s*(?:```|~~~)/.test(line)) {
+      inFence = !inFence;
+      return line;
+    }
+    if (inFence || /^\s*\|/.test(line) || /^\s*!\[[^\]]*\]\([^)]*\)\s*$/.test(line) || /^\s*<img\b[^>]*>\s*$/i.test(line)) {
+      return line;
+    }
+
+    const match = /^(\s*)(\*\*|__)(.+?)\2(.*)$/.exec(line);
+    if (!match) return line;
+
+    const [, indent, marker, inner, trailing] = match;
+    const duplicatedBoundary = /^\s*(?:[，,、；;：:]\s*)+([^\s，,、；;：:][\s\S]*)$/.exec(trailing);
+    if (/[：:]\s*$/.test(inner) && duplicatedBoundary) {
+      return `${indent}${marker}${inner}${marker} ${duplicatedBoundary[1]}`;
+    }
+
+    const terminal = /([。\.])(\s*)$/.exec(inner);
+    if (!terminal) return line;
+    const contentWithoutTerminal = inner.slice(0, terminal.index) + terminal[2];
+    const isStandalone = !trailing.trim();
+    const replacement = isStandalone
+      ? contentWithoutTerminal
+      : `${inner.slice(0, terminal.index)}${/[：:]/.test(inner.slice(0, terminal.index)) ? '，' : '：'}${terminal[2]}`;
+    return `${indent}${marker}${replacement}${marker}${trailing}`;
+  }).join('\n');
 }
 
 function splitLinesWithRanges(content) {
@@ -908,12 +940,13 @@ function buildChapterContentMessages({ chapter, projectOverview, selectedFactsTe
 9. ${tableAllowed ? '表格单元格内如有多项内容，优先使用编号、顿号、分号或短句，不要使用 HTML <br> 标签。' : '如需表达多项参数、职责、流程或措施，请改用分段文字或普通列表，不要用表格模拟。'}
 10. 严禁使用 Markdown 标题语法（#、##、###、####、#####、######），也不要生成与当前章节同级或下级的伪目录标题。
 11. 如需在正文中分层表达，只能使用普通段落、无编号列表、表格或无编号加粗引导语，例如 **实施要点：**。
-12. 加粗引导语只允许写简短主题词，禁止使用任何形式的编号。
-13. 只有步骤、流程、时间顺序、操作顺序等连续性非常强的内容，才可以使用有序列表；其他分段一律使用自然段、无编号列表或无编号加粗引导语，禁止使用任何形式的编号。
-14. 直接返回章节内容，不生成标题，不要任何额外说明。
-15. 如果本章节需要使用的全局事实变量中包含相关内容，必须优先使用变量值，不得前后矛盾。
-        16. 仅使用本章节提供的全局事实变量；未提供时不要主动编造具体人员、周期、质保、品牌、型号等会影响全文一致性的承诺。
-17. 当前招标要求、用户确认事实和原方案高于参考知识。参考知识必须结合本项目改写，不得输出 local: 或 remote: 内部来源标识。${buildContentFactCompletenessInstruction(globalFactsMode) ? `\n\n${buildContentFactCompletenessInstruction(globalFactsMode)}` : ''}`,
+12. 行内加粗引导语后面仍有正文时，若引导语内部没有冒号，末尾使用中文冒号；若内部已有中文或英文冒号，末尾使用中文逗号，不得形成两个冒号；分隔标点必须写在加粗标记内，加粗结束标记后不得再写逗号、顿号、分号或冒号，直接空一格接正文；独立成行的加粗引导语不得带中文句号或英文句点。
+13. 加粗引导语只允许写简短主题词，禁止使用任何形式的编号。
+14. 只有步骤、流程、时间顺序、操作顺序等连续性非常强的内容，才可以使用有序列表；其他分段一律使用自然段、无编号列表或无编号加粗引导语，禁止使用任何形式的编号。
+15. 直接返回章节内容，不生成标题，不要任何额外说明。
+16. 如果本章节需要使用的全局事实变量中包含相关内容，必须优先使用变量值，不得前后矛盾。
+17. 仅使用本章节提供的全局事实变量；未提供时不要主动编造具体人员、周期、质保、品牌、型号等会影响全文一致性的承诺。
+18. 当前招标要求、用户确认事实和原方案高于参考知识。参考知识必须结合本项目改写，不得输出 local: 或 remote: 内部来源标识。${buildContentFactCompletenessInstruction(globalFactsMode) ? `\n\n${buildContentFactCompletenessInstruction(globalFactsMode)}` : ''}`,
     },
   ];
 
@@ -1187,8 +1220,9 @@ workspace 文件：
 7. 严禁输出 Mermaid、PlantUML、Graphviz、flowchart、graph、sequenceDiagram 等图表代码块、mermaid.ink 链接或图片 Markdown。
 8. restored-content.md 可能包含原方案 Markdown 标题行或编号标题，例如“# 第一章...”“## 第一节...”“### 二、...”“（一）...”，这些只作为章节定位线索，不属于最终正文。
 9. 不要输出章节标题、Markdown 标题、编号标题、解释、总结或过程说明；当前章节标题会由程序统一渲染。
- 10. chapter-context.md 如包含小节字数目标，应尽量遵守，但保留原方案实质内容的要求优先。
-11. 不要修改业务数据库，程序会读取你的输出文件后自行写回。
+10. 行内加粗引导语后面仍有正文时，若引导语内部没有冒号，末尾使用中文冒号；若内部已有中文或英文冒号，末尾使用中文逗号，不得形成两个冒号；分隔标点必须写在加粗标记内，加粗结束标记后不得再写逗号、顿号、分号或冒号，直接空一格接正文；独立成行的加粗引导语不得带中文句号或英文句点。
+ 11. chapter-context.md 如包含小节字数目标，应尽量遵守，但保留原方案实质内容的要求优先。
+12. 不要修改业务数据库，程序会读取你的输出文件后自行写回。
 
 最终请把当前小节完整正文写入 optimized-section.md。该文件只能包含正文内容，不要包含标题或说明。`, globalFactsMode);
 }
@@ -1468,6 +1502,27 @@ function escapeSectionAttribute(value) {
     .replace(/"/g, '&quot;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
+}
+
+function renderAgentTechnicalPlanOutline(items, sectionIndex, level = 1, lines = []) {
+  for (const item of items || []) {
+    const id = String(item?.id || '').trim();
+    const title = singleLine(item?.title || '未命名章节');
+    const headingLevel = Math.min(level + 1, 6);
+    lines.push(`${'#'.repeat(headingLevel)} ${id ? `${id} ` : ''}${title}`.trim());
+
+    if (item?.children?.length) {
+      renderAgentTechnicalPlanOutline(item.children, sectionIndex, level + 1, lines);
+      continue;
+    }
+
+    const section = sectionIndex.get(id);
+    if (!section) continue;
+    lines.push(`<!-- yibiao-section-start id="${escapeSectionAttribute(id)}" title="${escapeSectionAttribute(title)}" -->`);
+    lines.push(section.originalContent);
+    lines.push(`<!-- yibiao-section-end id="${escapeSectionAttribute(id)}" -->`);
+  }
+  return lines;
 }
 
 function parseAgentSectionMarkdown(markdown) {
@@ -2358,9 +2413,10 @@ function stripMarkdownHeadingsFromLeafContent(content) {
 }
 
 function normalizeLeafContentForSave(content, chapter) {
-  return stripMarkdownHeadingsFromLeafContent(
+  const normalized = stripMarkdownHeadingsFromLeafContent(
     stripRepeatedChapterTitle(normalizeGeneratedMarkdown(content), chapter),
   );
+  return normalizeGeneratedLeadInPunctuation(normalized);
 }
 
 function normalizeWordAdjustmentResponse(value) {
@@ -2448,7 +2504,8 @@ ${operationRules}
 6. 不改变核心意思，不修改参数、数量、日期、周期和标准，不删除技术路线、职责、流程、风险措施、人员安排、验收要求、售后和服务承诺。
 7. 不新增未提供的品牌、型号、人员、承诺和服务期限。
 8. 不修改图片、Mermaid、代码块、表格结构、列表编号层级和资源路径，不生成 Markdown 标题或伪目录标题。
-9. 不把其他目录应承载的内容移动到当前小节。${buildContentFactCompletenessInstruction(globalFactsMode) ? `\n\n${buildContentFactCompletenessInstruction(globalFactsMode)}` : ''}`,
+9. 行内加粗引导语后面仍有正文时，若引导语内部没有冒号，末尾使用中文冒号；若内部已有中文或英文冒号，末尾使用中文逗号，不得形成两个冒号；分隔标点必须写在加粗标记内，加粗结束标记后不得再写逗号、顿号、分号或冒号，直接空一格接正文；独立成行的加粗引导语不得带中文句号或英文句点。
+10. 不把其他目录应承载的内容移动到当前小节。${buildContentFactCompletenessInstruction(globalFactsMode) ? `\n\n${buildContentFactCompletenessInstruction(globalFactsMode)}` : ''}`,
     },
     { role: 'user', content: `当前章节路径：${chapterPath}\n章节描述：${item.description || ''}\n同级章节：${siblings}` },
     ...(String(selectedFactsText || '').trim() ? [{ role: 'user', content: `本章节全局事实变量：\n${selectedFactsText}` }] : []),
@@ -3041,6 +3098,7 @@ async function runContentGenerationTask({ aiService, agentService, workspaceStor
   const imageConcurrency = normalizeImageConcurrency(aiConfig.image_model?.concurrency_limit);
   const developerModeEnabled = isDeveloperModeEnabled(aiService);
   const tableRequirement = normalizeTableRequirement(generationOptions.tableRequirement ?? generationOptions.table_requirement);
+  const useAiRedesignForMermaid = Boolean(generationOptions.useAiRedesignForMermaid ?? generationOptions.use_ai_redesign_for_mermaid ?? false);
   let maxTables = maxTablesForRequirement(tableRequirement, leaves.length);
   const referenceKnowledgeDocumentIds = normalizeReferenceDocumentIds(storedPlan);
   const enableConsistencyAudit = Boolean(generationOptions.enableConsistencyAudit ?? generationOptions.enable_consistency_audit ?? true);
@@ -5523,29 +5581,6 @@ workspace 文件说明：
     return index;
   }
 
-  function renderAgentTechnicalPlanOutline(items, sectionIndex, level = 1, lines = []) {
-    for (const item of items || []) {
-      const id = String(item?.id || '').trim();
-      const title = singleLine(item?.title || '未命名章节');
-      const headingLevel = Math.min(level + 1, 6);
-      lines.push(`${'#'.repeat(headingLevel)} ${id ? `${id} ` : ''}${title}`.trim());
-
-      if (item?.children?.length) {
-        renderAgentTechnicalPlanOutline(item.children, sectionIndex, level + 1, lines);
-        continue;
-      }
-
-      const section = sectionIndex.get(id);
-      if (!section) {
-        continue;
-      }
-      lines.push(`<!-- yibiao-section-start id="${escapeSectionAttribute(id)}" title="${escapeSectionAttribute(title)}" -->`);
-      lines.push(section.originalContent);
-      lines.push(`<!-- yibiao-section-end id="${escapeSectionAttribute(id)}" -->`);
-    }
-    return lines;
-  }
-
   function buildAgentTechnicalPlanMarkdown(sectionIndex) {
     const lines = ['# 技术方案正文', ''];
     renderAgentTechnicalPlanOutline(outlineData.outline || [], sectionIndex, 1, lines);
@@ -6504,17 +6539,29 @@ workspace 文件说明：
     async function runExecution(execution) {
       const { planItem } = execution;
       if (['success', 'error'].includes(planItem.generation?.status)) return;
-      persistIllustrationGeneration(planItem.item_id, { status: 'running', error: undefined }, `正在生成${planItem.kind === 'ai' ? ' AI' : planItem.kind === 'mermaid' ? ' Mermaid' : ' HTML'} 图片`);
+      const mermaidAiRedesign = planItem.kind === 'mermaid' && useAiRedesignForMermaid;
+      persistIllustrationGeneration(
+        planItem.item_id,
+        { status: 'running', error: undefined },
+        mermaidAiRedesign
+          ? '正在进行 Mermaid AI 图片重绘'
+          : `正在生成${planItem.kind === 'ai' ? ' AI' : planItem.kind === 'mermaid' ? ' Mermaid 代码渲染' : ' HTML'} 图片`,
+      );
       try {
         let result;
         if (planItem.kind === 'ai') {
           result = await generateAiIllustration(aiService, execution);
           logs = [...logs, `AI 配图完成：${planItem.section_ids[0]} ${planItem.title}`];
         } else if (planItem.kind === 'mermaid') {
-          result = await generateMermaidIllustration(aiService, execution, isPauseLikeError);
-          logs = [...logs, result.attempts
-            ? `Mermaid 配图已修复并完成：${planItem.section_ids[0]} ${planItem.title}（修复 ${result.attempts} 轮）`
-            : `Mermaid 配图完成：${planItem.section_ids[0]} ${planItem.title}`];
+          if (mermaidAiRedesign) {
+            result = await generateMermaidAiIllustration(aiService, execution, isPauseLikeError);
+            logs = [...logs, `Mermaid AI 图片重绘完成：${planItem.section_ids[0]} ${planItem.title}${result.attempts > 1 ? `（含 Mermaid 修复 ${result.attempts - 1} 轮）` : ''}`];
+          } else {
+            result = await generateMermaidIllustration(aiService, execution, isPauseLikeError);
+            logs = [...logs, result.attempts
+              ? `Mermaid 代码渲染已修复并完成：${planItem.section_ids[0]} ${planItem.title}（修复 ${result.attempts} 轮）`
+              : `Mermaid 代码渲染完成：${planItem.section_ids[0]} ${planItem.title}`];
+          }
         } else {
           result = await generateHtmlIllustration({
             aiService,
@@ -6566,7 +6613,11 @@ workspace 文件说明：
           title: planItem.title,
           error: compactError(error?.message || error),
         });
-        const kindLabel = planItem.kind === 'ai' ? 'AI' : planItem.kind === 'mermaid' ? 'Mermaid' : 'HTML';
+        const kindLabel = planItem.kind === 'ai'
+          ? 'AI'
+          : planItem.kind === 'mermaid'
+            ? (mermaidAiRedesign ? 'Mermaid AI 图片重绘' : 'Mermaid 代码渲染')
+            : 'HTML';
         logs = [...logs, `${kindLabel} 配图失败：${planItem.section_ids[0]}，${error.message || '生成失败'}，已保留正文。`];
       }
     }
@@ -6867,6 +6918,9 @@ const __developerContentExpansionPatchRuntime = {
   buildContentExpansionRepairMessages,
   findContentExpansionTargetTextMatch,
   applyContentExpansionPatch,
+  normalizeGeneratedLeadInPunctuation,
+  normalizeLeafContentForSave,
+  buildWordAdjustmentMessages,
 };
 
 module.exports = {
@@ -6877,5 +6931,6 @@ module.exports = {
   resolveRemoteKnowledgeContents,
   shouldRetainContentGenerationRuntime,
   buildChapterContentMessages,
+  renderAgentTechnicalPlanOutline,
   __developerContentExpansionPatchRuntime,
 };

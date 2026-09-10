@@ -875,7 +875,8 @@ function headingLevel(level) {
   if (level === 3) return HeadingLevel.HEADING_3;
   if (level === 4) return HeadingLevel.HEADING_4;
   if (level === 5) return HeadingLevel.HEADING_5;
-  return HeadingLevel.HEADING_6;
+  if (level === 6) return HeadingLevel.HEADING_6;
+  return 'Heading7';
 }
 
 // ── 导出格式工具函数 ────────────────────────────
@@ -1029,11 +1030,12 @@ function usesNativeHeadingNumbering(headingStyle, level) {
 function collectNumberedHeadingLevels(items, exportFormat, level = 1, levels = new Set()) {
   const chapterFrameEnabled = Boolean(getChapterFrameConfig(exportFormat));
   for (const item of items || []) {
-    const safeLevel = Math.max(1, Math.min(Number(level) || 1, 6));
+    const actualLevel = Math.max(1, Number(level) || 1);
+    const safeLevel = Math.min(actualLevel, 6);
     const omitLeafNumbering = chapterFrameEnabled
       && exportFormat?.heading_border?.min_heading_left_enabled === true
       && !item?.children?.length;
-    if (!omitLeafNumbering) levels.add(safeLevel);
+    if (actualLevel <= 6 && !omitLeafNumbering) levels.add(safeLevel);
     if (item?.children?.length) {
       collectNumberedHeadingLevels(item.children, exportFormat, level + 1, levels);
     }
@@ -2064,12 +2066,16 @@ function buildFeasibilityAppendixParagraphs(feasibility) {
 
 function buildOutlineHeadingParagraph(item, context, level, options = {}) {
   const style = getHeadingStyle(context.exportFormat, level);
-  const nativeHeadingNumbering = context.nativeHeadingNumberingEnabled
+  const isExtendedHeading = level >= 7;
+  const nativeHeadingNumbering = !isExtendedHeading
+    && context.nativeHeadingNumberingEnabled
     && usesNativeHeadingNumbering(style, level)
     && !options.omitNumbering;
-  const displayTitle = options.omitNumbering
-    ? String(item.title || '')
-    : (nativeHeadingNumbering ? String(item.title || '') : formatOutlineTitle(item.id, item.title, style));
+  const displayTitle = isExtendedHeading
+    ? `${String(item.id || '').trim()} ${String(item.title || '')}`.trim()
+    : (options.omitNumbering
+      ? String(item.title || '')
+      : (nativeHeadingNumbering ? String(item.title || '') : formatOutlineTitle(item.id, item.title, style)));
 
   const runOptions = { bold: false };
   if (style) {
@@ -2305,6 +2311,38 @@ function buildHeadingParagraphStyles(exportFormat) {
           line: lineSpacing,
         },
         alignment: alignmentToWordType(style.alignment),
+        indent: { left: 0, right: 0, firstLine: 0, hanging: 0 },
+      },
+    });
+  }
+
+  const levelSevenStyle = getHeadingStyle(exportFormat, 7);
+  if (!levelSevenStyle) {
+    styles.push({
+      id: 'Heading7',
+      name: 'Heading 7',
+      basedOn: 'Heading6',
+      run: { bold: false },
+      paragraph: { spacing: { before: 200, after: 120 } },
+    });
+  } else {
+    styles.push({
+      id: 'Heading7',
+      name: 'Heading 7',
+      basedOn: 'Heading6',
+      run: {
+        font: levelSevenStyle.font || 'SimHei',
+        size: chineseSizeToHalfPt(levelSevenStyle.size),
+        bold: levelSevenStyle.bold === true,
+        color: normalizeDocxColor(levelSevenStyle.text_color || '#243048', '243048'),
+      },
+      paragraph: {
+        spacing: {
+          before: (levelSevenStyle.spacing_before_pt || 10) * 20,
+          after: (levelSevenStyle.spacing_after_pt || 10) * 20,
+          line: 240 * (levelSevenStyle.line_spacing || 1),
+        },
+        alignment: alignmentToWordType(levelSevenStyle.alignment),
         indent: { left: 0, right: 0, firstLine: 0, hanging: 0 },
       },
     });

@@ -871,6 +871,7 @@ function ExportFormatPage({ mode = 'create', templateId = null, onBack }: Export
 
   const renderHeadingSettings = () => (
     <>
+      <p className="export-format-preset-hint">目录最多支持七级；第七级在 Word 中沿用六级标题样式，并始终显示完整目录编号。</p>
       <div className="settings-list">
         <label className="settings-row">
           <div className="settings-row-copy"><strong>一级标题另起页</strong></div>

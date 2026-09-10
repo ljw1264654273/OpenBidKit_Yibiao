@@ -262,7 +262,12 @@ function DocumentAnalysisPage({
 
   return (
     <div className={`plan-step-body document-analysis-page technical-document-page${hasSectionHint ? ' has-section-hint' : ''}${hasDocumentTabs ? ' has-document-tabs' : ''}`}>
-      <UploadBoard kicker="STEP 01" title="选择标书" subtitle={`默认解析方案：${configuredParserLabel}`}>
+      <UploadBoard
+        className="technical-document-upload-board"
+        kicker="STEP 01"
+        title="选择标书"
+        subtitle={`默认解析方案：${configuredParserLabel}`}
+      >
         <UploadRow
           index="01"
           title="招标文件"

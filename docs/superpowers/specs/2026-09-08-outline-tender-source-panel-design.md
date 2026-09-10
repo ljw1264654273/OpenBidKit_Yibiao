@@ -1,0 +1,253 @@
+# 目录生成页标书原文联动设计
+
+## 背景
+
+技术方案 STEP 03“目录生成”当前由左侧生成过程、中间目录结构、右侧目录项详情组成。用户需要在选择目录节点时，直接查看该节点对应的招标原文；目录详情保持现有能力，生成过程只保留紧凑进度并允许折叠查看明细。
+
+现有实现已经具备两项关键基础：
+
+- 当前标段招标正文保存在 `technical-plan/tender.md`，Renderer 已可通过 `technicalPlan.readTenderMarkdown()` 读取。
+- 目录生成任务的 `stats.score_coverage_map.records` 已保存 `source_id`、`source_kind`、`source_text` 和 `node_ids`。目录排序、编辑、删除和人工新增时，`technicalPlanStore.saveOutline()` 已按 `reason` 重映射或更新这些记录。
+
+因此首版复用现有评分覆盖映射和招标 Markdown，不增加数据库表、migration 或 IPC。
+
+## 目标
+
+1. 选择目录节点后，左侧立即显示与该节点关联的招标原文。
+2. 原文片段在当前标段 Markdown 中能够定位时，展示上下文并高亮直接依据。
+3. 一个目录关联多处原文时，允许逐条切换且保持原始顺序。
+4. 无直接原文的专业补充或人工新增目录明确显示来源状态，不伪造对应内容。
+5. 页面主体使用“标书原文 / 目录结构 / 目录项详情”横向三等分布局。
+6. 标题和生成进度合并为紧凑状态栏，过程日志默认折叠。
+7. 继续使用现有 `FloatingToolbar`，不为底部操作条预留独立布局高度。
+8. 同时适用于“生成技术方案”和“已有方案扩写”两个共用工作流入口。
+
+## 非目标
+
+1. 不实现 PDF 或 Word 原件的精确页码跳转。当前 Markdown 解析结果不保证保留稳定页码。
+2. 不调用 AI 在用户点击目录时重新检索原文。
+3. 不用目录标题做模糊匹配并把结果冒充为确定来源。
+4. 不改变目录生成、评分覆盖审核、正文生成或 Word 导出规则。
+5. 不修改 Analytics 协议和 Dashboard。
+6. 不为可行性研究报告目录页同步增加该能力。
+
+## 方案比较
+
+### 方案 A：复用评分覆盖映射并确定性定位，采用
+
+根据所选目录 ID 筛选 `score_coverage_map.records`，以记录中的 `source_text` 在当前标段 Markdown 中做精确或空白归一化匹配。匹配成功时展示上下文，失败时仍展示评分覆盖记录保存的原文，但标明“未定位到正文上下文”。
+
+优点是无需模型调用、点击响应快、现有目录编辑规则已经维护映射，并且不存在数据库迁移风险。限制是专业补充节点和未被评分覆盖映射记录的普通结构节点可能没有直接原文。
+
+### 方案 B：按目录标题实时搜索，不采用
+
+实现简单，但目录标题会经过删除评分话术、结构化改写或人工编辑，同义标题容易误匹配。该方案不能区分真实依据与偶然包含相同关键词的段落。
+
+### 方案 C：点击时调用 AI 语义检索，不采用
+
+可以覆盖更多非评分目录，但会引入等待时间、模型费用、取消和失败状态，结果也不可稳定复现。当前需求不值得扩大到新的后台任务。
+
+## 数据来源与语义
+
+### 评分覆盖记录
+
+原文面板使用 `outlineGenerationTask.stats.score_coverage_map.records`。以下 `source_kind` 视为招标原文来源：
+
+- `requirement`
+- `criterion`
+- `response-point`
+
+以下类型不是招标原文，不参与正文高亮：
+
+- `professional-supplement`
+- `user-supplement`
+
+它们用于判断空态文案，例如“该目录为专业补充项，无直接对应招标原文”或“该目录由用户新增，无直接对应招标原文”。
+
+### 节点关联规则
+
+1. 优先使用 `node_ids` 直接包含当前选中节点 ID 的原文记录。
+2. 当前节点无直接记录且存在子节点时，汇总所有后代节点关联的原文记录，供一级或中间目录查看总体依据。
+3. 记录按 `score_coverage_map.records` 原始顺序显示。
+4. 相同 `source_id` 去重；`source_id` 不同但 `source_text` 完全相同的记录仍保留，以免合并不同评分语义。
+5. `user_override=removed` 或 `coverage_location=none` 且 `node_ids` 为空的记录不参与任何节点展示。
+
+### 原文定位规则
+
+1. 先在 `tender.md` 中执行 `source_text` 精确匹配。
+2. 精确匹配失败时，只做空格、制表符和换行归一化匹配，并通过字符索引映射回原 Markdown 范围。
+3. 不做编辑距离、关键词或语义模糊匹配。
+4. 定位成功后，从匹配位置向前后扩展到相邻 Markdown 段落，形成可读上下文；直接来源使用 `<mark>` 高亮。
+5. 定位失败时展示 `source_text` 本身，状态为“评分原文，未定位到正文上下文”，避免显示错误段落。
+6. Markdown 只作为本地文本定位来源。原文面板使用纯文本片段渲染，不启用原始 HTML。
+
+## 页面布局
+
+### 紧凑状态栏
+
+原 `outline-command-bar` 与进度摘要合并为一条紧凑状态栏：
+
+- 左侧：`STEP 03`、标题“目录生成”和一行配置摘要。
+- 中间：进度条、百分比和状态。
+- 进度旁：“过程”折叠入口；展开后显示现有日志列表。
+- 右侧：目录生成设置与“重新生成目录”。
+
+运行中、失败和等待一级目录确认等现有状态继续使用原任务数据和文案。日志折叠只改变呈现，不改变任务状态和回放机制。
+
+### 三栏主体
+
+主体为严格横向三等分：
+
+1. 左栏“标书原文”。
+2. 中栏“目录结构”。
+3. 右栏“目录项详情”。
+
+三栏分别内部滚动，页面根容器保持 `height: 100%` 和 `min-height: 0`。不依赖 `body` 滚动。
+
+响应式规则以目录工作区自身宽度为准：
+
+- 工作区宽度不低于 `900px` 时使用横向 `1fr 1fr 1fr`，默认 `1440px` 主窗口属于该布局。
+- 工作区宽度低于 `900px` 时不堆叠成上中下，改用“标书原文 / 目录结构 / 目录项详情”分栏标签，一次显示一个面板。
+- 标签模式默认显示“目录结构”；用户点击目录后保持目录标签，不强制跳转，用户可主动切换到“标书原文”查看依据。
+- 当前标签仅是页面内临时 UI 状态，不持久化到 SQLite 或配置文件。
+- 从窄窗口恢复到三栏宽度后，三个面板同时显示；再次缩窄时恢复用户最近选择的标签。
+
+这样既保证默认桌面窗口的三等分主布局，也保证 `1040×720` 最小窗口和侧栏展开状态下不出现不可读的窄栏或纵向长页面。
+
+### 标书原文栏
+
+栏头展示：
+
+- “标书原文”标题。
+- 当前关联数量与第几条，例如“2 处 · 1/2”。
+- 上一处、下一处图标按钮；单条时禁用。
+- “查看完整原文”图标按钮，复用现有全屏 Markdown 查看能力。
+
+正文区展示当前来源片段的上下文，高亮 `source_text`。底部显示来源类型，例如“技术评分要求”或“响应要点”。首版不展示无法可靠取得的页码和来源文件名。
+
+### 目录结构栏
+
+保留现有目录树、选择、展开折叠、排序、添加一级目录和拖放行为。存在直接或后代原文关联的节点显示一个低强调度来源标记，不能只用颜色表达；可使用链接图标并提供可访问标签。
+
+目录排序模式、后台任务运行锁定和正文任务锁定规则不变。
+
+### 目录项详情栏
+
+保留现有标题、说明、内容处理模式、来源响应文件目录、编辑、添加子目录和删除能力。仅增加“已关联 N 处原文”摘要；点击摘要把焦点移到左侧原文栏。
+
+### 底部工具条
+
+继续使用 `TechnicalPlanHome` 已有 `FloatingToolbar`。工具条覆盖在内容之上，不在三栏主体下方新增固定高度区域，也不增加大块底部留白。
+
+## 组件与代码边界
+
+### `OutlineEditPage.tsx`
+
+- 继续负责选中目录节点和页面编排。
+- 接收 `TechnicalPlanHome` 已加载的当前标段 Markdown、加载状态、错误状态和重试回调，不重复调用 bridge。
+- 从 `task.stats.score_coverage_map` 向原文面板传入覆盖记录。
+- 把现有生成进度和日志移动到紧凑状态栏。
+- 不在组件内实现长段匹配算法。
+
+### `TechnicalPlanHome.tsx`
+
+- 复用现有 `tenderMarkdown` 状态和 `technicalPlan.readTenderMarkdown()` 调用。
+- 把现有加载条件从仅 `document-analysis` 扩展为 `document-analysis` 或 `outline-generation`，保证应用重启后直接恢复到 STEP 03 时也能读取原文。
+- 维护加载与错误状态，并向 `OutlineEditPage` 传入 Markdown 和重试回调。
+- 目录生成页卸载后不取消或影响任何 Main 后台任务；这里只取消过期的 Renderer 读文件结果回写。
+
+### 新增 `TenderSourcePanel.tsx`
+
+职责：
+
+- 接收当前节点、目录树、覆盖记录和 Markdown。
+- 展示加载、关联成功、多关联切换、无直接原文和读取失败状态。
+- 渲染上下文与高亮片段。
+- 使用图标按钮切换上一处、下一处和打开完整原文。
+
+该组件是 `technical-plan` feature 专用组件，不上移到 `shared/`。
+
+### 新增 `outlineSourceMatcher.ts`
+
+纯函数职责：
+
+- 收集直接节点或后代节点对应的覆盖记录。
+- 区分招标原文与补充来源。
+- 在 Markdown 中执行精确和空白归一化定位。
+- 返回原始文本范围、上下文和展示状态。
+
+该模块不依赖 React、Electron bridge 或 Store，便于定向测试。
+
+### Bridge 与 Main
+
+复用以下现有能力：
+
+- `window.yibiao.technicalPlan.readTenderMarkdown()`
+- `BackgroundTaskState.stats.score_coverage_map`
+- `technicalPlanStore.updateScoreCoverageForOutlineSave()` 的映射维护
+
+为了让 Renderer 在目录编辑后立即拿到 Store 已更新的覆盖映射，需要补齐现有返回与事件 patch：
+
+- `technicalPlanStore.saveOutline()` 在返回值中增加最新的 `outlineGenerationTask` 快照。
+- `TechnicalPlanHome.saveOutline()` 继续通过现有 `Partial<TechnicalPlanState>` 合并该快照。
+- `outlineAdjustmentTask` 完成 checkpoint 时，把 `saved.outlineGenerationTask` 放入 `technicalPlanPatch`。
+- `TechnicalPlanHome` 的 `outline-adjustment` 事件分支同步合并 `outlineGenerationTask`。
+
+该调整沿用现有 `technical-plan:save-outline` 通道与 `Partial<TechnicalPlanState>` 类型，不新增 preload 方法或 IPC 通道，也不修改 SQLite schema 和 `sql/workspace_schema.sql`。
+
+## 状态与错误处理
+
+1. `TechnicalPlanHome` 进入文件分析页或目录生成页且存在招标文件时加载 Markdown；同一个 `tenderFile` 内容版本只读取一次，加载中在左栏显示 `InlineSpinner`。
+2. 读取失败时通过 `useToast().error()` 提示，并在左栏提供“重新读取”操作。
+3. 目录生成或重新生成替换 `outlineData` 后，清空当前原文序号并按新的选中节点重新计算。
+4. 选中节点被删除时沿用当前页面的选中节点回退规则，原文栏同步更新。
+5. 进入目录排序模式后，草稿目录会在保存前使用新节点 ID，而 Store 中映射仍是旧 ID。此期间左侧冻结当前已保存结果并覆盖提示“目录顺序尚未保存，保存后更新原文关联”，来源切换按钮和详情中的关联入口禁用；不在 Renderer 复制 Store 的 ID 重映射规则。
+6. 保存排序成功后，`saveOutline()` 返回已按 `idMap` 重映射的最新目录任务快照，Renderer 再解除冻结并重新计算；放弃排序则直接恢复已保存目录与关联。
+7. AI 调整返回新的目录和覆盖映射时，checkpoint 同步返回最新 `outlineGenerationTask`，Renderer 以其中的 `stats.score_coverage_map` 为准。
+8. “已有方案扩写”在 `original-only` 模式下若没有评分覆盖记录，显示“当前目录来自原方案，暂无招标原文关联”；不把原方案文本标成招标原文。
+
+## 测试与验收
+
+### 纯函数测试
+
+为 `outlineSourceMatcher.ts` 增加定向测试，覆盖：
+
+1. 直接节点匹配。
+2. 父节点汇总后代记录。
+3. 多条记录保持顺序并按 `source_id` 去重。
+4. 精确文本定位。
+5. 跨换行和多空格的归一化定位。
+6. 未定位时返回保存的 `source_text`，不返回猜测片段。
+7. 专业补充和人工新增节点返回正确空态。
+8. 已删除或无节点关联的覆盖记录不显示。
+
+### Store 与任务事件测试
+
+1. `saveOutline(sort)` 返回的 `outlineGenerationTask.stats.score_coverage_map` 已按 `idMap` 重映射。
+2. `saveOutline(edit/delete/add-*)` 返回的目录任务快照包含对应 `user_override` 和节点关联变化。
+3. 目录 AI 调整完成事件的 `technicalPlanPatch` 同时包含新目录和更新后的 `outlineGenerationTask`。
+
+### 构建与定向验证
+
+- `cd client; npm run build`
+- 如果新增 TypeScript 测试沿用当前 Node test 方式，执行对应定向测试文件。
+
+### 手动验证
+
+通过 `npm run dev` 同时验证 `technical-plan` 和 `existing-plan-expansion`：
+
+1. 点击一级目录、中间目录和叶子目录，左侧内容正确切换。
+2. 多处关联能够上一处/下一处切换。
+3. 没有原文关联时不显示错误段落。
+4. 编辑、删除和添加后来源状态正确更新。
+5. 排序未保存时原文关联冻结且提示准确；保存后按新 ID 更新，放弃后恢复。
+6. 目录生成运行中、失败、成功和等待确认时，紧凑进度状态完整。
+7. 生成过程默认折叠，展开后现有日志可读。
+8. 默认 `1440×920` 且侧栏展开时显示横向三等分，三栏不重叠且内部滚动正常。
+9. 最小 `1040×720` 分别验证侧栏展开和收起：工作区低于 `900px` 时显示三个分栏标签，不出现上中下堆叠，标签切换后内容和选择状态正确。
+10. 宽窄窗口来回切换后，标签状态与三栏内容一致。
+11. `FloatingToolbar` 在默认和最小窗口下继续悬浮，不遮挡目录编辑、原文切换和详情操作。
+
+## 原型结论
+
+已确认的视觉方向为：紧凑标题与进度状态栏、横向三等分主体、底部现有悬浮工具条。原型中的页码和来源文件名仅用于表达布局，首版产品实现不承诺展示这两项不稳定元数据。

@@ -1,7 +1,9 @@
 import * as Dialog from '@radix-ui/react-dialog';
 import { useEffect, useMemo, useState } from 'react';
-import { MarkdownEditor, MarkdownFullscreenViewer, MarkdownRenderer, ProgressBar, useToast } from '../../../shared/ui';
+import { MarkdownEditor, MarkdownFullscreenViewer, MarkdownRenderer, useToast } from '../../../shared/ui';
 import type { OutlineData } from '../../../shared/types';
+import AdaptiveTwoPaneWorkspace, { type WorkspacePane } from '../components/AdaptiveTwoPaneWorkspace';
+import CompactTaskProgress from '../components/CompactTaskProgress';
 import type { BackgroundTaskState, GlobalFactGroupState, GlobalFactsMode } from '../types';
 
 interface GlobalFactsPageProps {
@@ -81,7 +83,8 @@ function GlobalFactsPage({
   const [savingConfig, setSavingConfig] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [draftGlobalFactsMode, setDraftGlobalFactsMode] = useState<GlobalFactsMode>(() => normalizeGlobalFactsMode(globalFactsMode));
-  const [progressCollapsed, setProgressCollapsed] = useState(false);
+  const [workspacePane, setWorkspacePane] = useState<WorkspacePane>('navigation');
+  const [editorMode, setEditorMode] = useState<'edit' | 'preview'>('edit');
   const hasOutline = Boolean(outlineData?.outline?.length);
   const running = starting || task?.status === 'running';
   const mutationLocked = running || aiAdjustmentRunning;
@@ -169,6 +172,7 @@ function GlobalFactsPage({
   useEffect(() => {
     if (focusGroupRequest) {
       setSelectedGroupId(focusGroupRequest.groupId);
+      setWorkspacePane('content');
     }
   }, [focusGroupRequest]);
 
@@ -226,6 +230,7 @@ function GlobalFactsPage({
     };
     await saveFacts([...globalFacts, nextGroup], '已新增事实大项');
     setSelectedGroupId(nextGroup.id);
+    setWorkspacePane('content');
   };
 
   const deleteActiveGroup = async () => {
@@ -250,9 +255,22 @@ function GlobalFactsPage({
           <strong>全局事实设定</strong>
           <p>基于目录提前预设正文会反复用到的事实变量，避免各小节随机生成人员、时间、型号等内容。</p>
         </div>
-        <div className="global-facts-stats">
-          <span><strong>{globalFacts.length}</strong> 个大项</span>
-          <span><strong>{totalChars}</strong> 字</span>
+        <div className="global-facts-command-meta">
+          <CompactTaskProgress
+            value={progress}
+            label={`全局事实设定进度 ${progress}%`}
+            summary={`${progress}%`}
+            status={statusLabels[statusKey]}
+            active={running}
+            error={taskFailed}
+          >
+            <p>{taskFailed ? task?.error || latestLog || '全局事实设定失败，请重新解析。' : latestLog || '点击“开始解析”后，后台会生成全局事实变量。'}</p>
+            {taskFailed && <small>失败后不会自动重试，可点击“重新解析”。</small>}
+          </CompactTaskProgress>
+          <div className="global-facts-stats">
+            <span><strong>{globalFacts.length}</strong> 个大项</span>
+            <span><strong>{totalChars}</strong> 字</span>
+          </div>
         </div>
         <div className="global-facts-command-actions">
           <button
@@ -274,25 +292,18 @@ function GlobalFactsPage({
         </div>
       </section>
 
-      <section className="global-facts-workspace">
-        <aside className="global-facts-panel" aria-label="全局事实大项列表">
+      <AdaptiveTwoPaneWorkspace
+        id="global-facts-workspace"
+        className="global-facts-workspace"
+        navigationLabel="事实大项"
+        contentLabel="事实内容"
+        activePane={workspacePane}
+        onPaneChange={setWorkspacePane}
+        navigation={(
+          <aside className="global-facts-panel" aria-label="全局事实大项列表">
           <div className="analysis-result-head global-facts-panel-head">
             <strong>事实大项</strong>
             <span className={`content-status-badge is-${statusKey}`}>{statusLabels[statusKey]}</span>
-          </div>
-          <div className={`content-outline-stats global-facts-progress${progressCollapsed ? ' is-collapsed' : ''}`}>
-            <button type="button" onClick={() => setProgressCollapsed((prev) => !prev)} aria-expanded={!progressCollapsed}>
-              <span>设定进度</span>
-              <strong>{progress}%</strong>
-              <em>{progressCollapsed ? '展开' : '折叠'}</em>
-            </button>
-            {!progressCollapsed && (
-              <div className="content-outline-stats-body">
-                <ProgressBar value={progress} active={running} label={`全局事实设定进度 ${progress}%`} />
-                <p>{taskFailed ? task?.error || latestLog || '全局事实设定失败，请重新解析。' : latestLog || '点击“开始解析”后，后台会生成全局事实变量。'}</p>
-                {taskFailed && <small>失败后不会自动重试，可点击“重新解析”。</small>}
-              </div>
-            )}
           </div>
           <div className="global-facts-list">
             {globalFacts.length ? globalFacts.map((group) => (
@@ -300,7 +311,10 @@ function GlobalFactsPage({
                 type="button"
                 className={`global-facts-item${group.id === activeGroup?.id ? ' is-active' : ''}`}
                 key={group.id}
-                onClick={() => setSelectedGroupId(group.id)}
+                onClick={() => {
+                  setSelectedGroupId(group.id);
+                  setWorkspacePane('content');
+                }}
               >
                 <strong>{group.title}</strong>
                 <small>{group.content.length} 字{group.updated_at ? ` · ${formatUpdatedAt(group.updated_at)}` : ''}</small>
@@ -315,9 +329,10 @@ function GlobalFactsPage({
           <div className="global-facts-panel-actions">
             <button type="button" className="secondary-action" onClick={addFactGroup} disabled={mutationLocked || saving}>新增大项</button>
           </div>
-        </aside>
-
-        <article className="global-facts-reader">
+          </aside>
+        )}
+        content={(
+          <article className="global-facts-reader">
           <div className="global-facts-reader-head">
             <div>
               <span className="section-kicker">事实内容</span>
@@ -325,6 +340,9 @@ function GlobalFactsPage({
               <p>{activeGroup ? '可直接编辑事实变量；保存后会清空旧正文生成缓存，避免继续使用旧内容。' : '全局事实生成完成后，可在这里查看和编辑。'}</p>
             </div>
             <div className="global-facts-reader-actions">
+              <button type="button" className="secondary-action" onClick={() => setEditorMode((prev) => prev === 'edit' ? 'preview' : 'edit')} disabled={!activeGroup}>
+                {editorMode === 'preview' ? '编辑' : '预览'}
+              </button>
               <button type="button" className="secondary-action" onClick={copyActiveGroup} disabled={!activeGroup || !draftContent}>复制</button>
               <button type="button" className="danger-action" onClick={deleteActiveGroup} disabled={!activeGroup || mutationLocked || saving}>删除</button>
               <button type="button" className="primary-action" onClick={saveActiveGroup} disabled={!activeGroup || !dirty || mutationLocked || saving}>保存</button>
@@ -333,25 +351,28 @@ function GlobalFactsPage({
 
           {activeGroup ? (
             <div className="global-facts-editor-grid">
-              <div className="global-facts-edit-pane">
-                <label>
-                  <span>大项标题</span>
-                  <input value={draftTitle} onChange={(event) => setDraftTitle(event.target.value)} disabled={mutationLocked || saving} />
-                </label>
-                <MarkdownEditor
-                  value={draftContent}
-                  onChange={setDraftContent}
-                  disabled={mutationLocked || saving}
-                  placeholder="填写后续正文需要统一使用的事实变量，例如人员、时间、型号、服务承诺等..."
-                />
-              </div>
-              <MarkdownFullscreenViewer className="global-facts-preview-pane markdown-viewer" title={`${activeGroup.title}全屏预览`}>
-                {draftContent.trim() ? (
-                  <MarkdownRenderer allowRawHtml={false}>{draftContent}</MarkdownRenderer>
-                ) : (
-                  <p className="content-editor-empty">暂无预览内容</p>
-                )}
-              </MarkdownFullscreenViewer>
+              {editorMode === 'edit' ? (
+                <div className="global-facts-edit-pane">
+                  <label>
+                    <span>大项标题</span>
+                    <input value={draftTitle} onChange={(event) => setDraftTitle(event.target.value)} disabled={mutationLocked || saving} />
+                  </label>
+                  <MarkdownEditor
+                    value={draftContent}
+                    onChange={setDraftContent}
+                    disabled={mutationLocked || saving}
+                    placeholder="填写后续正文需要统一使用的事实变量，例如人员、时间、型号、服务承诺等..."
+                  />
+                </div>
+              ) : (
+                <MarkdownFullscreenViewer className="global-facts-preview-pane markdown-viewer" title={`${activeGroup.title}全屏预览`}>
+                  {draftContent.trim() ? (
+                    <MarkdownRenderer allowRawHtml={false}>{draftContent}</MarkdownRenderer>
+                  ) : (
+                    <p className="content-editor-empty">暂无预览内容</p>
+                  )}
+                </MarkdownFullscreenViewer>
+              )}
             </div>
           ) : (
             <div className="markdown-empty-state global-facts-empty">
@@ -359,8 +380,9 @@ function GlobalFactsPage({
               <p>{hasOutline ? '点击“开始解析”后，AI 会基于目录提前生成正文可能反复用到的短小事实变量。' : '目录生成完成后，点击“开始解析”生成全局事实。'}</p>
             </div>
           )}
-        </article>
-      </section>
+          </article>
+        )}
+      />
 
       <Dialog.Root open={settingsOpen} onOpenChange={setSettingsOpen}>
         <Dialog.Portal>

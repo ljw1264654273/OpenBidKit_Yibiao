@@ -141,7 +141,7 @@ export interface ExportFormatConfig {
   page: PageSetupConfig;
   heading_level1_page_break_before: boolean;
   heading_border: HeadingBorderConfig;
-  headings: HeadingStyleConfig[];  // 索引 0=L1（章），5=L6
+  headings: HeadingStyleConfig[];  // 只配置 L1-L6；L7 在 Word 中继承 L6 的视觉样式并显示完整编号
   body_text: BodyTextStyleConfig;
   table: TableStyleConfig;
   image: ImageStyleConfig;

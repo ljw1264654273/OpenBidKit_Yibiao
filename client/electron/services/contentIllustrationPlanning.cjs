@@ -75,6 +75,7 @@ function buildIllustrationPlanningContext({ outlineData, sections, options, aiIm
       sectionMap.set(id, {
         id,
         parentId,
+        depth,
         siblingIndex,
         order,
         isLeaf,
@@ -86,6 +87,7 @@ function buildIllustrationPlanningContext({ outlineData, sections, options, aiIm
         id,
         title,
         description,
+        depth,
         leaf: isLeaf,
         eligible,
         ...(children.length ? { children: visit(children, id, depth + 1) } : {}),

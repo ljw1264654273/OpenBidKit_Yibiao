@@ -17,11 +17,28 @@ export type SaveOutlineReason = 'sort' | 'edit' | 'delete' | 'add-root' | 'add-c
 export type OutlineAttribute = '通用' | '商务' | '资信' | '技术' | '其他';
 export type GlobalFactsMode = 'fabricate' | 'omit' | 'placeholder';
 
+export interface ScoreCoverageRecord {
+  source_id: string;
+  source_kind: 'requirement' | 'criterion' | 'response-point' | 'professional-supplement' | 'user-supplement';
+  source_text: string;
+  node_ids: string[];
+  coverage_location: 'title' | 'description' | 'both' | 'none';
+  user_override: 'none' | 'renamed' | 'partially-removed' | 'removed' | 'added';
+  supplement_kind: 'none' | 'overall-introduction' | 'other-specific-issues' | 'reasonable-suggestion' | 'user-approved' | 'user-added';
+}
+
+export interface ScoreCoverageMap {
+  version: 1;
+  coverage_mode: 'full' | 'legacy-structure-only';
+  records: ScoreCoverageRecord[];
+}
+
 export interface SaveOutlineRequest {
   outlineData: OutlineData;
   reason: SaveOutlineReason;
   idMap?: Record<string, string>;
   affectedNodeIds?: string[];
+  scoreCoverageMap?: ScoreCoverageMap;
 }
 
 export interface OutlineSelectionItem {
@@ -50,6 +67,7 @@ export interface ContentGenerationOptions {
   useAiImages: boolean;
   maxAiImages: number;
   useMermaidImages: boolean;
+  useAiRedesignForMermaid: boolean;
   maxMermaidImages: number;
   useHtmlImages: boolean;
   maxHtmlImages: number;
@@ -99,16 +117,15 @@ export interface BackgroundTaskState {
     };
     outline_selection?: OutlineSelectionState;
     outline?: {
-      phase: 'generating' | 'reviewing' | 'word-adjusting' | 'second-review' | 'done';
+      phase: 'generating' | 'reviewing' | 'done';
       current_leaf_count: number;
-      target_leaf_count?: number | null;
+      suggested_leaf_count?: number | null;
+      leaf_count_advisory_only?: boolean;
       leaf_counts_by_mode?: Partial<Record<OutlineContentMode, number>>;
-      minimum_leaf_count?: number;
-      maximum_leaf_count?: number;
-      word_adjustment_attempts: number;
       word_adjustment_warning?: string;
-      word_adjustment_warning_kind?: 'leaf-count' | 'quality';
+      word_adjustment_warning_kind?: 'quality';
     };
+    score_coverage_map?: ScoreCoverageMap;
     content?: {
       phase: ContentGenerationPhase;
       planning_total: number;
