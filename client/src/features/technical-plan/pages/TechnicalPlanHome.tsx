@@ -122,6 +122,16 @@ function collectLeafItems(items: OutlineItem[]): OutlineItem[] {
   return items.flatMap((item) => item.children?.length ? collectLeafItems(item.children) : [item]);
 }
 
+function isOutlineLeafCountOutsideRange(outlineData: OutlineData, options: OutlineWordControlOptions) {
+  if (options.minimumWords === 0 && options.maximumWords === 0) return false;
+  const effectiveSectionWords = options.sectionWords > 0 ? options.sectionWords : 1500;
+  const leafCount = collectLeafItems(outlineData.outline || []).filter((item) => item.content_mode === 'ai-generate').length;
+  const minimumLeafCount = options.minimumWords > 0 ? Math.ceil(options.minimumWords / effectiveSectionWords) : null;
+  const maximumLeafCount = options.maximumWords > 0 ? Math.floor(options.maximumWords / effectiveSectionWords) : null;
+  return (minimumLeafCount !== null && leafCount < minimumLeafCount)
+    || (maximumLeafCount !== null && leafCount > maximumLeafCount);
+}
+
 function countMermaidDiagrams(content: string) {
   const mermaidBlocks = (String(content || '').match(/```mermaid[\s\S]*?```/gi) || []).length;
   const mermaidInkImages = (String(content || '').match(/https:\/\/mermaid\.ink\/img\//gi) || []).length;

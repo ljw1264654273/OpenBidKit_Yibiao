@@ -115,7 +115,7 @@ const technicalDocumentModeOptions: Array<{ value: Extract<OutlineMode, 'respons
   {
     value: 'standalone-technical',
     title: '技术文件独立成册',
-    description: '一级目录直接从技术评分大项开始，不再创建技术方案、项目管理方案、监理大纲、施工组织设计或技术标等外层总目录。',
+    description: '按招标文件原有技术评分层级生成一级目录：有明确业务分组时保留分组，无分组时每个评分项独立成章。',
   },
 ];
 
@@ -153,6 +153,15 @@ function normalizeWordControlDraft(values: {
   };
   if (minimumWords > 0 && maximumWords > 0 && maximumWords < minimumWords) {
     throw new Error('最多字数不能低于最少字数');
+  }
+  const effectiveSectionWords = sectionWords > 0 ? sectionWords : 1500;
+  const minimumLeafCount = minimumWords > 0 ? Math.ceil(minimumWords / effectiveSectionWords) : null;
+  const maximumLeafCount = maximumWords > 0 ? Math.floor(maximumWords / effectiveSectionWords) : null;
+  if (maximumLeafCount !== null && maximumLeafCount < 1) {
+    throw new Error('当前最多字数无法形成有效叶子节点范围，请调整最多字数或每小节字数');
+  }
+  if (minimumLeafCount !== null && maximumLeafCount !== null && minimumLeafCount > maximumLeafCount) {
+    throw new Error('当前设置无法形成有效叶子节点范围，请调整最少字数、最多字数或每小节字数');
   }
   return options;
 }
@@ -1538,7 +1547,7 @@ function OutlineEditPage({
             <span className="section-kicker">STEP 03</span>
             <strong>目录生成</strong>
           </div>
-          <p>{isExpansionWorkflow ? `当前原方案目录使用方式：${outlineExpansionModeLabels[outlineExpansionMode]}；参考知识库：${formatKnowledgeReferenceSummary(referenceKnowledgeDocumentIds.length, remoteKnowledgeScopes)}。` : `${outlineMode === 'standalone-technical' ? '技术评分大项直接作为一级目录' : '一级目录依据完整响应文件要求生成'}；参考知识库：${formatKnowledgeReferenceSummary(referenceKnowledgeDocumentIds.length, remoteKnowledgeScopes)}。`}</p>
+          <p>{isExpansionWorkflow ? `当前原方案目录使用方式：${outlineExpansionModeLabels[outlineExpansionMode]}；参考知识库：${formatKnowledgeReferenceSummary(referenceKnowledgeDocumentIds.length, remoteKnowledgeScopes)}。` : `${outlineMode === 'standalone-technical' ? '按招标文件原有技术评分层级生成一级目录' : '一级目录依据完整响应文件要求生成'}；参考知识库：${formatKnowledgeReferenceSummary(referenceKnowledgeDocumentIds.length, remoteKnowledgeScopes)}。`}</p>
         </div>
         <div className={`outline-command-progress${taskFailed ? ' is-error' : ''}`}>
           <ProgressBar value={progress} label={`目录生成进度 ${progress}%`} active={generating} tone={taskFailed ? 'warning' : progress === 100 ? 'success' : 'primary'} />
