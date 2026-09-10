@@ -124,7 +124,7 @@ function collectLeafItems(items: OutlineItem[]): OutlineItem[] {
 
 function isOutlineLeafCountOutsideRange(outlineData: OutlineData, options: OutlineWordControlOptions) {
   if (options.minimumWords === 0 && options.maximumWords === 0) return false;
-  const effectiveSectionWords = options.sectionWords > 0 ? options.sectionWords : 3000;
+  const effectiveSectionWords = options.sectionWords > 0 ? options.sectionWords : 1500;
   const leafCount = collectLeafItems(outlineData.outline || []).filter((item) => item.content_mode === 'ai-generate').length;
   const minimumLeafCount = options.minimumWords > 0 ? Math.ceil(options.minimumWords / effectiveSectionWords) : null;
   const maximumLeafCount = options.maximumWords > 0 ? Math.floor(options.maximumWords / effectiveSectionWords) : null;

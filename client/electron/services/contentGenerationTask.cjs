@@ -30,7 +30,7 @@ const MAX_WORD_ADJUSTMENT_ROUNDS = 3;
 // 全文扩写不限制有效轮数，仅在连续多轮没有增加字数时退出。
 const MAX_EXPANSION_NO_PROGRESS_ROUNDS = 3;
 const TOTAL_WORD_ADJUSTMENT_BATCH_SIZE = 10;
-const DEFAULT_SECTION_WORD_GUIDANCE = 3000;
+const DEFAULT_SECTION_WORD_GUIDANCE = 1500;
 const TOTAL_WORD_SHRINK_SECTION_RATIO = 0.25;
 // 生成阶段按全文上限倒推每小节目标字数时使用的折扣系数，预留 AI 系统性偏高的缓冲，降低初稿超量概率。
 const GENERATION_WORD_TARGET_RATIO = 0.8;
@@ -4669,7 +4669,7 @@ async function runContentGenerationTask({ aiService, agentService, workspaceStor
     return null;
   }
 
-  // 扩写先按小节指导缺口分配，剩余额度再均摊；3000 仅是 sectionWords 为 0 时的内部指导值，不构成小节上限。
+  // 扩写先按小节指导缺口分配，剩余额度再均摊；1500 仅是 sectionWords 为 0 时的内部指导值，不构成小节上限。
   function buildTotalWordExpansionBatch(selected, direction) {
     const guidanceWords = wordControl.sectionWords > 0 ? wordControl.sectionWords : DEFAULT_SECTION_WORD_GUIDANCE;
     const entries = selected.map((candidate, index) => {

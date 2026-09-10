@@ -6,7 +6,7 @@ const { isDeepStrictEqual } = require('node:util');
 const { planRemoteKnowledgeQueries } = require('./remoteKnowledgeQueryPlanner.cjs');
 const { runTemplateExtractionTask } = require('./templateExtractionTask.cjs');
 
-const DEFAULT_ESTIMATED_SECTION_WORDS = 3000;
+const DEFAULT_ESTIMATED_SECTION_WORDS = 1500;
 const OUTLINE_OUTPUT_FILE = 'outline.json';
 const TECHNICAL_SCORE_GROUPS_FILE = 'technical-score-groups.json';
 const SCORE_DIRECTORY_PLAN_FILE = 'score-directory-plan.json';

@@ -1220,6 +1220,59 @@ test('original-only 真实目录任务不调用远程检索，也不注入远程
   assert.equal(runs[1].files.some((file) => file.path === '远程知识参考.md'), false);
 });
 
+test('每小节字数为 0 时按 1500 字内部兜底估算目标叶子数', async () => {
+  const root = { id: '1', title: '原方案一级', attr: '技术' };
+  const outputs = [
+    { outline: [root] },
+    { outline: [{ ...root, content_mode: 'ai-generate' }] },
+  ];
+  let finalTaskPatch = null;
+
+  await runOutlineGenerationTaskV2({
+    aiService: {},
+    agentService: {
+      runTask: async () => ({ output_content: JSON.stringify(outputs.shift()) }),
+      updatePersistentTask() {},
+    },
+    ordinaryAgentService: {},
+    workspaceStore: {
+      loadTechnicalPlan: () => ({
+        workflowKind: 'existing-plan-expansion',
+        originalPlanFile: { fileName: '原方案.docx' },
+        outlineExpansionMode: 'original-only',
+        tenderFile: { fileName: '招标.md' },
+        outlineWordControlOptions: {
+          minimumWords: 3000,
+          maximumWords: 3000,
+          sectionWords: 0,
+          strictSectionWords: false,
+        },
+      }),
+      readOriginalPlanMarkdown: () => '# 原方案目录',
+      hasBidTemplate: () => false,
+    },
+    knowledgeBaseService: {},
+    openXmlHelperService: {},
+    updateTask: (patch) => ({ task_id: 'task-default-section-words-test', stats: {}, logs: [], ...patch }),
+    checkpointTask: (patch, data) => {
+      finalTaskPatch = patch;
+      return { task: {
+        task_id: 'task-default-section-words-test',
+        stats: data || {},
+        logs: [],
+        ...patch,
+      } };
+    },
+    taskControl: {
+      signal: new AbortController().signal,
+      waitForOutlineSelection: async () => ({ items: [root], selectedIds: ['1'] }),
+    },
+    payload: {},
+  });
+
+  assert.equal(finalTaskPatch.stats.outline.target_leaf_count, 2);
+});
+
 test('非 original-only 真实目录任务按 outline 阶段检索并注入远程参考文件', async () => {
   const searches = [];
   const runs = [];

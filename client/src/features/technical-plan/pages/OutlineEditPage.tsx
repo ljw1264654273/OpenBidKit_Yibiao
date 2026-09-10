@@ -124,7 +124,7 @@ function normalizeWordControlDraft(values: {
   if (minimumWords > 0 && maximumWords > 0 && maximumWords < minimumWords) {
     throw new Error('最多字数不能低于最少字数');
   }
-  const effectiveSectionWords = sectionWords > 0 ? sectionWords : 3000;
+  const effectiveSectionWords = sectionWords > 0 ? sectionWords : 1500;
   const minimumLeafCount = minimumWords > 0 ? Math.ceil(minimumWords / effectiveSectionWords) : null;
   const maximumLeafCount = maximumWords > 0 ? Math.floor(maximumWords / effectiveSectionWords) : null;
   if (maximumLeafCount !== null && maximumLeafCount < 1) {
