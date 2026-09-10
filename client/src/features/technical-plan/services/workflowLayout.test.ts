@@ -101,6 +101,22 @@ test('目录生成状态栏以两行摘要配合同排进度和操作保持紧�
   assert.match(css, /\.outline-command-summary\s*~\s*\.outline-command-actions\s*\{[^}]*grid-area:\s*actions;[^}]*flex-wrap:\s*nowrap;/s);
 });
 
+test('目录原文面板保留全屏入口并按 Markdown 结构渲染 HTML 表格和高亮', () => {
+  const source = readFileSync(new URL('../components/TenderSourcePanel.tsx', import.meta.url), 'utf8');
+  assert.match(source, /buttonLabel="全屏查看招标原文"/);
+  assert.match(source, /fullscreenChildren=\{<MarkdownRenderer allowRawHtml highlightTerms=\{sourceKeywords\}>/);
+  assert.match(source, /normalizeTableFragments/);
+  assert.match(source, /<MarkdownRenderer allowRawHtml highlightTerms=\{sourceKeywords\}>\{activeMarkdown\}/);
+});
+
+test('目录详情提供 AI 添加子目录并直接使用 add-child 持久化', () => {
+  const source = readFileSync(new URL('../pages/OutlineEditPage.tsx', import.meta.url), 'utf8');
+  assert.match(source, /const addAiChildren = async/);
+  assert.match(source, /window\.yibiao\?\.ai\?\.requestJson/);
+  assert.match(source, /'add-child', \[selectedItem\.id\]\)/);
+  assert.match(source, /AI 添加子目录/);
+});
+
 test('其余活动步骤沿用两行摘要和紧凑命令栏标准', () => {
   const css = readFileSync(new URL('../../../styles/feature-technical-plan.css', import.meta.url), 'utf8');
 
