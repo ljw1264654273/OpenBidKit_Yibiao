@@ -1,7 +1,9 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const Ajv = require('ajv');
 
 const {
+  OUTLINE_JSON_SCHEMA,
   createInitialPrompt,
   createScorePlanningPrompt,
   createChildrenPrompt,
@@ -14,12 +16,14 @@ const {
   buildRemoteKnowledgeFile,
   mergeReviewedScoreDirectoryPlan,
   deriveTechnicalScoreHierarchy,
+  normalizeOutlineScoreMetadataTitles,
+  normalizeScoreDirectoryPlanTitles,
   assertStandaloneTechnicalRoots,
   assertStandaloneScoreDirectoryPlan,
   runOutlineGenerationTaskV2,
 } = require('./outlineGenerationTaskV2.cjs');
 
-test('显式评分分组按原文层级生成一级目录', () => {
+test('海盐式合并单元格业务分组按原文层级生成一级目录', () => {
   const groupNames = [
     '项目总体方案',
     '组织实施方案',
@@ -30,14 +34,19 @@ test('显式评分分组按原文层级生成一级目录', () => {
     '安全管理措施',
     '保密措施',
   ];
-  const itemCounts = [3, 3, 4, 2, 2, 2, 2, 1];
+  const itemCounts = [3, 7, 4, 1, 1, 1, 1, 1];
   const markdown = ['## 技术评分项'];
   let itemNumber = 0;
   groupNames.forEach((group, groupIndex) => {
     for (let index = 0; index < itemCounts[groupIndex]; index += 1) {
       itemNumber += 1;
-      markdown.push(`\n【评分项名称】：评分项${itemNumber}`);
-      markdown.push(`【上级评分分组】：${group}`);
+      markdown.push(`\n【评分项编号】：${itemNumber}`);
+      markdown.push(`【评分项名称】：${itemCounts[groupIndex] > 1 ? `评分项${itemNumber}` : group}`);
+      markdown.push(`【直接上级编号】：${itemCounts[groupIndex] > 1 ? groupIndex + 3 : '无'}`);
+      markdown.push(`【直接上级名称】：${itemCounts[groupIndex] > 1 ? group : '无'}`);
+      markdown.push(`【直接上级类型】：${itemCounts[groupIndex] > 1 ? '业务分组' : '无'}`);
+      markdown.push(`【层级依据类型】：${itemCounts[groupIndex] > 1 ? '合并单元格' : '无'}`);
+      markdown.push(`【层级依据说明】：${itemCounts[groupIndex] > 1 ? `评分表 rowspan=${itemCounts[groupIndex]}` : '无'}`);
       markdown.push('【权重/分值】：1分');
     }
   });
@@ -47,25 +56,96 @@ test('显式评分分组按原文层级生成一级目录', () => {
 
   assert.equal(hierarchy.items.length, 19);
   assert.deepEqual(hierarchy.rootTitles, groupNames);
+  assert.deepEqual(hierarchy.items.slice(0, 3).map((item) => item.sourceNumber), ['1', '2', '3']);
+  assert.equal(hierarchy.items[14].title, '设施设备配备情况');
+  assert.equal(hierarchy.items[14].parentGroup, null);
 });
 
-test('没有业务分组时每个技术评分项独立作为一级目录', () => {
+test('评分项和业务分组标题去掉末尾主客观分标记但保留业务括注', () => {
+  const markdown = `## 技术评分项
+
+【评分项编号】：1
+【评分项名称】：人员配置情况（客观分）
+【直接上级编号】：无
+【直接上级名称】：无
+【直接上级类型】：无
+【层级依据类型】：无
+【层级依据说明】：无
+
+【评分项编号】：2.1
+【评分项名称】：项目人员（主观评分）
+【直接上级编号】：2
+【直接上级名称】：组织实施方案（客观分）
+【直接上级类型】：业务分组
+【层级依据类型】：合并单元格
+【层级依据说明】：评分表 rowspan=2
+
+【评分项编号】：3
+【评分项名称】：监理大纲（暗标）
+【直接上级编号】：无
+【直接上级名称】：无
+【直接上级类型】：无
+【层级依据类型】：无
+【层级依据说明】：无`;
+
+  const hierarchy = deriveTechnicalScoreHierarchy(markdown);
+
+  assert.deepEqual(hierarchy.items.map((item) => item.title), [
+    '人员配置情况',
+    '项目人员',
+    '监理大纲（暗标）',
+  ]);
+  assert.equal(hierarchy.items[1].parentGroup, '组织实施方案');
+  assert.deepEqual(hierarchy.rootTitles, ['人员配置情况', '组织实施方案', '监理大纲（暗标）']);
+
+  assert.deepEqual(normalizeOutlineScoreMetadataTitles([
+    { id: '1', title: '人员配置情况（客观分）', children: [{ id: '1.1', title: '项目人员（主观分）' }] },
+    { id: '2', title: '监理大纲（暗标）' },
+  ]), [
+    { id: '1', title: '人员配置情况', children: [{ id: '1.1', title: '项目人员' }] },
+    { id: '2', title: '监理大纲（暗标）' },
+  ]);
+
+  assert.deepEqual(normalizeScoreDirectoryPlanTitles({
+    allow_root_changes: false,
+    branches: [{
+      branch_id: 'B1',
+      root_id: '1',
+      root_title: '人员配置情况（客观分）',
+      score_item_level: 1,
+      mappings: [{ requirement_id: 'R1', target_title: '人员配置情况（客观分）' }],
+    }],
+    extra_titles: [{ branch_id: 'B1', title: '监理大纲（暗标）', reason: '用户批准' }],
+  }), {
+    allow_root_changes: false,
+    branches: [{
+      branch_id: 'B1',
+      root_id: '1',
+      root_title: '人员配置情况',
+      score_item_level: 1,
+      mappings: [{ requirement_id: 'R1', target_title: '人员配置情况' }],
+    }],
+    extra_titles: [{ branch_id: 'B1', title: '监理大纲（暗标）', reason: '用户批准' }],
+  });
+});
+
+test('钦南式评分维度下的技术评分项分别作为一级目录', () => {
   const itemTitles = [
-    '项目理解和总体工作思路',
-    '项目重难点及解决方案',
-    '项目权属调查方案',
-    '项目审核公示方案',
-    '项目数据标准化、建库方案',
-    '质量保证方案',
-    '进度安排及控制方案',
-    '安全生产方案',
+    '项目理解方案',
+    '项目实施方案',
+    '项目进度计划和保证措施',
+    '质量保障措施',
+    '安全、保密保证措施',
+    '售后服务方案',
   ];
-  const markdown = `## 技术评分项\n\n${itemTitles.map((title) => `【评分项名称】：${title}\n【上级评分分组】：技术方案（40分）\n【权重/分值】：5分`).join('\n\n')}\n\n## 技术评分要求\n没有提及`;
+  const markdown = `## 技术评分项\n\n${itemTitles.map((title, index) => `【评分项编号】：2.${index + 1}\n【评分项名称】：${title}\n【直接上级编号】：2\n【直接上级名称】：技术分\n【直接上级类型】：评分维度/汇总容器\n【层级依据类型】：汇总行\n【层级依据说明】：编号层级且父级为汇总分值行\n【权重/分值】：5分`).join('\n\n')}\n\n## 技术评分要求\n没有提及`;
 
   const hierarchy = deriveTechnicalScoreHierarchy(markdown);
 
   assert.deepEqual(hierarchy.rootTitles, itemTitles);
   assert.ok(hierarchy.items.every((item) => item.parentGroup === null));
+  assert.deepEqual(hierarchy.items.map((item) => item.sourceNumber), ['2.1', '2.2', '2.3', '2.4', '2.5', '2.6']);
+  assert.deepEqual(hierarchy.items.map((item) => item.parentNumber), ['2', '2', '2', '2', '2', '2']);
   assert.throws(
     () => assertStandaloneTechnicalRoots([
       { title: '项目总体方案' },
@@ -73,30 +153,163 @@ test('没有业务分组时每个技术评分项独立作为一级目录', () =>
       { title: '数据标准化与建库方案' },
       { title: '履约保障方案' },
     ], hierarchy),
-    /必须严格对应原有评分层级.*期望 8 个.*实际 4 个/,
+    /必须严格对应原有评分层级.*期望 6 个.*实际 4 个/,
   );
 });
 
-test('兼容旧版分组与评分项合并名称', () => {
-  const markdown = `## 技术评分项\n\n【评分项名称】：项目总体方案——对本项目的理解\n【权重/分值】：3分\n\n【评分项名称】：项目总体方案——总体方案设计\n【权重/分值】：4分\n\n【评分项名称】：服务承诺——售后服务承诺\n【权重/分值】：2分`;
+test('评分维度标题任意变化时仍按结构类型识别为容器', () => {
+  const markdown = `## 技术评分项
+
+【评分项编号】：7.1
+【评分项名称】：需求理解
+【直接上级编号】：7
+【直接上级名称】：主观评分汇总区
+【直接上级类型】：评分维度/汇总容器
+【层级依据类型】：汇总行
+【层级依据说明】：编号层级且父级为汇总分值行
+
+【评分项编号】：7.2
+【评分项名称】：实施路径
+【直接上级编号】：7
+【直接上级名称】：主观评分汇总区
+【直接上级类型】：评分维度/汇总容器
+【层级依据类型】：汇总行
+【层级依据说明】：编号层级且父级为汇总分值行`;
 
   const hierarchy = deriveTechnicalScoreHierarchy(markdown);
 
-  assert.deepEqual(hierarchy.rootTitles, ['项目总体方案', '服务承诺']);
-  assert.deepEqual(hierarchy.items.map((item) => item.title), ['对本项目的理解', '总体方案设计', '售后服务承诺']);
+  assert.deepEqual(hierarchy.rootTitles, ['需求理解', '实施路径']);
+  assert.ok(hierarchy.items.every((item) => item.parentType === 'score-container'));
+});
+
+test('旧数据仅有上级评分分组名称时安全回退为独立评分项', () => {
+  const markdown = `## 技术评分项
+
+【评分项名称】：项目理解方案
+【上级评分分组】：技术分
+
+【评分项名称】：项目实施方案
+【上级评分分组】：技术分`;
+
+  const hierarchy = deriveTechnicalScoreHierarchy(markdown);
+
+  assert.deepEqual(hierarchy.rootTitles, ['项目理解方案', '项目实施方案']);
+  assert.ok(hierarchy.items.every((item) => item.parentGroup === null));
+});
+
+test('部分评分项缺少编号字段时仍逐项解析且不串用相邻编号', () => {
+  const markdown = `## 技术评分项
+
+【评分项编号】：2.1
+【评分项名称】：需求理解
+【直接上级编号】：2
+【直接上级名称】：技术分
+【直接上级类型】：评分维度/汇总容器
+【层级依据类型】：编号层级
+【层级依据说明】：2 与 2.1 的编号关系
+
+【评分项名称】：实施方案
+【直接上级名称】：无
+【直接上级类型】：无
+【层级依据类型】：无
+【层级依据说明】：无
+
+【评分项编号】：2.3
+【评分项名称】：质量保障
+【直接上级编号】：2
+【直接上级名称】：技术分
+【直接上级类型】：评分维度/汇总容器
+【层级依据类型】：编号层级
+【层级依据说明】：2 与 2.3 的编号关系`;
+
+  const hierarchy = deriveTechnicalScoreHierarchy(markdown);
+
+  assert.deepEqual(hierarchy.items.map((item) => item.title), ['需求理解', '实施方案', '质量保障']);
+  assert.deepEqual(hierarchy.items.map((item) => item.sourceNumber), ['2.1', null, '2.3']);
+  assert.deepEqual(hierarchy.rootTitles, ['需求理解', '实施方案', '质量保障']);
+});
+
+test('业务分组的编号层级缺少父子编号事实时安全回退为独立评分项', () => {
+  const markdown = `## 技术评分项
+
+【评分项名称】：项目理解方案
+【直接上级名称】：项目总体方案
+【直接上级类型】：业务分组
+【层级依据类型】：编号层级
+【层级依据说明】：根据内容判断
+
+【评分项名称】：项目实施方案
+【直接上级名称】：项目总体方案
+【直接上级类型】：业务分组
+【层级依据类型】：编号层级
+【层级依据说明】：相邻内容属于同一主题`;
+
+  const hierarchy = deriveTechnicalScoreHierarchy(markdown);
+
+  assert.deepEqual(hierarchy.rootTitles, ['项目理解方案', '项目实施方案']);
+  assert.ok(hierarchy.items.every((item) => item.parentGroup === null));
+});
+
+test('同名业务分组具有不同父编号时保持为两个独立一级目录', () => {
+  const markdown = `## 技术评分项
+
+【评分项编号】：3.1
+【评分项名称】：第一标段实施方案
+【直接上级编号】：3
+【直接上级名称】：实施方案
+【直接上级类型】：业务分组
+【层级依据类型】：编号层级
+【层级依据说明】：3 与 3.1 的编号关系
+
+【评分项编号】：4.1
+【评分项名称】：第二标段实施方案
+【直接上级编号】：4
+【直接上级名称】：实施方案
+【直接上级类型】：业务分组
+【层级依据类型】：编号层级
+【层级依据说明】：4 与 4.1 的编号关系`;
+
+  const hierarchy = deriveTechnicalScoreHierarchy(markdown);
+
+  assert.deepEqual(hierarchy.rootTitles, ['实施方案', '实施方案']);
+  assert.deepEqual(hierarchy.items.map((item) => item.rootIndex), [0, 1]);
+});
+
+test('旧版破折号组合标题没有结构依据时不推断父级分组', () => {
+  const markdown = `## 技术评分项
+
+【评分项名称】：项目总体方案——对本项目的理解
+【权重/分值】：3分
+
+【评分项名称】：项目总体方案——总体方案设计
+【权重/分值】：4分`;
+
+  const hierarchy = deriveTechnicalScoreHierarchy(markdown);
+
+  assert.deepEqual(hierarchy.rootTitles, ['项目总体方案——对本项目的理解', '项目总体方案——总体方案设计']);
+  assert.ok(hierarchy.items.every((item) => item.parentGroup === null));
 });
 
 test('默认评分规划按显式分组使用二级且无分组项使用一级', () => {
   const hierarchy = deriveTechnicalScoreHierarchy(`## 技术评分项
 
 【评分项名称】：项目理解
-【上级评分分组】：项目总体方案
+【直接上级名称】：项目总体方案
+【直接上级类型】：业务分组
+【层级依据类型】：合并单元格
+【层级依据说明】：rowspan=2
 
 【评分项名称】：总体方案设计
-【上级评分分组】：项目总体方案
+【直接上级名称】：项目总体方案
+【直接上级类型】：业务分组
+【层级依据类型】：合并单元格
+【层级依据说明】：rowspan=2
 
 【评分项名称】：质量保证方案
-【上级评分分组】：无`);
+【直接上级名称】：无
+【直接上级类型】：无
+【层级依据类型】：无
+【层级依据说明】：无`);
   const roots = [{ id: '1', title: '项目总体方案' }, { id: '2', title: '质量保证方案' }];
   const plan = {
     allow_root_changes: false,
@@ -120,6 +333,158 @@ test('默认评分规划按显式分组使用二级且无分组项使用一级',
     () => assertStandaloneScoreDirectoryPlan(wrongLevel, hierarchy, roots),
     /评分规划必须保持招标文件原有评分层级/,
   );
+
+  const renamedTitle = structuredClone(plan);
+  renamedTitle.branches[0].mappings[0].target_title = '项目认知';
+  assert.throws(
+    () => assertStandaloneScoreDirectoryPlan(renamedTitle, hierarchy, roots),
+    /评分项标题必须逐字对应原文/,
+  );
+
+  const selfApprovedSplit = structuredClone(plan);
+  selfApprovedSplit.branches[0].score_item_level = 6;
+  selfApprovedSplit.branches[0].mappings[0].target_title = '项目认知';
+  selfApprovedSplit.branches[0].mappings[0].additional_titles = ['项目背景认知'];
+  selfApprovedSplit.branches[0].mappings[0].adjustment_note = '用户已批准';
+  assert.throws(
+    () => assertStandaloneScoreDirectoryPlan(selfApprovedSplit, hierarchy, roots),
+    /缺少实际用户调整批准记录/,
+  );
+  assert.doesNotThrow(
+    () => assertStandaloneScoreDirectoryPlan(selfApprovedSplit, hierarchy, roots, { hasUserAdjustmentApproval: true }),
+  );
+});
+
+test('原文明确的单项业务分组不触发单子节点结构错误', () => {
+  const outline = {
+    outline: [{
+      id: '1', title: '项目总体方案', description: '原文业务分组', attr: '技术', branch_id: 'B1',
+      children: [{
+        id: '1.1', title: '项目理解', description: '评分项',
+        children: [
+          {
+            id: '1.1.1', title: '政策背景', description: '评分要点',
+            children: [
+              { id: '1.1.1.1', title: '国家政策', description: '国家政策', content_mode: 'ai-generate' },
+              { id: '1.1.1.2', title: '地方政策', description: '地方政策', content_mode: 'ai-generate' },
+            ],
+          },
+          {
+            id: '1.1.2', title: '技术要求理解', description: '评分要点',
+            children: [
+              { id: '1.1.2.1', title: '工作范围', description: '工作范围', content_mode: 'ai-generate' },
+              { id: '1.1.2.2', title: '成果要求', description: '成果要求', content_mode: 'ai-generate' },
+            ],
+          },
+        ],
+      }],
+    }],
+  };
+  const scoreDirectoryPlan = {
+    allow_root_changes: false,
+    branches: [{
+      branch_id: 'B1', root_id: '1', root_title: '项目总体方案', score_item_level: 2,
+      mappings: [{ requirement_id: 'R1', target_title: '项目理解' }],
+    }],
+    extra_titles: [],
+  };
+
+  const context = buildOutlineReviewContext({
+    outline,
+    scoreDirectoryPlan,
+    targetLeafCount: 4,
+    standaloneTechnical: true,
+  });
+
+  assert.deepEqual(context.structure.single_child_nodes, []);
+  assert.equal(context.structure.valid, true);
+});
+
+test('原文明确的单项业务分组可以通过目录 JSON Schema 校验', () => {
+  const validate = new Ajv({ allErrors: true, strict: true }).compile(OUTLINE_JSON_SCHEMA);
+  const outline = {
+    outline: [{
+      id: '1', title: '项目总体方案', description: '原文业务分组', attr: '技术', branch_id: 'B1',
+      children: [{
+        id: '1.1', title: '项目理解', description: '评分项',
+        children: [
+          { id: '1.1.1', title: '政策背景', description: '政策背景', content_mode: 'ai-generate' },
+          { id: '1.1.2', title: '需求理解', description: '需求理解', content_mode: 'ai-generate' },
+        ],
+      }],
+    }],
+  };
+
+  assert.equal(validate(outline), true, JSON.stringify(validate.errors));
+});
+
+test('评分项原文标题不参与通用标题风格清洗', () => {
+  const outline = {
+    outline: [{
+      id: '1', title: '项目总体方案', description: '原文业务分组', attr: '技术', branch_id: 'B1',
+      children: [{
+        id: '1.1', title: '对本项目的理解', description: '评分项原文标题',
+        children: [
+          {
+            id: '1.1.1', title: '项目背景', description: '评分要点',
+            children: [
+              { id: '1.1.1.1', title: '政策背景', description: '政策背景', content_mode: 'ai-generate' },
+              { id: '1.1.1.2', title: '建设背景', description: '建设背景', content_mode: 'ai-generate' },
+            ],
+          },
+          {
+            id: '1.1.2', title: '项目需求', description: '评分要点',
+            children: [
+              { id: '1.1.2.1', title: '采购内容', description: '采购内容', content_mode: 'ai-generate' },
+              { id: '1.1.2.2', title: '实施范围', description: '实施范围', content_mode: 'ai-generate' },
+            ],
+          },
+        ],
+      }],
+    }],
+  };
+  const scoreDirectoryPlan = {
+    branches: [{
+      branch_id: 'B1', root_id: '1', root_title: '项目总体方案', score_item_level: 2,
+      mappings: [{ requirement_id: 'R1', target_title: '对本项目的理解' }],
+    }],
+    extra_titles: [],
+  };
+
+  const context = buildOutlineReviewContext({
+    outline,
+    scoreDirectoryPlan,
+    targetLeafCount: 4,
+    standaloneTechnical: true,
+  });
+
+  assert.deepEqual(context.professional_structure.title_style_issues, []);
+  assert.equal(context.professional_structure.valid, true);
+});
+
+test('独立父级行支持用表格行号作为可核验结构依据', () => {
+  const markdown = `## 技术评分项
+
+【评分项编号】：3.1
+【评分项名称】：需求分析
+【直接上级编号】：3
+【直接上级名称】：项目总体方案
+【直接上级类型】：业务分组
+【层级依据类型】：独立父级行
+【层级依据说明】：评分表第5行
+
+【评分项编号】：3.2
+【评分项名称】：总体设计
+【直接上级编号】：3
+【直接上级名称】：项目总体方案
+【直接上级类型】：业务分组
+【层级依据类型】：独立父级行
+【层级依据说明】：评分表第5行`;
+
+  const hierarchy = deriveTechnicalScoreHierarchy(markdown);
+
+  assert.deepEqual(hierarchy.rootTitles, ['项目总体方案']);
+  assert.ok(hierarchy.items.every((item) => item.parentGroup === '项目总体方案'));
 });
 
 test('目录字数目标使用可接受范围而不是精确叶子数', () => {
@@ -194,7 +559,7 @@ test('最终审核拒绝评分要点直接作为正文叶子以及冗余标题�
   );
   assert.deepEqual(
     context.professional_structure.title_style_issues.map((item) => item.id),
-    ['1.1', '1.1.2'],
+    ['1.1.2'],
   );
 });
 
@@ -707,10 +1072,11 @@ test('独立成册模式只按招标文件原有评分层级生成一级目录',
     expectedRootTitles: ['项目理解', '质量保证方案'],
   });
 
-  assert.match(prompt, /没有明确业务分组时，每个技术评分项分别作为一级目录/);
-  assert.match(prompt, /不得根据语义、相邻关系或所谓共同主题推断、合并/);
+  assert.match(prompt, /评分维度\/汇总容器.*每个技术评分项分别作为一级目录/);
+  assert.match(prompt, /层级依据类型.*每个技术评分项分别作为一级目录/);
+  assert.match(prompt, /不得根据父级标题字样/);
+  assert.match(prompt, /父级标题字样、语义、相邻关系或所谓共同主题推断、合并/);
   assert.match(prompt, /本次一级目录必须依次且完整使用：项目理解、质量保证方案/);
-  assert.match(prompt, /技术方案（40分）.*不是业务分组/);
   assert.match(prompt, /一级目录 title 必须逐字使用上述评分分组或评分项名称/);
   assert.match(prompt, /“项目实施方案”不得缩写为“实施方案”/);
   assert.doesNotMatch(prompt, /title 使用简洁的名词性短语/);
@@ -723,8 +1089,17 @@ test('独立成册评分规划严格区分原文分组项和无分组项', () =>
   assert.match(prompt, /原文中具有同一个明确业务分组.*score_item_level=2/);
   assert.match(prompt, /原文没有明确业务分组.*score_item_level=1/);
   assert.match(prompt, /不得根据语义或相邻关系推断分组/);
-  assert.match(prompt, /"parent_group":"项目总体方案"/);
-  assert.match(prompt, /title 必须逐字复制技术评分信息\.md 中的评分项名称/);
+  assert.match(prompt, /存在偏离时.*按上述调整生成.*保持原评分层级.*调整目录安排/s);
+  assert.match(prompt, /没有偏离时.*按原评分层级生成.*调整目录安排/s);
+  assert.match(prompt, /"source_number":"2\.1"/);
+  assert.match(prompt, /"parent_number":"2"/);
+  assert.match(prompt, /"parent_name":"项目总体方案"/);
+  assert.match(prompt, /"parent_type":"business-group"/);
+  assert.match(prompt, /"hierarchy_evidence_type":"merged-cell"/);
+  assert.match(prompt, /"hierarchy_evidence":"rowspan=3"/);
+  assert.match(prompt, /parent_type 只使用 score-container、business-group、none/);
+  assert.match(prompt, /不得根据标题字样、语义或相邻关系反向推断父级类型/);
+  assert.match(prompt, /title、source_number、parent_number、parent_name、parent_type、hierarchy_evidence_type 和 hierarchy_evidence 必须逐项复制或转换技术评分信息\.md/);
   assert.match(prompt, /“项目实施方案”不得改写为“实施方案”/);
   assert.match(prompt, /target_title 必须逐字使用对应 group\.title/);
   assert.match(prompt, /不承载正文内容的评价等级|不得写入 detail_points/);

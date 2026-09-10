@@ -49,7 +49,7 @@ function createDirectoryNodeSchema(level, root = false) {
         ...baseProperties,
         children: {
           type: 'array',
-          minItems: 2,
+          minItems: 1,
           items: createDirectoryNodeSchema(level + 1),
         },
       },
@@ -84,12 +84,17 @@ const TECHNICAL_SCORE_GROUPS_SCHEMA = {
       minItems: 1,
       items: {
         type: 'object',
-        required: ['requirement_id', 'title', 'parent_group', 'description', 'detail_points'],
+        required: ['requirement_id', 'title', 'source_number', 'parent_number', 'parent_name', 'parent_type', 'hierarchy_evidence_type', 'hierarchy_evidence', 'description', 'detail_points'],
         additionalProperties: false,
         properties: {
           requirement_id: { type: 'string', pattern: '^R[1-9]\\d*$' },
           title: { type: 'string', minLength: 1 },
-          parent_group: { type: ['string', 'null'] },
+          source_number: { type: ['string', 'null'] },
+          parent_number: { type: ['string', 'null'] },
+          parent_name: { type: ['string', 'null'] },
+          parent_type: { type: 'string', enum: ['score-container', 'business-group', 'none'] },
+          hierarchy_evidence_type: { type: 'string', enum: ['merged-cell', 'numbering', 'parent-row', 'subtotal-row', 'none'] },
+          hierarchy_evidence: { type: ['string', 'null'] },
           description: { type: 'string', minLength: 1 },
           detail_points: {
             type: 'array',
@@ -335,7 +340,7 @@ function renumberOutline(items, prefix = '') {
     const hasChildren = Array.isArray(item?.children) && item.children.length;
     const next = {
       id,
-      title: String(item?.title || '').trim(),
+      title: cleanScoreHierarchyTitle(item?.title),
       description: String(item?.description || '').trim(),
       ...(prefix ? {} : { attr: item?.attr }),
       ...(!prefix && String(item?.branch_id || '').trim() ? { branch_id: String(item.branch_id).trim() } : {}),
@@ -520,7 +525,7 @@ function collectScoreMappingCoverage(items, scoreDirectoryPlan) {
   };
 }
 
-function collectTitleStyleIssues(items) {
+function collectTitleStyleIssues(items, excludedNodeIds = new Set()) {
   const issues = [];
   const leadingFillerPattern = /^(?:对(?:.+的(?:理解|分析|说明|阐述|介绍)|(?:本|该)?(?:项目|工程|方案|需求|技术要求|服务要求|实施要求|建设要求|采购要求|招标要求|施工组织|质量控制|进度控制|安全管理|运维服务).*(?:理解|分析|说明|阐述|介绍))$|根据|依据|结合(?!部)|围绕|按照|针对(?!性))/;
   const trailingFillerPattern = /(?:进行|予以)(?:分析|说明|阐述|介绍|评审|打分)$/;
@@ -528,7 +533,8 @@ function collectTitleStyleIssues(items) {
   const visit = (nodes) => {
     (nodes || []).forEach((item) => {
       const title = String(item?.title || '').trim();
-      if (leadingFillerPattern.test(title) || trailingFillerPattern.test(title) || scoringSentencePattern.test(title)) {
+      if (!excludedNodeIds.has(item?.id)
+        && (leadingFillerPattern.test(title) || trailingFillerPattern.test(title) || scoringSentencePattern.test(title))) {
         issues.push({ id: item.id, title });
       }
       visit(item?.children);
@@ -570,6 +576,7 @@ function collectProfessionalStructure(items, scoreDirectoryPlan, { enabled = fal
   const unplannedRootNodes = [];
   const duplicateBranchRoots = [];
   const mechanicalConnectorGroups = [];
+  const sourceTitleNodeIds = new Set();
   if (!enabled) {
     return {
       valid: true,
@@ -623,6 +630,7 @@ function collectProfessionalStructure(items, scoreDirectoryPlan, { enabled = fal
     expectedTitles.forEach((title) => {
       const scoreNode = scoreNodesByTitle.get(title);
       if (!scoreNode) return;
+      sourceTitleNodeIds.add(scoreNode.id);
       const details = Array.isArray(scoreNode.children) ? scoreNode.children : [];
       if (details.length < 2) {
         underexpandedScoreNodes.push({ id: scoreNode.id, title: scoreNode.title, child_count: details.length });
@@ -635,7 +643,7 @@ function collectProfessionalStructure(items, scoreDirectoryPlan, { enabled = fal
     });
   });
 
-  const titleStyleIssues = collectTitleStyleIssues(items);
+  const titleStyleIssues = collectTitleStyleIssues(items, sourceTitleNodeIds);
   return {
     valid: underexpandedScoreNodes.length === 0
       && shallowScoreNodes.length === 0
@@ -666,6 +674,15 @@ function buildOutlineReviewContext({
   const items = outline?.outline || [];
   const leafCounts = countLeavesByMode(items);
   const structure = collectOutlineStructure(items);
+  const sourceRequiredSingletonRootIds = new Set(
+    standaloneTechnical
+      ? (scoreDirectoryPlan?.branches || [])
+        .filter((branch) => branch.score_item_level > 1 && branch.mappings?.length === 1)
+        .map((branch) => branch.root_id)
+      : [],
+  );
+  const singleChildNodes = structure.single_child_nodes
+    .filter((node) => !sourceRequiredSingletonRootIds.has(node.id));
   const acceptableRange = deriveAcceptableLeafRange(targetLeafCount, {
     soft: standaloneTechnical,
     maximum: maximumLeafCount,
@@ -695,8 +712,9 @@ function buildOutlineReviewContext({
     },
     structure: {
       ...structure,
+      single_child_nodes: singleChildNodes,
       valid: structure.max_depth <= 6
-        && structure.single_child_nodes.length === 0
+        && singleChildNodes.length === 0
         && structure.invalid_leaf_content_modes.length === 0,
     },
     score_mapping: collectScoreMappingCoverage(items, scoreDirectoryPlan),
@@ -715,39 +733,140 @@ function readJson(content, label) {
 function cleanScoreHierarchyTitle(value) {
   return String(value || '')
     .replace(/^[\s#*]+|[\s#*]+$/g, '')
-    .replace(/[（(]\s*\d+(?:\.\d+)?\s*(?:分|%)\s*[)）]\s*$/u, '')
+    .replace(/[（(]\s*(?:\d+(?:\.\d+)?\s*(?:分|%)|[主客]观(?:分|评分))\s*[)）]\s*$/u, '')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function normalizeOutlineScoreMetadataTitles(items) {
+  return (items || []).map((item) => {
+    const children = Array.isArray(item?.children) ? item.children : null;
+    return {
+      ...item,
+      title: cleanScoreHierarchyTitle(item?.title),
+      ...(children ? { children: normalizeOutlineScoreMetadataTitles(children) } : {}),
+    };
+  });
+}
+
+function normalizeScoreDirectoryPlanTitles(plan) {
+  return {
+    ...plan,
+    branches: (plan?.branches || []).map((branch) => ({
+      ...branch,
+      root_title: cleanScoreHierarchyTitle(branch?.root_title),
+      mappings: (branch?.mappings || []).map((mapping) => ({
+        ...mapping,
+        target_title: cleanScoreHierarchyTitle(mapping?.target_title),
+        ...(Array.isArray(mapping?.additional_titles)
+          ? { additional_titles: mapping.additional_titles.map(cleanScoreHierarchyTitle) }
+          : {}),
+      })),
+    })),
+    extra_titles: (plan?.extra_titles || []).map((item) => ({
+      ...item,
+      title: cleanScoreHierarchyTitle(item?.title),
+    })),
+  };
 }
 
 function normalizeScoreHierarchyTitle(value) {
   return cleanScoreHierarchyTitle(value).replace(/\s+/g, '');
 }
 
-function isMeaningfulScoreGroup(value) {
-  const title = normalizeScoreHierarchyTitle(value);
-  if (!title || /^(?:无|没有提及|未提及|无上级分组|无明确分组)$/u.test(title)) return false;
-  return !/^(?:技术方案|技术部分|技术评分|技术评分项|技术类|技术文件|技术标|评分标准|技术方案评分)$/u.test(title);
+function readScoreHierarchyField(block, label) {
+  return block.match(new RegExp(`【${label}】\\s*[：:]\\s*([^\\r\\n]+)`, 'u'))?.[1]?.trim() || '';
+}
+
+function normalizeScoreParentType(value) {
+  const type = String(value || '').replace(/／/gu, '/').replace(/\s+/gu, '');
+  if (type === '业务分组') return 'business-group';
+  if (type === '评分维度/汇总容器') return 'score-container';
+  if (type === '无') return 'none';
+  return 'unknown';
+}
+
+function normalizeScoreHierarchyEvidenceType(value) {
+  const type = String(value || '').replace(/\s+/gu, '');
+  if (type === '合并单元格') return 'merged-cell';
+  if (type === '编号层级') return 'numbering';
+  if (type === '独立父级行') return 'parent-row';
+  if (type === '汇总行') return 'subtotal-row';
+  if (type === '无') return 'none';
+  return 'unknown';
+}
+
+function isDirectNumberParent(sourceNumber, parentNumber) {
+  const sourceParts = String(sourceNumber || '').trim().split(/[.．]/u).filter(Boolean);
+  const parentParts = String(parentNumber || '').trim().split(/[.．]/u).filter(Boolean);
+  return parentParts.length > 0
+    && sourceParts.length === parentParts.length + 1
+    && parentParts.every((part, index) => part === sourceParts[index]);
+}
+
+function hasValidBusinessHierarchyEvidence({ evidenceType, evidence, sourceNumber, parentNumber }) {
+  if (evidenceType === 'merged-cell') {
+    const rowspan = String(evidence || '').match(/rowspan\s*[=:：]?\s*(\d+)/iu)?.[1];
+    return Number(rowspan) >= 2;
+  }
+  if (evidenceType === 'numbering') {
+    return isDirectNumberParent(sourceNumber, parentNumber);
+  }
+  if (evidenceType === 'parent-row') {
+    return /(?:独立)?父级行|上级行|第\s*\d+\s*行|row\s*[=:：#]?\s*\d+/iu.test(String(evidence || ''));
+  }
+  return false;
+}
+
+function cleanNullableScoreHierarchyValue(value) {
+  const cleaned = cleanScoreHierarchyTitle(value);
+  return cleaned && !/^(?:无|没有提及|未提及)$/u.test(normalizeScoreHierarchyTitle(cleaned))
+    ? cleaned
+    : null;
 }
 
 function deriveTechnicalScoreHierarchy(markdown) {
   const technicalSection = String(markdown || '')
     .split(/^##\s*技术评分项\s*$/mu)[1]
     ?.split(/^##\s+/mu)[0] || '';
-  const blocks = technicalSection.split(/(?=(?:\*\*)?【评分项名称】\s*[：:])/u).slice(1);
+  const titleMarkers = [...technicalSection.matchAll(/(?:\*\*)?【评分项名称】\s*[：:]/gu)];
+  const blockStarts = titleMarkers.map((marker, index) => {
+    const previousTitleIndex = index > 0 ? titleMarkers[index - 1].index : 0;
+    const precedingText = technicalSection.slice(previousTitleIndex, marker.index);
+    const numberFieldOffset = precedingText.lastIndexOf('【评分项编号】');
+    return numberFieldOffset >= 0 ? previousTitleIndex + numberFieldOffset : marker.index;
+  });
+  const blocks = blockStarts.map((start, index) => (
+    technicalSection.slice(start, blockStarts[index + 1] ?? technicalSection.length)
+  ));
   const items = blocks.map((block) => {
-    const rawTitle = block.match(/【评分项名称】\s*[：:]\s*([^\r\n]+)/u)?.[1]?.trim() || '';
-    const rawParentGroup = block.match(/【上级评分分组】\s*[：:]\s*([^\r\n]+)/u)?.[1]?.trim() || '';
-    const legacyParts = rawParentGroup ? [] : rawTitle.split(/\s*(?:——|-->)\s*/u);
-    const legacyParentGroup = legacyParts.length > 1 ? legacyParts.shift() : '';
-    const itemTitle = legacyParts.length ? legacyParts.join('——') : rawTitle;
-    const parentGroup = isMeaningfulScoreGroup(rawParentGroup || legacyParentGroup)
-      ? cleanScoreHierarchyTitle(rawParentGroup || legacyParentGroup)
+    const rawTitle = readScoreHierarchyField(block, '评分项名称');
+    const sourceNumber = readScoreHierarchyField(block, '评分项编号');
+    const parentNumber = readScoreHierarchyField(block, '直接上级编号');
+    const directParentName = cleanNullableScoreHierarchyValue(readScoreHierarchyField(block, '直接上级名称'));
+    const parentType = normalizeScoreParentType(readScoreHierarchyField(block, '直接上级类型'));
+    const hierarchyEvidenceType = normalizeScoreHierarchyEvidenceType(readScoreHierarchyField(block, '层级依据类型'));
+    const hierarchyEvidence = readScoreHierarchyField(block, '层级依据说明');
+    const parentGroup = parentType === 'business-group'
+      && hasValidBusinessHierarchyEvidence({
+        evidenceType: hierarchyEvidenceType,
+        evidence: hierarchyEvidence,
+        sourceNumber,
+        parentNumber,
+      })
+      && directParentName
+      ? directParentName
       : null;
     return {
-      title: cleanScoreHierarchyTitle(itemTitle),
+      sourceNumber: cleanNullableScoreHierarchyValue(sourceNumber),
+      title: cleanScoreHierarchyTitle(rawTitle),
+      parentNumber: cleanNullableScoreHierarchyValue(parentNumber),
+      directParentName,
+      parentType,
+      hierarchyEvidenceType,
+      hierarchyEvidence: cleanNullableScoreHierarchyValue(hierarchyEvidence),
       parentGroup,
-      rootTitle: parentGroup || cleanScoreHierarchyTitle(itemTitle),
+      rootTitle: parentGroup || cleanScoreHierarchyTitle(rawTitle),
     };
   }).filter((item) => item.title && item.rootTitle);
   const groupRootIndexes = new Map();
@@ -758,7 +877,9 @@ function deriveTechnicalScoreHierarchy(markdown) {
       rootTitles.push(item.rootTitle);
       return;
     }
-    const groupKey = normalizeScoreHierarchyTitle(item.parentGroup);
+    const groupKey = item.parentNumber
+      ? `number:${normalizeScoreHierarchyTitle(item.parentNumber)}|title:${normalizeScoreHierarchyTitle(item.parentGroup)}`
+      : `title:${normalizeScoreHierarchyTitle(item.parentGroup)}`;
     if (!groupRootIndexes.has(groupKey)) {
       groupRootIndexes.set(groupKey, rootTitles.length);
       rootTitles.push(item.parentGroup);
@@ -782,7 +903,7 @@ function assertStandaloneTechnicalRoots(roots, hierarchy) {
   }
 }
 
-function assertStandaloneScoreDirectoryPlan(plan, hierarchy, roots) {
+function assertStandaloneScoreDirectoryPlan(plan, hierarchy, roots, { hasUserAdjustmentApproval = false } = {}) {
   const expectedRoots = hierarchy?.rootTitles || [];
   if (!expectedRoots.length) return;
   const rootTitles = (Array.isArray(roots) ? roots : []).map((root) => normalizeScoreHierarchyTitle(root?.title));
@@ -791,13 +912,42 @@ function assertStandaloneScoreDirectoryPlan(plan, hierarchy, roots) {
   if (!rootsStillFollowSource) return;
 
   const branches = Array.isArray(plan?.branches) ? plan.branches : [];
-  const hasApprovedAdjustment = plan?.allow_root_changes === true
+  const requestsAdjustment = plan?.allow_root_changes === true
     || (Array.isArray(plan?.extra_titles) && plan.extra_titles.length > 0)
     || branches.some((branch) => branch.mappings?.some((mapping) => (
       String(mapping?.adjustment_note || '').trim()
       || (Array.isArray(mapping?.additional_titles) && mapping.additional_titles.length > 0)
     )));
-  if (hasApprovedAdjustment) return;
+  if (requestsAdjustment && !hasUserAdjustmentApproval) {
+    throw new Error('独立技术文件评分规划包含目录调整，但缺少实际用户调整批准记录。');
+  }
+  const mappingsByRequirementId = new Map();
+  branches.forEach((branch) => {
+    (Array.isArray(branch?.mappings) ? branch.mappings : []).forEach((mapping) => {
+      if (mapping?.requirement_id) mappingsByRequirementId.set(mapping.requirement_id, mapping);
+    });
+  });
+  const targetTitleCounts = new Map();
+  mappingsByRequirementId.forEach((mapping) => {
+    const key = normalizeScoreHierarchyTitle(mapping?.target_title);
+    targetTitleCounts.set(key, (targetTitleCounts.get(key) || 0) + 1);
+  });
+  const titlesFollowSource = hierarchy.items.every((item, itemIndex) => {
+    const mapping = mappingsByRequirementId.get(`R${itemIndex + 1}`);
+    if (!mapping) return false;
+    if (normalizeScoreHierarchyTitle(mapping.target_title) === normalizeScoreHierarchyTitle(item.title)) return true;
+    const approvedSplit = Array.isArray(mapping.additional_titles)
+      && mapping.additional_titles.length > 0
+      && String(mapping.adjustment_note || '').trim();
+    const approvedMerge = (targetTitleCounts.get(normalizeScoreHierarchyTitle(mapping.target_title)) || 0) > 1
+      && String(mapping.adjustment_note || '').trim();
+    return Boolean(approvedSplit || approvedMerge);
+  });
+  if (!titlesFollowSource) {
+    throw new Error('独立技术文件评分项标题必须逐字对应原文；只有明确记录 adjustment_note 的已批准拆分或合并可以改变标题。');
+  }
+
+  if (requestsAdjustment) return;
 
   const valid = branches.length === expectedRoots.length && expectedRoots.every((rootTitle, rootIndex) => {
     const root = roots[rootIndex];
@@ -854,8 +1004,8 @@ function createInitialPrompt(taskInstruction, { standaloneTechnical = false, has
     : '我们的目标是为编写响应文件/投标文件准备一级目录。';
   const modeRequirements = standaloneTechnical
     ? `6. 本模式只生成技术文件独立分册，attr 必须为“技术”，content_mode 必须为 ai-generate；不得加入商务、资信、投标函、授权委托书等非技术章节。
-7. 一级目录只服从招标文件原有评分层级：存在明确且有业务含义的上级评分分组时，以该分组作为一级目录并保持原顺序；没有明确业务分组时，每个技术评分项分别作为一级目录。不得根据语义、相邻关系或所谓共同主题推断、合并、遗漏或重排评分项。“技术方案（40分）”“技术评分”“技术部分”“技术标”等通用类别或总分表头不是业务分组，不得作为合并依据。${expectedRootTitles.length ? ` 本次一级目录必须依次且完整使用：${expectedRootTitles.join('、')}。` : ''}
-8. 一级目录 title 必须逐字使用上述评分分组或评分项名称，不得同义替换、删词、缩写或进行措辞优化；“项目实施方案”不得缩写为“实施方案”。仅后续生成的评分项下级目录可以进行专业化标题整理。
+7. 一级目录只服从技术评分信息.md 的结构化层级字段：直接上级类型为“业务分组”，层级依据类型为“合并单元格”“编号层级”或“独立父级行”，且层级依据说明可核验时，以直接上级名称作为一级目录；直接上级类型为“评分维度/汇总容器”“无”、缺少类型或缺少有效层级依据类型时，每个技术评分项分别作为一级目录。不得根据父级标题字样、语义、相邻关系或所谓共同主题推断、合并、遗漏或重排评分项。${expectedRootTitles.length ? ` 本次一级目录必须依次且完整使用：${expectedRootTitles.join('、')}。` : ''}
+8. 一级目录 title 必须逐字使用上述评分分组或评分项名称，但标题末尾仅表示评分方式的“（客观分）”“（主观分）”必须去掉；除此之外不得同义替换、删词、缩写或进行措辞优化。“项目实施方案”不得缩写为“实施方案”。仅后续生成的评分项下级目录可以进行专业化标题整理。
 9. 完整结构示例：{"outline":[{"id":"1","title":"组织实施方案","description":"招标文件原有业务分组","attr":"技术","content_mode":"ai-generate"},{"id":"2","title":"质量保证方案","description":"无上级业务分组的独立评分项","attr":"技术","content_mode":"ai-generate"}]}。示例只说明字段格式，实际标题、数量和顺序必须服从技术评分信息.md。`
     : `6. 每个一级目录当前都是叶子节点，必须根据它后续应采用的内容处理方式填写 content_mode：技术方案正文使用 ai-generate；需要从招标文件提取并套用表格或格式的商务、资信材料使用 template-fill；需要在全部正文完成并确定 Word 页码后回填的点对点应答表使用 point-to-point；无法归类的特殊内容使用 other，并在 content_mode_note 说明原因。
 7. 完整结构示例：{"outline":[{"id":"1","title":"技术方案","description":"技术方案目录说明","attr":"技术","content_mode":"ai-generate"},{"id":"2","title":"特殊资料","description":"特殊资料目录说明","attr":"其他","content_mode":"other","content_mode_note":"说明特殊处理原因"}]}。content_mode_note 只在 content_mode=other 且确有说明时填写。`;
@@ -900,8 +1050,8 @@ function createLeafAllocationPrompt({ standaloneTechnical = false } = {}) {
 
 function createScorePlanningPrompt({ standaloneTechnical = false, hasRemoteKnowledge = false } = {}) {
   const scoreGroupInstruction = standaloneTechnical
-    ? `将评分条目写入 ${TECHNICAL_SCORE_GROUPS_FILE}，完整结构为 {"groups":[{"requirement_id":"R1","title":"项目理解","parent_group":"项目总体方案","description":"项目理解评分关注内容","detail_points":["政策背景","项目技术要求理解"]}]}。title 必须逐字复制技术评分信息.md 中的评分项名称，parent_group 必须逐字复制其中明确记录且有业务含义的“上级评分分组”；不得同义替换、删词、缩写或进行措辞优化，“项目实施方案”不得改写为“实施方案”。无分组或仅有“技术方案（40分）”等通用容器时 parent_group 填写 null，绝不推断。根对象只能包含 groups；保持原顺序和正文内容要点，requirement_id 使用连续的 R1、R2 格式。description 和 detail_points 可从评分标准正文提炼需要响应的内容，但不得据此反向归纳或重写 title。例如，评分标准正文中的“根据投标人对本项目实施过程中的重点、难点问题分析及解决措施……进行打分”可以提炼为 detail_points；若评分项同时要求重点、难点分析及解决措施，应按问题类别组织为“重点问题分析及解决措施”“难点问题分析及解决措施”，并在材料支持时补充“其他具体问题分析与应对”“合理化建议”；不要机械拆成“问题分析”和“解决措施与对策”。`
-    : `将评分大项写入 ${TECHNICAL_SCORE_GROUPS_FILE}，完整结构为 {"groups":[{"requirement_id":"R1","title":"评分大项","parent_group":null,"description":"关注内容","detail_points":["关键评分细项"]}]}。根对象只能包含 groups；保持原顺序、专业术语和关键评分细项，requirement_id 使用连续的 R1、R2 格式。`;
+    ? `将评分条目写入 ${TECHNICAL_SCORE_GROUPS_FILE}，完整结构为 {"groups":[{"requirement_id":"R1","title":"项目理解","source_number":"2.1","parent_number":"2","parent_name":"项目总体方案","parent_type":"business-group","hierarchy_evidence_type":"merged-cell","hierarchy_evidence":"rowspan=3","description":"项目理解评分关注内容","detail_points":["政策背景","项目技术要求理解"]}]}。title、source_number、parent_number、parent_name、parent_type、hierarchy_evidence_type 和 hierarchy_evidence 必须逐项复制或转换技术评分信息.md 中对应的结构化字段；title 和 parent_name 末尾仅表示评分方式的“（客观分）”“（主观分）”必须去掉。parent_type 只使用 score-container、business-group、none，hierarchy_evidence_type 只使用 merged-cell、numbering、parent-row、subtotal-row、none。除此之外不得同义替换、删词、缩写或进行措辞优化，“项目实施方案”不得改写为“实施方案”。不得根据标题字样、语义或相邻关系反向推断父级类型或层级依据类型。根对象只能包含 groups；保持原顺序和正文内容要点，requirement_id 使用连续的 R1、R2 格式。description 和 detail_points 可从评分标准正文提炼需要响应的内容，但不得据此反向归纳或重写 title。例如，评分标准正文中的“根据投标人对本项目实施过程中的重点、难点问题分析及解决措施……进行打分”可以提炼为 detail_points；若评分项同时要求重点、难点分析及解决措施，应按问题类别组织为“重点问题分析及解决措施”“难点问题分析及解决措施”，并在材料支持时补充“其他具体问题分析与应对”“合理化建议”；不要机械拆成“问题分析”和“解决措施与对策”。`
+    : `将评分大项写入 ${TECHNICAL_SCORE_GROUPS_FILE}，完整结构为 {"groups":[{"requirement_id":"R1","title":"评分大项","source_number":null,"parent_number":null,"parent_name":null,"parent_type":"none","hierarchy_evidence_type":"none","hierarchy_evidence":null,"description":"关注内容","detail_points":["关键评分细项"]}]}。根对象只能包含 groups；保持原顺序、专业术语和关键评分细项，requirement_id 使用连续的 R1、R2 格式。`;
   const placementInstruction = standaloneTechnical
     ? `4. 当前采用“技术文件独立成册”：${OUTLINE_OUTPUT_FILE} 的一级根节点已经按招标文件原有评分层级确认。仅当多个评分条目在原文中具有同一个明确业务分组时，才映射到该分组对应的同一个 branch 并使用 score_item_level=2；原文没有明确业务分组时，每个评分条目各自对应一个一级根节点、一个 branch，并使用 score_item_level=1。不得根据语义或相邻关系推断分组，不得自行合并、拆分、遗漏或重排。mapping 的 target_title 必须逐字使用对应 group.title；未经用户批准拆分时不得填写 additional_titles。
 5. detail_points 只提取评分条目中需要在正文回答的内容维度，例如“政策背景”“项目技术要求理解”；“科学合理、完整可行、内容清晰”“得 5 分/3 分/1 分”等不承载正文内容的评价等级、打分口径和形容词不得写入 detail_points。每个 detail_point 后续还要继续展开为可独立编写的正文小节。`
@@ -918,8 +1068,8 @@ function createScorePlanningPrompt({ standaloneTechnical = false, hasRemoteKnowl
 如果技术评分信息中没有任何可用于技术方案目录规划的评分项，立即调用 report-failure，说明需要补充或重新解析技术评分信息；不要调用 ask-user 让用户接受空结果，不要生成空结构、编造评分项或删除、清空文件。
 3. ${scoreGroupInstruction}
 ${placementInstruction}
-6. 只有以下偏离需要用户批准：合并或拆分评分项、遗漏评分项对应节点、增加评分项中不存在的同层级大项、改变分支评分项目标层级，以及新增、删除、合并或调整用户已确认的一级目录。评分项名称和上级评分分组名称不得规范化或改写；仅评分项下级目录扩展不需要询问。
-7. 存在至少一个有效评分项时，无论是否存在偏离，都必须调用一次 ask-user 让用户确认。没有偏离时，question 只说明你分析得出的技术方案所在目录和评分项所在层级，最多使用两句话且不要使用列表；存在偏离时，只补充实际需要用户批准的偏离及影响，存在多个实际确认事项时才使用简单 Markdown 分行列出。question、选项名称和选项说明不得复述、概括或改写本任务 Prompt 中的要求，只呈现你分析后确实需要用户确认的结论或不确定事项。第一项给出推荐方案；另提供一个名为“调整目录安排”等明确业务名称的选项并设置 custom=true，让用户说明希望调整的位置或层级，其他选项均设置 custom=false。
+6. 只有以下偏离需要用户批准：合并或拆分评分项、遗漏评分项对应节点、增加评分项中不存在的同层级大项、改变分支评分项目标层级，以及新增、删除、合并或调整用户已确认的一级目录。评分项名称和结构化父级字段不得规范化或改写；仅评分项下级目录扩展不需要询问。
+7. 存在至少一个有效评分项时，无论是否存在偏离，都必须调用一次 ask-user 让用户确认。question 只呈现你分析后确实需要用户确认的结论或不确定事项，不得复述、概括或改写本任务 Prompt 中的要求。没有偏离时，question 只说明技术方案所在目录和评分项所在层级，最多使用两句话且不要使用列表；选项固定为“按原评分层级生成”（custom=false）和“调整目录安排”（custom=true）。存在偏离时，question 补充实际需要批准的偏离及影响，存在多个事项时使用简单 Markdown 分行列出；选项固定为“按上述调整生成”（custom=false）、“保持原评分层级”（custom=false）和“调整目录安排”（custom=true）。不得改名、增删或调整这些选项顺序。
 8. 根据用户回答写入 ${SCORE_DIRECTORY_PLAN_FILE}。完整字段层级示例：${planExample}。branches 中每个分支填写唯一且后续保持不变的 branch_id，并用当前 ${OUTLINE_OUTPUT_FILE} 中尚未调整的一级目录编号和标题填写 root_id、root_title；统一填写 score_item_level，并让每个 requirement_id 在 mappings 中恰好出现一次。后续新增、重排或改名一级目录时，branch_id 仍用于稳定关联同一技术分支，不能随 root_id 改变；程序会在完整目录重新编号后同步 root_id 和 root_title。默认一一对应；经用户批准合并时，多个 mapping 可以使用相同 target_title；经用户批准拆分时才填写 mapping.additional_titles；合并或拆分时才填写 adjustment_note。extra_titles 必须位于根对象，经批准增加同层级大项时才写入条目，否则使用空数组。
 9. 默认锁定一级目录，allow_root_changes=false；只有用户明确批准一级目录调整时才设为 true。
 10. 程序已为 ${TECHNICAL_SCORE_GROUPS_FILE} 和 ${SCORE_DIRECTORY_PLAN_FILE} 预置 Schema。分别调用 json-validation 校验，调用时只传 file_path；校验失败后必须先修改对应文件，再重新校验；如果现有材料无法在不编造评分项的情况下通过校验，调用 report-failure。
@@ -969,7 +1119,7 @@ function createChildrenPrompt({ hasOriginalPlan, originalOnly, targetLeafCount, 
 9. 如果存在参考知识库或原方案，只能用于完善评分项对应节点的下级结构，不得改变评分项映射或引入未经批准的同层级大项。
 10. ${leafInstruction}${LEAF_ALLOCATION_FILE} 中 allocations 使用 branch_id 指向技术分支，不使用可能变化的 root_id。${standaloneLeafInstruction}评分项完整对应和目录质量优先于数量目标。
 11. 每个最终叶子节点必须填写 content_mode：技术方案正文为 ai-generate；从招标文件提取后按模板填写为 template-fill；需要在 Word 页码确定后回填为 point-to-point；其他特殊内容为 other，并用 content_mode_note 说明。父节点不得包含 content_mode 或 content_mode_note。
-12. 任意非叶子节点的 children 至少包含两个节点，不要创建只有一个子节点的冗余层级。
+12. 任意非叶子节点的 children 原则上至少包含两个节点，不要创建只有一个子节点的冗余层级；唯一例外是招标文件原有业务分组本身只统领一个评分条目，此时必须保留该来源层级。
 13. 目录层级可变，但最多六级；一级目录包含 attr，子目录不包含 attr。所有 id 必须使用层级点号编号：一级为 1、2，二级为 2.1、2.2，三级为 2.1.1、2.1.2，后续层级依此类推，并与实际父子位置一致。
 14. ${titleInstruction}
 15. ${professionalStructureInstruction}
@@ -1064,7 +1214,7 @@ function createOutlineReviewPrompt({
 7. 根据 ask-user 返回的 answer 执行最终处理：用户要求全部或部分修改时更新 ${OUTLINE_OUTPUT_FILE} 并设置 status=user_feedback；status=user_refuse 只能用于确定性检查已通过、用户拒绝语义性优化的情况，此时不得修改目录。将 answer 原文完整写入 user_feedback，修改完成后不得再次询问用户。
 8. ${rootRequirement}
 9. 修复必须继续遵守 ${SCORE_DIRECTORY_PLAN_FILE} 中用户确认的评分项映射、目标层级和一级目录调整边界。补回遗漏映射、合并重复目录或优化层级时，不得引入未经用户批准的评分大项规划变更；${scorePlanBoundaryRule}
-10. 技术一级目录必须保留 ${SCORE_DIRECTORY_PLAN_FILE} 中对应的 branch_id；调整一级目录顺序或编号时不得修改 branch_id。结构事实以 ${OUTLINE_REVIEW_CONTEXT_FILE} 为准；如果其中确定性检查不通过，直接依据列出的节点和缺失项形成问题并修复，不要重新统计。任何语义修复仍必须保证叶子保留合法 content_mode、父节点不包含 content_mode 或 content_mode_note、父节点至少有两个 children 且目录最多六级。
+10. 技术一级目录必须保留 ${SCORE_DIRECTORY_PLAN_FILE} 中对应的 branch_id；调整一级目录顺序或编号时不得修改 branch_id。结构事实以 ${OUTLINE_REVIEW_CONTEXT_FILE} 为准；如果其中确定性检查不通过，直接依据列出的节点和缺失项形成问题并修复，不要重新统计。任何语义修复仍必须保证叶子保留合法 content_mode、父节点不包含 content_mode 或 content_mode_note、目录最多六级，并以结构检查列出的 single_child_nodes 为需要修复的单子节点清单。
 11. 最终将完整问题清单和处理结果写入 ${OUTLINE_REVIEW_FILE}。无问题时完整格式为 {"status":"passed","issues":[],"user_feedback":"","summary":"审核通过原因"}；有问题时完整格式为 {"status":"user_feedback","issues":[{"category":"score-coverage","problem":"问题说明","repair":"修复方案","confirmation_required":true}],"user_feedback":"用户回答原文","summary":"处理结果"}。category 只能是 leaf-count、score-coverage、duplicate-directory、professional-structure；status 按本流程选择 passed、simple_fix、user_feedback 或 user_refuse。
 12. ${validationRule}`;
 }
@@ -1123,7 +1273,7 @@ async function runOutlineGenerationTaskV2({ aiService, agentService, ordinaryAge
       ...(hasOriginalPlan ? [{ path: '原方案.md', content: originalPlan }] : []),
     ];
     taskInstruction = standaloneTechnical
-      ? '严格按照技术评分信息.md 组织技术方案独立分册。评分条目原文、顺序和数量是后续评分条目层的权威依据；一级目录只采用原文明确且有业务含义的上级评分分组，未显式分组时每个评分项分别作为一级目录，绝不按语义或相邻关系推断合并。响应文件要求.md 只提供装订和响应约束，项目概述.md 仅用于理解背景和术语，原方案.md 仅用于参考下级标题表达。'
+      ? '严格按照技术评分信息.md 组织技术方案独立分册。评分条目原文、顺序和数量是后续评分条目层的权威依据；只有直接上级类型为业务分组且层级依据类型和说明有效时才使用直接上级名称作为一级目录，其余评分项分别作为一级目录，绝不按标题字样、语义或相邻关系推断合并。响应文件要求.md 只提供装订和响应约束，项目概述.md 仅用于理解背景和术语，原方案.md 仅用于参考下级标题表达。'
       : hasOriginalPlan
         ? '严格按照响应文件要求.md 组织一级目录，它是目录结构和标题来源的唯一依据。项目概述.md 仅用于理解背景和术语，不得据此新增一级目录；原方案.md 仅用于参考标题表达。'
         : '严格按照响应文件要求.md 组织一级目录，它是目录结构和标题来源的唯一依据。项目概述.md 仅用于理解背景和术语，不得据此新增一级目录。';
@@ -1350,7 +1500,9 @@ async function runOutlineGenerationTaskV2({ aiService, agentService, ordinaryAge
       onCheckpoint: syncAgentCheckpoint,
     });
     const generated = readJson(initialResult.output_content, OUTLINE_OUTPUT_FILE);
-    const items = generated.outline || [];
+    const items = standaloneTechnical
+      ? normalizeOutlineScoreMetadataTitles(generated.outline || [])
+      : generated.outline || [];
     if (standaloneTechnical) assertStandaloneTechnicalRoots(items, technicalScoreHierarchy);
     const defaultSelectedIds = items.filter((item) => item.attr === '技术').map((item) => item.id);
     const selection = { items, selected_ids: defaultSelectedIds, confirmed: false };
@@ -1543,10 +1695,23 @@ async function runOutlineGenerationTaskV2({ aiService, agentService, ordinaryAge
       }
 
       if (meta.workflow_stage === 'score-planning') {
-        scoreDirectoryPlan = readJson(await meta.readFile(SCORE_DIRECTORY_PLAN_FILE), SCORE_DIRECTORY_PLAN_FILE);
+        scoreDirectoryPlan = normalizeScoreDirectoryPlanTitles(
+          readJson(await meta.readFile(SCORE_DIRECTORY_PLAN_FILE), SCORE_DIRECTORY_PLAN_FILE),
+        );
         if (standaloneTechnical) {
-          assertStandaloneScoreDirectoryPlan(scoreDirectoryPlan, technicalScoreHierarchy, lockedRoots);
+          const scorePlanningAnswer = [...meta.user_question_answers]
+            .reverse()
+            .find((item) => item.workflow_stage === 'score-planning');
+          const hasUserAdjustmentApproval = scorePlanningAnswer?.selected_option === '按上述调整生成'
+            || scorePlanningAnswer?.is_custom === true;
+          assertStandaloneScoreDirectoryPlan(scoreDirectoryPlan, technicalScoreHierarchy, lockedRoots, {
+            hasUserAdjustmentApproval,
+          });
         }
+        await meta.writeFiles([{
+          path: SCORE_DIRECTORY_PLAN_FILE,
+          content: JSON.stringify(scoreDirectoryPlan, null, 2),
+        }]);
         lockedRoots = attachBranchIdsToRoots(lockedRoots, scoreDirectoryPlan);
         technicalBranches = scoreDirectoryPlan.branches.map((branch) => ({
           branch_id: branch.branch_id,
@@ -1804,6 +1969,8 @@ module.exports = {
   buildRemoteKnowledgeFile,
   mergeReviewedScoreDirectoryPlan,
   deriveTechnicalScoreHierarchy,
+  normalizeOutlineScoreMetadataTitles,
+  normalizeScoreDirectoryPlanTitles,
   assertStandaloneTechnicalRoots,
   assertStandaloneScoreDirectoryPlan,
 };
