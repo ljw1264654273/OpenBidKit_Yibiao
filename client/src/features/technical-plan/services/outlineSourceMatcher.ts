@@ -76,8 +76,8 @@ export function collectOutlineSourceRecords(
     : emptyRecordSet();
 }
 
-export function locateOutlineSourceText(markdown: string, sourceText: string): LocatedOutlineSource {
-  return createOutlineSourceLocator(markdown)(sourceText);
+export function locateOutlineSourceText(markdown: string, sourceText: string, sourceKind?: ScoreCoverageRecord['source_kind']): LocatedOutlineSource {
+  return createOutlineSourceLocator(markdown, sourceKind)(sourceText);
 }
 
 export function injectMarkdownSourceAnchor(markdown: string, matchStart: number, matchEnd: number) {
@@ -91,14 +91,15 @@ export function injectMarkdownSourceAnchor(markdown: string, matchStart: number,
   return `${markdown.slice(0, matchStart)}${startMarker}${markdown.slice(matchStart, matchEnd)}${endMarker}${markdown.slice(matchEnd)}`;
 }
 
-export function injectOutlineSourceAnchorMarkers(markdown: string, items: OutlineSourceViewItem[]) {
-  const primary = items.find((item) => item.status === 'located'
+export function injectOutlineSourceAnchorMarkers(markdown: string, items: OutlineSourceViewItem[], activeIndex = 0) {
+  const locatedItems = items.filter((item) => item.status === 'located'
     && Number.isInteger(item.matchStart)
     && Number.isInteger(item.matchEnd)
     && Number(item.matchStart) >= 0
     && Number(item.matchStart) < Number(item.matchEnd)
     && Number(item.matchEnd) <= markdown.length);
-  if (!primary) return markdown;
+  const primary = locatedItems[Math.max(0, Math.min(activeIndex, locatedItems.length - 1))];
+  if (!primary || primary.status !== 'located') return markdown;
   return injectMarkdownSourceAnchor(markdown, Number(primary.matchStart), Number(primary.matchEnd));
 }
 
@@ -110,9 +111,8 @@ export function buildOutlineSourceViewItems(
   currentDocumentHash?: string,
 ): { items: OutlineSourceViewItem[]; supplementKind?: 'professional' | 'user'; scope: OutlineSourceRecordSet['scope'] } {
   const sourceRecords = collectOutlineSourceRecords(outline, nodeId, records);
-  const locateSourceText = createOutlineSourceLocator(markdown);
   const items = sourceRecords.tenderRecords.map((record) => {
-    const fallbackSource = () => locateSourceText(record.source_text);
+    const fallbackSource = () => locateOutlineSourceText(markdown, record.source_text, record.source_kind);
     const locatedSource = locateFromStoredAnchor(markdown, record, currentDocumentHash, fallbackSource);
     return {
       sourceId: record.source_id,
@@ -168,7 +168,10 @@ function locateFromStoredAnchor(
     && matchEnd <= contextEnd
     && contextEnd <= markdown.length;
   const anchoredText = validRange ? markdown.slice(matchStart, matchEnd) : '';
-  if (!validRange || normalizeWhitespace(anchoredText).text !== normalizeWhitespace(record.source_text).text) {
+  const normalizedAnchoredText = anchor.match_method === 'table-cell' || anchor.match_method === 'html-visible-text'
+    ? normalizeProjectedHtmlText(anchoredText).text
+    : normalizeWhitespace(anchoredText).text;
+  if (!validRange || normalizedAnchoredText !== normalizeWhitespace(record.source_text).text) {
     const current = fallback();
     return current.status === 'located'
       ? current
@@ -276,7 +279,7 @@ function normalizeWhitespace(text: string): NormalizedText {
   return { text: characters.join(''), originalIndices };
 }
 
-function createOutlineSourceLocator(markdown: string) {
+function createOutlineSourceLocator(markdown: string, sourceKind?: ScoreCoverageRecord['source_kind']) {
   let normalizedMarkdown: NormalizedText | undefined;
   let paragraphs: ParagraphRange[] | undefined;
   const getNormalizedMarkdown = () => {
@@ -297,6 +300,11 @@ function createOutlineSourceLocator(markdown: string) {
       return { status: 'unlocated', sourceText, reason: 'not-found' };
     }
 
+    if (sourceKind === 'requirement') {
+      const tableResult = locateUniqueTableCellSourceText(markdown, sourceText);
+      if (tableResult.status === 'located' || tableResult.reason === 'ambiguous') return tableResult;
+    }
+
     const exactStarts = findOccurrences(markdown, sourceText);
     if (exactStarts.length === 1) {
       const exactStart = exactStarts[0];
@@ -306,26 +314,128 @@ function createOutlineSourceLocator(markdown: string) {
       return { status: 'unlocated', sourceText, reason: 'ambiguous' };
     }
 
-    const normalizedSource = normalizeWhitespace(sourceText).text;
-    if (!normalizedSource) {
-      return { status: 'unlocated', sourceText, reason: 'not-found' };
-    }
-    const normalizedStarts = findOccurrences(getNormalizedMarkdown().text, normalizedSource);
-    if (normalizedStarts.length !== 1) {
-      return {
-        status: 'unlocated',
-        sourceText,
-        reason: normalizedStarts.length > 1 ? 'ambiguous' : 'not-found',
-      };
-    }
+    const candidates = [sourceText, normalizeSourceWrapper(sourceText)]
+      .filter((candidate, index, all) => candidate && all.indexOf(candidate) === index);
+    for (const candidate of candidates) {
+      const normalizedSource = normalizeWhitespace(candidate).text;
+      if (!normalizedSource) continue;
+      const normalizedStarts = findOccurrences(getNormalizedMarkdown().text, normalizedSource);
+      if (normalizedStarts.length > 1) {
+        return { status: 'unlocated', sourceText, reason: 'ambiguous' };
+      }
+      if (normalizedStarts.length !== 1) continue;
 
-    const normalizedStart = normalizedStarts[0];
-    const normalizedEnd = normalizedStart + normalizedSource.length;
-    const normalized = getNormalizedMarkdown();
-    const matchStart = normalized.originalIndices[normalizedStart];
-    const matchEnd = normalized.originalIndices[normalizedEnd - 1] + 1;
-    return createLocatedSource(markdown, sourceText, matchStart, matchEnd, getParagraphs());
+      const normalizedStart = normalizedStarts[0];
+      const normalizedEnd = normalizedStart + normalizedSource.length;
+      const normalized = getNormalizedMarkdown();
+      const matchStart = normalized.originalIndices[normalizedStart];
+      const matchEnd = normalized.originalIndices[normalizedEnd - 1] + 1;
+      return createLocatedSource(markdown, sourceText, matchStart, matchEnd, getParagraphs());
+    }
+    const visibleResult = locateUniqueVisibleText(markdown, sourceText, candidates);
+    if (visibleResult.status === 'located' || visibleResult.reason === 'ambiguous') return visibleResult;
+    return { status: 'unlocated', sourceText, reason: 'not-found' };
   };
+}
+
+const SOURCE_ID_PREFIX_RE = /^[A-Za-z]+\d+(?:-[A-Za-z]+\d+)*[：:]\s*/u;
+const TRAILING_SOURCE_PUNCTUATION_RE = /[。．.!！?？；;，,、:：]+$/u;
+
+function normalizeSourceWrapper(sourceText: string) {
+  return String(sourceText || '')
+    .replace(SOURCE_ID_PREFIX_RE, '')
+    .replace(TRAILING_SOURCE_PUNCTUATION_RE, '')
+    .trim();
+}
+
+function locateUniqueTableCellSourceText(markdown: string, sourceText: string): LocatedOutlineSource {
+  const candidates = [sourceText, normalizeSourceWrapper(sourceText)]
+    .filter((candidate, index, all) => candidate && all.indexOf(candidate) === index);
+  const normalizedSources = [...new Set(candidates.map((candidate) => normalizeWhitespace(candidate).text).filter(Boolean))];
+  if (!normalizedSources.length) return { status: 'unlocated', sourceText, reason: 'not-found' };
+
+  const matches: Array<{ matchStart: number; matchEnd: number }> = [];
+  const cellPattern = /<td\b[^>]*>[\s\S]*?<\/td>/giu;
+  let cellMatch: RegExpExecArray | null;
+  while ((cellMatch = cellPattern.exec(markdown)) !== null) {
+    const cellHtml = cellMatch[0];
+    const contentStart = cellMatch.index + cellHtml.indexOf('>') + 1;
+    const contentEnd = cellMatch.index + cellHtml.lastIndexOf('</td>');
+    const projection = normalizeProjectedHtmlText(markdown.slice(contentStart, contentEnd));
+    for (const normalizedSource of normalizedSources) {
+      const starts = findOccurrences(projection.text, normalizedSource);
+      if (starts.length !== 1) continue;
+      const matchStart = starts[0];
+      const matchEnd = matchStart + normalizedSource.length;
+      const trailingText = projection.text.slice(matchEnd).trim();
+      if (trailingText && !isScoreSuffix(trailingText)) continue;
+      matches.push({
+        matchStart: contentStart + projection.originalIndices[matchStart],
+        matchEnd: contentStart + projection.originalIndices[matchEnd - 1] + 1,
+      });
+      break;
+    }
+  }
+
+  if (matches.length > 1) return { status: 'unlocated', sourceText, reason: 'ambiguous' };
+  if (matches.length === 1) return createLocatedSource(markdown, sourceText, matches[0].matchStart, matches[0].matchEnd, findParagraphs(markdown));
+  return { status: 'unlocated', sourceText, reason: 'not-found' };
+}
+
+function locateUniqueVisibleText(markdown: string, sourceText: string, candidates: string[]): LocatedOutlineSource {
+  const projection = normalizeProjectedHtmlText(markdown);
+  for (const candidate of candidates) {
+    const normalizedSource = normalizeWhitespace(candidate).text;
+    const starts = findOccurrences(projection.text, normalizedSource);
+    if (starts.length > 1) return { status: 'unlocated', sourceText, reason: 'ambiguous' };
+    if (starts.length !== 1) continue;
+    const matchStart = starts[0];
+    const matchEnd = matchStart + normalizedSource.length;
+    return createLocatedSource(
+      markdown,
+      sourceText,
+      projection.originalIndices[matchStart],
+      projection.originalIndices[matchEnd - 1] + 1,
+      findParagraphs(markdown),
+    );
+  }
+  return { status: 'unlocated', sourceText, reason: 'not-found' };
+}
+
+function normalizeProjectedHtmlText(markdown: string): NormalizedText {
+  const characters: string[] = [];
+  const originalIndices: number[] = [];
+  for (let index = 0; index < markdown.length;) {
+    if (markdown[index] === '<') {
+      const closeIndex = markdown.indexOf('>', index + 1);
+      if (closeIndex >= 0) {
+        if (/^<br\b/i.test(markdown.slice(index, closeIndex + 1))) {
+          characters.push('\n');
+          originalIndices.push(index);
+        }
+        index = closeIndex + 1;
+        continue;
+      }
+    }
+    if (markdown.startsWith('&nbsp;', index)) {
+      characters.push(' ');
+      originalIndices.push(index);
+      index += 6;
+      continue;
+    }
+    characters.push(markdown[index]);
+    originalIndices.push(index);
+    index += 1;
+  }
+  const normalized = normalizeWhitespace(characters.join(''));
+  return {
+    text: normalized.text,
+    originalIndices: normalized.originalIndices.map((offset) => originalIndices[offset]),
+  };
+}
+
+function isScoreSuffix(value: string) {
+  return /^(?:（(?:客观分|主观分)）|\((?:客观分|主观分)\))$/u.test(value);
 }
 
 function findOccurrences(text: string, search: string) {

@@ -1,6 +1,8 @@
 const crypto = require('node:crypto');
 
 const TENDER_SOURCE_KINDS = new Set(['requirement', 'criterion', 'response-point']);
+const SOURCE_ID_PREFIX_RE = /^[A-Za-z]+\d+(?:-[A-Za-z]+\d+)*[：:]\s*/u;
+const TRAILING_SOURCE_PUNCTUATION_RE = /[。．.!！?？；;，,、:：]+$/u;
 
 function hashMarkdown(markdown) {
   return crypto.createHash('sha256').update(String(markdown || ''), 'utf8').digest('hex');
@@ -97,11 +99,16 @@ function createLocatedResult(markdown, sourceText, matchStart, matchEnd, matchMe
   };
 }
 
-function locateUniqueSourceText(markdownInput, sourceTextInput) {
+function locateUniqueSourceText(markdownInput, sourceTextInput, options = {}) {
   const markdown = String(markdownInput || '');
   const sourceText = String(sourceTextInput || '');
   if (!sourceText) {
     return { status: 'unlocated', reason: 'not-found', sourceText, occurrenceCount: 0 };
+  }
+
+  if (options.sourceKind === 'requirement') {
+    const tableResult = locateUniqueTableCellSourceText(markdown, sourceText);
+    if (tableResult.status === 'located' || tableResult.reason === 'ambiguous') return tableResult;
   }
 
   const exactPositions = findOccurrences(markdown, sourceText);
@@ -113,23 +120,134 @@ function locateUniqueSourceText(markdownInput, sourceTextInput) {
     return { status: 'unlocated', reason: 'ambiguous', sourceText, occurrenceCount: exactPositions.length };
   }
 
-  const normalizedMarkdown = normalizeWhitespace(markdown);
-  const normalizedSource = normalizeWhitespace(sourceText).text;
-  const normalizedPositions = findOccurrences(normalizedMarkdown.text, normalizedSource);
-  if (normalizedPositions.length !== 1) {
-    return {
-      status: 'unlocated',
-      reason: normalizedPositions.length > 1 ? 'ambiguous' : 'not-found',
-      sourceText,
-      occurrenceCount: normalizedPositions.length,
-    };
+  const candidates = [sourceText, normalizeSourceWrapper(sourceText)]
+    .filter((candidate, index, all) => candidate && all.indexOf(candidate) === index);
+  let lastOccurrenceCount = 0;
+  for (const candidate of candidates) {
+    const normalizedMarkdown = normalizeWhitespace(markdown);
+    const normalizedSource = normalizeWhitespace(candidate).text;
+    const normalizedPositions = findOccurrences(normalizedMarkdown.text, normalizedSource);
+    lastOccurrenceCount = normalizedPositions.length;
+    if (normalizedPositions.length > 1) {
+      return { status: 'unlocated', reason: 'ambiguous', sourceText, occurrenceCount: normalizedPositions.length };
+    }
+    if (normalizedPositions.length !== 1) continue;
+
+    const normalizedStart = normalizedPositions[0];
+    const normalizedEnd = normalizedStart + normalizedSource.length;
+    const matchStart = normalizedMarkdown.originalIndices[normalizedStart];
+    const matchEnd = normalizedMarkdown.originalIndices[normalizedEnd - 1] + 1;
+    return createLocatedResult(markdown, sourceText, matchStart, matchEnd, candidate === sourceText ? 'normalized-whitespace' : 'normalized-source');
   }
 
-  const normalizedStart = normalizedPositions[0];
-  const normalizedEnd = normalizedStart + normalizedSource.length;
-  const matchStart = normalizedMarkdown.originalIndices[normalizedStart];
-  const matchEnd = normalizedMarkdown.originalIndices[normalizedEnd - 1] + 1;
-  return createLocatedResult(markdown, sourceText, matchStart, matchEnd, 'normalized-whitespace');
+  const visibleResult = locateUniqueVisibleText(markdown, sourceText, candidates);
+  if (visibleResult.status === 'located' || visibleResult.reason === 'ambiguous') return visibleResult;
+
+  return {
+    status: 'unlocated',
+    reason: 'not-found',
+    sourceText,
+    occurrenceCount: lastOccurrenceCount,
+  };
+}
+
+function locateUniqueTableCellSourceText(markdown, sourceText) {
+  const candidates = [sourceText, normalizeSourceWrapper(sourceText)]
+    .filter((candidate, index, all) => candidate && all.indexOf(candidate) === index);
+  const normalizedSources = [...new Set(candidates.map((candidate) => normalizeWhitespace(candidate).text).filter(Boolean))];
+  if (!normalizedSources.length) return { status: 'unlocated', reason: 'not-found', sourceText, occurrenceCount: 0 };
+
+  const matches = [];
+  const cellPattern = /<td\b[^>]*>[\s\S]*?<\/td>/giu;
+  let cellMatch;
+  while ((cellMatch = cellPattern.exec(markdown)) !== null) {
+    const cellHtml = cellMatch[0];
+    const contentStart = cellMatch.index + cellHtml.indexOf('>') + 1;
+    const contentEnd = cellMatch.index + cellHtml.lastIndexOf('</td>');
+    const projection = normalizeProjectedHtmlText(markdown.slice(contentStart, contentEnd));
+    for (const normalizedSource of normalizedSources) {
+      const starts = findOccurrences(projection.text, normalizedSource);
+      if (starts.length !== 1) continue;
+      const matchStart = starts[0];
+      const matchEnd = matchStart + normalizedSource.length;
+      const trailingText = projection.text.slice(matchEnd).trim();
+      if (trailingText && !isScoreSuffix(trailingText)) continue;
+      matches.push({
+        matchStart: contentStart + projection.originalIndices[matchStart],
+        matchEnd: contentStart + projection.originalIndices[matchEnd - 1] + 1,
+      });
+      break;
+    }
+  }
+
+  if (matches.length > 1) return { status: 'unlocated', reason: 'ambiguous', sourceText, occurrenceCount: matches.length };
+  if (matches.length === 1) {
+    return createLocatedResult(markdown, sourceText, matches[0].matchStart, matches[0].matchEnd, 'table-cell');
+  }
+  return { status: 'unlocated', reason: 'not-found', sourceText, occurrenceCount: 0 };
+}
+
+function locateUniqueVisibleText(markdown, sourceText, candidates) {
+  const projection = normalizeProjectedHtmlText(markdown);
+  for (const candidate of candidates) {
+    const normalizedSource = normalizeWhitespace(candidate).text;
+    const starts = findOccurrences(projection.text, normalizedSource);
+    if (starts.length > 1) return { status: 'unlocated', reason: 'ambiguous', sourceText, occurrenceCount: starts.length };
+    if (starts.length !== 1) continue;
+    const matchStart = starts[0];
+    const matchEnd = matchStart + normalizedSource.length;
+    return createLocatedResult(
+      markdown,
+      sourceText,
+      projection.originalIndices[matchStart],
+      projection.originalIndices[matchEnd - 1] + 1,
+      'html-visible-text',
+    );
+  }
+  return { status: 'unlocated', reason: 'not-found', sourceText, occurrenceCount: 0 };
+}
+
+function normalizeProjectedHtmlText(markdown) {
+  const characters = [];
+  const originalIndices = [];
+  for (let index = 0; index < markdown.length;) {
+    if (markdown[index] === '<') {
+      const closeIndex = markdown.indexOf('>', index + 1);
+      if (closeIndex >= 0) {
+        if (/^<br\b/i.test(markdown.slice(index, closeIndex + 1))) {
+          characters.push('\n');
+          originalIndices.push(index);
+        }
+        index = closeIndex + 1;
+        continue;
+      }
+    }
+    if (markdown.startsWith('&nbsp;', index)) {
+      characters.push(' ');
+      originalIndices.push(index);
+      index += 6;
+      continue;
+    }
+    characters.push(markdown[index]);
+    originalIndices.push(index);
+    index += 1;
+  }
+  const normalized = normalizeWhitespace(characters.join(''));
+  return {
+    text: normalized.text,
+    originalIndices: normalized.originalIndices.map((offset) => originalIndices[offset]),
+  };
+}
+
+function isScoreSuffix(value) {
+  return /^(?:（(?:客观分|主观分)）|\((?:客观分|主观分)\))$/u.test(value);
+}
+
+function normalizeSourceWrapper(sourceText) {
+  return String(sourceText || '')
+    .replace(SOURCE_ID_PREFIX_RE, '')
+    .replace(TRAILING_SOURCE_PUNCTUATION_RE, '')
+    .trim();
 }
 
 function collectCanonicalSources(scorePlan) {
@@ -169,7 +287,7 @@ function attachScoreCoverageAnchors({ markdown: markdownInput, scorePlan, scoreC
       return [{ ...record, source_location_status: 'not-applicable' }];
     }
 
-    const located = locateUniqueSourceText(markdown, record.source_text);
+    const located = locateUniqueSourceText(markdown, record.source_text, { sourceKind: record.source_kind });
     if (located.status !== 'located') {
       return [{ ...record, source_location_status: located.reason }];
     }

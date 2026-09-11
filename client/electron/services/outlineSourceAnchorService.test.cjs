@@ -79,6 +79,33 @@ test('相互重叠的重复来源同样判定为不唯一', () => {
   assert.equal(result.occurrenceCount, 2);
 });
 
+test('来源带评分映射前缀和句末标点时仍可唯一定位原文', () => {
+  const markdown = '评分内容：政策背景、项目技术要求理解进行打分。';
+  const result = locateUniqueSourceText(markdown, 'R1-C1-P1：政策背景、项目技术要求理解。');
+
+  assert.equal(result.status, 'located');
+  assert.equal(result.matchMethod, 'normalized-source');
+  assert.equal(markdown.slice(result.matchStart, result.matchEnd), '政策背景、项目技术要求理解');
+});
+
+test('一级评分大项优先在评分表项目单元格中定位', () => {
+  const markdown = '响应文件目录：项目总体方案。\n<table><tbody><tr><td rowspan="3"><p>项目总体</p><p>方案</p></td><td><p>项目总体方案设计的科学性</p></td></tr></tbody></table>';
+  const result = locateUniqueSourceText(markdown, '项目总体方案', { sourceKind: 'requirement' });
+
+  assert.equal(result.status, 'located');
+  assert.equal(result.matchMethod, 'table-cell');
+  assert.equal(markdown.slice(result.matchStart, result.matchEnd), '项目总体</p><p>方案');
+});
+
+test('一级评分大项允许评分方式后缀并忽略评分目录中的同名文本', () => {
+  const markdown = '响应文件目录：人员配置情况（格式见第六章）。\n<table><tbody><tr><td rowspan="4"><p>人员配置情况（客观分）</p></td><td><p>项目负责人</p></td></tr></tbody></table>';
+  const result = locateUniqueSourceText(markdown, '人员配置情况', { sourceKind: 'requirement' });
+
+  assert.equal(result.status, 'located');
+  assert.equal(result.matchMethod, 'table-cell');
+  assert.equal(markdown.slice(result.matchStart, result.matchEnd), '人员配置情况');
+});
+
 test('覆盖映射使用权威评分清单校正来源并只给唯一招标来源生成锚点', () => {
   const markdown = '总体方案。\n\n供应商应提交实施方案。\n\n进度安排。\n\n总体方案。';
   const result = attachScoreCoverageAnchors({

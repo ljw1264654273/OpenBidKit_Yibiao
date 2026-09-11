@@ -23,7 +23,7 @@ interface ScoreSourceAnchor {
   match_end: number;
   context_start: number;
   context_end: number;
-  match_method: 'exact' | 'normalized-whitespace';
+  match_method: 'exact' | 'normalized-whitespace' | 'normalized-source' | 'table-cell' | 'html-visible-text';
 }
 ```
 
