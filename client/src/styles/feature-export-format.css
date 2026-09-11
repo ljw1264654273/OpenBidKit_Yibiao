@@ -219,6 +219,101 @@
   min-width: 0;
 }
 
+.mandatory-content-rules {
+  display: grid;
+  gap: 0;
+}
+
+.mandatory-content-rules-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 24px 36px 20px;
+  border-bottom: 1px solid var(--yb-border-soft);
+}
+
+.mandatory-content-rules-head > div {
+  display: grid;
+  gap: 6px;
+}
+
+.mandatory-content-rules-head strong {
+  color: var(--yb-text);
+  font-size: 17px;
+}
+
+.mandatory-content-rules-head span:not(.mandatory-content-rules-state) {
+  color: var(--yb-text-soft);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.mandatory-content-rules-state {
+  flex: 0 0 auto;
+  padding: 6px 10px;
+  color: #17613a;
+  font-size: 12px;
+  font-weight: 800;
+  background: #e9f7ef;
+  border: 1px solid #b8dfc8;
+  border-radius: var(--yb-radius-sm);
+}
+
+.mandatory-content-rules-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mandatory-content-rules-list li {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  gap: 14px;
+  min-width: 0;
+  padding: 22px 24px;
+  border-right: 1px solid var(--yb-border-soft);
+  border-bottom: 1px solid var(--yb-border-soft);
+}
+
+.mandatory-content-rule-index {
+  color: var(--yb-primary);
+  font-size: 13px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.mandatory-content-rule-copy {
+  display: grid;
+  min-width: 0;
+  gap: 8px;
+}
+
+.mandatory-content-rule-copy strong {
+  color: var(--yb-text);
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+.mandatory-content-rule-copy p {
+  margin: 0;
+  color: var(--yb-text-soft);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.mandatory-content-rule-copy code {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--yb-text);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
 .export-template-empty-tab {
   min-height: 280px;
   border-top: 1px solid var(--yb-border-soft);
@@ -1410,4 +1505,3 @@
   gap: 10px;
   margin-top: 6px;
 }
-

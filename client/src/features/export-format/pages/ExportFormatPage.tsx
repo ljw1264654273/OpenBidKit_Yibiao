@@ -38,8 +38,9 @@ import {
   applyExportLayoutPreset,
   applyExportThemePreset,
 } from '../exportFormatPresets';
+import { MANDATORY_BID_CONTENT_RULES } from '../mandatoryBidContentRules';
 
-type TemplateTab = 'quick' | 'layout' | 'cover' | 'heading' | 'body' | 'table' | 'image';
+type TemplateTab = 'quick' | 'content-rules' | 'layout' | 'cover' | 'heading' | 'body' | 'table' | 'image';
 type TableCellStyleKey = 'header_row' | 'first_column' | 'body_cell';
 
 interface ExportFormatPageProps {
@@ -50,6 +51,7 @@ interface ExportFormatPageProps {
 
 const templateTabs: Array<{ id: TemplateTab; label: string }> = [
   { id: 'quick', label: '快捷设置' },
+  { id: 'content-rules', label: '内容规范' },
   { id: 'layout', label: '布局设置' },
   { id: 'cover', label: '封皮' },
   { id: 'heading', label: '标题样式' },
@@ -750,6 +752,30 @@ function ExportFormatPage({ mode = 'create', templateId = null, onBack }: Export
     </>
   );
 
+  const renderContentRules = () => (
+    <div className="mandatory-content-rules">
+      <div className="mandatory-content-rules-head">
+        <div>
+          <strong>标书内容强制规范</strong>
+          <span>所有模板统一执行，保存模板时无需另行配置。</span>
+        </div>
+        <span className="mandatory-content-rules-state">强制执行</span>
+      </div>
+      <ol className="mandatory-content-rules-list">
+        {MANDATORY_BID_CONTENT_RULES.map((rule, index) => (
+          <li key={rule.id}>
+            <span className="mandatory-content-rule-index" aria-hidden="true">{String(index + 1).padStart(2, '0')}</span>
+            <div className="mandatory-content-rule-copy">
+              <strong>{rule.title}</strong>
+              <p>{rule.description}</p>
+              <code>{rule.example}</code>
+            </div>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+
   const renderLayoutSettings = () => (
     <>
       <div className="settings-list">
@@ -1227,6 +1253,7 @@ function ExportFormatPage({ mode = 'create', templateId = null, onBack }: Export
 
   const renderActiveSettings = () => {
     if (activeTab === 'quick') return renderQuickSettings();
+    if (activeTab === 'content-rules') return renderContentRules();
     if (activeTab === 'layout') return renderLayoutSettings();
     if (activeTab === 'heading') return renderHeadingSettings();
     if (activeTab === 'body') return renderBodySettings();
