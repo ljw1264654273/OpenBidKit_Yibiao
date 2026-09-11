@@ -1,82 +1,201 @@
-# STEP 01 快速标书配置前置设计
+# STEP 01 选择标书与快速配置设计
 
-## 背景
+## 1. 背景与问题
 
-- 竞品将"多标段、投标公司、标书篇幅、写作风格、风格预设、表格/图片/模板设置、防重检测"集中在一个"标书设置"页。对照当前代码，其中约半数能力不存在，其余分散在各步骤：
-  - 已有：投标范围（STEP 02 `bidSectionMode` + `startBidSectionExtraction`）、字数/页数控制（STEP 03 `OutlineWordControlOptions`）、表格密度与图片开关（STEP 05 `ContentGenerationOptions`，`tableRequirement` 默认 `heavy`，配图为 AI/Mermaid/HTML 三类开关加数量）。
-  - 不存在：投标公司库（当前仅有甲方信息解析，我方投标公司无结构化字段）、写作风格、风格预设、防重检测（独立"标书查重"功能不在此列）、DeepSeek 智能切言。
-- 真实痛点：
-  1. 标段判定滞后。`selectBidSection()` 会从 `tender-original.md` 重建 `tender.md` 并调用 `clearDownstreamFromBidSectionChange()` 清空下游；判定越晚，返工越贵。规则检测 `detectBidSections()`（`electron/utils/bidSectionDetector.cjs`）是纯本地正则、零 Token，上传完成即可给出结论。
-  2. 篇幅、表格、图片等生成约束要到 STEP 03 / STEP 05 才暴露，用户在 STEP 01-02 期间对成本与产出形态无感知。
-- 已确认决策：截图为竞品参考，不照抄整页；接受"STEP 01 早选、后续步骤仍可改"的语义，即前置不改变生效时机。
+当前版本在 `DocumentAnalysisPage` 中新增了快速配置，但采用了四张自适应卡片、纵向图片开关和独立的卡片说明，导致页面与确认原型的主要差异：
 
-## 目标
+- 原型要求“上传区 → 标段状态 → 连续配置面板 → 招标文件内容”的纵向工作流。
+- 当前实现把快速配置拆成卡片网格，破坏了四项配置的横向对齐和信息扫描顺序。
+- 上传行沿用了通用的“序号 + 内容 + 右侧动作”结构，原型需要单行文件胶囊和右侧固定的“继续上传”。
+- 当前页数档位是 30/50/80/100 页，与原型的七档范围不一致。
+- 当前图片配置使用纵向 `AppSwitch`，原型使用横向状态胶囊，且原型默认展示为 AI 配图、Mermaid 图开启，HTML 图关闭。
 
-1. STEP 01 上传招标文件后立即执行本地规则标段检测，以提示条引导确认投标范围。
-2. STEP 01 增加"快速配置"区，承载 4 项已有配置：投标范围、标书篇幅、表格密度、图片开关。
-3. 早选不早生效：所有配置写入现有字段，STEP 03 的 `outlineWordControlSnapshot` 固化时机与 STEP 05 的生成配置语义不变。
-4. STEP 02 已选定标段时，投标范围配置降级为只读展示 + 更换入口。
-5. `technical-plan` 与 `existing-plan-expansion` 两个入口同步生效并验证。
+本次设计稿以仓库中的正式原型为视觉基准：
 
-## 非目标
+- 原型文件：`docs/design-preview/step01-quick-config-mockup.html`
+- 确认稿：`.superpowers/brainstorm/20260912-step01-design/step01-redesign-v1.html`
 
-- 不合并 STEP 01 / STEP 02，步骤数保持 6 步。
-- 不实现竞品特有的写作风格、风格预设、投标公司库、防重检测、DeepSeek 智能切言（列入 backlog，另行立项）。
-- 不改 `outlineWordControlOptions -> outlineWordControlSnapshot` 固化机制与 `saveOutline()` 持久化协议。
-- 不动 `taskService` 的任务定义、组内互斥与中断恢复逻辑。
-- 不新增 Analytics 事件结构，不修改 Dashboard 聚合逻辑。
+## 2. 目标
 
-## 方案
+1. 将新建技术方案入口的 STEP 01 重构为与确认稿一致的连续面板布局。
+2. 保留现有上传、文件解析、标段识别、配置保存和 Markdown 正文预览能力。
+3. 使投标范围、篇幅、表格密度和图片设置在 STEP 01 早选，并与后续步骤使用同一份正式状态。
+4. 同时适配 `technical-plan` 和 `existing-plan-expansion` 两个工作流入口。
+5. 保持页面内部滚动、底部 `FloatingToolbar` 和现有 Electron IPC 边界不变。
 
-### 1. 标段检测前置（Main 侧）
+## 3. 非目标
 
-- `technicalPlanStore.importTenderDocument()` 与 `removeTenderDocument()` 成功返回前，对合并后的 Markdown 执行 `detectBidSections()`，返回值新增 `bidSectionDetection: { hasMultiple: boolean; totalDeclared: number | null }`。
-- 检测结果仅在返回值中携带，不落库、不创建任务；随 `tender-original.md` 变化自然失效。
-- Renderer 在 `onFileImported` 后依据该结果渲染提示条。
-- `checkBidSections()` IPC 与 STEP 02 `startAnalysis()` 内的规则校验保留，作为兜底。
+- 不合并 STEP 01 与 STEP 02，仍保持六步工作流。
+- 不新增投标公司库、写作风格、风格预设、防重检测或 DeepSeek 智能切言。
+- 不修改 `outlineWordControlOptions` 到 `outlineWordControlSnapshot` 的固化时机。
+- 不修改 `saveOutline()` 的 `reason` 协议、正文失效规则或任务恢复策略。
+- 不新增普通埋点协议，不删除或绕过现有 Analytics。
+- 不把本地检测结果作为新的持久化字段。
 
-### 2. STEP 01 快速配置区（Renderer）
+## 4. 页面结构
 
-- 位置：`UploadBoard` 之下、Markdown 预览之上，条式布局（复用 `analysis-section-hint` 风格），不破坏 STEP 01 单主区结构。
-- 每个条目为"名称 + 当前值摘要 + 操作入口"：
-  - **投标范围**：摘要显示 `单标段` / `多标段 · {selectedSectionTitle}`。检测 `hasMultiple=true` 且未选标段时高亮；点击引导打开多标段识别，复用 `startBidSectionExtraction` 与 `BidSectionSelectorDialog`；AI 识别仍需显式确认触发，不自动执行。
-  - **标书篇幅**：映射 `OutlineWordControlOptions`，摘要显示当前字数范围与预估页数。提供页数阶梯快捷档（约 50-100 / 100-200 / 200-350 / 350-500 / 500-800 / 800-1200 / 1200-1500 页），选择后按共享换算常量回填 `minimumWords` / `maximumWords`；STEP 03 保留精确输入。
-  - **表格密度**：映射 `ContentGenerationOptions.tableRequirement`，四档对应"无表格 / 少量 / 适中 / 丰富"。
-  - **图片设置**：映射 `ContentGenerationOptions` 的 `useAiImages` / `useMermaidImages` / `useHtmlImages` 开关摘要。
-- 写入路径复用现有 IPC：篇幅走 `technicalPlan.saveOutlineConfig`（wordControl 字段），表格与图片走 `technicalPlan.saveContentGenerationOptions`；不新建通道、不新建平行存储。
-- STEP 03 / STEP 05 继续展示并允许修改同一份数据，两处编辑互相同步。
+### 4.1 页面整体
 
-### 3. STEP 02 投标范围配置调整
+STEP 01 页面保持当前工作台的步骤条和底部悬浮操作条。主体从上到下排列：
 
-- 已有 `selectedSectionTitle` 时，解析配置弹窗的"投标范围"区显示只读标段 chip + "更换"按钮，移除单/多标段切换的重复入口。
-- 未选标段时维持现状：多标段识别 + 标段选择流程不变，`sectionModeWarning` 二次确认弹窗保留。
+1. 招标文件上传面板。
+2. 标段状态提示条，仅在检测到多标段或已有选定标段时出现。
+3. 快速配置连续面板。
+4. 招标文件 Markdown 正文预览。
 
-### 4. 状态与恢复
+页面根容器必须保持 `height: 100%`、`min-height: 0`，正文阅读器在页面内部滚动，不依赖 `body` 滚动。配置面板不采用卡片嵌套卡片，也不使用四列自适应网格。
 
-- 快速配置区读取 Store 快照 + 订阅 `tasks.onTaskEvent()`；页面卸载不取消任务，重新挂载从 Store 与活动任务回放。
-- 多标段识别任务运行中，投标范围条目显示识别状态并禁止重复触发。
-- 应用重启后依据 `bidSectionMode` / `selectedSectionTitle` / 字数与生成配置快照恢复展示；标段检测为毫秒级本地计算，重新挂载时直接重跑，不做缓存。
+### 4.2 上传面板
 
-### 5. 埋点
+上传面板使用单个完整面板：
 
-- 页面埋点沿用 `${workflowKind}/document-analysis`，Dashboard 无需变更。
-- 快速配置条目操作复用 `trackConfigUsage`，新增字段如 `step01_quick_config: 'bid-section' | 'word-control' | 'table-density' | 'illustration'`，同步登记 `shared/analytics/analytics.ts` 的字段映射表。
+- 标题行左侧：`STEP 01` + `选择标书`。
+- 标题行右侧：`支持多份招标文件合并解析`。
+- 文件区为一条横向虚线边框行。
+- 行内左侧固定显示 `招标文件`。
+- 已导入文件使用横向文件胶囊显示：格式徽标、文件名、解析方式、字数和移除按钮。
+- 右侧固定显示 `继续上传`；没有文件时仍保留相同位置的上传动作。
+- 不在该面板标题下增加“先选好这些常用参数”等引导性段落。
 
-## 风险与边界
+`existing-plan-expansion` 继续显示“原方案”上传能力。其具体文件交互不变，但布局应与统一面板风格一致；招标文件与原方案正文继续通过现有正文切换逻辑查看。
 
-- 页数阶梯与字数换算必须与 STEP 03 预估页数共用同一常量，避免两处口径不一致。
-- STEP 01 修改图片开关或表格密度时，必须沿用 STEP 05 现有保存与失效链路（配图配置变更会清空全文图片计划），不得绕过。
-- 正文生成任务运行期间修改生成配置的互斥规则与 STEP 05 现状保持一致，不在 STEP 01 放宽。
+### 4.3 标段状态提示
 
-## 验证
+标段提示条为全宽状态条：
 
-1. Main：对改动的 `.cjs` 执行 `node --check`；`detectBidSections` 现有行为回归。
-2. Renderer：`cd client && npm run build`。
-3. `npm run dev` 手动链路：
-   - 单标段文件：无提示条，快速配置可修改，STEP 03 / STEP 05 显示一致。
-   - 多标段文件：提示条出现 -> 显式触发识别 -> 选择标段 -> `tender.md` 重建与下游清空提示 -> STEP 02 显示只读 chip。
-   - STEP 03 修改字数后返回 STEP 01，摘要同步。
-   - `existing-plan-expansion` 入口全流程复验（含原方案上传行共存布局）。
-   - 识别任务运行中重启应用，恢复展示正常。
-4. Windows 中文路径目录导入招标文件。
-5. 涉及 Store 改动时运行 `npm run smoke:electron-native`。
+- 已选状态使用绿色背景、绿色边框和确认语义：
+  `已选择 一标段。后续步骤将仅使用该投标范围，如需更换请在此调整。`
+- 检测到多个标段但尚未选择时使用警示背景：
+  `检测到疑似 N 个标段。切换投标范围会重建工作副本并清空下游解析结果，建议先确认本次投标范围。`
+- 右侧动作分别为 `更换标段` / `确认投标范围`。
+- 按钮复用现有标段识别和 `BidSectionSelectorDialog`，不自动触发需要 Token 的识别任务。
+- 单标段且未触发多标段识别时不显示提示条。
+
+### 4.4 快速配置面板
+
+快速配置使用一个连续面板，不拆分为子卡片。面板标题行：
+
+- 左侧：紫色 `快速配置` + `本次标书的生成约束`。
+- 右侧：`早选不早生效：STEP 03 目录生成、STEP 05 正文生成时仍可调整`。
+
+下面四项均为整行设置，左侧标签列宽度固定，右侧内容区自适应：
+
+#### 投标范围
+
+- 标签：`投标范围`，辅助文案：`决定下游全部输入`。
+- 当前值显示 `单标段` 或 `多标段 · {selectedSectionTitle}`。
+- 已选标段显示“更换标段”。
+- 多标段待选择显示“选择标段”，并与提示条使用同一选择流程。
+- 已选标段后，STEP 02 中保持只读标段摘要 + 更换入口，避免重复出现单/多标段切换。
+
+#### 标书篇幅
+
+- 标签：`标书篇幅`，辅助文案：`字数控制预设`。
+- 提供以下七个胶囊档位：
+  - `约50-100页`
+  - `约100-200页`
+  - `约200-350页`
+  - `约350-500页`
+  - `约500-800页`
+  - `约800-1200页`
+  - `约1200-1500页`
+- 选中态使用浅蓝底、蓝色边框和蓝色文字，不使用四张卡片中的实心大按钮。
+- 下方显示全文字数换算和说明：`STEP 03 可精确调整上下限与单节字数`。
+- 持久化仍写入 `outlineWordControlOptions`，STEP 03 继续提供精确输入。
+- 页数标签、字数换算和 STEP 03 预估页数必须共用一个换算口径。实施时优先抽取 STEP 03 已有常量，避免两处算法独立演进。
+
+#### 表格密度
+
+- 标签：`表格密度`，辅助文案：`正文表格要求`。
+- 使用一个连续分段控件：`无表格 / 少量 / 适中 / 丰富`。
+- 选中段为蓝色背景和白色文字。
+- 右侧显示 `对应 STEP 05 生成配置`。
+- 持久化仍写入 `contentGenerationOptions.tableRequirement`。
+
+#### 图片设置
+
+- 标签：`图片设置`，辅助文案：`配图类型开关`。
+- 使用三个横向状态胶囊：
+  - `AI 配图`
+  - `Mermaid 图`
+  - `HTML 图`
+- 开启态为浅绿色背景、绿色边框、绿色圆点；关闭态为白色背景、灰色圆点。
+- 右侧显示 `修改后沿用现有失效规则（清空全文图片计划）`。
+- 显示和保存分别映射到 `useAiImages`、`useMermaidImages`、`useHtmlImages`。
+- 当已有配置为空时，首次展示默认采用原型状态：AI 配图开启、Mermaid 图开启、HTML 图关闭；已有持久化值必须优先保留。
+
+### 4.5 招标文件正文
+
+- 保留现有 `MarkdownFullscreenViewer` 和 `MarkdownRenderer`。
+- 正文面板标题为 `招标文件内容`，右侧显示当前文件名和字数。
+- 多份招标文件、扩写模式原方案的切换能力保持现状。
+- AI 或远程内容若进入该区域，不改变现有 `MarkdownRenderer` 的可信内容策略；本地招标原文继续按当前行为展示。
+
+## 5. 数据流与行为
+
+### 5.1 文件导入与多标段检测
+
+- `technicalPlanStore.importTenderDocument()` 和 `removeTenderDocument()` 对合并后的 Markdown 继续调用现有 `detectBidSections()`。
+- `bidSectionDetection` 仅作为导入结果的临时返回值，由 `DocumentAnalysisPage` 本地状态展示，不进入 `TechnicalPlanState`，不落库。
+- `checkBidSections()` 和 STEP 02 的任务校验继续保留，作为正式流程兜底。
+- 选择标段继续调用 `selectBidSection()`，由 Main 从 `tender-original.md` 重建 `tender.md` 并按既有规则清空下游，不在 Renderer 复制清理逻辑。
+
+### 5.2 配置保存
+
+- 篇幅档位复用 `technicalPlan.saveOutlineConfig()`，只更新现有 word control 字段，其余目录配置从当前状态带入。
+- 表格密度和图片开关复用 `technicalPlan.saveContentGenerationOptions()`。
+- 保存成功后由现有状态回写机制更新页面摘要，保存失败走 `useToast()` 错误提示。
+- 页面卸载不取消任何后台任务。
+- 正文生成期间的配置互斥和禁用规则沿用 STEP 05 现状。
+
+### 5.3 后续步骤同步
+
+- STEP 03 读取同一份 `outlineWordControlOptions`，并在生成目录时固化 `outlineWordControlSnapshot`。
+- STEP 05 读取同一份 `contentGenerationOptions`。
+- 任何配置变更触发的配图计划清理继续由 Main Store 负责，Renderer 不另写失效逻辑。
+
+## 6. 组件与文件边界
+
+优先修改以下文件，避免扩大共享组件影响面：
+
+- `client/src/features/technical-plan/pages/DocumentAnalysisPage.tsx`
+  - 重排 STEP 01 DOM。
+  - 将快速配置从卡片网格改成连续四行。
+  - 保留现有上传、标段选择、保存回调和正文阅读逻辑。
+- `client/src/features/technical-plan/pages/TechnicalPlanHome.tsx`
+  - 仅在确有需要时调整传参或保存回调，不重复实现业务逻辑。
+- `client/src/styles/feature-technical-plan.css`
+  - 删除或覆盖当前 `.quick-config-grid`、`.quick-config-card*` 的 STEP 01 专用布局。
+  - 增加上传单行、状态条、连续配置行和响应式样式。
+- `client/src/styles/shared-upload.css`
+  - 仅在现有共享上传组件无法表达原型单行布局时做兼容性最小调整，避免影响查重和废标页面。
+- `client/src/features/technical-plan/services/workflowLayout.test.ts`
+  - 增加页面结构约束测试，防止快速配置回退为卡片网格。
+- `client/src/shared/types/ipc.ts`、`client/electron/services/technicalPlanStore.cjs`
+  - 只有现有导入结果类型或标段检测返回尚未完整接线时才修改；不新增持久化字段。
+
+## 7. 验证
+
+### 自动验证
+
+- 改动 Renderer/TypeScript 后执行：
+  `cd client; npm run build`
+- 如改动 Electron Main：
+  `cd client; node --check electron\services\technicalPlanStore.cjs`
+  然后执行 `npm run build`。
+- 如改动 Store 或 native 相关逻辑，追加：
+  `cd client; npm run smoke:electron-native`
+- 定向执行相关布局测试：
+  `cd client; node --test src\features\technical-plan\services\workflowLayout.test.ts`
+
+### 手动验证
+
+1. 打开新建技术方案 STEP 01，确认上传区、绿色选中提示、四行连续配置和正文预览的顺序与确认稿一致。
+2. 切换到多标段待选择状态，确认提示条变为警示态，按钮可以打开现有标段选择弹窗。
+3. 选择七档篇幅、四档表格密度和三个图片胶囊，确认保存后立即回显。
+4. 进入 STEP 03 和 STEP 05，再返回 STEP 01，确认配置值保持一致。
+5. 选定标段后确认 STEP 02 只显示当前标段和更换入口。
+6. 导入多份招标文件，确认文件胶囊横向排列，继续上传和移除操作正常。
+7. 进入 `existing-plan-expansion`，确认原方案上传和正文切换不被破坏。
+8. 检查窄窗口：配置行可以换行，文件名不撑破布局，底部操作条不遮挡正文。
+9. 使用 Windows 中文路径导入文件，确认现有解析链路不受影响。

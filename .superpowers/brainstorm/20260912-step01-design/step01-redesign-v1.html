@@ -1,0 +1,791 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>STEP 01 选择标书 · 重新设计稿</title>
+<style>
+  :root {
+    --blue: #2174fd;
+    --blue-deep: #155bd7;
+    --blue-soft: #edf4ff;
+    --bg: #f7f9fc;
+    --surface: #fff;
+    --border: #e1e7f0;
+    --border-soft: #edf1f6;
+    --text: #182235;
+    --text-soft: #66738a;
+    --text-muted: #9aa7b9;
+    --success: #168a4a;
+    --success-soft: #e9f7ef;
+    --success-border: #bfe5cd;
+    --warning: #ad6900;
+    --warning-soft: #fff8e9;
+    --warning-border: #f1d49c;
+    --violet: #5b54d3;
+    --shadow: 0 10px 28px rgba(34, 52, 86, .06);
+    --radius: 12px;
+    --control-radius: 8px;
+    --pill: 999px;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { min-height: 100%; margin: 0; }
+  body {
+    font-family: "PingFang SC", "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
+    color: var(--text);
+    background: var(--bg);
+    font-size: 14px;
+    line-height: 1.55;
+  }
+  button { font: inherit; }
+
+  .review-strip {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 38px;
+    padding: 8px 24px;
+    color: var(--text-soft);
+    background: linear-gradient(90deg, #eef5ff, #f3f2ff);
+    border-bottom: 1px solid var(--border-soft);
+    font-size: 12px;
+  }
+  .review-strip strong { color: var(--blue-deep); }
+  .review-strip .spacer { flex: 1; }
+  .state-switch {
+    display: inline-flex;
+    gap: 4px;
+    padding: 3px;
+    background: rgba(255, 255, 255, .72);
+    border: 1px solid var(--border);
+    border-radius: var(--pill);
+  }
+  .state-switch button {
+    padding: 3px 10px;
+    color: var(--text-soft);
+    background: transparent;
+    border: 0;
+    border-radius: var(--pill);
+    cursor: pointer;
+    font-size: 11px;
+  }
+  .state-switch button.active {
+    color: #fff;
+    background: var(--blue);
+  }
+
+  .steps-bar {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    min-height: 56px;
+    padding: 10px 28px;
+    overflow-x: auto;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .step-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    color: var(--text-muted);
+    border-radius: var(--pill);
+    white-space: nowrap;
+  }
+  .step-item .num {
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    color: var(--text-soft);
+    background: #f0f3f8;
+    border-radius: 50%;
+    font-size: 11px;
+  }
+  .step-item.active {
+    color: var(--blue-deep);
+    background: var(--blue-soft);
+    font-weight: 700;
+  }
+  .step-item.active .num {
+    color: #fff;
+    background: var(--blue);
+  }
+  .step-arrow { color: #cbd4e1; }
+
+  .command-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    min-height: 58px;
+    padding: 10px 28px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+  .command-title {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    min-width: 0;
+  }
+  .command-title strong { font-size: 16px; }
+  .command-title span,
+  .command-bar > span { color: var(--text-muted); font-size: 12px; }
+
+  main {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    width: min(1240px, calc(100% - 40px));
+    margin: 0 auto;
+    padding: 18px 0 104px;
+  }
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+  }
+
+  .upload-panel { padding: 15px 16px 16px; }
+  .panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 10px;
+  }
+  .panel-title {
+    display: flex;
+    align-items: baseline;
+    gap: 9px;
+  }
+  .kicker {
+    color: var(--blue);
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: .06em;
+  }
+  .panel-title strong { font-size: 17px; }
+  .panel-head small { color: var(--text-muted); font-size: 12px; }
+  .upload-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 62px;
+    padding: 10px 12px 10px 16px;
+    border: 1px dashed #dce4ef;
+    border-radius: var(--control-radius);
+  }
+  .upload-label {
+    flex: 0 0 72px;
+    color: var(--text);
+    font-weight: 700;
+  }
+  .file-list {
+    display: flex;
+    flex: 1;
+    flex-wrap: wrap;
+    gap: 7px;
+    min-width: 0;
+  }
+  .file-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 0;
+    max-width: 100%;
+    padding: 5px 10px 5px 8px;
+    color: var(--text);
+    background: #fbfcfe;
+    border: 1px solid var(--border);
+    border-radius: var(--pill);
+    white-space: nowrap;
+  }
+  .file-badge {
+    padding: 1px 5px;
+    color: var(--blue-deep);
+    background: #e9f1ff;
+    border-radius: 5px;
+    font-size: 11px;
+    font-weight: 800;
+  }
+  .file-name {
+    max-width: 310px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .file-meta { color: var(--text-muted); font-size: 12px; }
+  .file-remove {
+    padding: 0 2px;
+    color: var(--text-muted);
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+    line-height: 1;
+  }
+  .file-remove:hover { color: #c53737; }
+
+  .btn {
+    flex: 0 0 auto;
+    padding: 7px 16px;
+    color: var(--text);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--control-radius);
+    cursor: pointer;
+    font-size: 13px;
+    transition: .14s ease;
+  }
+  .btn:hover { color: var(--blue); border-color: var(--blue); }
+  .btn.primary {
+    color: #fff;
+    background: var(--blue);
+    border-color: var(--blue);
+  }
+  .btn.primary:hover { background: #4098fc; border-color: #4098fc; }
+
+  .section-hint {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    min-height: 58px;
+    padding: 10px 16px;
+    border: 1px solid var(--success-border);
+    border-radius: var(--radius);
+    color: #34734e;
+    background: var(--success-soft);
+  }
+  .section-hint.pending {
+    color: #7a5200;
+    background: var(--warning-soft);
+    border-color: var(--warning-border);
+  }
+  .section-hint .icon {
+    display: inline-flex;
+    flex: 0 0 auto;
+    color: var(--success);
+  }
+  .section-hint.pending .icon { color: var(--warning); }
+  .section-hint .message { flex: 1; min-width: 0; }
+  .section-hint strong { color: var(--success); }
+  .section-hint.pending strong { color: var(--warning); }
+
+  .config-panel { overflow: hidden; }
+  .config-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    min-height: 58px;
+    padding: 10px 18px;
+    background: linear-gradient(180deg, #fbfdff, #f8fafd);
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .config-head .left {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  .config-head .kicker { color: var(--violet); }
+  .config-head strong { font-size: 16px; }
+  .config-head small {
+    color: var(--text-muted);
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  .config-row {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    min-height: 72px;
+    padding: 11px 18px;
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .config-row:last-child { border-bottom: 0; }
+  .config-label {
+    display: flex;
+    flex: 0 0 120px;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .config-label strong { font-size: 15px; }
+  .config-label small { color: var(--text-muted); font-size: 12px; }
+  .config-body {
+    display: flex;
+    align-items: center;
+    flex: 1;
+    flex-wrap: wrap;
+    gap: 9px;
+    min-width: 0;
+  }
+  .config-summary { color: var(--text-soft); font-size: 13px; }
+  .config-summary em {
+    color: var(--text);
+    font-style: normal;
+    font-weight: 700;
+  }
+  .config-summary.pending em { color: var(--warning); }
+  .config-body .spacer { flex: 1; }
+  .config-note {
+    width: 100%;
+    color: var(--text-muted);
+    font-size: 12px;
+  }
+  .config-note em {
+    color: var(--text-soft);
+    font-style: normal;
+  }
+  .ladder {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
+  }
+  .ladder button,
+  .toggle-pill {
+    padding: 5px 12px;
+    color: var(--text-soft);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--pill);
+    cursor: pointer;
+    font-size: 13px;
+    transition: .14s ease;
+  }
+  .ladder button:hover,
+  .toggle-pill:hover { color: var(--blue); border-color: var(--blue); }
+  .ladder button.active {
+    color: var(--blue-deep);
+    background: var(--blue-soft);
+    border-color: var(--blue);
+    font-weight: 700;
+  }
+  .segmented {
+    display: inline-flex;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: var(--control-radius);
+  }
+  .segmented button {
+    min-width: 70px;
+    padding: 6px 13px;
+    color: var(--text-soft);
+    background: var(--surface);
+    border: 0;
+    border-right: 1px solid var(--border-soft);
+    cursor: pointer;
+    font-size: 13px;
+  }
+  .segmented button:last-child { border-right: 0; }
+  .segmented button.active {
+    color: #fff;
+    background: var(--blue);
+    font-weight: 700;
+  }
+  .toggle-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .toggle-pill .dot {
+    width: 8px;
+    height: 8px;
+    background: #dce3ed;
+    border-radius: 50%;
+  }
+  .toggle-pill.active {
+    color: #2c6e42;
+    background: var(--success-soft);
+    border-color: #82c99e;
+  }
+  .toggle-pill.active .dot { background: var(--success); }
+
+  .reader-panel {
+    display: flex;
+    flex-direction: column;
+    min-height: 330px;
+    overflow: hidden;
+  }
+  .reader-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    min-height: 58px;
+    padding: 10px 18px;
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .reader-head strong { font-size: 16px; }
+  .reader-head span { color: var(--text-muted); font-size: 12px; }
+  .reader-body {
+    flex: 1;
+    min-height: 0;
+    padding: 16px 20px 24px;
+    overflow: hidden;
+    color: var(--text-soft);
+    font-size: 14px;
+  }
+  .reader-body h3 {
+    margin: 0 0 7px;
+    color: var(--text);
+    font-size: 16px;
+  }
+  .reader-body h3:not(:first-child) { margin-top: 18px; }
+  .reader-body p { margin: 0 0 8px; }
+  .reader-body .muted { color: var(--text-muted); }
+
+  .floating-toolbar {
+    position: fixed;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    display: flex;
+    justify-content: center;
+    padding: 13px 20px 16px;
+    background: linear-gradient(180deg, rgba(247,249,252,0), rgba(247,249,252,.9) 38%, var(--bg));
+    pointer-events: none;
+  }
+  .floating-toolbar .inner {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 6px 8px;
+    background: rgba(255,255,255,.96);
+    border: 1px solid var(--border);
+    border-radius: var(--pill);
+    box-shadow: 0 8px 28px rgba(34,52,86,.1);
+    pointer-events: auto;
+  }
+  .step-tip { padding: 0 8px; color: var(--text-muted); font-size: 12px; }
+  .round { border-radius: var(--pill); }
+  .disabled { opacity: .42; cursor: not-allowed; }
+
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: rgba(24,34,53,.34);
+    z-index: 5;
+  }
+  .modal-backdrop.open { display: flex; }
+  .modal {
+    width: min(560px, 100%);
+    overflow: hidden;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: 0 20px 60px rgba(24,34,53,.22);
+  }
+  .modal-head { padding: 18px 20px 10px; }
+  .modal-head .kicker { font-size: 11px; }
+  .modal-head strong { display: block; margin-top: 3px; font-size: 17px; }
+  .modal-desc { padding: 0 20px 12px; color: var(--text-muted); font-size: 13px; }
+  .section-list { display: grid; gap: 8px; padding: 0 20px 16px; }
+  .section-option {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 11px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--control-radius);
+    cursor: pointer;
+  }
+  .section-option.active {
+    color: var(--blue-deep);
+    background: var(--blue-soft);
+    border-color: var(--blue);
+  }
+  .radio {
+    width: 16px;
+    height: 16px;
+    border: 1px solid var(--border);
+    border-radius: 50%;
+  }
+  .section-option.active .radio {
+    border: 4px solid var(--blue);
+  }
+  .section-option .info { display: grid; gap: 2px; }
+  .section-option .info strong { font-size: 14px; }
+  .section-option .info small { color: var(--text-muted); font-size: 12px; }
+  .modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 14px 20px;
+    border-top: 1px solid var(--border-soft);
+  }
+
+  @media (max-width: 820px) {
+    main { width: min(100% - 20px, 1240px); padding-top: 10px; }
+    .review-strip { padding: 8px 12px; }
+    .review-strip > span:not(.spacer):not(.state-switch) { display: none; }
+    .steps-bar, .command-bar { padding-right: 14px; padding-left: 14px; }
+    .command-title { display: grid; gap: 2px; }
+    .config-head, .config-row { align-items: flex-start; }
+    .config-head { display: grid; gap: 2px; }
+    .config-head small { white-space: normal; }
+    .config-row { display: grid; gap: 8px; }
+    .config-label { flex-basis: auto; }
+    .upload-row { align-items: flex-start; flex-wrap: wrap; }
+    .upload-label { flex-basis: 100%; }
+    .upload-row > .btn { margin-left: auto; }
+    .reader-head { align-items: flex-start; flex-direction: column; gap: 2px; }
+    .floating-toolbar .inner { max-width: calc(100vw - 20px); }
+    .floating-toolbar .step-tip { display: none; }
+    .floating-toolbar .btn { min-width: 0; padding: 7px 12px; }
+  }
+</style>
+</head>
+<body>
+  <div class="review-strip">
+    <strong>设计确认稿</strong>
+    <span>按 step01-quick-config-mockup 重绘：上传区、状态提示、连续配置面板、正文预览。</span>
+    <span class="spacer"></span>
+    <div class="state-switch" aria-label="切换设计状态">
+      <button type="button" data-mode="selected" class="active">已选择标段</button>
+      <button type="button" data-mode="pending">待选择标段</button>
+    </div>
+  </div>
+
+  <nav class="steps-bar" aria-label="标书生成步骤">
+    <span class="step-item active"><span class="num">1</span>选择标书</span>
+    <span class="step-arrow">›</span>
+    <span class="step-item"><span class="num">2</span>招标文件解析</span>
+    <span class="step-arrow">›</span>
+    <span class="step-item"><span class="num">3</span>目录生成</span>
+    <span class="step-arrow">›</span>
+    <span class="step-item"><span class="num">4</span>全局事实设定</span>
+    <span class="step-arrow">›</span>
+    <span class="step-item"><span class="num">5</span>生成正文</span>
+    <span class="step-arrow">›</span>
+    <span class="step-item"><span class="num">6</span>扩写改写</span>
+  </nav>
+
+  <div class="command-bar">
+    <div class="command-title">
+      <strong>选择标书</strong>
+      <span>上传招标文件，解析结果与投标范围将作为后续所有步骤的输入</span>
+    </div>
+    <span>默认解析方案：本地解析</span>
+  </div>
+
+  <main>
+    <section class="panel upload-panel">
+      <div class="panel-head">
+        <div class="panel-title"><span class="kicker">STEP 01</span><strong>选择标书</strong></div>
+        <small>支持多份招标文件合并解析</small>
+      </div>
+      <div class="upload-row">
+        <span class="upload-label">招标文件</span>
+        <div class="file-list">
+          <span class="file-pill">
+            <span class="file-badge">MD</span>
+            <span class="file-name">招标文件-九龙坡区土地延包.docx</span>
+            <span class="file-meta">本地解析 · 18.6 万字</span>
+            <button class="file-remove" type="button" aria-label="移除招标文件">×</button>
+          </span>
+          <span class="file-pill">
+            <span class="file-badge">MD</span>
+            <span class="file-name">答疑补遗-第2次.docx</span>
+            <span class="file-meta">本地解析 · 1.2 万字</span>
+            <button class="file-remove" type="button" aria-label="移除答疑补遗">×</button>
+          </span>
+        </div>
+        <button class="btn" type="button">继续上传</button>
+      </div>
+    </section>
+
+    <section class="section-hint" id="sectionHint">
+      <span class="icon" aria-hidden="true">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 9v4"></path><path d="M12 17h.01"></path>
+          <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"></path>
+        </svg>
+      </span>
+      <span class="message" id="sectionMessage"><strong>已选择 一标段。</strong> 后续步骤将仅使用该投标范围，如需更换请在此调整。</span>
+      <button class="btn" id="sectionAction" type="button">更换标段</button>
+    </section>
+
+    <section class="panel config-panel">
+      <header class="config-head">
+        <div class="left"><span class="kicker">快速配置</span><strong>本次标书的生成约束</strong></div>
+        <small>早选不早生效：STEP 03 目录生成、STEP 05 正文生成时仍可调整</small>
+      </header>
+
+      <div class="config-row">
+        <div class="config-label"><strong>投标范围</strong><small>决定下游全部输入</small></div>
+        <div class="config-body">
+          <span class="config-summary" id="scopeSummary">当前：<em>多标段 · 一标段</em></span>
+          <span class="spacer"></span>
+          <button class="btn" id="scopeButton" type="button">更换标段</button>
+        </div>
+      </div>
+
+      <div class="config-row">
+        <div class="config-label"><strong>标书篇幅</strong><small>字数控制预设</small></div>
+        <div class="config-body">
+          <div class="ladder" id="ladder">
+            <button type="button" data-range="50-100">约50-100页</button>
+            <button type="button" data-range="100-200">约100-200页</button>
+            <button type="button" data-range="200-350" class="active">约200-350页</button>
+            <button type="button" data-range="350-500">约350-500页</button>
+            <button type="button" data-range="500-800">约500-800页</button>
+            <button type="button" data-range="800-1200">约800-1200页</button>
+            <button type="button" data-range="1200-1500">约1200-1500页</button>
+            <span class="config-note" id="ladderNote">换算为全文 <em>10 - 17.5 万字</em>，STEP 03 可精确调整上下限与单节字数。</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="config-row">
+        <div class="config-label"><strong>表格密度</strong><small>正文表格要求</small></div>
+        <div class="config-body">
+          <div class="segmented" id="tableSegment">
+            <button type="button" data-value="none">无表格</button>
+            <button type="button" data-value="light">少量</button>
+            <button type="button" data-value="moderate">适中</button>
+            <button type="button" data-value="heavy" class="active">丰富</button>
+          </div>
+          <span class="spacer"></span>
+          <span class="config-summary">对应 STEP 05 生成配置</span>
+        </div>
+      </div>
+
+      <div class="config-row">
+        <div class="config-label"><strong>图片设置</strong><small>配图类型开关</small></div>
+        <div class="config-body">
+          <button type="button" class="toggle-pill active"><span class="dot"></span>AI 配图</button>
+          <button type="button" class="toggle-pill active"><span class="dot"></span>Mermaid 图</button>
+          <button type="button" class="toggle-pill"><span class="dot"></span>HTML 图</button>
+          <span class="spacer"></span>
+          <span class="config-summary">修改后沿用现有失效规则（清空全文图片计划）</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel reader-panel">
+      <div class="reader-head">
+        <strong>招标文件内容</strong>
+        <span>招标文件-九龙坡区土地延包.docx · 18.6 万字</span>
+      </div>
+      <div class="reader-body">
+        <h3>第一章 投标邀请</h3>
+        <p>……项目已由上级主管部门批准建设，资金来源已落实。现对本项目施工及技术服务进行公开招标，欢迎符合资格条件的投标人参加投标。</p>
+        <h3>第二章 项目概况与标段划分</h3>
+        <p>本项目共划分为 3 个标段：一标段（西彭镇、铜罐驿镇）；二标段（白市驿镇、走马镇）；三标段（含谷镇、巴福镇）。投标人可就单个或多个标段投标，兼投不兼中。</p>
+        <h3>第三章 技术要求</h3>
+        <p>投标人应按照招标文件要求，结合项目区实际情况，编制技术服务方案，内容包括但不限于：权属调查、外业测量、公示确认、数据库建设与成果汇交……</p>
+        <p class="muted">（Markdown 正文预览，支持全屏查看）</p>
+      </div>
+    </section>
+  </main>
+
+  <div class="floating-toolbar">
+    <div class="inner">
+      <span class="step-tip">STEP 01 / 06</span>
+      <button class="btn round disabled" type="button" disabled>上一步</button>
+      <button class="btn primary round" type="button">下一步：招标文件解析</button>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="sectionModal" role="dialog" aria-modal="true" aria-labelledby="sectionModalTitle">
+    <div class="modal">
+      <div class="modal-head">
+        <span class="kicker">投标范围</span>
+        <strong id="sectionModalTitle">选择本次投标的标段</strong>
+      </div>
+      <div class="modal-desc">检测到 3 个标段。选择后招标文件解析及后续步骤将仅使用该标段范围。</div>
+      <div class="section-list">
+        <div class="section-option active" data-section="一标段"><span class="radio"></span><span class="info"><strong>一标段</strong><small>西彭镇、铜罐驿镇 · 约 8.2 万亩</small></span></div>
+        <div class="section-option" data-section="二标段"><span class="radio"></span><span class="info"><strong>二标段</strong><small>白市驿镇、走马镇 · 约 7.6 万亩</small></span></div>
+        <div class="section-option" data-section="三标段"><span class="radio"></span><span class="info"><strong>三标段</strong><small>含谷镇、巴福镇 · 约 6.9 万亩</small></span></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" id="cancelModal" type="button">取消</button>
+        <button class="btn primary" id="confirmModal" type="button">选择该范围</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+  const sectionHint = document.getElementById('sectionHint');
+  const sectionMessage = document.getElementById('sectionMessage');
+  const sectionAction = document.getElementById('sectionAction');
+  const scopeSummary = document.getElementById('scopeSummary');
+  const scopeButton = document.getElementById('scopeButton');
+  const sectionModal = document.getElementById('sectionModal');
+  const ladderNote = document.getElementById('ladderNote');
+  const wordMap = {
+    '50-100': '2.5 - 5 万字',
+    '100-200': '5 - 10 万字',
+    '200-350': '10 - 17.5 万字',
+    '350-500': '17.5 - 25 万字',
+    '500-800': '25 - 40 万字',
+    '800-1200': '40 - 60 万字',
+    '1200-1500': '60 - 75 万字'
+  };
+
+  function openModal() { sectionModal.classList.add('open'); }
+  function closeModal() { sectionModal.classList.remove('open'); }
+
+  function renderMode(mode) {
+    const selected = mode === 'selected';
+    sectionHint.classList.toggle('pending', !selected);
+    sectionMessage.innerHTML = selected
+      ? '<strong>已选择 一标段。</strong> 后续步骤将仅使用该投标范围，如需更换请在此调整。'
+      : '<strong>检测到疑似 3 个标段。</strong> 切换投标范围会重建工作副本并清空下游解析结果，建议先确认本次投标范围。';
+    sectionAction.textContent = selected ? '更换标段' : '确认投标范围';
+    scopeSummary.className = selected ? 'config-summary' : 'config-summary pending';
+    scopeSummary.innerHTML = selected ? '当前：<em>多标段 · 一标段</em>' : '当前：<em>多标段 · 待选择</em>';
+    scopeButton.textContent = selected ? '更换标段' : '选择标段';
+    document.querySelectorAll('.state-switch button').forEach((button) => {
+      button.classList.toggle('active', button.dataset.mode === mode);
+    });
+  }
+
+  document.querySelectorAll('.state-switch button').forEach((button) => {
+    button.addEventListener('click', () => renderMode(button.dataset.mode));
+  });
+  sectionAction.addEventListener('click', openModal);
+  scopeButton.addEventListener('click', openModal);
+  document.getElementById('cancelModal').addEventListener('click', closeModal);
+  sectionModal.addEventListener('click', (event) => {
+    if (event.target === sectionModal) closeModal();
+  });
+
+  document.querySelectorAll('.section-option').forEach((option) => {
+    option.addEventListener('click', () => {
+      document.querySelectorAll('.section-option').forEach((item) => item.classList.remove('active'));
+      option.classList.add('active');
+    });
+  });
+  document.getElementById('confirmModal').addEventListener('click', () => {
+    renderMode('selected');
+    closeModal();
+  });
+
+  document.querySelectorAll('#ladder button').forEach((button) => {
+    button.addEventListener('click', () => {
+      document.querySelectorAll('#ladder button').forEach((item) => item.classList.remove('active'));
+      button.classList.add('active');
+      ladderNote.innerHTML = '换算为全文 <em>' + wordMap[button.dataset.range] + '</em>，STEP 03 可精确调整上下限与单节字数。';
+    });
+  });
+  document.querySelectorAll('#tableSegment button').forEach((button) => {
+    button.addEventListener('click', () => {
+      document.querySelectorAll('#tableSegment button').forEach((item) => item.classList.remove('active'));
+      button.classList.add('active');
+    });
+  });
+  document.querySelectorAll('.toggle-pill').forEach((pill) => {
+    pill.addEventListener('click', () => pill.classList.toggle('active'));
+  });
+</script>
+</body>
+</html>
