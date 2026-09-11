@@ -445,13 +445,12 @@ test('原文面板展示完整招标原文并支持多处来源切换', () => {
   assert.match(panelSource, /markdown/);
 });
 
-test('招标原文全屏内容保留共享 Markdown 滚动容器样式', () => {
+test('目录原文面板移除全屏查看入口并保留当前分屏渲染', () => {
   const panelSource = readFileSync(new URL('../components/TenderSourcePanel.tsx', import.meta.url), 'utf8');
 
-  assert.match(
-    panelSource,
-    /fullscreenClassName="markdown-viewer outline-source-panel-fullscreen-viewer"/,
-  );
+  assert.doesNotMatch(panelSource, /MarkdownFullscreenViewer/);
+  assert.doesNotMatch(panelSource, /全屏查看招标原文/);
+  assert.match(panelSource, /<MarkdownRenderer allowRawHtml highlightSourceAnchor=\{activeSourceItem \? 'primary' : undefined\}>/);
 });
 
 test('招标 Markdown 在解析和目录两步加载并提供显式重试状态', () => {

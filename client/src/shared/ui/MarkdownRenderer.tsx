@@ -102,6 +102,13 @@ function getElementClassName(element: Element) {
   return element.getAttribute('class') || undefined;
 }
 
+function getTableCellSpan(element: Element, attribute: 'rowspan' | 'colspan') {
+  const value = element.getAttribute(attribute);
+  if (value === null || !value.trim()) return undefined;
+  const span = Number.parseInt(value, 10);
+  return Number.isInteger(span) && span >= 0 ? span : undefined;
+}
+
 // 将 HTML 内联样式转换为 React 可直接使用的样式对象。
 function getElementStyle(element: Element): CSSProperties | undefined {
   const declaration = (element as HTMLElement).style;
@@ -336,8 +343,28 @@ function MarkdownRenderer({
       if (tag === 'thead') return <thead {...props}>{renderedChildren}</thead>;
       if (tag === 'tbody') return <tbody {...props}>{renderedChildren}</tbody>;
       if (tag === 'tr') return <tr {...props}>{renderedChildren}</tr>;
-      if (tag === 'th') return <th {...props}>{renderedChildren}</th>;
-      if (tag === 'td') return <td {...props}>{renderedChildren}</td>;
+      if (tag === 'th') {
+        return (
+          <th
+            {...props}
+            rowSpan={getTableCellSpan(element, 'rowspan')}
+            colSpan={getTableCellSpan(element, 'colspan')}
+          >
+            {renderedChildren}
+          </th>
+        );
+      }
+      if (tag === 'td') {
+        return (
+          <td
+            {...props}
+            rowSpan={getTableCellSpan(element, 'rowspan')}
+            colSpan={getTableCellSpan(element, 'colspan')}
+          >
+            {renderedChildren}
+          </td>
+        );
+      }
       if (tag === 'blockquote') return <blockquote {...props}>{renderedChildren}</blockquote>;
       if (tag === 'pre') return <pre {...props}>{renderedChildren}</pre>;
       if (tag === 'code') return <code {...props}>{renderedChildren}</code>;

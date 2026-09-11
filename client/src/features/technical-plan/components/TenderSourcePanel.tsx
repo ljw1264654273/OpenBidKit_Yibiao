@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { OutlineExpansionMode, OutlineItem } from '../../../shared/types';
-import { MarkdownFullscreenViewer, MarkdownRenderer, ToolbarArrowLeftIcon, ToolbarArrowRightIcon } from '../../../shared/ui';
+import { MarkdownRenderer, ToolbarArrowLeftIcon, ToolbarArrowRightIcon } from '../../../shared/ui';
 import type { ScoreCoverageRecord } from '../types';
 import { buildOutlineSourceViewItems, injectOutlineSourceAnchorMarkers } from '../services/outlineSourceMatcher';
 
@@ -85,8 +85,6 @@ function TenderSourcePanel({
     () => injectOutlineSourceAnchorMarkers(markdown, locatedItems, safeActiveSourceIndex),
     [locatedItems, markdown, safeActiveSourceIndex],
   );
-  const fullSourceDisabled = sorting || loading || Boolean(error) || !markdown;
-
   useEffect(() => {
     setActiveSourceIndex(0);
   }, [selectedItemId, sourceSignature]);
@@ -149,19 +147,6 @@ function TenderSourcePanel({
               </button>
             </div>
           )}
-          <MarkdownFullscreenViewer
-            className="outline-source-panel-fullscreen-viewer"
-            fullscreenClassName="markdown-viewer outline-source-panel-fullscreen-viewer"
-            title="招标文件原文"
-            description="全屏查看当前招标文件 Markdown 原文。"
-            buttonLabel="全屏查看招标原文"
-            disabled={fullSourceDisabled}
-            autoScrollToHighlight={viewModel.items.some((item) => item.status === 'located')}
-            scrollTargetSelector="[data-outline-source-anchor='primary-start']"
-            fullscreenChildren={<MarkdownRenderer allowRawHtml highlightSourceAnchor="primary">{anchoredMarkdown}</MarkdownRenderer>}
-          >
-            <span className="outline-source-panel-fullscreen-placeholder" aria-hidden="true" />
-          </MarkdownFullscreenViewer>
           {headerAction}
         </div>
       </header>
