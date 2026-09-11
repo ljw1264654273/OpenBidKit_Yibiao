@@ -1,0 +1,837 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>易标标书生成 UI 原型</title>
+  <style>
+    :root {
+      --yb-primary: #2174fd;
+      --yb-primary-deep: #155bd7;
+      --yb-violet: #5b54d3;
+      --yb-bg: #f6f8fc;
+      --yb-surface: #ffffff;
+      --yb-border: #e5eaf2;
+      --yb-border-soft: #f0f3f8;
+      --yb-text: #182235;
+      --yb-soft: #667085;
+      --yb-muted: #98a2b3;
+      --yb-success: #168a4a;
+      --yb-warning: #c27803;
+      --yb-danger: #c83220;
+      font-family: Inter, "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+      color: var(--yb-text);
+      background: #eef3fb;
+    }
+
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; background: #eef3fb; }
+    button, input, select { font: inherit; }
+    button { cursor: pointer; }
+
+    .prototype-root {
+      min-height: 100vh;
+      display: grid;
+      grid-template-rows: auto 1fr;
+      gap: 14px;
+      padding: 16px;
+    }
+
+    .picker {
+      display: grid;
+      grid-template-columns: minmax(260px, 1fr) auto;
+      gap: 14px;
+      align-items: center;
+      padding: 14px 16px;
+      background: rgba(255,255,255,.9);
+      border: 1px solid rgba(217,225,237,.95);
+      border-radius: 14px;
+      box-shadow: 0 12px 30px rgba(23,32,51,.06);
+    }
+
+    .picker h1 {
+      margin: 0 0 4px;
+      font-size: 17px;
+      letter-spacing: 0;
+    }
+
+    .picker p {
+      margin: 0;
+      color: var(--yb-soft);
+      font-size: 12px;
+    }
+
+    .variant-tabs,
+    .page-tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+
+    .tab {
+      min-height: 34px;
+      padding: 7px 12px;
+      color: #42526b;
+      background: #fff;
+      border: 1px solid var(--yb-border);
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .tab.active {
+      color: #fff;
+      background: var(--yb-primary);
+      border-color: var(--yb-primary);
+      box-shadow: 0 10px 20px rgba(33,116,253,.18);
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: 230px minmax(0, 1fr);
+      min-height: 760px;
+      overflow: hidden;
+      background:
+        radial-gradient(circle at 82% 8%, rgba(33,116,253,.13), transparent 28%),
+        linear-gradient(180deg, #fff 0%, #f6f9ff 58%, #eef4ff 100%);
+      border: 1px solid #dde5f1;
+      border-radius: 18px;
+      box-shadow: 0 22px 58px rgba(29,42,67,.12);
+    }
+
+    .sidebar {
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      min-height: 0;
+      padding: 18px 12px;
+      background: rgba(255,255,255,.94);
+      border-right: 1px solid var(--yb-border);
+    }
+
+    .brand {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      padding: 0 8px 16px;
+      border-bottom: 1px solid var(--yb-border-soft);
+    }
+
+    .brand-mark {
+      width: 34px;
+      height: 34px;
+      display: grid;
+      place-items: center;
+      color: #fff;
+      background: linear-gradient(135deg, var(--yb-primary), var(--yb-violet));
+      border-radius: 9px;
+      font-weight: 900;
+    }
+
+    .brand strong { display: block; font-size: 14px; }
+    .brand span { color: var(--yb-muted); font-size: 11px; font-weight: 700; letter-spacing: .18em; }
+
+    .nav {
+      display: grid;
+      align-content: start;
+      gap: 6px;
+      min-height: 0;
+      overflow: auto;
+      padding-top: 16px;
+    }
+
+    .nav-item {
+      display: grid;
+      grid-template-columns: 30px minmax(0, 1fr);
+      gap: 10px;
+      align-items: center;
+      padding: 10px;
+      color: #40506a;
+      background: transparent;
+      border: 1px solid transparent;
+      border-radius: 10px;
+      text-align: left;
+    }
+
+    .nav-item.active {
+      color: #fff;
+      background: linear-gradient(135deg, var(--yb-primary), var(--yb-violet));
+      box-shadow: 0 14px 26px rgba(33,116,253,.2);
+    }
+
+    .nav-icon {
+      width: 30px;
+      height: 30px;
+      display: grid;
+      place-items: center;
+      background: rgba(33,116,253,.08);
+      border: 1px solid rgba(33,116,253,.1);
+      border-radius: 8px;
+    }
+
+    .nav-item.active .nav-icon { background: rgba(255,255,255,.18); border-color: rgba(255,255,255,.24); }
+    .nav-copy strong { display:block; font-size: 13px; }
+    .nav-copy small { display:block; overflow:hidden; color: var(--yb-muted); font-size: 10.5px; text-overflow:ellipsis; white-space:nowrap; }
+    .nav-item.active small { color: rgba(255,255,255,.78); }
+
+    .sidebar-bottom {
+      display: grid;
+      gap: 6px;
+      padding-top: 12px;
+      border-top: 1px solid var(--yb-border-soft);
+    }
+
+    .main {
+      min-width: 0;
+      min-height: 0;
+      display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr);
+      gap: 12px;
+      padding: 22px 26px 24px;
+      overflow: hidden;
+    }
+
+    .topline {
+      display: flex;
+      justify-content: space-between;
+      gap: 18px;
+      align-items: flex-start;
+    }
+
+    .kicker { color: var(--yb-primary); font-size: 12px; font-weight: 800; letter-spacing: .14em; }
+    .title { margin: 4px 0 0; font-size: 28px; line-height: 1.15; letter-spacing: 0; }
+    .subtitle { margin: 8px 0 0; color: var(--yb-soft); font-size: 13px; line-height: 1.65; }
+
+    .page-tabs {
+      justify-content: flex-start;
+      padding: 5px;
+      background: rgba(255,255,255,.8);
+      border: 1px solid var(--yb-border);
+      border-radius: 10px;
+      width: max-content;
+      max-width: 100%;
+    }
+
+    .canvas {
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .screen { display: none; height: 100%; min-height: 0; }
+    .screen.active { display: grid; }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 24px;
+      padding: 3px 8px;
+      color: var(--yb-primary);
+      background: rgba(33,116,253,.08);
+      border: 1px solid rgba(33,116,253,.12);
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    .pill.warning { color: var(--yb-warning); background: #fff7e8; border-color: #f4d49a; }
+    .pill.muted { color: #7a8798; background: #f2f5f9; border-color: #e4e9f0; }
+
+    .action-primary,
+    .action-secondary {
+      min-height: 38px;
+      padding: 8px 14px;
+      border-radius: 8px;
+      font-weight: 800;
+      border: 1px solid transparent;
+    }
+
+    .action-primary { color: #fff; background: var(--yb-primary); box-shadow: 0 12px 20px rgba(33,116,253,.2); }
+    .action-secondary { color: #344056; background: #fff; border-color: var(--yb-border); }
+
+    .mode-list { display: grid; gap: 10px; }
+    .mode-card {
+      display: grid;
+      grid-template-columns: 44px minmax(0,1fr) auto;
+      gap: 12px;
+      align-items: center;
+      padding: 14px;
+      background: #fff;
+      border: 1px solid var(--yb-border);
+      border-radius: 12px;
+      text-align: left;
+      box-shadow: 0 8px 20px rgba(23,32,51,.04);
+    }
+
+    .mode-card.active {
+      border-color: rgba(33,116,253,.28);
+      box-shadow: inset 4px 0 0 var(--yb-primary), 0 16px 34px rgba(33,116,253,.11);
+    }
+
+    .mode-icon {
+      width: 44px;
+      height: 44px;
+      display: grid;
+      place-items: center;
+      color: var(--yb-primary);
+      background: #f0f6ff;
+      border-radius: 10px;
+      font-size: 18px;
+      font-weight: 900;
+    }
+
+    .mode-card strong { display:block; font-size: 15px; }
+    .mode-card small { display:block; margin-top:4px; color: var(--yb-soft); font-size: 12px; line-height: 1.5; }
+    .mode-meta { display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end; }
+
+    .upload-zone {
+      min-height: 360px;
+      display: grid;
+      place-items: center;
+      text-align: center;
+      background:
+        linear-gradient(135deg, rgba(33,116,253,.06), rgba(91,84,211,.04)),
+        #fff;
+      border: 1px dashed rgba(33,116,253,.36);
+      border-radius: 14px;
+    }
+
+    .upload-mark {
+      width: 62px;
+      height: 62px;
+      display:grid;
+      place-items:center;
+      margin: 0 auto 16px;
+      color:#fff;
+      background: linear-gradient(135deg,var(--yb-primary),var(--yb-violet));
+      border-radius: 16px;
+      font-size: 28px;
+      box-shadow: 0 16px 34px rgba(33,116,253,.22);
+    }
+
+    .upload-zone h3 { margin:0; font-size:24px; }
+    .upload-zone p { margin:8px 0 20px; color:var(--yb-soft); font-size:13px; }
+    .upload-actions { display:flex; gap:10px; justify-content:center; flex-wrap:wrap; }
+
+    .panel {
+      min-height: 0;
+      background:#fff;
+      border:1px solid var(--yb-border);
+      border-radius: 0;
+      overflow:hidden;
+    }
+
+    .panel-head {
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      padding:12px 14px;
+      border-bottom:1px solid var(--yb-border);
+    }
+
+    .panel-head strong { font-size:15px; }
+    .panel-head span { color:var(--yb-muted); font-size:12px; }
+
+    .two-col {
+      display:grid;
+      grid-template-columns: 340px minmax(0,1fr);
+      gap:12px;
+      height:100%;
+      min-height:0;
+    }
+
+    .reader {
+      display:grid;
+      grid-template-rows:auto minmax(0,1fr);
+      min-height:0;
+      background:#fff;
+      border:1px solid var(--yb-border);
+      border-radius:0;
+      overflow:hidden;
+    }
+
+    .markdown {
+      min-height:0;
+      overflow:auto;
+      padding:18px 22px 72px;
+      font-size:13px;
+      line-height:1.75;
+      color:#344056;
+      background:linear-gradient(180deg,#fbfcff,#fff 22%);
+    }
+
+    .markdown h4 { margin: 0 0 12px; color:var(--yb-text); font-size:17px; }
+    .markdown p { margin:0 0 10px; }
+
+    .step-rail {
+      display:grid;
+      gap:0;
+      border-right:1px solid var(--yb-border);
+      background:#fbfcff;
+      min-height:0;
+      overflow:auto;
+    }
+
+    .step {
+      display:grid;
+      grid-template-columns: 28px minmax(0,1fr) auto;
+      gap:10px;
+      align-items:center;
+      padding:13px 14px;
+      border-bottom:1px solid var(--yb-border-soft);
+    }
+
+    .step-dot {
+      width:24px;
+      height:24px;
+      display:grid;
+      place-items:center;
+      border-radius:8px;
+      background:#edf3ff;
+      color:var(--yb-primary);
+      font-size:12px;
+      font-weight:900;
+    }
+
+    .step.active { box-shadow: inset 3px 0 0 var(--yb-primary); background:#fff; }
+    .step.done .step-dot { color:#fff; background:var(--yb-success); }
+    .step-copy strong { display:block; font-size:13px; }
+    .step-copy small { color:var(--yb-muted); font-size:11px; }
+
+    .work-grid {
+      display:grid;
+      grid-template-columns: 300px minmax(0,1fr);
+      height:100%;
+      min-height:0;
+      border:1px solid var(--yb-border);
+      background:#fff;
+      overflow:hidden;
+    }
+
+    .outline-list { min-height:0; overflow:auto; background:#fbfcff; border-right:1px solid var(--yb-border); }
+    .outline-row {
+      display:grid;
+      gap:4px;
+      padding:12px 14px;
+      border-bottom:1px solid var(--yb-border-soft);
+    }
+    .outline-row.active { background:#fff; box-shadow: inset 3px 0 0 var(--yb-primary); }
+    .outline-row strong { font-size:13px; }
+    .outline-row small { color:var(--yb-muted); font-size:11px; }
+
+    .editor {
+      min-height:0;
+      display:grid;
+      grid-template-rows:auto minmax(0,1fr);
+    }
+    .editor-body { min-height:0; overflow:auto; padding:18px 22px 84px; }
+    .editor-card {
+      display:grid;
+      gap:12px;
+      padding:16px;
+      border:1px solid var(--yb-border);
+      border-radius:10px;
+      background:#fff;
+      box-shadow:0 10px 24px rgba(23,32,51,.05);
+    }
+    .editor-card textarea {
+      width:100%;
+      min-height:220px;
+      resize:vertical;
+      padding:14px;
+      border:1px solid var(--yb-border);
+      border-radius:8px;
+      line-height:1.7;
+      color:#344056;
+      background:#fbfcff;
+    }
+
+    .floating-toolbar {
+      position:absolute;
+      left:50%;
+      bottom:22px;
+      transform:translateX(-50%);
+      display:flex;
+      gap:8px;
+      align-items:center;
+      padding:8px;
+      background:rgba(255,255,255,.95);
+      border:1px solid var(--yb-border);
+      border-radius:999px;
+      box-shadow:0 18px 44px rgba(23,32,51,.14);
+    }
+
+    .toolbar-button {
+      min-height:34px;
+      padding:7px 12px;
+      border:1px solid var(--yb-border);
+      border-radius:999px;
+      background:#fff;
+      color:#344056;
+      font-size:12px;
+      font-weight:800;
+    }
+    .toolbar-button.primary { color:#fff; background:var(--yb-primary); border-color:var(--yb-primary); }
+
+    .variant-a .home-layout {
+      display:grid;
+      grid-template-columns: 310px minmax(0,1fr);
+      gap:0;
+      height:100%;
+      min-height:0;
+      border:1px solid var(--yb-border);
+      border-radius:16px;
+      overflow:hidden;
+      background:#fff;
+    }
+
+    .variant-a .home-modes {
+      padding:18px;
+      background:#f8faff;
+      border-right:1px solid var(--yb-border);
+      min-height:0;
+      overflow:auto;
+    }
+
+    .variant-a .home-work {
+      display:grid;
+      grid-template-rows:auto minmax(0,1fr) auto;
+      gap:16px;
+      padding:28px 34px;
+      min-height:0;
+    }
+
+    .feature-strip {
+      display:grid;
+      grid-template-columns:repeat(3,minmax(0,1fr));
+      border:1px solid var(--yb-border);
+      border-radius:10px;
+      overflow:hidden;
+      background:#fff;
+    }
+
+    .feature-cell { padding:13px 15px; border-right:1px solid var(--yb-border-soft); }
+    .feature-cell:last-child { border-right:0; }
+    .feature-cell strong { display:block; font-size:13px; }
+    .feature-cell small { display:block; margin-top:4px; color:var(--yb-muted); font-size:11px; line-height:1.45; }
+
+    .variant-b .workspace {
+      grid-template-columns: 88px minmax(0,1fr);
+    }
+    .variant-b .sidebar { padding:16px 10px; align-items:center; }
+    .variant-b .brand { justify-content:center; padding:0 0 14px; }
+    .variant-b .brand div:not(.brand-mark), .variant-b .nav-copy, .variant-b .sidebar-bottom .nav-copy { display:none; }
+    .variant-b .nav-item { grid-template-columns:1fr; justify-items:center; padding:9px; }
+    .variant-b .main { padding:18px; grid-template-rows:auto minmax(0,1fr); }
+    .variant-b .page-tabs { display:none; }
+    .variant-b .flow-board {
+      display:grid;
+      grid-template-rows:auto minmax(0,1fr);
+      height:100%;
+      min-height:0;
+      border:1px solid var(--yb-border);
+      background:#fff;
+      overflow:hidden;
+    }
+    .variant-b .flow-head {
+      display:grid;
+      grid-template-columns:minmax(0,1fr) auto;
+      gap:12px;
+      align-items:center;
+      padding:14px 16px;
+      border-bottom:1px solid var(--yb-border);
+      background:#fbfcff;
+    }
+    .variant-b .flow-content {
+      display:grid;
+      grid-template-columns:260px minmax(0,1fr);
+      min-height:0;
+      overflow:hidden;
+    }
+
+    .variant-c .workspace {
+      grid-template-columns:260px minmax(0,1fr);
+      background:#f4f7fb;
+    }
+    .variant-c .main { padding:18px 20px 22px; }
+    .variant-c .topline { align-items:center; }
+    .variant-c .home-layout {
+      display:grid;
+      grid-template-rows:auto minmax(0,1fr);
+      gap:12px;
+      height:100%;
+      min-height:0;
+    }
+    .variant-c .command-strip {
+      display:grid;
+      grid-template-columns: repeat(4,minmax(0,1fr));
+      gap:8px;
+    }
+    .variant-c .command-card {
+      min-height:92px;
+      display:grid;
+      align-content:center;
+      gap:5px;
+      padding:13px;
+      background:#fff;
+      border:1px solid var(--yb-border);
+      border-radius:10px;
+      box-shadow:0 8px 18px rgba(23,32,51,.04);
+    }
+    .variant-c .command-card.active { box-shadow:inset 0 -3px 0 var(--yb-primary), 0 14px 26px rgba(33,116,253,.11); border-color:rgba(33,116,253,.22); }
+    .variant-c .command-card strong { font-size:14px; }
+    .variant-c .command-card small { color:var(--yb-muted); font-size:11px; line-height:1.45; }
+    .variant-c .document-desk {
+      display:grid;
+      grid-template-columns:minmax(0,1fr) 360px;
+      gap:12px;
+      min-height:0;
+    }
+
+    .screen-inner { position:relative; height:100%; min-height:0; overflow:hidden; }
+
+    @media (max-width: 1180px) {
+      .workspace { grid-template-columns: 88px minmax(0,1fr); }
+      .brand div:not(.brand-mark), .nav-copy, .sidebar-bottom .nav-copy { display:none; }
+      .nav-item { grid-template-columns:1fr; justify-items:center; }
+      .home-layout, .variant-a .home-layout, .variant-c .document-desk { grid-template-columns:1fr; }
+      .variant-a .home-modes { display:none; }
+      .two-col, .work-grid, .variant-b .flow-content { grid-template-columns:1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="prototype-root variant-a" id="root">
+    <header class="picker">
+      <div>
+        <h1>标书生成 UI 原型方向</h1>
+        <p>键盘 1/2/3 切换方向，Q/W/E/R/T 切换页面。当前原型只表达现有能力，不新增业务流程。</p>
+      </div>
+      <div class="variant-tabs" aria-label="设计方向">
+        <button class="tab active" data-variant="a">A 参考强化型</button>
+        <button class="tab" data-variant="b">B 流程工作台型</button>
+        <button class="tab" data-variant="c">C 文件中台型</button>
+      </div>
+    </header>
+
+    <div class="workspace">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">易</div>
+          <div><span>YIBIAO</span><strong>投标工具箱</strong></div>
+        </div>
+        <nav class="nav">
+          <button class="nav-item active"><span class="nav-icon">＋</span><span class="nav-copy"><strong>新建标书</strong><small>技术方案、扩写与结构生成</small></span></button>
+          <button class="nav-item"><span class="nav-icon">▣</span><span class="nav-copy"><strong>模板设置</strong><small>我的模板 / 新建模板</small></span></button>
+          <button class="nav-item"><span class="nav-icon">▤</span><span class="nav-copy"><strong>知识库</strong><small>文档知识库</small></span></button>
+          <button class="nav-item"><span class="nav-icon">✓</span><span class="nav-copy"><strong>标书检查</strong><small>查重 / 废标项检查</small></span></button>
+        </nav>
+        <div class="sidebar-bottom">
+          <button class="nav-item"><span class="nav-icon">?</span><span class="nav-copy"><strong>文档</strong><small>使用说明</small></span></button>
+          <button class="nav-item"><span class="nav-icon">⚙</span><span class="nav-copy"><strong>设置</strong><small>模型与解析配置</small></span></button>
+        </div>
+      </aside>
+
+      <main class="main">
+        <div class="topline">
+          <div>
+            <span class="kicker" id="variantKicker">方向 A</span>
+            <h2 class="title" id="variantTitle">参考强化型</h2>
+            <p class="subtitle" id="variantDesc">保留参考图“左侧功能选择 + 中央上传区”的直观入口，适合作为新建标书首页。</p>
+          </div>
+          <div class="mode-meta">
+            <span class="pill">桌面端</span>
+            <span class="pill">全中文</span>
+            <span class="pill warning">无新增功能</span>
+          </div>
+        </div>
+
+        <div class="page-tabs" aria-label="页面">
+          <button class="tab active" data-page="home">首页</button>
+          <button class="tab" data-page="tech">技术方案生成</button>
+          <button class="tab" data-page="expansion">已有方案扩写</button>
+          <button class="tab" data-page="outline">解析与目录</button>
+          <button class="tab" data-page="content">正文与导出</button>
+        </div>
+
+        <section class="canvas">
+          <div class="screen active" data-screen="home">
+            <div class="screen-inner home-layout">
+              <section class="home-modes">
+                <div class="mode-list">
+                  <button class="mode-card active">
+                    <span class="mode-icon">文</span>
+                    <span><strong>技术方案生成</strong><small>根据招标文件生成技术方案正文。</small></span>
+                    <span class="pill">可用</span>
+                  </button>
+                  <button class="mode-card">
+                    <span class="mode-icon">册</span>
+                    <span><strong>完整投标文件</strong><small>使用现有“完整投标文件结构”目录模式承接。</small></span>
+                    <span class="pill muted">目录模式</span>
+                  </button>
+                  <button class="mode-card">
+                    <span class="mode-icon">照</span>
+                    <span><strong>以标写标</strong><small>当前项目未见独立入口，原型不展开。</small></span>
+                    <span class="pill muted">不展开</span>
+                  </button>
+                  <button class="mode-card">
+                    <span class="mode-icon">扩</span>
+                    <span><strong>已有方案扩写</strong><small>上传招标文件和原方案，保留原方案内容并扩充。</small></span>
+                    <span class="pill">可用</span>
+                  </button>
+                </div>
+              </section>
+              <section class="home-work">
+                <div>
+                  <h3 class="title" style="font-size:25px">智能生成标书方案</h3>
+                  <p class="subtitle">选择生成方式后上传文件，后续沿用当前项目的解析、目录、全局事实、正文生成和 Word 导出流程。</p>
+                </div>
+                <div class="upload-zone">
+                  <div>
+                    <div class="upload-mark">⇧</div>
+                    <h3>上传招标文件</h3>
+                    <p>支持当前解析链路内已有的文件导入与 Markdown 预览。</p>
+                    <div class="upload-actions">
+                      <button class="action-secondary">从知识库选择</button>
+                      <button class="action-primary">选择招标文件</button>
+                    </div>
+                  </div>
+                </div>
+                <div class="feature-strip">
+                  <div class="feature-cell"><strong>模板设置</strong><small>复用我的模板 / 新建模板。</small></div>
+                  <div class="feature-cell"><strong>知识库</strong><small>复用文档知识库素材。</small></div>
+                  <div class="feature-cell"><strong>标书检查</strong><small>复用查重与废标项检查。</small></div>
+                </div>
+              </section>
+            </div>
+          </div>
+
+          <div class="screen" data-screen="tech">
+            <div class="screen-inner two-col">
+              <section class="panel">
+                <div class="panel-head"><strong>STEP 01 选择标书</strong><span>默认解析方案：本地解析</span></div>
+                <div style="padding:14px; display:grid; gap:10px">
+                  <div class="mode-card active"><span class="mode-icon">01</span><span><strong>招标文件</strong><small>用于解析项目概况、技术要求、评分项和正文约束。</small></span><button class="action-primary">上传</button></div>
+                  <div class="mode-card"><span class="mode-icon">KB</span><span><strong>参考知识库</strong><small>目录生成与正文生成阶段选择已有文档知识。</small></span><button class="action-secondary">稍后选择</button></div>
+                </div>
+              </section>
+              <section class="reader">
+                <div class="panel-head"><strong>招标文件内容</strong><span>等待上传</span></div>
+                <div class="upload-zone" style="min-height:100%; border:0; border-radius:0">
+                  <div>
+                    <div class="upload-mark">文</div>
+                    <h3>尚未导入招标文件</h3>
+                    <p>导入后这里展示解析后的 Markdown 正文。</p>
+                  </div>
+                </div>
+              </section>
+              <div class="floating-toolbar"><button class="toolbar-button">重置</button><button class="toolbar-button primary">首页</button><button class="toolbar-button primary">下一步</button></div>
+            </div>
+          </div>
+
+          <div class="screen" data-screen="expansion">
+            <div class="screen-inner two-col">
+              <section class="panel">
+                <div class="panel-head"><strong>STEP 01 选择标书</strong><span>已有方案扩写</span></div>
+                <div style="padding:14px; display:grid; gap:10px">
+                  <div class="mode-card active"><span class="mode-icon">01</span><span><strong>招标文件</strong><small>作为扩写约束与评分依据。</small></span><button class="action-primary">上传</button></div>
+                  <div class="mode-card active"><span class="mode-icon">02</span><span><strong>原方案</strong><small>上传已经写好的技术方案，后续用于优化和扩充。</small></span><button class="action-primary">上传</button></div>
+                </div>
+              </section>
+              <section class="reader">
+                <div class="panel-head"><strong>文件正文切换</strong><span>招标文件 / 原方案</span></div>
+                <div class="markdown">
+                  <h4>等待原方案</h4>
+                  <p>扩写模式比技术方案生成多一个“原方案”上传行，其余步骤复用技术方案工作流。</p>
+                  <p>原型保留文件切换标签：招标文件、原方案。导入后可全屏预览 Markdown。</p>
+                </div>
+              </section>
+              <div class="floating-toolbar"><button class="toolbar-button">重置</button><button class="toolbar-button primary">首页</button><button class="toolbar-button primary">下一步</button></div>
+            </div>
+          </div>
+
+          <div class="screen" data-screen="outline">
+            <div class="screen-inner work-grid">
+              <aside class="step-rail">
+                <div class="step done"><span class="step-dot">1</span><span class="step-copy"><strong>选择标书</strong><small>文件已导入</small></span><span class="pill">完成</span></div>
+                <div class="step active"><span class="step-dot">2</span><span class="step-copy"><strong>招标文件解析</strong><small>评分项 / 响应要求</small></span><span class="pill">当前</span></div>
+                <div class="step"><span class="step-dot">3</span><span class="step-copy"><strong>目录生成</strong><small>生成与人工调整</small></span><span class="pill muted">待处理</span></div>
+                <div class="step"><span class="step-dot">4</span><span class="step-copy"><strong>全局事实设定</strong><small>统一口径</small></span><span class="pill muted">待处理</span></div>
+              </aside>
+              <section class="editor">
+                <div class="panel-head"><strong>解析与目录工作台</strong><span>保留当前流程：配置、生成、AI 调整、选择知识库</span></div>
+                <div class="editor-body">
+                  <div class="editor-card">
+                    <div class="mode-meta"><span class="pill">技术评分项</span><span class="pill">响应文件要求</span><span class="pill">项目概述</span></div>
+                    <h3 style="margin:0;font-size:20px">完整投标文件结构</h3>
+                    <p class="subtitle">这个入口不单独扩展成新功能，只对应现有目录生成里的结构模式。后续仍进入目录编辑、全局事实和正文生成。</p>
+                    <textarea>一、项目理解与总体方案&#10;二、技术响应与实施路径&#10;三、项目组织与进度控制&#10;四、质量、安全与风险管理</textarea>
+                  </div>
+                </div>
+              </section>
+              <div class="floating-toolbar"><button class="toolbar-button">上一步</button><button class="toolbar-button">AI调整</button><button class="toolbar-button primary">下一步</button></div>
+            </div>
+          </div>
+
+          <div class="screen" data-screen="content">
+            <div class="screen-inner work-grid">
+              <aside class="outline-list">
+                <div class="outline-row active"><strong>1 项目理解与总体方案</strong><small>正文已生成 · 2,300 字</small></div>
+                <div class="outline-row"><strong>2 技术响应与实施路径</strong><small>生成中 · 62%</small></div>
+                <div class="outline-row"><strong>3 项目组织与进度控制</strong><small>待生成</small></div>
+                <div class="outline-row"><strong>4 质量、安全与风险管理</strong><small>待生成</small></div>
+              </aside>
+              <section class="editor">
+                <div class="panel-head"><strong>生成正文</strong><span>支持暂停、继续、扩写、缩写、导出 Word</span></div>
+                <div class="editor-body">
+                  <div class="editor-card">
+                    <div class="mode-meta"><span class="pill">Markdown</span><span class="pill">Mermaid 本地预览</span><span class="pill">Word 导出</span></div>
+                    <textarea>本项目技术方案围绕招标文件提出的服务目标、技术评分要求和响应文件格式展开。投标人将以统一项目管理机制为基础，建立需求确认、实施交付、质量复核与风险闭环的全过程管理体系。</textarea>
+                  </div>
+                </div>
+              </section>
+              <div class="floating-toolbar"><button class="toolbar-button">上一步</button><button class="toolbar-button">导出 Word</button><button class="toolbar-button primary">生成/继续</button></div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <script>
+    const root = document.getElementById('root');
+    const variantTabs = Array.from(document.querySelectorAll('[data-variant]'));
+    const pageTabs = Array.from(document.querySelectorAll('[data-page]'));
+    const screens = Array.from(document.querySelectorAll('[data-screen]'));
+    const titles = {
+      a: ['方向 A', '参考强化型', '保留参考图“左侧功能选择 + 中央上传区”的直观入口，适合作为新建标书首页。'],
+      b: ['方向 B', '流程工作台型', '把入口和步骤压进同一个工作台，更适合高频写标人员连续操作。'],
+      c: ['方向 C', '文件中台型', '把文件、模板、知识库和检查放进同一张工作桌，视觉更克制，信息密度更高。']
+    };
+
+    function setVariant(id) {
+      root.className = `prototype-root variant-${id}`;
+      variantTabs.forEach((tab) => tab.classList.toggle('active', tab.dataset.variant === id));
+      document.getElementById('variantKicker').textContent = titles[id][0];
+      document.getElementById('variantTitle').textContent = titles[id][1];
+      document.getElementById('variantDesc').textContent = titles[id][2];
+      if (window.parent) window.parent.postMessage({ type: 'choice', choice: `variant-${id}`, text: titles[id][1] }, '*');
+    }
+
+    function setPage(id) {
+      pageTabs.forEach((tab) => tab.classList.toggle('active', tab.dataset.page === id));
+      screens.forEach((screen) => screen.classList.toggle('active', screen.dataset.screen === id));
+      if (window.parent) window.parent.postMessage({ type: 'choice', choice: `page-${id}`, text: id }, '*');
+    }
+
+    variantTabs.forEach((tab) => tab.addEventListener('click', () => setVariant(tab.dataset.variant)));
+    pageTabs.forEach((tab) => tab.addEventListener('click', () => setPage(tab.dataset.page)));
+    window.addEventListener('keydown', (event) => {
+      const variants = { '1': 'a', '2': 'b', '3': 'c' };
+      const pages = { q: 'home', w: 'tech', e: 'expansion', r: 'outline', t: 'content' };
+      if (variants[event.key]) setVariant(variants[event.key]);
+      if (pages[event.key.toLowerCase()]) setPage(pages[event.key.toLowerCase()]);
+    });
+  </script>
+</body>
+</html>

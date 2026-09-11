@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>STEP 01 选择标书 · 快速配置前置原型</title>
+<style>
+  :root {
+    --yb-primary: #2174fd;
+    --yb-primary-hover: #4098fc;
+    --yb-primary-deep: #155bd7;
+    --yb-bg: #fafcff;
+    --yb-surface: #ffffff;
+    --yb-border: #e6e9f0;
+    --yb-border-soft: #eef2f9;
+    --yb-text: #1c2536;
+    --yb-text-soft: #66707f;
+    --yb-text-muted: #98a2b3;
+    --yb-success: #168a4a;
+    --yb-success-soft: #e9f7ef;
+    --yb-success-border: #bfe5cd;
+    --yb-warning: #f28a00;
+    --yb-warning-soft: #fdf3e4;
+    --yb-warning-border: #f2d8ab;
+    --yb-violet: #5b54d3;
+    --yb-radius-sm: 8px;
+    --yb-radius-md: 12px;
+    --yb-radius-pill: 999px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: "PingFang SC", "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
+    background: var(--yb-bg);
+    color: var(--yb-text);
+    font-size: 13px;
+    line-height: 1.6;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .proto-note {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 16px;
+    background: linear-gradient(90deg, rgba(33,116,253,.08), rgba(91,84,211,.08));
+    border-bottom: 1px solid var(--yb-border-soft);
+    color: var(--yb-text-soft);
+    font-size: 12px;
+  }
+  .proto-note strong { color: var(--yb-primary-deep); }
+  .proto-note .spacer { flex: 1; }
+  .proto-note .demo-switch { display: inline-flex; gap: 6px; }
+  .proto-note .demo-switch button {
+    font-family: inherit; font-size: 11px; cursor: pointer;
+    border: 1px solid var(--yb-border); background: #fff; color: var(--yb-text-soft);
+    border-radius: 999px; padding: 2px 10px; transition: all .14s;
+  }
+  .proto-note .demo-switch button.on {
+    background: var(--yb-primary); border-color: var(--yb-primary); color: #fff;
+  }
+
+  .steps-bar {
+    flex-shrink: 0;
+    display: flex; align-items: center; gap: 6px;
+    padding: 12px 20px 10px;
+    background: var(--yb-surface);
+    border-bottom: 1px solid var(--yb-border-soft);
+    overflow-x: auto;
+  }
+  .step-item {
+    display: flex; align-items: center; gap: 7px;
+    padding: 5px 12px; border-radius: var(--yb-radius-pill);
+    white-space: nowrap; color: var(--yb-text-muted);
+  }
+  .step-item .num {
+    width: 20px; height: 20px; border-radius: 50%;
+    display: grid; place-items: center; font-size: 11px;
+    background: var(--yb-border-soft); color: var(--yb-text-soft);
+  }
+  .step-item.is-active { background: rgba(33,116,253,.08); color: var(--yb-primary-deep); font-weight: 600; }
+  .step-item.is-active .num { background: var(--yb-primary); color: #fff; }
+  .step-arrow { color: var(--yb-border); flex-shrink: 0; }
+
+  .command-bar {
+    flex-shrink: 0;
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; padding: 10px 20px;
+    background: var(--yb-surface);
+    border-bottom: 1px solid var(--yb-border);
+  }
+  .command-title { display: flex; align-items: baseline; gap: 8px; }
+  .command-title strong { font-size: 14px; }
+  .command-title span { font-size: 12px; color: var(--yb-text-muted); }
+  .btn {
+    border: 1px solid var(--yb-border);
+    background: var(--yb-surface);
+    color: var(--yb-text);
+    border-radius: var(--yb-radius-sm);
+    padding: 6px 14px; font-size: 12px; cursor: pointer;
+    transition: all .14s; font-family: inherit;
+  }
+  .btn:hover { border-color: var(--yb-primary); color: var(--yb-primary); }
+  .btn.primary { background: var(--yb-primary); border-color: var(--yb-primary); color: #fff; }
+  .btn.primary:hover { background: var(--yb-primary-hover); }
+
+  main {
+    flex: 1; min-height: 0; overflow-y: auto;
+    padding: 16px 20px 96px;
+    display: flex; flex-direction: column; gap: 14px;
+    width: 100%; max-width: 980px; margin: 0 auto;
+  }
+
+  .upload-board {
+    background: var(--yb-surface);
+    border: 1px solid var(--yb-border);
+    border-radius: var(--yb-radius-md);
+    padding: 14px 16px;
+  }
+  .board-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 10px; }
+  .board-head .kicker { font-size: 11px; letter-spacing: .08em; color: var(--yb-primary); font-weight: 600; }
+  .board-head strong { font-size: 14px; margin-left: 8px; }
+  .board-head small { color: var(--yb-text-muted); font-size: 12px; }
+  .upload-row {
+    border: 1px dashed var(--yb-border);
+    border-radius: var(--yb-radius-sm);
+    padding: 10px 12px;
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  }
+  .upload-row .row-label { font-weight: 600; font-size: 12px; width: 60px; }
+  .file-pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--yb-bg);
+    border: 1px solid var(--yb-border);
+    border-radius: var(--yb-radius-pill);
+    padding: 3px 10px 3px 8px; font-size: 12px;
+  }
+  .file-pill .badge {
+    background: rgba(33,116,253,.1); color: var(--yb-primary-deep);
+    font-size: 10px; border-radius: 4px; padding: 0 4px; font-weight: 600;
+  }
+  .file-pill small { color: var(--yb-text-muted); }
+  .file-pill .x { color: var(--yb-text-muted); cursor: pointer; font-size: 11px; }
+  .file-pill .x:hover { color: #d84343; }
+  .upload-row .spacer { flex: 1; }
+
+  .detect-hint {
+    display: flex; align-items: center; gap: 10px;
+    border-radius: var(--yb-radius-md);
+    padding: 10px 14px; font-size: 12.5px;
+    border: 1px solid var(--yb-warning-border);
+    background: var(--yb-warning-soft);
+  }
+  .detect-hint .icon { flex-shrink: 0; color: var(--yb-warning); display: inline-flex; }
+  .detect-hint strong { color: #9a5b00; }
+  .detect-hint .hint-text { flex: 1; color: #7a5200; }
+  .detect-hint.is-ok {
+    border-color: var(--yb-success-border); background: var(--yb-success-soft);
+  }
+  .detect-hint.is-ok .icon { color: var(--yb-success); }
+  .detect-hint.is-ok strong { color: var(--yb-success); }
+  .detect-hint.is-ok .hint-text { color: #3d7a54; }
+
+  .quick-config {
+    background: var(--yb-surface);
+    border: 1px solid var(--yb-border);
+    border-radius: var(--yb-radius-md);
+    overflow: hidden;
+  }
+  .quick-config header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--yb-border-soft);
+    background: linear-gradient(180deg, #fbfdff, #f7fafd);
+  }
+  .quick-config header .left { display: flex; align-items: baseline; gap: 8px; }
+  .quick-config header .kicker { font-size: 11px; letter-spacing: .08em; color: var(--yb-violet); font-weight: 600; }
+  .quick-config header strong { font-size: 13.5px; }
+  .quick-config header small { font-size: 11.5px; color: var(--yb-text-muted); }
+  .qc-row {
+    display: flex; align-items: center; gap: 14px;
+    padding: 11px 16px;
+    border-bottom: 1px solid var(--yb-border-soft);
+  }
+  .qc-row:last-of-type { border-bottom: none; }
+  .qc-row .qc-label { width: 88px; flex-shrink: 0; display: flex; flex-direction: column; gap: 2px; }
+  .qc-row .qc-label strong { font-size: 12.5px; }
+  .qc-row .qc-label small { font-size: 11px; color: var(--yb-text-muted); }
+  .qc-row .qc-body { flex: 1; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .qc-row .qc-summary { font-size: 12px; color: var(--yb-text-soft); }
+  .qc-row .qc-summary em { font-style: normal; color: var(--yb-text); font-weight: 600; }
+  .qc-row .qc-summary.pending em { color: var(--yb-warning); }
+  .qc-row .spacer { flex: 1; }
+
+  .seg { display: inline-flex; border: 1px solid var(--yb-border); border-radius: var(--yb-radius-sm); overflow: hidden; }
+  .seg button {
+    font-family: inherit; font-size: 12px; cursor: pointer;
+    border: none; background: var(--yb-surface); color: var(--yb-text-soft);
+    padding: 5px 12px; border-right: 1px solid var(--yb-border-soft);
+    transition: all .12s;
+  }
+  .seg button:last-child { border-right: none; }
+  .seg button:hover { color: var(--yb-primary); background: #f6faff; }
+  .seg button.on { background: var(--yb-primary); color: #fff; font-weight: 600; }
+
+  .ladder { display: flex; gap: 6px; flex-wrap: wrap; }
+  .ladder button {
+    font-family: inherit; font-size: 11.5px; cursor: pointer;
+    border: 1px solid var(--yb-border); background: var(--yb-surface);
+    color: var(--yb-text-soft); border-radius: var(--yb-radius-pill);
+    padding: 3px 10px; transition: all .12s;
+  }
+  .ladder button:hover { border-color: var(--yb-primary); color: var(--yb-primary); }
+  .ladder button.on { background: rgba(33,116,253,.09); border-color: var(--yb-primary); color: var(--yb-primary-deep); font-weight: 600; }
+  .ladder-note { width: 100%; font-size: 11px; color: var(--yb-text-muted); }
+  .ladder-note em { font-style: normal; color: var(--yb-text-soft); }
+
+  .toggle-pill {
+    display: inline-flex; align-items: center; gap: 7px;
+    border: 1px solid var(--yb-border); border-radius: var(--yb-radius-pill);
+    padding: 3px 11px; font-size: 12px; cursor: pointer; user-select: none;
+    background: var(--yb-surface); color: var(--yb-text-muted); transition: all .12s;
+  }
+  .toggle-pill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--yb-border); transition: all .12s; }
+  .toggle-pill.on { border-color: rgba(22,138,74,.5); background: var(--yb-success-soft); color: #2c6e42; }
+  .toggle-pill.on .dot { background: var(--yb-success); }
+
+  .section-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: rgba(33,116,253,.07); border: 1px solid rgba(33,116,253,.25);
+    color: var(--yb-primary-deep);
+    border-radius: var(--yb-radius-pill); padding: 3px 11px; font-size: 12px; font-weight: 600;
+  }
+  .section-chip.plain { background: var(--yb-bg); border-color: var(--yb-border); color: var(--yb-text-soft); font-weight: 500; }
+
+  .doc-reader {
+    background: var(--yb-surface);
+    border: 1px solid var(--yb-border);
+    border-radius: var(--yb-radius-md);
+    display: flex; flex-direction: column; min-height: 260px;
+  }
+  .doc-reader .reader-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 16px; border-bottom: 1px solid var(--yb-border-soft);
+  }
+  .doc-reader .reader-head strong { font-size: 13px; }
+  .doc-reader .reader-head span { font-size: 12px; color: var(--yb-text-muted); }
+  .doc-reader .reader-body {
+    padding: 14px 18px; overflow-y: auto; flex: 1;
+    color: var(--yb-text-soft); font-size: 12.5px;
+  }
+  .doc-reader .reader-body h4 { color: var(--yb-text); margin: 14px 0 6px; font-size: 13px; }
+  .doc-reader .reader-body h4:first-child { margin-top: 0; }
+  .doc-reader .reader-body p { margin-bottom: 6px; }
+
+  .floating-toolbar {
+    position: fixed; left: 0; right: 0; bottom: 0;
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    padding: 12px 20px;
+    background: linear-gradient(180deg, rgba(250,252,255,0), rgba(250,252,255,.92) 40%, #fafcff);
+    pointer-events: none;
+  }
+  .floating-toolbar .inner {
+    pointer-events: auto;
+    display: flex; align-items: center; gap: 8px;
+    background: var(--yb-surface);
+    border: 1px solid var(--yb-border);
+    border-radius: var(--yb-radius-pill);
+    padding: 6px 8px;
+    box-shadow: 0 6px 24px rgba(28,37,54,.08);
+  }
+  .floating-toolbar .step-tip { font-size: 12px; color: var(--yb-text-muted); margin-right: 6px; padding-left: 8px; }
+  .floating-toolbar .btn.round { border-radius: var(--yb-radius-pill); padding: 6px 16px; }
+
+  .dialog-overlay {
+    position: fixed; inset: 0; background: rgba(28,37,54,.4);
+    display: none; align-items: center; justify-content: center; z-index: 40;
+  }
+  .dialog-overlay.open { display: flex; }
+  .dialog-card {
+    width: min(560px, calc(100vw - 48px));
+    background: var(--yb-surface);
+    border-radius: var(--yb-radius-md);
+    border: 1px solid var(--yb-border);
+    box-shadow: 0 18px 50px rgba(28,37,54,.18);
+    overflow: hidden;
+  }
+  .dialog-card header { padding: 14px 18px 10px; }
+  .dialog-card header .kicker { font-size: 11px; letter-spacing: .08em; color: var(--yb-primary); font-weight: 600; }
+  .dialog-card header strong { display: block; font-size: 14px; margin-top: 2px; }
+  .dialog-card .dialog-desc { padding: 0 18px 10px; font-size: 12px; color: var(--yb-text-muted); }
+  .dialog-card .section-list { padding: 0 18px; display: flex; flex-direction: column; gap: 8px; max-height: 300px; overflow-y: auto; }
+  .section-option {
+    display: flex; align-items: center; gap: 10px;
+    border: 1px solid var(--yb-border); border-radius: var(--yb-radius-sm);
+    padding: 10px 12px; cursor: pointer; transition: all .12s;
+  }
+  .section-option:hover { border-color: var(--yb-primary); background: #f6faff; }
+  .section-option.on { border-color: var(--yb-primary); background: rgba(33,116,253,.06); }
+  .section-option .radio {
+    width: 15px; height: 15px; border-radius: 50%;
+    border: 1.5px solid var(--yb-border); flex-shrink: 0; position: relative;
+  }
+  .section-option.on .radio { border-color: var(--yb-primary); }
+  .section-option.on .radio::after {
+    content: ""; position: absolute; inset: 3px; border-radius: 50%; background: var(--yb-primary);
+  }
+  .section-option .info { flex: 1; }
+  .section-option .info strong { display: block; font-size: 12.5px; }
+  .section-option .info small { font-size: 11.5px; color: var(--yb-text-muted); }
+  .dialog-card footer {
+    display: flex; justify-content: flex-end; gap: 8px;
+    padding: 14px 18px; border-top: 1px solid var(--yb-border-soft); margin-top: 12px;
+  }
+</style>
+</head>
+<body>
+
+<div class="proto-note">
+  <strong>原型说明</strong>
+  <span>STEP 01 快速配置前置方案（对应 spec：2026-09-11-step01-quick-bid-config-design）。交互可点：标段确认、页数阶梯、表格密度、图片开关。</span>
+  <span class="spacer"></span>
+  <span class="demo-switch">
+    <button id="demoMultiple" class="on" type="button">多标段形态</button>
+    <button id="demoSingle" type="button">单标段形态</button>
+  </span>
+</div>
+
+<div class="steps-bar">
+  <span class="step-item is-active"><span class="num">1</span>选择标书</span>
+  <span class="step-arrow">›</span>
+  <span class="step-item"><span class="num">2</span>招标文件解析</span>
+  <span class="step-arrow">›</span>
+  <span class="step-item"><span class="num">3</span>目录生成</span>
+  <span class="step-arrow">›</span>
+  <span class="step-item"><span class="num">4</span>全局事实设定</span>
+  <span class="step-arrow">›</span>
+  <span class="step-item"><span class="num">5</span>生成正文</span>
+  <span class="step-arrow">›</span>
+  <span class="step-item"><span class="num">6</span>扩写改写</span>
+</div>
+
+<div class="command-bar">
+  <div class="command-title">
+    <strong>选择标书</strong>
+    <span>上传招标文件，解析结果与投标范围将作为后续所有步骤的输入</span>
+  </div>
+  <span style="font-size:12px;color:var(--yb-text-muted);">默认解析方案：本地解析</span>
+</div>
+
+<main>
+  <section class="upload-board">
+    <div class="board-head">
+      <div><span class="kicker">STEP 01</span><strong>选择标书</strong></div>
+      <small>支持多份招标文件合并解析</small>
+    </div>
+    <div class="upload-row">
+      <span class="row-label">招标文件</span>
+      <span class="file-pill"><span class="badge">MD</span>招标文件-九龙坡区土地延包.docx<small>本地解析 · 18.6 万字</small><span class="x" title="移除">×</span></span>
+      <span class="file-pill"><span class="badge">MD</span>答疑补遗-第2次.docx<small>本地解析 · 1.2 万字</small><span class="x" title="移除">×</span></span>
+      <span class="spacer"></span>
+      <button class="btn" type="button">继续上传</button>
+    </div>
+  </section>
+
+  <section class="detect-hint" id="detectHint">
+    <span class="icon">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>
+    </span>
+    <span class="hint-text" id="detectText"><strong>检测到疑似 3 个标段。</strong>切换投标范围会重建工作副本并清空下游解析结果，建议先确认本次投标范围。</span>
+    <button class="btn primary" id="confirmSectionBtn" type="button">确认投标范围</button>
+  </section>
+
+  <section class="quick-config">
+    <header>
+      <div class="left">
+        <span class="kicker">快速配置</span>
+        <strong>本次标书的生成约束</strong>
+      </div>
+      <small>早选不早生效：STEP 03 目录生成、STEP 05 正文生成时仍可调整</small>
+    </header>
+
+    <div class="qc-row">
+      <div class="qc-label"><strong>投标范围</strong><small>决定下游全部输入</small></div>
+      <div class="qc-body" id="qcBidSection">
+        <span class="qc-summary pending">当前：<em>多标段 · 待选择</em></span>
+        <span class="spacer"></span>
+        <button class="btn" id="openSectionBtn" type="button">选择标段</button>
+      </div>
+    </div>
+
+    <div class="qc-row">
+      <div class="qc-label"><strong>标书篇幅</strong><small>字数控制预设</small></div>
+      <div class="qc-body">
+        <div class="ladder" id="ladder">
+          <button type="button" data-range="50-100">约50-100页</button>
+          <button type="button" data-range="100-200">约100-200页</button>
+          <button type="button" data-range="200-350" class="on">约200-350页</button>
+          <button type="button" data-range="350-500">约350-500页</button>
+          <button type="button" data-range="500-800">约500-800页</button>
+          <button type="button" data-range="800-1200">约800-1200页</button>
+          <button type="button" data-range="1200-1500">约1200-1500页</button>
+          <span class="ladder-note" id="ladderNote">换算为全文 <em>10 - 17.5 万字</em>，STEP 03 可精确调整上下限与单节字数。</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="qc-row">
+      <div class="qc-label"><strong>表格密度</strong><small>正文表格要求</small></div>
+      <div class="qc-body">
+        <div class="seg" id="tableSeg">
+          <button type="button" data-val="none">无表格</button>
+          <button type="button" data-val="light">少量</button>
+          <button type="button" data-val="moderate">适中</button>
+          <button type="button" data-val="heavy" class="on">丰富</button>
+        </div>
+        <span class="spacer"></span>
+        <span class="qc-summary">对应 STEP 05 生成配置</span>
+      </div>
+    </div>
+
+    <div class="qc-row">
+      <div class="qc-label"><strong>图片设置</strong><small>配图类型开关</small></div>
+      <div class="qc-body">
+        <span class="toggle-pill on" data-kind="ai"><span class="dot"></span>AI 配图</span>
+        <span class="toggle-pill on" data-kind="mermaid"><span class="dot"></span>Mermaid 图</span>
+        <span class="toggle-pill" data-kind="html"><span class="dot"></span>HTML 图</span>
+        <span class="spacer"></span>
+        <span class="qc-summary">修改后沿用现有失效规则（清空全文图片计划）</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="doc-reader">
+    <div class="reader-head">
+      <strong>招标文件内容</strong>
+      <span>招标文件-九龙坡区土地延包.docx · 18.6 万字</span>
+    </div>
+    <div class="reader-body">
+      <h4>第一章 投标邀请</h4>
+      <p>……项目已由上级主管部门批准建设，资金来源已落实。现对本项目施工及技术服务进行公开招标，欢迎符合资格条件的投标人参加投标。</p>
+      <h4>第二章 项目概况与标段划分</h4>
+      <p>本项目共划分为 3 个标段：一标段（西彭镇、铜罐驿镇）；二标段（白市驿镇、走马镇）；三标段（含谷镇、巴福镇）。投标人可就单个或多个标段投标，兼投不兼中。</p>
+      <h4>第三章 技术要求</h4>
+      <p>投标人应按照招标文件要求，结合项目区实际情况，编制技术服务方案，内容包括但不限于：权属调查、外业测量、公示确认、数据库建设与成果汇交……</p>
+      <p style="color:var(--yb-text-muted);">（Markdown 正文预览，支持全屏查看）</p>
+    </div>
+  </section>
+</main>
+
+<div class="floating-toolbar">
+  <div class="inner">
+    <span class="step-tip">STEP 01 / 06</span>
+    <button class="btn round" type="button" disabled style="opacity:.45;cursor:not-allowed;">上一步</button>
+    <button class="btn primary round" id="nextBtn" type="button">下一步：招标文件解析</button>
+  </div>
+</div>
+
+<div class="dialog-overlay" id="sectionDialog">
+  <div class="dialog-card">
+    <header>
+      <span class="kicker">投标范围</span>
+      <strong>选择本次投标的标段</strong>
+    </header>
+    <div class="dialog-desc">检测到 3 个标段。选择后招标文件解析及后续步骤将仅使用该标段范围。</div>
+    <div class="section-list" id="sectionList">
+      <div class="section-option on" data-id="s1">
+        <span class="radio"></span>
+        <span class="info">
+          <strong>一标段</strong>
+          <small>西彭镇、铜罐驿镇 · 约 8.2 万亩</small>
+        </span>
+      </div>
+      <div class="section-option" data-id="s2">
+        <span class="radio"></span>
+        <span class="info">
+          <strong>二标段</strong>
+          <small>白市驿镇、走马镇 · 约 7.6 万亩</small>
+        </span>
+      </div>
+      <div class="section-option" data-id="s3">
+        <span class="radio"></span>
+        <span class="info">
+          <strong>三标段</strong>
+          <small>含谷镇、巴福镇 · 约 6.9 万亩</small>
+        </span>
+      </div>
+    </div>
+    <footer>
+      <button class="btn" id="dialogCancel" type="button">取消</button>
+      <button class="btn primary" id="dialogConfirm" type="button">选择该范围</button>
+    </footer>
+  </div>
+</div>
+
+<script>
+  var state = {
+    mode: 'multiple',
+    selectedSection: null,
+    selectedId: 's1'
+  };
+  var sectionNames = { s1: '一标段', s2: '二标段', s3: '三标段' };
+
+  var hint = document.getElementById('detectHint');
+  var detectText = document.getElementById('detectText');
+  var confirmBtn = document.getElementById('confirmSectionBtn');
+  var qcSummary = document.querySelector('#qcBidSection .qc-summary');
+  var openSectionBtn = document.getElementById('openSectionBtn');
+  var dialog = document.getElementById('sectionDialog');
+
+  function render() {
+    if (state.mode === 'single') {
+      hint.style.display = 'none';
+      qcSummary.className = 'qc-summary';
+      qcSummary.innerHTML = '当前：<em>单标段</em>（未检测到多标段结构）';
+      openSectionBtn.textContent = '切换多标段';
+      return;
+    }
+    hint.style.display = '';
+    if (state.selectedSection) {
+      hint.classList.add('is-ok');
+      detectText.innerHTML = '<strong>已选择 ' + state.selectedSection + '。</strong>后续步骤将仅使用该投标范围，如需更换请在此调整。';
+      confirmBtn.style.display = 'none';
+      qcSummary.className = 'qc-summary';
+      qcSummary.innerHTML = '当前：<em>多标段 · ' + state.selectedSection + '</em>';
+      openSectionBtn.textContent = '更换标段';
+    } else {
+      hint.classList.remove('is-ok');
+      detectText.innerHTML = '<strong>检测到疑似 3 个标段。</strong>切换投标范围会重建工作副本并清空下游解析结果，建议先确认本次投标范围。';
+      confirmBtn.style.display = '';
+      qcSummary.className = 'qc-summary pending';
+      qcSummary.innerHTML = '当前：<em>多标段 · 待选择</em>';
+      openSectionBtn.textContent = '选择标段';
+    }
+  }
+
+  confirmBtn.addEventListener('click', function () { dialog.classList.add('open'); });
+  openSectionBtn.addEventListener('click', function () {
+    if (state.mode === 'single') {
+      state.mode = 'multiple';
+      state.selectedSection = null;
+      render();
+      dialog.classList.add('open');
+      return;
+    }
+    dialog.classList.add('open');
+  });
+  document.getElementById('dialogCancel').addEventListener('click', function () { dialog.classList.remove('open'); });
+  dialog.addEventListener('click', function (e) { if (e.target === dialog) dialog.classList.remove('open'); });
+
+  var options = document.querySelectorAll('.section-option');
+  options.forEach(function (opt) {
+    opt.addEventListener('click', function () {
+      options.forEach(function (o) { o.classList.remove('on'); });
+      opt.classList.add('on');
+      state.selectedId = opt.getAttribute('data-id');
+    });
+  });
+  document.getElementById('dialogConfirm').addEventListener('click', function () {
+    state.selectedSection = sectionNames[state.selectedId];
+    dialog.classList.remove('open');
+    render();
+  });
+
+  document.getElementById('demoMultiple').addEventListener('click', function () {
+    this.classList.add('on');
+    document.getElementById('demoSingle').classList.remove('on');
+    state.mode = 'multiple';
+    state.selectedSection = null;
+    render();
+  });
+  document.getElementById('demoSingle').addEventListener('click', function () {
+    this.classList.add('on');
+    document.getElementById('demoMultiple').classList.remove('on');
+    state.mode = 'single';
+    render();
+  });
+
+  var wordMap = {
+    '50-100': '2.5 - 5 万字',
+    '100-200': '5 - 10 万字',
+    '200-350': '10 - 17.5 万字',
+    '350-500': '17.5 - 25 万字',
+    '500-800': '25 - 40 万字',
+    '800-1200': '40 - 60 万字',
+    '1200-1500': '60 - 75 万字'
+  };
+  document.querySelectorAll('#ladder button').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      document.querySelectorAll('#ladder button').forEach(function (b) { b.classList.remove('on'); });
+      btn.classList.add('on');
+      var range = btn.getAttribute('data-range');
+      document.getElementById('ladderNote').innerHTML =
+        '换算为全文 <em>' + wordMap[range] + '</em>，STEP 03 可精确调整上下限与单节字数。';
+    });
+  });
+
+  document.querySelectorAll('#tableSeg button').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      document.querySelectorAll('#tableSeg button').forEach(function (b) { b.classList.remove('on'); });
+      btn.classList.add('on');
+    });
+  });
+
+  document.querySelectorAll('.toggle-pill').forEach(function (pill) {
+    pill.addEventListener('click', function () { pill.classList.toggle('on'); });
+  });
+
+  document.getElementById('nextBtn').addEventListener('click', function () {
+    alert('原型演示：进入 STEP 02 招标文件解析（投标范围将显示为只读）');
+  });
+
+  render();
+</script>
+</body>
+</html>

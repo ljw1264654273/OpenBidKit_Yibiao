@@ -63,6 +63,21 @@ test('正文生成把现有阶段进度原样放入公共命令区', () => {
   assert.match(source, /setWorkspacePane\('content'\)/);
 });
 
+test('正文生成目录支持拖拽调宽并让长标题最多显示两行', () => {
+  const pageSource = readFileSync(new URL('../pages/ContentEditPage.tsx', import.meta.url), 'utf8');
+  const workspaceSource = componentSource('AdaptiveTwoPaneWorkspace');
+  const css = readFileSync(new URL('../../../styles/feature-technical-plan.css', import.meta.url), 'utf8');
+
+  assert.match(pageSource, /resizableNavigation=\{\{/);
+  assert.match(pageSource, /defaultWidth:\s*380/);
+  assert.match(pageSource, /title=\{formattedTitle\}/);
+  assert.match(workspaceSource, /role="separator"/);
+  assert.match(workspaceSource, /onPointerDown=\{startNavigationResize\}/);
+  assert.match(workspaceSource, /onKeyDown=\{handleSeparatorKeyDown\}/);
+  assert.match(css, /\.adaptive-workspace-grid\.is-resizable\s*\{[^}]*grid-template-columns:\s*var\(--adaptive-navigation-width,\s*380px\)\s+8px\s+minmax\(0,\s*1fr\)/s);
+  assert.match(css, /\.content-outline-text strong\s*\{[^}]*display:\s*-webkit-box;[^}]*-webkit-line-clamp:\s*2;[^}]*\}/s);
+});
+
 test('选择标书使用局部紧凑上传样式并保留正文阅读器', () => {
   const source = readFileSync(new URL('../pages/DocumentAnalysisPage.tsx', import.meta.url), 'utf8');
 

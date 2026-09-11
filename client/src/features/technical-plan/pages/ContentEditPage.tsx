@@ -985,6 +985,7 @@ function ContentEditPage({
     const leafCount = meta?.leafCount || 0;
     const words = meta?.words || 0;
     const modeLabel = isLeaf && item.content_mode ? OUTLINE_CONTENT_MODE_LABELS[item.content_mode] : '';
+    const formattedTitle = formatOutlineTitle(item.id, item.title, exportFormat.headings[Math.min(item.id.split('.').length - 1, 5)]);
 
     return (
       <div className="content-outline-node" key={item.id} style={{ '--content-level': level } as CSSProperties}>
@@ -998,7 +999,7 @@ function ContentEditPage({
         >
           <span className="content-outline-dot" aria-hidden="true" />
           <span className="content-outline-text">
-            <strong>{formatOutlineTitle(item.id, item.title, exportFormat.headings[Math.min(item.id.split('.').length - 1, 5)])}</strong>
+            <strong title={formattedTitle}>{formattedTitle}</strong>
             <small>{isLeaf ? `${modeLabel || '未标记'} · ${statusLabels[status]} · ${words} 字` : `${statusLabels[status]} · ${leafCount} 个小节 · ${words} 字`}</small>
           </span>
           {isLeaf && item.content_mode === 'ai-generate' && (status === 'success' || status === 'error') ? (
@@ -1142,6 +1143,12 @@ function ContentEditPage({
       <AdaptiveTwoPaneWorkspace
         id="content-generation-workspace"
         className="content-generation-workspace"
+        resizableNavigation={{
+          defaultWidth: 380,
+          minWidth: 300,
+          maxWidth: 520,
+          storageKey: 'yibiao.content-generation.outline-width',
+        }}
         navigationLabel="标书目录"
         contentLabel="正文内容"
         activePane={workspacePane}

@@ -1,0 +1,43 @@
+<h2>正文生成：目录可读性优化</h2>
+<p class="subtitle">请选择你更倾向的目录交互方式。内容使用真实的深层级长标题，重点观察标题完整度与状态信息的平衡。</p>
+
+<div class="split">
+  <div class="mockup" data-choice="a" onclick="toggleSelect(this)">
+    <div class="mockup-header">A · 聚焦查看完整标题</div>
+    <div class="mockup-body" style="padding:0;background:#f8fafd">
+      <div style="padding:12px 14px;border-bottom:1px solid #e4e9f0;font-weight:700;color:#172033">标书目录 <span style="float:right;color:#8b98ad;font-weight:500">337 个小节</span></div>
+      <div style="padding:12px 14px">
+        <div style="padding:10px 12px;color:#172033;font-weight:700">第一章 项目的理解及重难点分析</div>
+        <div style="padding:10px 12px 10px 28px;color:#172033;font-weight:700">1 项目背景</div>
+        <div style="padding:10px 12px 10px 48px;border-left:3px solid #2174fd;background:white;color:#172033;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="1.1.1.1 项目立项背景与建设必要性分析">1.1.1.1 项目立项背景与建设必要性分析</div>
+        <div style="margin:6px 0 0 48px;padding:7px 10px;background:#172033;color:white;border-radius:6px;font-size:12px">1.1.1.1 项目立项背景与建设必要性分析</div>
+        <div style="padding:10px 12px 10px 48px;color:#172033;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">1.1.1.2 政策规划与行业发展趋势研判</div>
+      </div>
+    </div>
+    <div class="card-body"><h3>悬停 / 聚焦时显示完整标题</h3><p>改动最小，目录保持紧凑；适合偶尔需要确认长标题的场景。</p></div>
+  </div>
+  <div class="mockup" data-choice="b" onclick="toggleSelect(this)">
+    <div class="mockup-header">B · 标题两行 + 状态下沉</div>
+    <div class="mockup-body" style="padding:0;background:#f8fafd">
+      <div style="padding:12px 14px;border-bottom:1px solid #e4e9f0;font-weight:700;color:#172033">标书目录 <span style="float:right;color:#8b98ad;font-weight:500">337 个小节</span></div>
+      <div style="padding:12px 14px">
+        <div style="padding:10px 12px 12px 48px;border-left:3px solid #2174fd;background:white;color:#172033;font-weight:700;line-height:1.45">1.1.1.1 项目立项背景与建设<br/>必要性分析 <small style="display:block;color:#9aa6b8;font-weight:500;margin-top:3px">AI生成 · 待生成 · 0字</small></div>
+        <div style="padding:10px 12px 12px 48px;color:#172033;font-weight:700;line-height:1.45">1.1.1.2 政策规划与行业发展<br/>趋势研判 <small style="display:block;color:#9aa6b8;font-weight:500;margin-top:3px">AI生成 · 待生成 · 0字</small></div>
+      </div>
+    </div>
+    <div class="card-body"><h3>标题最多两行，状态信息移到下方</h3><p>长标题直接可读；目录行高会增加，但深层级信息更稳定。</p></div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="mockup" data-choice="c" onclick="toggleSelect(this)">
+    <div class="mockup-header">C · 可拖拽目录宽度 + 标题两行</div>
+    <div class="mockup-body" style="padding:0;background:#f8fafd">
+      <div style="display:grid;grid-template-columns:46% 54%;min-height:185px">
+        <div style="padding:12px 14px;border-right:4px solid #dce5f6;background:white"><div style="font-weight:700;color:#172033;margin-bottom:12px">标书目录 <span style="float:right;color:#8b98ad;font-weight:500">337</span></div><div style="padding:10px 8px;border-left:3px solid #2174fd;color:#172033;font-weight:700;line-height:1.4">1.1.1.1 项目立项背景与建设必要性分析</div></div>
+        <div style="padding:24px;color:#8b98ad;display:flex;align-items:center;justify-content:center">正文内容区域</div>
+      </div>
+    </div>
+    <div class="card-body"><h3>目录宽度可按需调整</h3><p>默认给深层级更多空间，用户也能拖宽目录查看完整名称。</p></div>
+  </div>
+</div>
