@@ -211,6 +211,14 @@ function normalizeGeneratedMarkdown(content) {
     .join('\n');
 }
 
+function isProtectedLeadInLine(line) {
+  return isMarkdownTableRow(line) || /!\[[^\]]*\]\([^)]*\)/.test(line) || /<img\b[^>]*>/i.test(line);
+}
+
+function matchStructuralLeadInLine(line) {
+  return /^(\s*)(?:(\d+)\.\s+)?(\*\*|__)(.+?)\3(.*)$/.exec(line);
+}
+
 function normalizeGeneratedLeadInPunctuation(content) {
   let inFence = false;
   return String(content || '').split(/\r?\n/).map((line) => {
@@ -218,27 +226,49 @@ function normalizeGeneratedLeadInPunctuation(content) {
       inFence = !inFence;
       return line;
     }
-    if (inFence || /^\s*\|/.test(line) || /^\s*!\[[^\]]*\]\([^)]*\)\s*$/.test(line) || /^\s*<img\b[^>]*>\s*$/i.test(line)) {
+    if (inFence || isProtectedLeadInLine(line)) {
       return line;
     }
 
-    const match = /^(\s*)(\*\*|__)(.+?)\2(.*)$/.exec(line);
+    const match = matchStructuralLeadInLine(line);
     if (!match) return line;
 
-    const [, indent, marker, inner, trailing] = match;
-    const duplicatedBoundary = /^\s*(?:[，,、；;：:]\s*)+([^\s，,、；;：:][\s\S]*)$/.exec(trailing);
-    if (/[：:]\s*$/.test(inner) && duplicatedBoundary) {
-      return `${indent}${marker}${inner}${marker} ${duplicatedBoundary[1]}`;
-    }
+    const [, indent, number, marker, inner, trailing] = match;
+    const prefix = `${indent}${number ? `${number}. ` : ''}`;
+    const normalizedInner = inner.trimEnd().replace(/[。．.，,；;：:、！？!?]+$/u, '').trimEnd();
+    if (!normalizedInner) return line;
 
-    const terminal = /([。\.])(\s*)$/.exec(inner);
-    if (!terminal) return line;
-    const contentWithoutTerminal = inner.slice(0, terminal.index) + terminal[2];
-    const isStandalone = !trailing.trim();
-    const replacement = isStandalone
-      ? contentWithoutTerminal
-      : `${inner.slice(0, terminal.index)}${/[：:]/.test(inner.slice(0, terminal.index)) ? '，' : '：'}${terminal[2]}`;
-    return `${indent}${marker}${replacement}${marker}${trailing}`;
+    const prose = trailing.replace(/^\s*(?:[。．.，,；;：:、！？!?]\s*)*/u, '');
+    if (!prose) {
+      return `${prefix}${marker}${normalizedInner}${marker}${trailing}`;
+    }
+    return `${prefix}${marker}${normalizedInner}：${marker} ${prose}`;
+  }).join('\n');
+}
+
+function normalizeParallelLeadInNumbering(content) {
+  const lines = String(content || '').split(/\r?\n/);
+  let inFence = false;
+  const eligibleIndexes = [];
+  lines.forEach((line, index) => {
+    if (/^\s*(?:```|~~~)/.test(line)) {
+      inFence = !inFence;
+      return;
+    }
+    if (inFence || isProtectedLeadInLine(line)) return;
+    if (matchStructuralLeadInLine(line)) {
+      eligibleIndexes.push(index);
+    }
+  });
+  if (eligibleIndexes.length < 2) return lines.join('\n');
+
+  const eligible = new Set(eligibleIndexes);
+  let sequence = 0;
+  return lines.map((line, index) => {
+    if (!eligible.has(index)) return line;
+    sequence += 1;
+    const match = /^(\s*)(?:\d+\.\s+)?((?:\*\*|__).*)$/.exec(line);
+    return match ? `${match[1]}${sequence}. ${match[2]}` : line;
   }).join('\n');
 }
 
@@ -939,10 +969,10 @@ function buildChapterContentMessages({ chapter, projectOverview, selectedFactsTe
 8. 严禁输出 Mermaid、PlantUML、Graphviz、flowchart、graph、sequenceDiagram 等图表代码块、mermaid.ink 链接或图片 Markdown；配图由系统另行处理。
 9. ${tableAllowed ? '表格单元格内如有多项内容，优先使用编号、顿号、分号或短句，不要使用 HTML <br> 标签。' : '如需表达多项参数、职责、流程或措施，请改用分段文字或普通列表，不要用表格模拟。'}
 10. 严禁使用 Markdown 标题语法（#、##、###、####、#####、######），也不要生成与当前章节同级或下级的伪目录标题。
-11. 如需在正文中分层表达，只能使用普通段落、无编号列表、表格或无编号加粗引导语，例如 **实施要点：**。
-12. 行内加粗引导语后面仍有正文时，若引导语内部没有冒号，末尾使用中文冒号；若内部已有中文或英文冒号，末尾使用中文逗号，不得形成两个冒号；分隔标点必须写在加粗标记内，加粗结束标记后不得再写逗号、顿号、分号或冒号，直接空一格接正文；独立成行的加粗引导语不得带中文句号或英文句点。
-13. 加粗引导语只允许写简短主题词，禁止使用任何形式的编号。
-14. 只有步骤、流程、时间顺序、操作顺序等连续性非常强的内容，才可以使用有序列表；其他分段一律使用自然段、无编号列表或无编号加粗引导语，禁止使用任何形式的编号。
+11. 如需在正文中分层表达，可以使用普通段落、列表、表格或简短加粗引导语，例如 **实施要点：**。
+12. 行内加粗引导标题后面仍有正文时，标题末尾必须使用一个中文冒号，且冒号必须写在加粗标记内；加粗结束标记后不得再写句号、逗号、顿号、分号或冒号，直接空一格接正文。独立成行的加粗引导标题不得带句末标点。
+13. 同一层级出现两个及以上并列论述分项时，每个分项标题必须按出现顺序使用连续阿拉伯数字序号，格式为“1. **标题**”“2. **标题**”；标题与正文同一行时使用“1. **标题：** 正文”。
+14. 步骤、流程、时间顺序和操作顺序可以使用有序列表；普通段落不机械编号。
 15. 直接返回章节内容，不生成标题，不要任何额外说明。
 16. 如果本章节需要使用的全局事实变量中包含相关内容，必须优先使用变量值，不得前后矛盾。
 17. 仅使用本章节提供的全局事实变量；未提供时不要主动编造具体人员、周期、质保、品牌、型号等会影响全文一致性的承诺。
@@ -993,7 +1023,7 @@ function buildChapterContentMessages({ chapter, projectOverview, selectedFactsTe
 章节描述: ${chapterDescription}
 
 请结合项目概述信息、本章节全局事实变量、参考正文素材和正文编排决策，围绕当前章节标题、描述和写作重点生成详细的专业内容。
-直接返回编写的正文内容，不要输出标题、Markdown 标题、带任何形式编号的加粗引导语、伪目录标题、解释、总结等任何其他内容`,
+直接返回编写的正文内容，不要输出章节标题、Markdown 标题、伪目录标题、解释、总结等任何其他内容`,
   });
   const sectionWordRequirement = buildSectionWordRequirement(wordControl, false, generationTarget);
   if (sectionWordRequirement) messages.push({ role: 'user', content: sectionWordRequirement });
@@ -1020,7 +1050,7 @@ function buildRestoredChapterContentMessages({ chapter, projectOverview, selecte
 4. 正文底稿中可能包含原方案 Markdown 标题行或编号标题，例如“# 第一章...”“## 第一节...”“### 二、...”“（一）...”，这些只作为章节定位线索，不属于最终正文。
 5. 输出时必须跳过底稿中的章节标题、Markdown 标题和编号标题；当前章节标题会由程序统一渲染，不要在正文中重复。
 6. 不要提到“原方案”“历史文档”“用户原文”或“底稿”。
-7. 加粗引导语不得使用任何形式的编号；除连续性非常强的步骤、流程、操作顺序外，不得使用有序编号分段。
+7. 行内加粗引导标题必须以中文冒号结尾；同一层级出现两个及以上并列论述分项时，必须按出现顺序使用连续阿拉伯数字序号，格式为“1. **标题**”“2. **标题**”，标题与正文同一行时使用“1. **标题：** 正文”。
 8. 输出当前章节完整正文，不输出标题。`,
   });
   const finalMessage = messages.pop();
@@ -1220,8 +1250,8 @@ workspace 文件：
 7. 严禁输出 Mermaid、PlantUML、Graphviz、flowchart、graph、sequenceDiagram 等图表代码块、mermaid.ink 链接或图片 Markdown。
 8. restored-content.md 可能包含原方案 Markdown 标题行或编号标题，例如“# 第一章...”“## 第一节...”“### 二、...”“（一）...”，这些只作为章节定位线索，不属于最终正文。
 9. 不要输出章节标题、Markdown 标题、编号标题、解释、总结或过程说明；当前章节标题会由程序统一渲染。
-10. 行内加粗引导语后面仍有正文时，若引导语内部没有冒号，末尾使用中文冒号；若内部已有中文或英文冒号，末尾使用中文逗号，不得形成两个冒号；分隔标点必须写在加粗标记内，加粗结束标记后不得再写逗号、顿号、分号或冒号，直接空一格接正文；独立成行的加粗引导语不得带中文句号或英文句点。
- 11. chapter-context.md 如包含小节字数目标，应尽量遵守，但保留原方案实质内容的要求优先。
+10. 行内加粗引导标题必须以一个中文冒号结尾，冒号写在加粗标记内；独立成行的加粗引导标题不得带句末标点。同一层级出现两个及以上并列论述分项时，必须按出现顺序使用连续阿拉伯数字序号，格式为“1. **标题**”“2. **标题**”，标题与正文同一行时使用“1. **标题：** 正文”。
+11. chapter-context.md 如包含小节字数目标，应尽量遵守，但保留原方案实质内容的要求优先。
 12. 不要修改业务数据库，程序会读取你的输出文件后自行写回。
 
 最终请把当前小节完整正文写入 optimized-section.md。该文件只能包含正文内容，不要包含标题或说明。`, globalFactsMode);
@@ -2416,7 +2446,7 @@ function normalizeLeafContentForSave(content, chapter) {
   const normalized = stripMarkdownHeadingsFromLeafContent(
     stripRepeatedChapterTitle(normalizeGeneratedMarkdown(content), chapter),
   );
-  return normalizeGeneratedLeadInPunctuation(normalized);
+  return normalizeGeneratedLeadInPunctuation(normalizeParallelLeadInNumbering(normalized));
 }
 
 function normalizeWordAdjustmentResponse(value) {
@@ -2504,7 +2534,7 @@ ${operationRules}
 6. 不改变核心意思，不修改参数、数量、日期、周期和标准，不删除技术路线、职责、流程、风险措施、人员安排、验收要求、售后和服务承诺。
 7. 不新增未提供的品牌、型号、人员、承诺和服务期限。
 8. 不修改图片、Mermaid、代码块、表格结构、列表编号层级和资源路径，不生成 Markdown 标题或伪目录标题。
-9. 行内加粗引导语后面仍有正文时，若引导语内部没有冒号，末尾使用中文冒号；若内部已有中文或英文冒号，末尾使用中文逗号，不得形成两个冒号；分隔标点必须写在加粗标记内，加粗结束标记后不得再写逗号、顿号、分号或冒号，直接空一格接正文；独立成行的加粗引导语不得带中文句号或英文句点。
+9. 行内加粗引导标题必须以一个中文冒号结尾，冒号写在加粗标记内；加粗结束标记后不得再写句号、逗号、顿号、分号或冒号，直接空一格接正文。独立成行的加粗引导标题不得带句末标点。同一层级出现两个及以上并列论述分项时，必须按出现顺序使用连续阿拉伯数字序号，格式为“1. **标题**”“2. **标题**”，标题与正文同一行时使用“1. **标题：** 正文”。
 10. 不把其他目录应承载的内容移动到当前小节。${buildContentFactCompletenessInstruction(globalFactsMode) ? `\n\n${buildContentFactCompletenessInstruction(globalFactsMode)}` : ''}`,
     },
     { role: 'user', content: `当前章节路径：${chapterPath}\n章节描述：${item.description || ''}\n同级章节：${siblings}` },
@@ -6919,8 +6949,11 @@ const __developerContentExpansionPatchRuntime = {
   findContentExpansionTargetTextMatch,
   applyContentExpansionPatch,
   normalizeGeneratedLeadInPunctuation,
+  normalizeParallelLeadInNumbering,
   normalizeLeafContentForSave,
   buildWordAdjustmentMessages,
+  buildRestoredChapterContentMessages,
+  buildAgentRestoredChapterContentPrompt,
 };
 
 module.exports = {

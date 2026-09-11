@@ -7,6 +7,10 @@ const {
 } = require('./contentGenerationTask.cjs');
 
 const normalize = (value) => __developerContentExpansionPatchRuntime.normalizeGeneratedLeadInPunctuation(value);
+const normalizeSave = (value) => __developerContentExpansionPatchRuntime.normalizeLeafContentForSave(
+  value,
+  { id: '1.1', title: '测试章节' },
+);
 
 test('inline bold lead-ins use a Chinese colon before following prose', () => {
   assert.equal(
@@ -16,15 +20,20 @@ test('inline bold lead-ins use a Chinese colon before following prose', () => {
   assert.equal(normalize('__房屋属性信息核实.__ 房屋权属方面'), '__房屋属性信息核实：__ 房屋权属方面');
 });
 
-test('inline lead-ins with an internal colon use a comma before following prose', () => {
+test('inline lead-ins with an internal colon still end with a Chinese colon', () => {
   assert.equal(
     normalize('**第一阶段：前期准备与资料对接。** 自合同签订后即启动'),
-    '**第一阶段：前期准备与资料对接，** 自合同签订后即启动',
+    '**第一阶段：前期准备与资料对接：** 自合同签订后即启动',
   );
   assert.equal(
     normalize('**第一阶段：前期准备与资料对接.** 自合同签订后即启动'),
-    '**第一阶段：前期准备与资料对接，** 自合同签订后即启动',
+    '**第一阶段：前期准备与资料对接：** 自合同签订后即启动',
   );
+});
+
+test('numbered inline and standalone titles cannot bypass punctuation cleanup', () => {
+  assert.equal(normalize('1. **实施安排。** 正文'), '1. **实施安排：** 正文');
+  assert.equal(normalize('2. **质量保证。**'), '2. **质量保证**');
 });
 
 test('colon-ending lead-ins discard external delimiters before following prose', () => {
@@ -36,7 +45,7 @@ test('colon-ending lead-ins discard external delimiters before following prose',
     );
     assert.equal(
       normalize(`__图属一致性处理:__ ${delimiter} 各类表格`),
-      '__图属一致性处理:__ 各类表格',
+      '__图属一致性处理：__ 各类表格',
     );
   }
   assert.equal(
@@ -46,8 +55,8 @@ test('colon-ending lead-ins discard external delimiters before following prose',
 });
 
 test('colon-ending lead-ins keep trailing delimiters when no prose follows', () => {
-  assert.equal(normalize('**图属一致性处理：**，'), '**图属一致性处理：**，');
-  assert.equal(normalize('**图属一致性处理：** ，； '), '**图属一致性处理：** ，； ');
+  assert.equal(normalize('**图属一致性处理：**，'), '**图属一致性处理**，');
+  assert.equal(normalize('**图属一致性处理：** ，； '), '**图属一致性处理** ，； ');
 });
 
 test('standalone titles keep internal colons while removing terminal punctuation', () => {
@@ -57,6 +66,32 @@ test('standalone titles keep internal colons while removing terminal punctuation
 test('standalone bold lead-ins remove terminal sentence punctuation', () => {
   assert.equal(normalize('**自查自检机制。**'), '**自查自检机制**');
   assert.equal(normalize('  **自查自检机制.**  '), '  **自查自检机制**  ');
+  for (const delimiter of ['。', '．', '.', '，', ',', '；', ';', '：', ':', '、', '！', '!', '？', '?']) {
+    assert.equal(normalize(`**质量保证${delimiter}**`), '**质量保证**');
+  }
+});
+
+test('two or more parallel bold items receive continuous Arabic numbering', () => {
+  assert.equal(
+    normalizeSave('**实施安排。**\n内容一。\n\n**质量保证：**\n内容二。'),
+    '1. **实施安排**\n内容一。\n\n2. **质量保证**\n内容二。',
+  );
+  assert.equal(
+    normalizeSave('3. **实施安排。** 正文一。\n**质量保证。** 正文二。\n2. **验收交付。** 正文三。'),
+    '1. **实施安排：** 正文一。\n2. **质量保证：** 正文二。\n3. **验收交付：** 正文三。',
+  );
+});
+
+test('skipped, duplicate, and out-of-order peer numbers are normalized by appearance', () => {
+  assert.equal(
+    normalizeSave('2. **第一项**\n2. **第二项**\n8. **第三项**'),
+    '1. **第一项**\n2. **第二项**\n3. **第三项**',
+  );
+  assert.equal(normalizeSave('1. **第一项**\n2. **第二项**'), '1. **第一项**\n2. **第二项**');
+});
+
+test('a single structural bold title remains unnumbered', () => {
+  assert.equal(normalizeSave('**唯一分项。**\n正文。'), '**唯一分项**\n正文。');
 });
 
 test('punctuation normalization skips protected blocks and unrelated prose', () => {
@@ -72,10 +107,30 @@ test('punctuation normalization skips protected blocks and unrelated prose', () 
   assert.equal(normalize(source), source.replace(/\r\n/g, '\n'));
 });
 
+test('peer numbering skips protected Markdown and ordinary inline emphasis', () => {
+  const source = [
+    '| **表格标题。** | 内容 |',
+    '![**图片说明。**](image.png)',
+    '**图片说明。** ![示意图](image.png)',
+    '普通正文中的 **术语。** 不应被改写。',
+    '```markdown',
+    '**代码示例。**',
+    '```',
+  ].join('\n');
+  assert.equal(normalizeSave(source), source);
+});
+
 test('normalization handles converted Markdown headings and is idempotent', () => {
   const normalized = normalize('**自查自检机制。**\n\n**实施要点：** 逐项检查。');
   assert.equal(normalized, '**自查自检机制**\n\n**实施要点：** 逐项检查。');
   assert.equal(normalize(normalized), normalized);
+});
+
+test('full save normalization is idempotent', () => {
+  const source = '**第一项。** 正文。\n\n4. **第二项：**，正文。';
+  const once = normalizeSave(source);
+  assert.equal(once, '1. **第一项：** 正文。\n\n2. **第二项：** 正文。');
+  assert.equal(normalizeSave(once), once);
 });
 
 test('save normalization applies the existing heading cleanup before punctuation cleanup', () => {
@@ -96,11 +151,28 @@ test('chapter content prompt states the lead-in punctuation rules', () => {
     wordControl: {},
   });
   const prompt = messages.map((message) => message.content).join('\n');
-  assert.match(prompt, /行内加粗引导语/);
+  assert.match(prompt, /行内加粗引导标题/);
   assert.match(prompt, /中文冒号/);
-  assert.match(prompt, /中文逗号/);
   assert.match(prompt, /独立成行/);
   assert.match(prompt, /加粗结束标记后不得再写/);
+  assert.match(prompt, /两个及以上/);
+  assert.match(prompt, /连续阿拉伯数字序号/);
+  assert.doesNotMatch(prompt, /加粗引导语只允许写简短主题词，禁止使用任何形式的编号/);
+});
+
+test('ordinary and Agent restored optimization prompts require peer numbering', () => {
+  const ordinary = __developerContentExpansionPatchRuntime.buildRestoredChapterContentMessages({
+    chapter: { id: '1.1', title: '测试章节', description: '' },
+    projectOverview: '', selectedFactsText: '', regenerateRequirement: '', contentPlan: null,
+    knowledgeContents: [], restoredContent: '正文底稿', wordControl: {},
+  }).map((message) => message.content).join('\n');
+  const agent = __developerContentExpansionPatchRuntime.buildAgentRestoredChapterContentPrompt('fabricate');
+  for (const prompt of [ordinary, agent]) {
+    assert.match(prompt, /两个及以上/);
+    assert.match(prompt, /连续阿拉伯数字序号/);
+    assert.match(prompt, /中文冒号/);
+    assert.doesNotMatch(prompt, /加粗引导语不得使用任何形式的编号/);
+  }
 });
 
 test('word adjustment prompt states the lead-in punctuation rules', () => {
@@ -116,9 +188,10 @@ test('word adjustment prompt states the lead-in punctuation rules', () => {
     globalFactsMode: 'fabricate',
   });
   const prompt = messages.map((message) => message.content).join('\n');
-  assert.match(prompt, /行内加粗引导语/);
+  assert.match(prompt, /行内加粗引导标题/);
   assert.match(prompt, /中文冒号/);
-  assert.match(prompt, /中文逗号/);
   assert.match(prompt, /独立成行/);
   assert.match(prompt, /加粗结束标记后不得再写/);
+  assert.match(prompt, /两个及以上/);
+  assert.match(prompt, /连续阿拉伯数字序号/);
 });
