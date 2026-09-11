@@ -3950,6 +3950,21 @@
   min-width: 0;
 }
 
+.outline-source-panel-source-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 6px;
+}
+
+.outline-source-panel-source-nav > span {
+  min-width: 44px;
+  color: var(--yb-text-soft);
+  font-size: 12px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
 .outline-source-panel-icon-button {
   display: grid;
   place-items: center;
@@ -3968,36 +3983,13 @@
   height: 18px;
 }
 
-.outline-source-panel-actions .markdown-fullscreen-frame {
-  display: block;
-  min-height: 0;
-}
-
-.outline-source-panel-actions .markdown-fullscreen-trigger {
-  position: static;
-  min-height: 32px;
-  padding: 6px 8px;
-  color: var(--yb-text-soft);
-  font-size: 12px;
-  background: var(--yb-surface);
-  border: 1px solid var(--yb-border);
-  border-radius: var(--yb-radius-sm);
-  box-shadow: none;
-}
-
-.outline-source-panel-fullscreen-placeholder {
-  display: none;
-}
-
-.outline-source-panel-icon-button:hover:not(:disabled),
-.outline-source-panel-actions .markdown-fullscreen-trigger:hover:not(:disabled) {
+.outline-source-panel-icon-button:hover:not(:disabled) {
   color: var(--yb-primary-deep);
   background: var(--yb-bg);
   border-color: var(--yb-primary);
 }
 
-.outline-source-panel-icon-button:disabled,
-.outline-source-panel-actions .markdown-fullscreen-trigger:disabled {
+.outline-source-panel-icon-button:disabled {
   cursor: not-allowed;
   opacity: 0.45;
 }
@@ -4064,6 +4056,51 @@
   margin-bottom: 0;
 }
 
+.outline-source-panel-document {
+  min-height: 100%;
+  padding: 0 2px 12px;
+  color: var(--yb-text-soft);
+  font-size: 13px;
+  line-height: 1.9;
+  overflow-wrap: anywhere;
+}
+
+.outline-source-panel-association-notice {
+  margin: 0 0 12px;
+  padding: 8px 10px;
+  color: var(--yb-warning-deep);
+  background: var(--yb-warning-soft);
+  border: 1px solid var(--yb-warning-border);
+  border-radius: var(--yb-radius-sm);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.outline-source-panel-document.markdown-viewer > *:first-child {
+  margin-top: 0;
+}
+
+.outline-source-panel-document.markdown-viewer > *:last-child {
+  margin-bottom: 0;
+}
+
+.outline-source-panel-document.markdown-viewer .markdown-table-scroll {
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.outline-source-panel-document.markdown-viewer table {
+  width: 100%;
+  min-width: 0;
+  table-layout: fixed;
+}
+
+.outline-source-panel-document.markdown-viewer th,
+.outline-source-panel-document.markdown-viewer td {
+  min-width: 0;
+  max-width: none;
+}
+
 .outline-source-panel-source-text.markdown-viewer .markdown-table-scroll {
   max-height: 360px;
 }
@@ -4100,6 +4137,15 @@
   background: rgba(255, 210, 77, 0.52);
   border-radius: 3px;
   box-decoration-break: clone;
+}
+
+.outline-source-anchor-marker {
+  display: inline-block;
+  width: 0;
+  height: 1em;
+  margin-left: -2px;
+  border-left: 3px solid var(--yb-warning-deep);
+  scroll-margin-block: 96px;
 }
 
 .outline-ai-children-box {
@@ -4330,7 +4376,6 @@
 
   .outline-workspace-shell .outline-tree-tools button,
   .outline-source-panel-icon-button,
-  .outline-source-panel-actions .markdown-fullscreen-trigger,
   .outline-detail-source-action,
   .outline-source-panel-state button,
   .outline-workspace-shell .outline-detail-actions button {

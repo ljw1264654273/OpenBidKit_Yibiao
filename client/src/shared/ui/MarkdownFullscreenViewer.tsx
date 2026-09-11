@@ -1,5 +1,5 @@
 import * as Dialog from '@radix-ui/react-dialog';
-import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 
 export interface MarkdownFullscreenViewerProps {
   children: ReactNode;
@@ -14,6 +14,7 @@ export interface MarkdownFullscreenViewerProps {
   fullscreenStyle?: CSSProperties;
   fullscreenChildren?: ReactNode;
   autoScrollToHighlight?: boolean;
+  scrollTargetSelector?: string;
 }
 
 function MarkdownFullscreenViewer({
@@ -29,19 +30,21 @@ function MarkdownFullscreenViewer({
   fullscreenStyle,
   fullscreenChildren,
   autoScrollToHighlight = false,
+  scrollTargetSelector = '.markdown-highlight',
 }: MarkdownFullscreenViewerProps) {
   const normalClassName = className;
   const dialogContentClassName = fullscreenClassName || className || 'markdown-viewer';
   const dialogStyle = fullscreenStyle || style;
   const [open, setOpen] = useState(false);
+  const fullscreenContentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!open || !autoScrollToHighlight) return undefined;
     const timer = window.setTimeout(() => {
-      document.querySelector('.markdown-fullscreen-content .markdown-highlight')?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      fullscreenContentRef.current?.querySelector(scrollTargetSelector)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
     }, 80);
     return () => window.clearTimeout(timer);
-  }, [autoScrollToHighlight, open]);
+  }, [autoScrollToHighlight, open, scrollTargetSelector]);
 
   return (
     <Dialog.Root open={open} onOpenChange={setOpen}>
@@ -62,7 +65,7 @@ function MarkdownFullscreenViewer({
             <Dialog.Title className="markdown-fullscreen-title">{title}</Dialog.Title>
             <Dialog.Description className="markdown-fullscreen-description">{description}</Dialog.Description>
             <Dialog.Close className="markdown-fullscreen-close" type="button">退出全屏</Dialog.Close>
-            <div className="markdown-fullscreen-content">
+            <div ref={fullscreenContentRef} className="markdown-fullscreen-content">
               <div className={dialogContentClassName} style={dialogStyle}>{fullscreenChildren || children}</div>
             </div>
           </Dialog.Content>

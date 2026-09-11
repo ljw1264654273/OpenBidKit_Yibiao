@@ -59,6 +59,15 @@ async function runAssertions() {
     database = createSqliteDatabase(app);
     const store = createStore(app, database.db);
     const initialOutline = outline([leaf('1.1', '建设目标。'), leaf('1.2', '建设目标实施要求：')]);
+    const sourceAnchor = {
+      document_hash: 'document-hash',
+      block_id: 'paragraph-000001',
+      match_start: 0,
+      match_end: 4,
+      context_start: 0,
+      context_end: 8,
+      match_method: 'exact',
+    };
     store.updateTechnicalPlan({
       outlineData: initialOutline,
       outlineGenerationTask: {
@@ -66,7 +75,12 @@ async function runAssertions() {
         status: 'success',
         progress: 100,
         stats: {
-          score_coverage_map: { version: 1, coverage_mode: 'full', records: [coverageRecord()] },
+          score_coverage_map: {
+            version: 2,
+            document_hash: 'document-hash',
+            coverage_mode: 'full',
+            records: [coverageRecord({ source_location_status: 'located', source_anchor: sourceAnchor })],
+          },
         },
       },
     });
@@ -84,11 +98,13 @@ async function runAssertions() {
     assert.deepEqual(map.records[0].node_ids, ['1.2', '1.1']);
     assert.equal(sortedSaved.outlineData.outline[0].children[0].title, '建设目标实施要求');
     assert.equal(sortedSaved.outlineData.outline[0].children[1].title, '建设目标');
+    assert.deepEqual(map.records[0].source_anchor, sourceAnchor);
 
     const editedOutline = outline([leaf('1.1', '用户修改的建设要求'), leaf('1.2', '建设目标')]);
     const editedSaved = store.saveOutline({ outlineData: editedOutline, reason: 'edit', affectedNodeIds: ['1.1'] });
     map = editedSaved.outlineGenerationTask.stats.score_coverage_map;
     assert.equal(map.records[0].user_override, 'renamed');
+    assert.deepEqual(map.records[0].source_anchor, sourceAnchor);
 
     const partiallyDeletedSaved = store.saveOutline({
       outlineData: outline([leaf('1.2', '建设目标')]),

@@ -8,7 +8,9 @@ interface MarkdownRendererProps {
   children: string;
   allowRawHtml?: boolean;
   enableGfm?: boolean;
+  preserveTableCellSpans?: boolean;
   highlightTerms?: string[];
+  highlightSourceAnchor?: string;
   imageMode?: MarkdownImageMode;
   imageClassName?: string;
   linkMode?: MarkdownLinkMode;
@@ -101,6 +103,13 @@ function getElementClassName(element: Element) {
   return element.getAttribute('class') || undefined;
 }
 
+function getTableCellSpan(element: Element, attribute: 'rowspan' | 'colspan') {
+  const value = element.getAttribute(attribute);
+  if (value === null || !value.trim()) return undefined;
+  const span = Number.parseInt(value, 10);
+  return Number.isInteger(span) && span >= 0 ? span : undefined;
+}
+
 // 将 HTML 内联样式转换为 React 可直接使用的样式对象。
 function getElementStyle(element: Element): CSSProperties | undefined {
   const declaration = (element as HTMLElement).style;
@@ -159,6 +168,31 @@ function highlightTextNodes(root: Element, terms: string[]) {
   });
 }
 
+function highlightAnchoredTextNodes(root: Element, anchorName: string) {
+  const markers = Array.from(root.querySelectorAll('[data-outline-source-anchor]'));
+  const start = markers.find((marker) => marker.getAttribute('data-outline-source-anchor') === `${anchorName}-start`);
+  const end = markers.find((marker) => marker.getAttribute('data-outline-source-anchor') === `${anchorName}-end`);
+  if (!start || !end) return;
+
+  const ownerDocument = root.ownerDocument;
+  const walker = ownerDocument.createTreeWalker(root, 4);
+  const textNodes: Text[] = [];
+  let current = walker.nextNode();
+  while (current) {
+    const afterStart = Boolean(start.compareDocumentPosition(current) & 4);
+    const beforeEnd = Boolean(current.compareDocumentPosition(end) & 4);
+    if (afterStart && beforeEnd && current.textContent) textNodes.push(current as Text);
+    current = walker.nextNode();
+  }
+
+  for (const node of textNodes) {
+    const mark = ownerDocument.createElement('mark');
+    mark.className = 'markdown-highlight markdown-source-anchor-highlight';
+    node.parentNode?.replaceChild(mark, node);
+    mark.appendChild(node);
+  }
+}
+
 function childrenFromDom(nodes: ChildNode[], renderNode: (node: ChildNode, index: number) => ReactNode) {
   return nodes.map((node, index) => renderNode(node, index));
 }
@@ -167,7 +201,9 @@ function MarkdownRenderer({
   children,
   allowRawHtml = true,
   enableGfm = true,
+  preserveTableCellSpans = false,
   highlightTerms = [],
+  highlightSourceAnchor,
   imageMode = 'default',
   imageClassName,
   linkMode = 'external',
@@ -182,6 +218,7 @@ function MarkdownRenderer({
     const document = new DOMParser().parseFromString(`<div>${html}</div>`, 'text/html');
     const root = document.body.firstElementChild;
     if (root) highlightTextNodes(root, highlightTerms);
+    if (root && highlightSourceAnchor) highlightAnchoredTextNodes(root, highlightSourceAnchor);
     const renderNode = (node: ChildNode, index: number): ReactNode => {
       if (node.nodeType === Node.TEXT_NODE) return node.textContent || '';
       if (node.nodeType !== Node.ELEMENT_NODE) return null;
@@ -308,8 +345,28 @@ function MarkdownRenderer({
       if (tag === 'thead') return <thead {...props}>{renderedChildren}</thead>;
       if (tag === 'tbody') return <tbody {...props}>{renderedChildren}</tbody>;
       if (tag === 'tr') return <tr {...props}>{renderedChildren}</tr>;
-      if (tag === 'th') return <th {...props}>{renderedChildren}</th>;
-      if (tag === 'td') return <td {...props}>{renderedChildren}</td>;
+      if (tag === 'th') {
+        return (
+          <th
+            {...props}
+            rowSpan={preserveTableCellSpans ? getTableCellSpan(element, 'rowspan') : undefined}
+            colSpan={preserveTableCellSpans ? getTableCellSpan(element, 'colspan') : undefined}
+          >
+            {renderedChildren}
+          </th>
+        );
+      }
+      if (tag === 'td') {
+        return (
+          <td
+            {...props}
+            rowSpan={preserveTableCellSpans ? getTableCellSpan(element, 'rowspan') : undefined}
+            colSpan={preserveTableCellSpans ? getTableCellSpan(element, 'colspan') : undefined}
+          >
+            {renderedChildren}
+          </td>
+        );
+      }
       if (tag === 'blockquote') return <blockquote {...props}>{renderedChildren}</blockquote>;
       if (tag === 'pre') return <pre {...props}>{renderedChildren}</pre>;
       if (tag === 'code') return <code {...props}>{renderedChildren}</code>;
@@ -318,7 +375,16 @@ function MarkdownRenderer({
       if (tag === 'sub') return <sub {...props}>{renderedChildren}</sub>;
       if (tag === 'sup') return <sup {...props}>{renderedChildren}</sup>;
       if (tag === 'label') return <label {...props} htmlFor={element.getAttribute('for') || undefined}>{renderedChildren}</label>;
-      if (tag === 'span') return <span {...props}>{renderedChildren}</span>;
+      if (tag === 'span') {
+        return (
+          <span
+            {...props}
+            data-outline-source-anchor={element.getAttribute('data-outline-source-anchor') || undefined}
+          >
+            {renderedChildren}
+          </span>
+        );
+      }
       if (tag === 'div') return <div {...props}>{renderedChildren}</div>;
       if (tag === 'section') return <section {...props}>{renderedChildren}</section>;
       if (tag === 'article') return <article {...props}>{renderedChildren}</article>;
@@ -327,7 +393,7 @@ function MarkdownRenderer({
     };
 
     return Array.from(root?.childNodes || []).map((node, index) => renderNode(node, index));
-  }, [enableGfm, highlightTerms, html, imageClassName, imageMode, linkMode, linkTextClassName, onPreviewImage, previewImageTitle, renderMermaid]);
+  }, [enableGfm, highlightSourceAnchor, highlightTerms, html, imageClassName, imageMode, linkMode, linkTextClassName, onPreviewImage, preserveTableCellSpans, previewImageTitle, renderMermaid]);
 
   return <>{content}</>;
 }

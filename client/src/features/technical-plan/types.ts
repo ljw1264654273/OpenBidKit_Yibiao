@@ -17,6 +17,16 @@ export type SaveOutlineReason = 'sort' | 'edit' | 'delete' | 'add-root' | 'add-c
 export type OutlineAttribute = '通用' | '商务' | '资信' | '技术' | '其他';
 export type GlobalFactsMode = 'fabricate' | 'omit' | 'placeholder';
 
+export interface ScoreSourceAnchor {
+  document_hash: string;
+  block_id: string;
+  match_start: number;
+  match_end: number;
+  context_start: number;
+  context_end: number;
+  match_method: 'exact' | 'normalized-whitespace' | 'normalized-source' | 'table-cell' | 'html-visible-text';
+}
+
 export interface ScoreCoverageRecord {
   source_id: string;
   source_kind: 'requirement' | 'criterion' | 'response-point' | 'professional-supplement' | 'user-supplement';
@@ -25,11 +35,14 @@ export interface ScoreCoverageRecord {
   coverage_location: 'title' | 'description' | 'both' | 'none';
   user_override: 'none' | 'renamed' | 'partially-removed' | 'removed' | 'added';
   supplement_kind: 'none' | 'overall-introduction' | 'other-specific-issues' | 'reasonable-suggestion' | 'user-approved' | 'user-added';
+  source_location_status?: 'located' | 'ambiguous' | 'not-found' | 'not-applicable';
+  source_anchor?: ScoreSourceAnchor;
 }
 
 export interface ScoreCoverageMap {
-  version: 1;
+  version: 1 | 2;
   coverage_mode: 'full' | 'legacy-structure-only';
+  document_hash?: string;
   records: ScoreCoverageRecord[];
 }
 

@@ -1362,6 +1362,7 @@ test('远程目录参考文件明确标记为不可信材料且不泄露内部�
 test('original-only 真实目录任务不调用远程检索，也不注入远程文件', async () => {
   const searches = [];
   const runs = [];
+  let finalTaskPatch = null;
   const storedPlan = {
     workflowKind: 'existing-plan-expansion',
     originalPlanFile: { fileName: '原方案.docx' },
@@ -1373,6 +1374,7 @@ test('original-only 真实目录任务不调用远程检索，也不注入远程
   const workspaceStore = {
     loadTechnicalPlan: () => storedPlan,
     readOriginalPlanMarkdown: () => '# 原方案目录',
+    readTenderMarkdown: () => '# 招标原文\n\n原方案一级',
     hasBidTemplate: () => false,
   };
   const root = { id: '1', title: '原方案一级。', description: '原方案一级的具体编写范围', attr: '技术', content_mode: 'ai-generate' };
@@ -1386,6 +1388,7 @@ test('original-only 真实目录任务不调用远程检索，也不注入远程
   };
   let savedOutlineData = null;
   const checkpointTask = (patch, data) => {
+    finalTaskPatch = patch;
     if (data?.outlineData) savedOutlineData = data.outlineData;
     return { task: {
       task_id: 'task-outline-test',
@@ -1417,6 +1420,9 @@ test('original-only 真实目录任务不调用远程检索，也不注入远程
   assert.equal(runs[0].files.some((file) => file.path === '远程知识参考.md'), false);
   assert.equal(runs[1].files.some((file) => file.path === '远程知识参考.md'), false);
   assert.equal(savedOutlineData.outline[0].title, '原方案一级');
+  assert.equal(finalTaskPatch.stats.score_coverage_map.version, 2);
+  assert.equal(finalTaskPatch.stats.score_coverage_map.records[0].source_location_status, 'located');
+  assert.equal(finalTaskPatch.stats.score_coverage_map.records[0].source_anchor.match_start, '# 招标原文\n\n'.length);
 });
 
 test('每小节字数为 0 时按 1500 字内部兜底估算目标叶子数', async () => {

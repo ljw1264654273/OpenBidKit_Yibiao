@@ -6,7 +6,7 @@ import type { OutlineItem } from '../../../shared/types';
 import type { ScoreCoverageRecord } from '../types';
 // Node 的类型擦除测试运行器需要显式扩展名，产品代码仍使用标准无扩展名导入。
 // @ts-expect-error allowImportingTsExtensions 仅影响测试运行方式
-import { buildOutlineSourceViewItems, collectOutlineSourceRecords, locateOutlineSourceText } from './outlineSourceMatcher.ts';
+import { buildOutlineSourceViewItems, collectOutlineSourceRecords, injectMarkdownSourceAnchor, injectOutlineSourceAnchorMarkers, locateOutlineSourceText } from './outlineSourceMatcher.ts';
 
 const outline: OutlineItem[] = [{
   id: '1',
@@ -139,6 +139,130 @@ test('精确匹配优先保留原始文本范围', () => {
   assert.equal(result.matchedText, sourceText);
 });
 
+test('重复来源不再静默定位到第一次出现', () => {
+  const sourceText = '总体方案';
+  const result = locateOutlineSourceText('总体方案。\n\n总体方案。', sourceText);
+
+  assert.deepEqual(result, {
+    status: 'unlocated',
+    sourceText,
+    reason: 'ambiguous',
+  });
+});
+
+test('相互重叠的重复来源不回退到第一次出现', () => {
+  assert.deepEqual(locateOutlineSourceText('哈哈哈', '哈哈'), {
+    status: 'unlocated',
+    sourceText: '哈哈',
+    reason: 'ambiguous',
+  });
+});
+
+test('来源带评分映射前缀和句末标点时仍可唯一定位原文', () => {
+  const markdown = '评分内容：政策背景、项目技术要求理解进行打分。';
+  const sourceText = 'R1-C1-P1：政策背景、项目技术要求理解。';
+
+  const result = locateOutlineSourceText(markdown, sourceText);
+
+  assert.equal(result.status, 'located');
+  assert.equal(markdown.slice(result.matchStart, result.matchEnd), '政策背景、项目技术要求理解');
+});
+
+test('一级评分大项优先在评分表项目单元格中定位', () => {
+  const markdown = '响应文件目录：项目总体方案。\n<table><tbody><tr><td rowspan="3"><p>项目总体</p><p>方案</p></td><td><p>项目总体方案设计的科学性</p></td></tr></tbody></table>';
+  const result = locateOutlineSourceText(markdown, '项目总体方案', 'requirement');
+
+  assert.equal(result.status, 'located');
+  assert.equal(markdown.slice(result.matchStart, result.matchEnd), '项目总体</p><p>方案');
+});
+
+test('一级评分大项允许评分方式后缀并忽略评分目录中的同名文本', () => {
+  const markdown = '响应文件目录：人员配置情况（格式见第六章）。\n<table><tbody><tr><td rowspan="4"><p>人员配置情况（客观分）</p></td><td><p>项目负责人</p></td></tr></tbody></table>';
+  const result = locateOutlineSourceText(markdown, '人员配置情况', 'requirement');
+
+  assert.equal(result.status, 'located');
+  assert.equal(markdown.slice(result.matchStart, result.matchEnd), '人员配置情况');
+});
+
+test('有效持久锚点可以精确选择重复来源中的指定位置', () => {
+  const markdown = '总体方案。\n\n中间内容。\n\n总体方案。';
+  const secondStart = markdown.lastIndexOf('总体方案');
+  const result = buildOutlineSourceViewItems(outline, '1.1', [record({
+    source_id: 'anchored-source',
+    source_text: '总体方案',
+    source_location_status: 'located',
+    source_anchor: {
+      document_hash: 'current-hash',
+      block_id: 'paragraph-000003',
+      match_start: secondStart,
+      match_end: secondStart + '总体方案'.length,
+      context_start: markdown.indexOf('中间内容'),
+      context_end: markdown.length,
+      match_method: 'exact',
+    },
+  } as any)], markdown, 'current-hash');
+
+  assert.equal(result.items[0].status, 'located');
+  assert.equal(result.items[0].contextBefore.includes('中间内容'), true);
+  assert.equal(result.items[0].matchedText, '总体方案');
+  assert.equal(result.items[0].contextAfter, '。');
+
+  const marked = injectOutlineSourceAnchorMarkers(markdown, result.items);
+  assert.equal(
+    marked,
+    `${markdown.slice(0, secondStart)}<span data-outline-source-anchor="primary-start" class="outline-source-anchor-marker"></span>总体方案<span data-outline-source-anchor="primary-end"></span>${markdown.slice(secondStart + '总体方案'.length)}`,
+  );
+});
+
+test('全文锚点可以按当前关联来源序号切换', () => {
+  const markdown = '第一处总体方案。\n\n第二处总体方案。';
+  const first = buildOutlineSourceViewItems(outline, '1.1', [record({
+    source_id: 'first',
+    source_text: '第一处总体方案',
+  })], markdown).items[0];
+  const second = buildOutlineSourceViewItems(outline, '1.1', [record({
+    source_id: 'second',
+    source_text: '第二处总体方案',
+  })], markdown).items[0];
+
+  const marked = injectOutlineSourceAnchorMarkers(markdown, [first, second], 1);
+
+  assert.ok(marked.indexOf('第一处总体方案') < marked.indexOf('primary-start'));
+  assert.ok(marked.indexOf('primary-start') < marked.indexOf('第二处总体方案'));
+});
+
+test('原文范围标记精确包围大小写和跨段落来源', () => {
+  const markdown = 'api。\n\nAPI\n\n实施方案。';
+  const start = markdown.indexOf('API');
+  const end = markdown.indexOf('实施方案') + '实施方案'.length;
+
+  assert.equal(
+    injectMarkdownSourceAnchor(markdown, start, end),
+    `api。\n\n<span data-outline-source-anchor="primary-start" class="outline-source-anchor-marker"></span>API\n\n实施方案<span data-outline-source-anchor="primary-end"></span>。`,
+  );
+});
+
+test('文档哈希变化后拒绝旧锚点且不回退到重复首项', () => {
+  const markdown = '总体方案。\n\n总体方案。';
+  const result = buildOutlineSourceViewItems(outline, '1.1', [record({
+    source_id: 'stale-source',
+    source_text: '总体方案',
+    source_location_status: 'located',
+    source_anchor: {
+      document_hash: 'old-hash',
+      block_id: 'paragraph-000001',
+      match_start: 0,
+      match_end: '总体方案'.length,
+      context_start: 0,
+      context_end: markdown.length,
+      match_method: 'exact',
+    },
+  } as any)], markdown, 'new-hash');
+
+  assert.equal(result.items[0].status, 'unlocated');
+  assert.equal(result.items[0].locationReason, 'stale-anchor');
+});
+
 test('跳过匹配前后的空白段落以保留相邻正文', () => {
   const markdown = 'first\n\n \n\nsecond\n\n\t\n\nthird';
   const sourceText = 'second';
@@ -212,7 +336,7 @@ test('未匹配来源只返回已保存文本且不猜测相近段落', () => {
 
   const result = locateOutlineSourceText('供应商应提交证明材料。', sourceText);
 
-  assert.deepEqual(result, { status: 'unlocated', sourceText });
+  assert.deepEqual(result, { status: 'unlocated', sourceText, reason: 'not-found' });
 });
 
 test('构建已定位的招标来源展示项', () => {
@@ -234,6 +358,8 @@ test('构建已定位的招标来源展示项', () => {
     contextBefore: '前置内容。\n\n',
     matchedText: '供应商应提交资质证明',
     contextAfter: '。\n\n后置内容。',
+    matchStart: markdown.indexOf('供应商应提交资质证明'),
+    matchEnd: markdown.indexOf('供应商应提交资质证明') + '供应商应提交资质证明'.length,
   }]);
 });
 
@@ -252,6 +378,7 @@ test('未定位的招标来源展示项只保留存储原文', () => {
     contextBefore: '',
     matchedText: '完全不同的评分标准',
     contextAfter: '',
+    locationReason: 'not-found',
   }]);
 });
 
@@ -306,24 +433,24 @@ test('多条来源同时匹配时保留精确、空白归一化和未定位语�
   ]);
 });
 
-test('原文面板按来源顺序连续展示全部关联内容而不要求手动切换', () => {
+test('原文面板展示完整招标原文并支持多处来源切换', () => {
   const panelPath = new URL('../components/TenderSourcePanel.tsx', import.meta.url);
   const panelSource = readFileSync(panelPath, 'utf8');
 
-  assert.doesNotMatch(panelSource, /activeIndex|safeActiveIndex|setActiveIndex/);
-  assert.doesNotMatch(panelSource, /上一处招标原文|下一处招标原文/);
-  assert.match(panelSource, /viewModel\.items\.map\(\(item, index\) =>/);
-  assert.match(panelSource, /第\{formatChineseSourceIndex\(index\)\}处/);
-  assert.match(panelSource, /outline-source-panel-source-block/);
+  assert.match(panelSource, /activeSourceIndex|setActiveSourceIndex/);
+  assert.match(panelSource, /上一处招标原文/);
+  assert.match(panelSource, /下一处招标原文/);
+  assert.match(panelSource, /injectOutlineSourceAnchorMarkers\(markdown, locatedItems, safeActiveSourceIndex\)/);
+  assert.match(panelSource, /<MarkdownRenderer allowRawHtml highlightSourceAnchor=.* preserveTableCellSpans>/);
+  assert.match(panelSource, /markdown/);
 });
 
-test('招标原文全屏内容保留共享 Markdown 滚动容器样式', () => {
+test('目录原文面板移除全屏查看入口并保留当前分屏渲染', () => {
   const panelSource = readFileSync(new URL('../components/TenderSourcePanel.tsx', import.meta.url), 'utf8');
 
-  assert.match(
-    panelSource,
-    /fullscreenClassName="markdown-viewer outline-source-panel-fullscreen-viewer"/,
-  );
+  assert.doesNotMatch(panelSource, /MarkdownFullscreenViewer/);
+  assert.doesNotMatch(panelSource, /全屏查看招标原文/);
+  assert.match(panelSource, /<MarkdownRenderer allowRawHtml highlightSourceAnchor=\{activeSourceItem \? 'primary' : undefined\} preserveTableCellSpans>/);
 });
 
 test('招标 Markdown 在解析和目录两步加载并提供显式重试状态', () => {
