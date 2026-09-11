@@ -8,6 +8,7 @@ interface MarkdownRendererProps {
   children: string;
   allowRawHtml?: boolean;
   enableGfm?: boolean;
+  preserveTableCellSpans?: boolean;
   highlightTerms?: string[];
   highlightSourceAnchor?: string;
   imageMode?: MarkdownImageMode;
@@ -200,6 +201,7 @@ function MarkdownRenderer({
   children,
   allowRawHtml = true,
   enableGfm = true,
+  preserveTableCellSpans = false,
   highlightTerms = [],
   highlightSourceAnchor,
   imageMode = 'default',
@@ -347,8 +349,8 @@ function MarkdownRenderer({
         return (
           <th
             {...props}
-            rowSpan={getTableCellSpan(element, 'rowspan')}
-            colSpan={getTableCellSpan(element, 'colspan')}
+            rowSpan={preserveTableCellSpans ? getTableCellSpan(element, 'rowspan') : undefined}
+            colSpan={preserveTableCellSpans ? getTableCellSpan(element, 'colspan') : undefined}
           >
             {renderedChildren}
           </th>
@@ -358,8 +360,8 @@ function MarkdownRenderer({
         return (
           <td
             {...props}
-            rowSpan={getTableCellSpan(element, 'rowspan')}
-            colSpan={getTableCellSpan(element, 'colspan')}
+            rowSpan={preserveTableCellSpans ? getTableCellSpan(element, 'rowspan') : undefined}
+            colSpan={preserveTableCellSpans ? getTableCellSpan(element, 'colspan') : undefined}
           >
             {renderedChildren}
           </td>
@@ -391,7 +393,7 @@ function MarkdownRenderer({
     };
 
     return Array.from(root?.childNodes || []).map((node, index) => renderNode(node, index));
-  }, [enableGfm, highlightSourceAnchor, highlightTerms, html, imageClassName, imageMode, linkMode, linkTextClassName, onPreviewImage, previewImageTitle, renderMermaid]);
+  }, [enableGfm, highlightSourceAnchor, highlightTerms, html, imageClassName, imageMode, linkMode, linkTextClassName, onPreviewImage, preserveTableCellSpans, previewImageTitle, renderMermaid]);
 
   return <>{content}</>;
 }

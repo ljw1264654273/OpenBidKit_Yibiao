@@ -173,7 +173,7 @@ function TenderSourcePanel({
         ) : (
           <div ref={sourceBodyRef} className="outline-source-panel-document markdown-viewer">
             {associationNotice && <p className="outline-source-panel-association-notice">{associationNotice}</p>}
-            <MarkdownRenderer allowRawHtml highlightSourceAnchor={activeSourceItem ? 'primary' : undefined}>
+            <MarkdownRenderer allowRawHtml highlightSourceAnchor={activeSourceItem ? 'primary' : undefined} preserveTableCellSpans>
               {normalizeTableFragments(anchoredMarkdown)}
             </MarkdownRenderer>
           </div>

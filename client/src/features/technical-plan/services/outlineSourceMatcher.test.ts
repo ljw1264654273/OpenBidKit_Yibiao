@@ -441,7 +441,7 @@ test('原文面板展示完整招标原文并支持多处来源切换', () => {
   assert.match(panelSource, /上一处招标原文/);
   assert.match(panelSource, /下一处招标原文/);
   assert.match(panelSource, /injectOutlineSourceAnchorMarkers\(markdown, locatedItems, safeActiveSourceIndex\)/);
-  assert.match(panelSource, /<MarkdownRenderer allowRawHtml highlightSourceAnchor=/);
+  assert.match(panelSource, /<MarkdownRenderer allowRawHtml highlightSourceAnchor=.* preserveTableCellSpans>/);
   assert.match(panelSource, /markdown/);
 });
 
@@ -450,7 +450,7 @@ test('目录原文面板移除全屏查看入口并保留当前分屏渲染', ()
 
   assert.doesNotMatch(panelSource, /MarkdownFullscreenViewer/);
   assert.doesNotMatch(panelSource, /全屏查看招标原文/);
-  assert.match(panelSource, /<MarkdownRenderer allowRawHtml highlightSourceAnchor=\{activeSourceItem \? 'primary' : undefined\}>/);
+  assert.match(panelSource, /<MarkdownRenderer allowRawHtml highlightSourceAnchor=\{activeSourceItem \? 'primary' : undefined\} preserveTableCellSpans>/);
 });
 
 test('招标 Markdown 在解析和目录两步加载并提供显式重试状态', () => {
