@@ -4,7 +4,14 @@
  */
 
 import type { ExportFormatConfig, HeadingStyleConfig, ListStyle, OrderedListStyle, PaperSize } from '../types/exportFormat';
-import { SIZE_TO_PT, FONT_TO_CSS, ALIGNMENT_TO_CSS, PAPER_DIMENSIONS, DEFAULT_HEADING_BORDER_CELL_COLORS } from '../types/exportFormat';
+import {
+  DEFAULT_BODY_OUTLINE_LEVELS,
+  SIZE_TO_PT,
+  FONT_TO_CSS,
+  ALIGNMENT_TO_CSS,
+  PAPER_DIMENSIONS,
+  DEFAULT_HEADING_BORDER_CELL_COLORS,
+} from '../types/exportFormat';
 
 /**
  * 中文字号名 → pt 值
@@ -80,6 +87,8 @@ function orderedListStyleToCss(style: OrderedListStyle | string | undefined) {
       return { counterStyle: 'cjk-ideographic', prefix: '""', suffix: '"、 "' };
     case 'chinese-paren':
       return { counterStyle: 'cjk-ideographic', prefix: '"（"', suffix: '"） "' };
+    case 'circled':
+      return { counterStyle: 'ef-circled', prefix: '""', suffix: '" "' };
     case 'lower-alpha':
       return { counterStyle: 'lower-alpha', prefix: '""', suffix: '". "' };
     case 'upper-alpha':
@@ -157,6 +166,29 @@ export function buildExportFormatCssVars(config: ExportFormatConfig): Record<str
   vars['--ef-ordered-list-counter-style'] = orderedListStyle.counterStyle;
   vars['--ef-ordered-list-prefix'] = orderedListStyle.prefix;
   vars['--ef-ordered-list-suffix'] = orderedListStyle.suffix;
+  const configuredBodyOutlineLevels = Array.isArray(config.body_text.body_outline_levels)
+    ? config.body_text.body_outline_levels
+    : null;
+  for (let index = 0; index < 5; index += 1) {
+    const fallback = DEFAULT_BODY_OUTLINE_LEVELS[index] || {
+      numbering_style: 'circled' as const,
+      font: config.body_text.font,
+      size: config.body_text.size,
+    };
+    const level = configuredBodyOutlineLevels?.[index] || fallback;
+    const numberingStyle = configuredBodyOutlineLevels
+      ? level.numbering_style
+      : index === 0
+        ? config.body_text.ordered_list_style
+        : level.numbering_style;
+    const levelListStyle = orderedListStyleToCss(numberingStyle);
+    const levelKey = index + 1;
+    vars[`--ef-body-outline-${levelKey}-font`] = chineseFontToCss(level.font || config.body_text.font);
+    vars[`--ef-body-outline-${levelKey}-size`] = `${chineseSizeToPt(level.size || config.body_text.size)}pt`;
+    vars[`--ef-body-outline-${levelKey}-counter-style`] = levelListStyle.counterStyle;
+    vars[`--ef-body-outline-${levelKey}-prefix`] = levelListStyle.prefix;
+    vars[`--ef-body-outline-${levelKey}-suffix`] = levelListStyle.suffix;
+  }
 
   // ── 各级标题 h1-h6 ──
   for (let i = 0; i < 6; i++) {

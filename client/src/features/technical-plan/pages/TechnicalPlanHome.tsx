@@ -1335,6 +1335,13 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
           tenderMarkdown={tenderMarkdown}
           originalPlanFile={state.originalPlanFile}
           originalPlanMarkdown={originalPlanMarkdown}
+          bidSectionMode={state.bidSectionMode}
+          bidSections={state.bidSections}
+          bidSectionExtractionTask={state.bidSectionExtractionTask}
+          bidSectionExtractionStatus={state.bidSectionExtractionStatus}
+          bidSectionExtractionError={state.bidSectionExtractionError}
+          outlineWordControlOptions={state.outlineWordControlOptions}
+          contentGenerationOptions={state.contentGenerationOptions}
           onFileImported={(nextState, markdown) => {
             tenderMarkdownRequestRef.current += 1;
             tenderMarkdownVersionRef.current = nextState.tenderFile ? nextState.tenderFile.contentHash || nextState.tenderFile.updatedAt : null;
@@ -1346,6 +1353,21 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
           onOriginalPlanImported={(nextState, markdown) => {
             setState((prev) => ({ ...prev, ...nextState }));
             setOriginalPlanMarkdown(markdown);
+          }}
+          onOutlineWordControlChange={async (wordControlOptions) => {
+            // STEP 01 前置：只改字数控制，其他 outline config 字段保持现状不变
+            await saveOutlineConfig({
+              referenceKnowledgeDocumentIds: state.referenceKnowledgeDocumentIds,
+              remoteKnowledgeScopes: state.remoteKnowledgeScopes,
+              outlineMode: state.outlineMode,
+              outlineExpansionMode: state.outlineExpansionMode || 'ai-complement',
+              wordControlOptions,
+            });
+          }}
+          onContentGenerationOptionsChange={saveContentGenerationOptions}
+          onStateRefresh={async () => {
+            const nextState = await window.yibiao?.technicalPlan.loadState();
+            if (nextState) setState((prev) => ({ ...prev, ...nextState }));
           }}
         />
       )}

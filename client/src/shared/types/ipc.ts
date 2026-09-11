@@ -665,11 +665,13 @@ export interface YibiaoBridge {
       markdown?: string;
       fileName?: string;
       parserLabel?: string | null;
+      bidSectionDetection?: { hasMultiple: boolean; totalDeclared: number | null };
     }>;
     removeTenderDocument: (sourceId: string) => Promise<{
       success: boolean;
       message?: string;
       markdown?: string;
+      bidSectionDetection?: { hasMultiple: boolean; totalDeclared: number | null };
     }>;
     importOriginalPlanDocument: (filePaths?: string[]) => Promise<{
       success: boolean;

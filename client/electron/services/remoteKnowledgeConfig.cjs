@@ -13,10 +13,14 @@ function getEndpointFingerprint(baseUrl) {
 }
 
 function getBundledDefaultPath() {
-  if (process.resourcesPath && !process.defaultApp) {
-    return path.join(process.resourcesPath, 'default-remote-knowledge.json');
+  // 开发模式（electron .）下 process.defaultApp 在现代 Electron 已废弃不可靠，
+  // 改用「打包资源是否存在」来判断：优先取 electron/resources 下的源码回退文件，
+  // 不存在再回退到打包 resourcesPath。这样 dev / 打包两条链路都正确，且不依赖 process.defaultApp。
+  const devPath = path.join(__dirname, '..', 'resources', 'default-remote-knowledge.json');
+  if (fs.existsSync(devPath)) {
+    return devPath;
   }
-  return path.join(__dirname, '..', 'resources', 'default-remote-knowledge.json');
+  return path.join(process.resourcesPath, 'default-remote-knowledge.json');
 }
 
 function loadBundledRemoteKnowledgeDefault() {

@@ -7,7 +7,7 @@ import type {
   TableCellStyleConfig,
   TableStyleConfig,
 } from '../../shared/types/exportFormat';
-import { DEFAULT_EXPORT_FORMAT } from '../../shared/types/exportFormat';
+import { DEFAULT_BODY_OUTLINE_LEVELS, DEFAULT_EXPORT_FORMAT } from '../../shared/types/exportFormat';
 
 type HeadingLayoutStyle = Omit<HeadingStyleConfig, 'text_color'>;
 type TableCellLayoutStyle = Pick<TableCellStyleConfig, 'font' | 'size' | 'alignment'>;
@@ -35,7 +35,7 @@ interface ExportLayoutPreset {
   heading_border_enabled: boolean;
   heading_border_min_heading_left_enabled: boolean;
   headings: HeadingLayoutStyle[];
-  body_text: BodyTextStyleConfig;
+  body_text: Omit<BodyTextStyleConfig, 'body_outline_levels'>;
   table: Pick<TableStyleConfig, 'border_width' | 'cell_padding_pt' | 'full_width'> & {
     header_row: TableCellLayoutStyle;
     first_column: TableCellLayoutStyle;
@@ -692,6 +692,7 @@ export function applyExportLayoutPreset(config: ExportFormatConfig, presetId: st
     body_text: {
       ...config.body_text,
       ...preset.body_text,
+      body_outline_levels: (config.body_text.body_outline_levels || DEFAULT_BODY_OUTLINE_LEVELS).map((level) => ({ ...level })),
     },
     table: {
       ...config.table,

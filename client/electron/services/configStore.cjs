@@ -17,6 +17,12 @@ const MIN_COMPONENT_CONCURRENCY_LIMIT = 1;
 const MAX_COMPONENT_CONCURRENCY_LIMIT = 20;
 const DEFAULT_AGENT_AUTO_ANSWER_ENABLED = false;
 const DEFAULT_HEADING_BORDER_CELL_COLORS = ['#eef5ff', '#f3f7ff', '#f8fbff', '#fbfdff', '#ffffff', '#ffffff'];
+const DEFAULT_BODY_OUTLINE_LEVELS = [
+  { numbering_style: 'chinese-dot', font: '宋体', size: '小四' },
+  { numbering_style: 'chinese-paren', font: '宋体', size: '小四' },
+  { numbering_style: 'decimal-dot', font: '宋体', size: '小四' },
+  { numbering_style: 'decimal-full-paren', font: '宋体', size: '小四' },
+];
 const openAICompatibleImageSizes = ['auto', '1K', '2K', '3K', '4K', '1024x768', '1024x1024', '768x1024', '1536x1024', '1024x1536', '2048x2048', '2048x1152', '3840x2160', '2160x3840'];
 const googleImageSizes = ['512', '1K', '2K', '4K'];
 const agnesImageRatios = ['1:1', '3:4', '4:3', '16:9', '9:16', '2:3', '3:2', '21:9'];
@@ -239,6 +245,7 @@ const defaultExportFormat = {
     list_style: 'disc',
     ordered_list_style: 'decimal-dot',
     list_indent_chars: 2,
+    body_outline_levels: DEFAULT_BODY_OUTLINE_LEVELS.map((level) => ({ ...level })),
   },
   table: {
     border_width: 1,
@@ -546,7 +553,7 @@ function normalizeAgentModeScenarios(source) {
 const VALID_NUMBERING_FORMATS = ['outline-decimal', 'custom'];
 const VALID_HEADING_BORDER_STRUCTURES = ['上下结构', '左右结构'];
 const VALID_LIST_STYLES = ['none', 'disc', 'circle', 'square', 'diamond', 'dash', 'check', 'arrow', 'sparkle'];
-const VALID_ORDERED_LIST_STYLES = ['decimal-dot', 'decimal-paren', 'decimal-full-paren', 'chinese-dot', 'chinese-paren', 'lower-alpha', 'upper-alpha', 'lower-roman', 'upper-roman'];
+const VALID_ORDERED_LIST_STYLES = ['decimal-dot', 'decimal-paren', 'decimal-full-paren', 'chinese-dot', 'chinese-paren', 'circled', 'lower-alpha', 'upper-alpha', 'lower-roman', 'upper-roman'];
 
 function cloneDefaultExportFormat(def = defaultExportFormat) {
   return {
@@ -558,7 +565,10 @@ function cloneDefaultExportFormat(def = defaultExportFormat) {
       level_cell_colors: [...(def.heading_border.level_cell_colors || DEFAULT_HEADING_BORDER_CELL_COLORS)],
     },
     headings: def.headings.map((heading) => ({ ...heading })),
-    body_text: { ...def.body_text },
+    body_text: {
+      ...def.body_text,
+      body_outline_levels: (def.body_text.body_outline_levels || DEFAULT_BODY_OUTLINE_LEVELS).map((level) => ({ ...level })),
+    },
     table: {
       border_width: def.table.border_width,
       border_color: def.table.border_color,
@@ -658,6 +668,24 @@ function normalizeExportFormat(source) {
   });
 
   const srcBody = source.body_text && typeof source.body_text === 'object' ? source.body_text : {};
+  const legacyOrderedListStyle = typeof srcBody.ordered_list_style === 'string' && VALID_ORDERED_LIST_STYLES.includes(srcBody.ordered_list_style)
+    ? srcBody.ordered_list_style
+    : null;
+  const srcBodyOutlineLevels = Array.isArray(srcBody.body_outline_levels) ? srcBody.body_outline_levels : null;
+  const defaultBodyOutlineLevels = Array.isArray(def.body_text.body_outline_levels)
+    ? def.body_text.body_outline_levels
+    : DEFAULT_BODY_OUTLINE_LEVELS;
+  const bodyOutlineLevels = defaultBodyOutlineLevels.map((defaultLevel, index) => {
+    const srcLevel = srcBodyOutlineLevels?.[index];
+    const sourceLevel = srcLevel && typeof srcLevel === 'object' ? srcLevel : {};
+    return {
+      numbering_style: typeof sourceLevel.numbering_style === 'string' && VALID_ORDERED_LIST_STYLES.includes(sourceLevel.numbering_style)
+        ? sourceLevel.numbering_style
+        : (!srcBodyOutlineLevels && index === 0 && legacyOrderedListStyle ? legacyOrderedListStyle : defaultLevel.numbering_style),
+      font: typeof sourceLevel.font === 'string' && sourceLevel.font ? sourceLevel.font : defaultLevel.font,
+      size: typeof sourceLevel.size === 'string' && sourceLevel.size ? sourceLevel.size : defaultLevel.size,
+    };
+  });
   const body_text = {
     font: typeof srcBody.font === 'string' && srcBody.font ? srcBody.font : def.body_text.font,
     size: typeof srcBody.size === 'string' && srcBody.size ? srcBody.size : def.body_text.size,
@@ -669,6 +697,7 @@ function normalizeExportFormat(source) {
     list_style: typeof srcBody.list_style === 'string' && VALID_LIST_STYLES.includes(srcBody.list_style) ? srcBody.list_style : def.body_text.list_style,
     ordered_list_style: typeof srcBody.ordered_list_style === 'string' && VALID_ORDERED_LIST_STYLES.includes(srcBody.ordered_list_style) ? srcBody.ordered_list_style : def.body_text.ordered_list_style,
     list_indent_chars: typeof srcBody.list_indent_chars === 'number' ? srcBody.list_indent_chars : def.body_text.list_indent_chars,
+    body_outline_levels: bodyOutlineLevels,
   };
 
   const srcTable = source.table && typeof source.table === 'object' ? source.table : {};

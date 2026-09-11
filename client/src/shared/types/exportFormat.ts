@@ -52,6 +52,13 @@ export interface BodyTextStyleConfig {
   list_style: ListStyle;
   ordered_list_style: OrderedListStyle;
   list_indent_chars: number;
+  body_outline_levels: BodyOutlineLevelConfig[];
+}
+
+export interface BodyOutlineLevelConfig {
+  numbering_style: OrderedListStyle;
+  font: string;
+  size: string;
 }
 
 export interface TableCellStyleConfig {
@@ -238,6 +245,7 @@ export const ORDERED_LIST_STYLE_OPTIONS = [
   { value: 'decimal-full-paren', label: '数字全括号（（1））' },
   { value: 'chinese-dot', label: '中文编号（一、）' },
   { value: 'chinese-paren', label: '中文括号（（一））' },
+  { value: 'circled', label: '带圈数字（①）' },
   { value: 'lower-alpha', label: '小写字母（a.）' },
   { value: 'upper-alpha', label: '大写字母（A.）' },
   { value: 'lower-roman', label: '小写罗马（i.）' },
@@ -245,6 +253,15 @@ export const ORDERED_LIST_STYLE_OPTIONS = [
 ] as const;
 
 export type OrderedListStyle = (typeof ORDERED_LIST_STYLE_OPTIONS)[number]['value'];
+
+export const BODY_OUTLINE_LEVEL_LABELS = ['第一层', '第二层', '第三层', '第四层', '第五层'] as const;
+
+export const DEFAULT_BODY_OUTLINE_LEVELS: BodyOutlineLevelConfig[] = [
+  { numbering_style: 'chinese-dot', font: '宋体', size: '小四' },
+  { numbering_style: 'chinese-paren', font: '宋体', size: '小四' },
+  { numbering_style: 'decimal-dot', font: '宋体', size: '小四' },
+  { numbering_style: 'decimal-full-paren', font: '宋体', size: '小四' },
+];
 
 // ── 中文字号 → pt 映射 ────────────────────────────
 export const SIZE_TO_PT: Record<string, number> = {
@@ -343,6 +360,7 @@ const DEFAULT_BODY_TEXT: BodyTextStyleConfig = {
   list_style: 'disc',
   ordered_list_style: 'decimal-dot',
   list_indent_chars: 2,
+  body_outline_levels: DEFAULT_BODY_OUTLINE_LEVELS.map((level) => ({ ...level })),
 };
 
 const DEFAULT_TABLE_CELL: TableCellStyleConfig = {

@@ -64,6 +64,12 @@ const DEFAULT_IMAGE_STYLE = {
   caption_bold: false,
   caption_italic: false,
 };
+const DEFAULT_BODY_OUTLINE_LEVELS = [
+  { numbering_style: 'chinese-dot', font: '宋体', size: '小四' },
+  { numbering_style: 'chinese-paren', font: '宋体', size: '小四' },
+  { numbering_style: 'decimal-dot', font: '宋体', size: '小四' },
+  { numbering_style: 'decimal-full-paren', font: '宋体', size: '小四' },
+];
 const UNORDERED_LIST_MARKERS = {
   disc: { text: '•', font: 'Arial', sizeScale: 0.75 },
   circle: { text: '○', font: 'Arial', sizeScale: 0.82 },
@@ -80,6 +86,7 @@ const ORDERED_LIST_WORD_STYLES = {
   'decimal-full-paren': { format: LevelFormat.DECIMAL, text: (level) => `（%${level + 1}）` },
   'chinese-dot': { format: LevelFormat.CHINESE_COUNTING, text: (level) => `%${level + 1}、` },
   'chinese-paren': { format: LevelFormat.CHINESE_COUNTING, text: (level) => `（%${level + 1}）` },
+  circled: { format: LevelFormat.DECIMAL_ENCLOSED_CIRCLE, text: (level) => `%${level + 1}` },
   'lower-alpha': { format: LevelFormat.LOWER_LETTER, text: (level) => `%${level + 1}.` },
   'upper-alpha': { format: LevelFormat.UPPER_LETTER, text: (level) => `%${level + 1}.` },
   'lower-roman': { format: LevelFormat.LOWER_ROMAN, text: (level) => `%${level + 1}.` },
@@ -839,6 +846,29 @@ function normalizeMarkdownListMarkersForDocx(content) {
   }).join('\n');
 }
 
+function getBodyOutlineLevels(bodyStyle = {}) {
+  const legacyOrderedListStyle = bodyStyle.ordered_list_style || 'decimal-dot';
+  const sourceLevels = Array.isArray(bodyStyle.body_outline_levels) ? bodyStyle.body_outline_levels : null;
+  return DEFAULT_BODY_OUTLINE_LEVELS.map((defaultLevel, index) => {
+    const sourceLevel = sourceLevels?.[index];
+    return {
+      numbering_style: sourceLevel?.numbering_style
+        || (!sourceLevels && index === 0 ? legacyOrderedListStyle : defaultLevel.numbering_style),
+      font: sourceLevel?.font || defaultLevel.font,
+      size: sourceLevel?.size || defaultLevel.size,
+    };
+  });
+}
+
+function getBodyOutlineLevel(referenceConfig, level) {
+  const safeLevel = Math.max(0, Math.min(Number(level) || 0, 4));
+  return referenceConfig.bodyOutlineLevels?.[safeLevel] || {
+    numbering_style: 'circled',
+    font: referenceConfig.bodyRunFont || '宋体',
+    size: referenceConfig.bodyRunSize ? undefined : '三号',
+  };
+}
+
 function createListReference(context, ordered) {
   const bodyStyle = context.exportFormat?.body_text || {};
   if (!ordered && bodyStyle.list_style === 'none') {
@@ -857,6 +887,7 @@ function createListReference(context, ordered) {
     listIndentChars: typeof bodyStyle.list_indent_chars === 'number' ? bodyStyle.list_indent_chars : 2,
     bodyRunFont: context.bodyRunFont || '宋体',
     bodyRunSize: context.bodyRunSize || 24,
+    bodyOutlineLevels: getBodyOutlineLevels(bodyStyle),
   });
   return reference;
 }
@@ -1632,12 +1663,25 @@ async function htmlListToDocx($, listNode, context, options = {}) {
     const listOptions = buildListParagraphOptions(
       context,
       isTaskItem ? null : numberingReference,
-      Math.min(options.listLevel || 0, 2),
+      Math.max(0, Math.min(Number(options.listLevel) || 0, 4)),
       itemIndex,
       listItems.length,
       { manualIndent: isTaskItem, manualListIndent: !isTaskItem && unorderedListWithoutMarker },
     );
-    blocks.push(paragraph(await htmlInlineRuns($, inlineNodes, context), listOptions));
+    const listLevel = Math.max(0, Math.min(Number(options.listLevel) || 0, 4));
+    const outlineLevel = !isTaskItem && ordered
+      ? getBodyOutlineLevel(
+        context.numberingReferences?.find((reference) => reference.reference === numberingReference) || {},
+        listLevel,
+      )
+      : null;
+    const listRunMarks = outlineLevel
+      ? {
+          font: outlineLevel.font || context.bodyRunFont || '宋体',
+          size: outlineLevel.size ? chineseSizeToHalfPt(outlineLevel.size) : context.bodyRunSize || 24,
+        }
+      : {};
+    blocks.push(paragraph(await htmlInlineRuns($, inlineNodes, context, listRunMarks), listOptions));
 
     for (const childList of $(itemNode).children('ul,ol').toArray()) {
       blocks.push(...await htmlListToDocx($, childList, context, { ...options, listLevel: (options.listLevel || 0) + 1 }));
@@ -2212,14 +2256,14 @@ function getOrderedListWordStyle(style) {
 
 function getTaskListLevelIndent(context, level) {
   const bodyStyle = context.exportFormat?.body_text || {};
-  const safeLevel = Math.max(0, Math.min(Number(level) || 0, 2));
+  const safeLevel = Math.max(0, Math.min(Number(level) || 0, 4));
   if (safeLevel <= 0) return null;
   const listIndentChars = typeof bodyStyle.list_indent_chars === 'number' ? bodyStyle.list_indent_chars : 2;
   return { left: Math.round(charsToTwips(listIndentChars, context.bodyRunSize || 24) * safeLevel) };
 }
 
 function getManualUnorderedListLevelIndent(context, level) {
-  const safeLevel = Math.max(0, Math.min(Number(level) || 0, 2));
+  const safeLevel = Math.max(0, Math.min(Number(level) || 0, 4));
   const listIndentChars = typeof context.bodyListIndentChars === 'number' ? context.bodyListIndentChars : 2;
   const left = Math.round(charsToTwips(listIndentChars, context.bodyRunSize || 24) * (safeLevel + 1));
   return left > 0 ? { left } : null;
@@ -2234,7 +2278,8 @@ function getListLevelIndent(referenceConfig, level) {
 
 function createListNumberingLevel(referenceConfig, level) {
   const ordered = referenceConfig.ordered === true;
-  const orderedStyle = getOrderedListWordStyle(referenceConfig.orderedListStyle);
+  const outlineLevel = ordered ? getBodyOutlineLevel(referenceConfig, level) : null;
+  const orderedStyle = getOrderedListWordStyle(outlineLevel?.numbering_style || referenceConfig.orderedListStyle);
   const marker = UNORDERED_LIST_MARKERS[referenceConfig.unorderedListStyle] || UNORDERED_LIST_MARKERS.disc;
   const markerSize = Math.max(1, Math.round((referenceConfig.bodyRunSize || 24) * (marker.sizeScale || 1)));
   return {
@@ -2245,8 +2290,10 @@ function createListNumberingLevel(referenceConfig, level) {
     suffix: LevelSuffix.TAB,
     style: {
       run: {
-        font: ordered ? (referenceConfig.bodyRunFont || '宋体') : marker.font,
-        size: ordered ? (referenceConfig.bodyRunSize || 24) : markerSize,
+        font: ordered ? (outlineLevel?.font || referenceConfig.bodyRunFont || '宋体') : marker.font,
+        size: ordered
+          ? (outlineLevel?.size ? chineseSizeToHalfPt(outlineLevel.size) : referenceConfig.bodyRunSize || 24)
+          : markerSize,
       },
       paragraph: {
         indent: getListLevelIndent(referenceConfig, level),
@@ -2267,7 +2314,7 @@ function createNumberingConfig(context) {
   }
   config.push(...references.map((referenceConfig) => ({
     reference: referenceConfig.reference,
-    levels: [0, 1, 2].map((level) => createListNumberingLevel(referenceConfig, level)),
+    levels: [0, 1, 2, 3, 4].map((level) => createListNumberingLevel(referenceConfig, level)),
   })));
 
   return {

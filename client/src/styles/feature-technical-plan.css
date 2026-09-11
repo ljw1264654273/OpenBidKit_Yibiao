@@ -3352,6 +3352,223 @@
   color: var(--yb-text-soft);
 }
 
+.quick-config-bid-section-hint {
+  justify-content: space-between;
+  background: linear-gradient(135deg, rgba(242, 138, 0, 0.10), rgba(242, 138, 0, 0.04));
+  border-color: rgba(242, 138, 0, 0.35);
+}
+
+.quick-config-bid-section-hint > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.quick-config-bid-section-hint strong {
+  color: var(--yb-warning, #f28a00);
+}
+
+.quick-config-error-hint {
+  justify-content: space-between;
+  background: linear-gradient(135deg, rgba(220, 38, 38, 0.08), rgba(220, 38, 38, 0.04));
+  border-color: rgba(220, 38, 38, 0.3);
+}
+
+.quick-config-error-hint strong {
+  color: #b91c1c;
+}
+
+.quick-config-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  background: var(--yb-surface);
+  border: 1px solid var(--yb-border);
+  border-radius: var(--yb-radius-md);
+}
+
+.quick-config-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.quick-config-head .section-kicker {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--yb-primary);
+}
+
+.quick-config-head strong {
+  font-size: 15px;
+  color: var(--yb-text);
+}
+
+.quick-config-head small {
+  font-size: 12px;
+  color: var(--yb-text-soft);
+}
+
+.quick-config-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.quick-config-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  background: var(--yb-bg);
+  border: 1px solid var(--yb-border-soft);
+  border-radius: var(--yb-radius-md);
+}
+
+.quick-config-card-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.quick-config-card-head strong {
+  font-size: 14px;
+  color: var(--yb-text);
+}
+
+.quick-config-card-head small {
+  font-size: 11px;
+  color: var(--yb-text-muted);
+}
+
+.quick-config-card-value {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--yb-primary-deep);
+}
+
+.quick-config-card-chip {
+  display: inline-flex;
+  align-self: flex-start;
+  max-width: 100%;
+  padding: 4px 10px;
+  background: var(--yb-primary);
+  color: #fff;
+  border-radius: var(--yb-radius-pill);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.quick-config-card-muted {
+  color: var(--yb-text-muted);
+  font-weight: 400;
+}
+
+.quick-config-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.quick-config-card-actions .primary-action,
+.quick-config-card-actions .secondary-action {
+  font-size: 12px;
+  padding: 4px 12px;
+}
+
+.quick-config-card-hint {
+  font-size: 12px;
+  color: var(--yb-text-soft);
+}
+
+.quick-config-card-note {
+  font-size: 12px;
+  color: var(--yb-text-soft);
+  margin-top: 2px;
+}
+
+.quick-config-card-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.quick-config-pill {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px 10px;
+  background: var(--yb-surface);
+  border: 1px solid var(--yb-border);
+  border-radius: var(--yb-radius-sm);
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--yb-text-soft);
+  cursor: pointer;
+  transition: border-color .14s, background-color .14s, color .14s;
+}
+
+.quick-config-pill:hover:not(:disabled) {
+  border-color: var(--yb-primary);
+  color: var(--yb-text);
+}
+
+.quick-config-pill.is-active {
+  background: var(--yb-primary);
+  border-color: var(--yb-primary);
+  color: #fff;
+}
+
+.quick-config-pill:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.quick-config-pill small {
+  font-size: 10px;
+  color: inherit;
+  opacity: 0.75;
+}
+
+.quick-config-card-toggles {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.quick-config-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  background: var(--yb-surface);
+  border: 1px solid var(--yb-border-soft);
+  border-radius: var(--yb-radius-sm);
+}
+
+.quick-config-toggle-row > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.quick-config-toggle-row strong {
+  font-size: 13px;
+  color: var(--yb-text);
+}
+
+.quick-config-toggle-row small {
+  font-size: 11px;
+  color: var(--yb-text-muted);
+}
+
 .outline-knowledge-folder-list {
   display: grid;
   gap: 10px;

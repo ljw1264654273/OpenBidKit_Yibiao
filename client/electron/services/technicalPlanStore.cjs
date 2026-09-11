@@ -2825,6 +2825,8 @@ function createTechnicalPlanStore({ app, db, fileService, agentService, taskLogS
       success: true,
       message: message || (fallbackToLocal ? '文件解析完成，当前格式已自动使用本地解析' : '招标文件已导入'),
       markdown: nextMarkdown,
+      // 本地正则标段检测结论（零 Token），供 STEP 01 导入后立即提示疑似多标段
+      bidSectionDetection: detectBidSections(nextMarkdown),
     };
   }
 

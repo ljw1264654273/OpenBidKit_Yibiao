@@ -5,6 +5,7 @@ import { AppSwitch, FloatingToolbar, ProgressBar, useToast } from '../../../shar
 import type { FloatingToolbarGroup } from '../../../shared/ui';
 import type {
   BodyTextStyleConfig,
+  BodyOutlineLevelConfig,
   ExportFormatConfig,
   HeadingBorderConfig,
   HeadingNumberingFormat,
@@ -19,6 +20,8 @@ import type {
 } from '../../../shared/types/exportFormat';
 import {
   ALIGNMENT_OPTIONS,
+  BODY_OUTLINE_LEVEL_LABELS,
+  DEFAULT_BODY_OUTLINE_LEVELS,
   DEFAULT_EXPORT_FORMAT,
   FONT_OPTIONS,
   HEADING_LEVEL_LABELS,
@@ -155,6 +158,7 @@ function collectConfigFonts(config: ExportFormatConfig): string[] {
     config.page.footer_font,
     ...config.headings.map((heading) => heading.font),
     config.body_text.font,
+    ...(config.body_text.body_outline_levels || []).map((level) => level.font),
     config.table.header_row.font,
     config.table.first_column.font,
     config.table.body_cell.font,
@@ -263,7 +267,10 @@ function createDefaultExportFormat(): ExportFormatConfig {
     heading_level1_page_break_before: DEFAULT_EXPORT_FORMAT.heading_level1_page_break_before,
     heading_border: { ...DEFAULT_EXPORT_FORMAT.heading_border, level_cell_colors: [...DEFAULT_EXPORT_FORMAT.heading_border.level_cell_colors] },
     headings: DEFAULT_EXPORT_FORMAT.headings.map((heading) => ({ ...heading })),
-    body_text: { ...DEFAULT_EXPORT_FORMAT.body_text },
+    body_text: {
+      ...DEFAULT_EXPORT_FORMAT.body_text,
+      body_outline_levels: DEFAULT_EXPORT_FORMAT.body_text.body_outline_levels.map((level) => ({ ...level })),
+    },
     table: {
       border_width: DEFAULT_EXPORT_FORMAT.table.border_width,
       border_color: DEFAULT_EXPORT_FORMAT.table.border_color,
@@ -296,7 +303,14 @@ function withExportFormatDefaults(source: ExportFormatConfig): ExportFormatConfi
       level_cell_colors: defaults.heading_border.level_cell_colors.map((color, index) => source.heading_border?.level_cell_colors?.[index] || color),
     },
     headings: defaults.headings.map((heading, index) => ({ ...heading, ...(source.headings?.[index] || {}) })),
-    body_text: { ...defaults.body_text, ...source.body_text },
+    body_text: {
+      ...defaults.body_text,
+      ...source.body_text,
+      body_outline_levels: defaults.body_text.body_outline_levels.map((level, index) => ({
+        ...level,
+        ...(source.body_text?.body_outline_levels?.[index] || {}),
+      })),
+    },
     table: {
       ...defaults.table,
       ...source.table,
@@ -444,6 +458,18 @@ function ExportFormatPage({ mode = 'create', templateId = null, onBack }: Export
 
   const updateBodyText = useCallback((updates: Partial<BodyTextStyleConfig>) => {
     setConfig((prev) => ({ ...prev, body_text: { ...prev.body_text, ...updates } }));
+  }, []);
+
+  const updateBodyOutlineLevel = useCallback((index: number, updates: Partial<BodyOutlineLevelConfig>) => {
+    setConfig((prev) => ({
+      ...prev,
+      body_text: {
+        ...prev.body_text,
+        body_outline_levels: (prev.body_text.body_outline_levels || DEFAULT_BODY_OUTLINE_LEVELS).map((level, levelIndex) => (
+          levelIndex === index ? { ...level, ...updates } : { ...level }
+        )),
+      },
+    }));
   }, []);
 
   const updateTable = useCallback((updates: Partial<TableStyleConfig>) => {
@@ -1135,6 +1161,45 @@ function ExportFormatPage({ mode = 'create', templateId = null, onBack }: Export
           <input type="number" min={0} max={10} step={0.5} value={config.body_text.list_indent_chars} onChange={(event) => updateBodyText({ list_indent_chars: Number(event.target.value) })} />
         </label>
       </div>
+      <div className="export-template-subsection export-body-outline-levels">
+        <div className="export-body-outline-levels-head">
+          <div>
+            <strong>正文层次</strong>
+            <span>有序正文按层级使用不同编号、字体和字号；超过四层时自动扩展为带圈数字。</span>
+          </div>
+        </div>
+        <div className="export-body-outline-level-list">
+          {(config.body_text.body_outline_levels || DEFAULT_BODY_OUTLINE_LEVELS).map((level, index) => (
+            <div className="export-body-outline-level-card" key={BODY_OUTLINE_LEVEL_LABELS[index]}>
+              <div className="export-body-outline-level-card-head">
+                <strong>{BODY_OUTLINE_LEVEL_LABELS[index]}</strong>
+                <span>{index === 0 ? '一、' : index === 1 ? '（一）' : index === 2 ? '1.' : index === 3 ? '（1）' : '①'}</span>
+              </div>
+              <div className="export-format-heading-grid export-body-outline-level-grid">
+                <label>
+                  <span>编号样式</span>
+                  <select
+                    value={level.numbering_style}
+                    onChange={(event) => updateBodyOutlineLevel(index, { numbering_style: event.target.value as OrderedListStyle })}
+                  >
+                    {ORDERED_LIST_STYLE_OPTIONS.map((style) => <option key={style.value} value={style.value}>{style.label}</option>)}
+                  </select>
+                </label>
+                <label>
+                  <span>字体</span>
+                  <FontPicker value={level.font} options={fontOptions} onChange={(font) => updateBodyOutlineLevel(index, { font })} />
+                </label>
+                <label>
+                  <span>字号</span>
+                  <select value={level.size} onChange={(event) => updateBodyOutlineLevel(index, { size: event.target.value })}>
+                    {SIZE_OPTIONS.map((size) => <option key={size} value={size}>{size}</option>)}
+                  </select>
+                </label>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
     </>
   );
 
@@ -1498,6 +1563,27 @@ export function TemplatePreview({ config, previewStyle }: { config: ExportFormat
         <figcaption>图 1 项目实施流程示意</figcaption>
       </figure>
     );
+    const bodyOutlinePreviewList = (
+      <ol>
+        <li>
+          完成资料接收和范围确认。
+          <ol>
+            <li>
+              完成需求梳理。
+              <ol>
+                <li>
+                  完成清单核对。
+                  <ol>
+                    <li>形成确认记录。</li>
+                  </ol>
+                </li>
+              </ol>
+            </li>
+          </ol>
+        </li>
+        <li>完成过程复核和成果归档。</li>
+      </ol>
+    );
 
     if (config.heading_border.enabled) {
       const frameBlock = (id: string, content: ReactNode, fallbackHeight: number, startsNewPage = false): PreviewBlock => ({
@@ -1524,10 +1610,7 @@ export function TemplatePreview({ config, previewStyle }: { config: ExportFormat
                   <li>建立项目启动、过程检查和验收交付的闭环机制。</li>
                   <li>按周同步风险、进度和资源需求，确保实施节奏可控。</li>
                 </ul>
-                <ol>
-                  <li>完成资料接收和范围确认。</li>
-                  <li>完成过程复核和成果归档。</li>
-                </ol>
+                {bodyOutlinePreviewList}
                 {processFigure}
               </>), 250),
         frameBlock('frame-1-leaf-2', renderPreviewLeafRow(6, '1.1.1.1.1.2', '过程复核', <p>对关键节点的确认材料、实施记录和交付清单进行复核，确保过程资料完整一致。</p>), 82),
@@ -1558,7 +1641,7 @@ export function TemplatePreview({ config, previewStyle }: { config: ExportFormat
       { id: 'h6-3', fallbackHeight: 30, content: <h6>{headingPreviewTitle(config, 6, '1.1.1.1.1.3', '资料归档')}</h6> },
       { id: 'p-5-3', fallbackHeight: 54, content: <p>按项目阶段整理归档目录、会议纪要、问题闭环记录和验收支撑材料。</p> },
       { id: 'list-1', fallbackHeight: 110, content: <ul><li>建立项目启动、过程检查和验收交付的闭环机制。</li><li>按周同步风险、进度和资源需求，确保实施节奏可控。</li><li>保留关键过程记录，便于后续审查和复盘。</li></ul> },
-      { id: 'ordered-list-1', fallbackHeight: 82, content: <ol><li>完成资料接收和范围确认。</li><li>完成过程复核和成果归档。</li><li>完成验收支撑材料提交。</li></ol> },
+      { id: 'ordered-list-1', fallbackHeight: 150, content: bodyOutlinePreviewList },
       { id: 'figure-1', fallbackHeight: 150, content: processFigure },
       { id: 'table-1', fallbackHeight: 130, content: serviceTable },
       { id: 'h1-2', startsNewPage: config.heading_level1_page_break_before, fallbackHeight: 64, content: <h1>{headingPreviewTitle(config, 1, '2', '运维保障方案')}</h1> },

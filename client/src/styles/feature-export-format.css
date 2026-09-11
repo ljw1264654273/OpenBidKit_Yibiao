@@ -336,6 +336,56 @@
   padding: 0;
 }
 
+.export-body-outline-levels {
+  gap: 16px;
+}
+
+.export-body-outline-levels-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.export-body-outline-levels-head > div {
+  display: grid;
+  gap: 4px;
+}
+
+.export-body-outline-levels-head span {
+  color: var(--yb-text-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.export-body-outline-level-list {
+  display: grid;
+  gap: 10px;
+}
+
+.export-body-outline-level-card {
+  min-width: 0;
+  padding: 14px 16px;
+  background: rgba(33, 116, 253, 0.025);
+  border: 1px solid var(--yb-border-soft);
+  border-radius: var(--yb-radius-md);
+}
+
+.export-body-outline-level-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  color: var(--yb-text);
+}
+
+.export-body-outline-level-card-head span {
+  color: var(--yb-text-muted);
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 18px;
+}
+
 .export-template-preview-panel {
   position: sticky;
   top: 0;
@@ -758,12 +808,18 @@
   padding: 0 36px 8px;
 }
 
+.export-body-outline-level-grid {
+  min-width: 0;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1.25fr) minmax(96px, 0.7fr);
+}
+
 .export-format-heading-card .export-format-heading-grid {
   padding: 0;
 }
 
 .export-format-heading-grid label {
   display: flex;
+  min-width: 0;
   flex-direction: column;
   gap: 4px;
 }
@@ -775,6 +831,7 @@
 
 .export-format-heading-grid select,
 .export-format-heading-grid input {
+  min-width: 0;
   min-height: 38px;
   padding: 8px 12px;
   color: var(--yb-text);
@@ -790,6 +847,37 @@
   background: var(--yb-surface);
   border-color: rgba(33, 116, 253, 0.5);
   box-shadow: var(--yb-focus-ring);
+}
+
+.export-body-outline-level-grid .font-picker,
+.export-body-outline-level-grid .font-picker-input {
+  min-width: 0;
+}
+
+.export-body-outline-level-grid .font-picker-input {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+  .export-body-outline-level-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .export-body-outline-level-grid > label:last-child {
+    grid-column: span 2;
+  }
+}
+
+@media (max-width: 520px) {
+  .export-body-outline-level-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .export-body-outline-level-grid > label:last-child {
+    grid-column: auto;
+  }
 }
 
 .export-format-heading-switch {
@@ -1033,6 +1121,12 @@
 }
 
 /* 预览内容 — 正文段落 */
+@counter-style ef-circled {
+  system: fixed;
+  symbols: "①" "②" "③" "④" "⑤" "⑥" "⑦" "⑧" "⑨" "⑩" "⑪" "⑫" "⑬" "⑭" "⑮" "⑯" "⑰" "⑱" "⑲" "⑳";
+  suffix: " ";
+}
+
 .export-format-preview-content p {
   font-family: var(--ef-body-font, 'SimSun', serif);
   font-size: var(--ef-body-size, 12pt);
@@ -1061,6 +1155,8 @@
   padding-left: var(--ef-list-indent, 2em);
   counter-reset: ef-ordered-list;
   list-style: none;
+  font-family: var(--ef-body-outline-1-font, var(--ef-body-font, 'SimSun', serif));
+  font-size: var(--ef-body-outline-1-size, var(--ef-body-size, 12pt));
 }
 
 .export-format-preview-content li {
@@ -1089,9 +1185,65 @@
   position: absolute;
   left: calc(var(--ef-list-indent, 2em) * -1);
   width: calc(var(--ef-list-indent, 2em) - 0.25em);
+  font-family: var(--ef-body-outline-1-font, var(--ef-body-font, 'SimSun', serif));
+  font-size: var(--ef-body-outline-1-size, var(--ef-body-size, 12pt));
   text-align: right;
   text-indent: 0;
-  content: var(--ef-ordered-list-prefix, "") counter(ef-ordered-list, var(--ef-ordered-list-counter-style, decimal)) var(--ef-ordered-list-suffix, ". ");
+  content: var(--ef-body-outline-1-prefix, var(--ef-ordered-list-prefix, ""))
+    counter(ef-ordered-list, var(--ef-body-outline-1-counter-style, var(--ef-ordered-list-counter-style, decimal)))
+    var(--ef-body-outline-1-suffix, var(--ef-ordered-list-suffix, ". "));
+}
+
+.export-format-preview-content ol > li > ol {
+  font-family: var(--ef-body-outline-2-font, var(--ef-body-font, 'SimSun', serif));
+  font-size: var(--ef-body-outline-2-size, var(--ef-body-size, 12pt));
+}
+
+.export-format-preview-content ol > li > ol > li::before {
+  font-family: var(--ef-body-outline-2-font, var(--ef-body-font, 'SimSun', serif));
+  font-size: var(--ef-body-outline-2-size, var(--ef-body-size, 12pt));
+  content: var(--ef-body-outline-2-prefix, "")
+    counter(ef-ordered-list, var(--ef-body-outline-2-counter-style, decimal))
+    var(--ef-body-outline-2-suffix, ". ");
+}
+
+.export-format-preview-content ol > li > ol > li > ol {
+  font-family: var(--ef-body-outline-3-font, var(--ef-body-font, 'SimSun', serif));
+  font-size: var(--ef-body-outline-3-size, var(--ef-body-size, 12pt));
+}
+
+.export-format-preview-content ol > li > ol > li > ol > li::before {
+  font-family: var(--ef-body-outline-3-font, var(--ef-body-font, 'SimSun', serif));
+  font-size: var(--ef-body-outline-3-size, var(--ef-body-size, 12pt));
+  content: var(--ef-body-outline-3-prefix, "")
+    counter(ef-ordered-list, var(--ef-body-outline-3-counter-style, decimal))
+    var(--ef-body-outline-3-suffix, ". ");
+}
+
+.export-format-preview-content ol > li > ol > li > ol > li > ol {
+  font-family: var(--ef-body-outline-4-font, var(--ef-body-font, 'SimSun', serif));
+  font-size: var(--ef-body-outline-4-size, var(--ef-body-size, 12pt));
+}
+
+.export-format-preview-content ol > li > ol > li > ol > li > ol > li::before {
+  font-family: var(--ef-body-outline-4-font, var(--ef-body-font, 'SimSun', serif));
+  font-size: var(--ef-body-outline-4-size, var(--ef-body-size, 12pt));
+  content: var(--ef-body-outline-4-prefix, "")
+    counter(ef-ordered-list, var(--ef-body-outline-4-counter-style, decimal))
+    var(--ef-body-outline-4-suffix, ". ");
+}
+
+.export-format-preview-content ol > li > ol > li > ol > li > ol > li > ol {
+  font-family: var(--ef-body-outline-5-font, var(--ef-body-font, 'SimSun', serif));
+  font-size: var(--ef-body-outline-5-size, var(--ef-body-size, 12pt));
+}
+
+.export-format-preview-content ol > li > ol > li > ol > li > ol > li > ol > li::before {
+  font-family: var(--ef-body-outline-5-font, var(--ef-body-font, 'SimSun', serif));
+  font-size: var(--ef-body-outline-5-size, var(--ef-body-size, 12pt));
+  content: var(--ef-body-outline-5-prefix, "")
+    counter(ef-ordered-list, var(--ef-body-outline-5-counter-style, decimal))
+    var(--ef-body-outline-5-suffix, ". ");
 }
 
 /* 预览内容 — 各级标题 */
