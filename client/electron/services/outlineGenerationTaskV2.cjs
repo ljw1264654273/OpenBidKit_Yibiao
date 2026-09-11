@@ -5,6 +5,7 @@ const {
 const { isDeepStrictEqual } = require('node:util');
 const { planRemoteKnowledgeQueries } = require('./remoteKnowledgeQueryPlanner.cjs');
 const { runTemplateExtractionTask } = require('./templateExtractionTask.cjs');
+const { attachScoreCoverageAnchors } = require('./outlineSourceAnchorService.cjs');
 
 const DEFAULT_ESTIMATED_SECTION_WORDS = 1500;
 const OUTLINE_OUTPUT_FILE = 'outline.json';
@@ -2164,6 +2165,11 @@ async function runOutlineGenerationTaskV2({ aiService, agentService, ordinaryAge
   if (!finalOutline) {
     throw new Error('目录最终校验未执行，未保存 Agent 直接返回的目录');
   }
+  scoreCoverageMap = attachScoreCoverageAnchors({
+    markdown: workspaceStore.readTenderMarkdown?.() || '',
+    scorePlan,
+    scoreCoverageMap,
+  });
   const persistedFinalOutline = stripOutlineInternalFields(finalOutline);
   const completionLog = !extractTemplate
     ? '目录生成与审核完成'

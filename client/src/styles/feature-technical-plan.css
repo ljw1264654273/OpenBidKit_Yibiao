@@ -4049,6 +4049,15 @@
   box-decoration-break: clone;
 }
 
+.outline-source-anchor-marker {
+  display: inline-block;
+  width: 0;
+  height: 1em;
+  margin-left: -2px;
+  border-left: 3px solid var(--yb-warning-deep);
+  scroll-margin-block: 96px;
+}
+
 .outline-ai-children-box {
   display: grid;
   gap: 10px;

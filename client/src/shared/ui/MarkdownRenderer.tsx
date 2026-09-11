@@ -9,6 +9,7 @@ interface MarkdownRendererProps {
   allowRawHtml?: boolean;
   enableGfm?: boolean;
   highlightTerms?: string[];
+  highlightSourceAnchor?: string;
   imageMode?: MarkdownImageMode;
   imageClassName?: string;
   linkMode?: MarkdownLinkMode;
@@ -159,6 +160,31 @@ function highlightTextNodes(root: Element, terms: string[]) {
   });
 }
 
+function highlightAnchoredTextNodes(root: Element, anchorName: string) {
+  const markers = Array.from(root.querySelectorAll('[data-outline-source-anchor]'));
+  const start = markers.find((marker) => marker.getAttribute('data-outline-source-anchor') === `${anchorName}-start`);
+  const end = markers.find((marker) => marker.getAttribute('data-outline-source-anchor') === `${anchorName}-end`);
+  if (!start || !end) return;
+
+  const ownerDocument = root.ownerDocument;
+  const walker = ownerDocument.createTreeWalker(root, 4);
+  const textNodes: Text[] = [];
+  let current = walker.nextNode();
+  while (current) {
+    const afterStart = Boolean(start.compareDocumentPosition(current) & 4);
+    const beforeEnd = Boolean(current.compareDocumentPosition(end) & 4);
+    if (afterStart && beforeEnd && current.textContent) textNodes.push(current as Text);
+    current = walker.nextNode();
+  }
+
+  for (const node of textNodes) {
+    const mark = ownerDocument.createElement('mark');
+    mark.className = 'markdown-highlight markdown-source-anchor-highlight';
+    node.parentNode?.replaceChild(mark, node);
+    mark.appendChild(node);
+  }
+}
+
 function childrenFromDom(nodes: ChildNode[], renderNode: (node: ChildNode, index: number) => ReactNode) {
   return nodes.map((node, index) => renderNode(node, index));
 }
@@ -168,6 +194,7 @@ function MarkdownRenderer({
   allowRawHtml = true,
   enableGfm = true,
   highlightTerms = [],
+  highlightSourceAnchor,
   imageMode = 'default',
   imageClassName,
   linkMode = 'external',
@@ -182,6 +209,7 @@ function MarkdownRenderer({
     const document = new DOMParser().parseFromString(`<div>${html}</div>`, 'text/html');
     const root = document.body.firstElementChild;
     if (root) highlightTextNodes(root, highlightTerms);
+    if (root && highlightSourceAnchor) highlightAnchoredTextNodes(root, highlightSourceAnchor);
     const renderNode = (node: ChildNode, index: number): ReactNode => {
       if (node.nodeType === Node.TEXT_NODE) return node.textContent || '';
       if (node.nodeType !== Node.ELEMENT_NODE) return null;
@@ -318,7 +346,16 @@ function MarkdownRenderer({
       if (tag === 'sub') return <sub {...props}>{renderedChildren}</sub>;
       if (tag === 'sup') return <sup {...props}>{renderedChildren}</sup>;
       if (tag === 'label') return <label {...props} htmlFor={element.getAttribute('for') || undefined}>{renderedChildren}</label>;
-      if (tag === 'span') return <span {...props}>{renderedChildren}</span>;
+      if (tag === 'span') {
+        return (
+          <span
+            {...props}
+            data-outline-source-anchor={element.getAttribute('data-outline-source-anchor') || undefined}
+          >
+            {renderedChildren}
+          </span>
+        );
+      }
       if (tag === 'div') return <div {...props}>{renderedChildren}</div>;
       if (tag === 'section') return <section {...props}>{renderedChildren}</section>;
       if (tag === 'article') return <article {...props}>{renderedChildren}</article>;
@@ -327,7 +364,7 @@ function MarkdownRenderer({
     };
 
     return Array.from(root?.childNodes || []).map((node, index) => renderNode(node, index));
-  }, [enableGfm, highlightTerms, html, imageClassName, imageMode, linkMode, linkTextClassName, onPreviewImage, previewImageTitle, renderMermaid]);
+  }, [enableGfm, highlightSourceAnchor, highlightTerms, html, imageClassName, imageMode, linkMode, linkTextClassName, onPreviewImage, previewImageTitle, renderMermaid]);
 
   return <>{content}</>;
 }

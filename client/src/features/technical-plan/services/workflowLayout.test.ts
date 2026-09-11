@@ -101,12 +101,18 @@ test('目录生成状态栏以两行摘要配合同排进度和操作保持紧�
   assert.match(css, /\.outline-command-summary\s*~\s*\.outline-command-actions\s*\{[^}]*grid-area:\s*actions;[^}]*flex-wrap:\s*nowrap;/s);
 });
 
-test('目录原文面板保留全屏入口并按 Markdown 结构渲染 HTML 表格和高亮', () => {
+test('目录原文面板保留全屏入口并只高亮已定位的精确原文', () => {
   const source = readFileSync(new URL('../components/TenderSourcePanel.tsx', import.meta.url), 'utf8');
+  const fullscreenSource = readFileSync(new URL('../../../shared/ui/MarkdownFullscreenViewer.tsx', import.meta.url), 'utf8');
   assert.match(source, /buttonLabel="全屏查看招标原文"/);
-  assert.match(source, /fullscreenChildren=\{<MarkdownRenderer allowRawHtml highlightTerms=\{sourceKeywords\}>/);
+  assert.match(source, /scrollTargetSelector="\[data-outline-source-anchor='primary-start'\]"/);
+  assert.match(source, /fullscreenChildren=\{<MarkdownRenderer allowRawHtml highlightSourceAnchor="primary">\{anchoredFullscreenMarkdown\}<\/MarkdownRenderer>\}/);
   assert.match(source, /normalizeTableFragments/);
-  assert.match(source, /<MarkdownRenderer allowRawHtml highlightTerms=\{sourceKeywords\}>\{normalizeTableFragments\(itemMarkdown\)\}<\/MarkdownRenderer>/);
+  assert.match(source, /<MarkdownRenderer allowRawHtml highlightSourceAnchor=\{item\.status === 'located' \? 'primary' : undefined\}>/);
+  assert.doesNotMatch(source, /extractSourceKeywords|selectedItem\?\.description/);
+  assert.match(fullscreenSource, /fullscreenContentRef\.current\?\.querySelector\(scrollTargetSelector/);
+  const rendererSource = readFileSync(new URL('../../../shared/ui/MarkdownRenderer.tsx', import.meta.url), 'utf8');
+  assert.match(rendererSource, /highlightAnchoredTextNodes\(root, highlightSourceAnchor\)/);
 });
 
 test('目录详情提供 AI 添加子目录并直接使用 add-child 持久化', () => {

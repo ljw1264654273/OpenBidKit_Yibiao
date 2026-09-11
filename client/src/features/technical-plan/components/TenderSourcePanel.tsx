@@ -1,10 +1,9 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { OutlineExpansionMode, OutlineItem } from '../../../shared/types';
 import { MarkdownFullscreenViewer, MarkdownRenderer } from '../../../shared/ui';
 import type { ScoreCoverageRecord } from '../types';
-import { buildOutlineSourceViewItems } from '../services/outlineSourceMatcher';
-import type { OutlineSourceViewItem } from '../services/outlineSourceMatcher';
+import { buildOutlineSourceViewItems, injectMarkdownSourceAnchor, injectOutlineSourceAnchorMarkers } from '../services/outlineSourceMatcher';
 
 export interface TenderSourcePanelProps {
   selectedItem: OutlineItem | null;
@@ -25,18 +24,27 @@ const sourceKindLabels = {
   'response-point': '响应要点',
 };
 
-function extractSourceKeywords(selectedItem: OutlineItem | null, items: Array<Pick<OutlineSourceViewItem, 'sourceText'>>) {
-  const values = [
-    selectedItem?.title,
-    selectedItem?.source_requirement_title,
-    selectedItem?.description,
-    ...items.map((item) => item.sourceText),
-  ].filter(Boolean).join(' ');
-  const candidates = values
-    .split(/[\s,，。；;：:、（）()【】\[\]{}“”"'‘’/\\|<>]+/)
-    .map((value) => value.trim())
-    .filter((value) => value.length >= 2);
-  return [...new Set(candidates)].sort((left, right) => right.length - left.length).slice(0, 24);
+function useMarkdownHash(markdown: string) {
+  const [result, setResult] = useState({ markdown: '', hash: '' });
+  useEffect(() => {
+    let cancelled = false;
+    if (!markdown) {
+      setResult({ markdown: '', hash: '' });
+      return undefined;
+    }
+    setResult({ markdown: '', hash: '' });
+    void window.crypto.subtle.digest('SHA-256', new TextEncoder().encode(markdown)).then((digest) => {
+      if (cancelled) return;
+      setResult({
+        markdown,
+        hash: Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, '0')).join(''),
+      });
+    }).catch(() => {
+      if (!cancelled) setResult({ markdown: '', hash: '' });
+    });
+    return () => { cancelled = true; };
+  }, [markdown]);
+  return result.markdown === markdown ? result.hash : '';
 }
 
 function normalizeTableFragments(markdown: string) {
@@ -70,14 +78,18 @@ function TenderSourcePanel({
   headerAction,
 }: TenderSourcePanelProps) {
   const selectedItemId = selectedItem?.id;
+  const markdownHash = useMarkdownHash(markdown);
   const viewModel = useMemo(
     () => selectedItemId
-      ? buildOutlineSourceViewItems(outline, selectedItemId, coverageRecords, markdown)
+      ? buildOutlineSourceViewItems(outline, selectedItemId, coverageRecords, markdown, markdownHash)
       : { items: [], scope: 'none' as const },
-    [coverageRecords, markdown, outline, selectedItemId],
+    [coverageRecords, markdown, markdownHash, outline, selectedItemId],
   );
   const itemCount = viewModel.items.length;
-  const sourceKeywords = useMemo(() => extractSourceKeywords(selectedItem, viewModel.items), [selectedItem, viewModel.items]);
+  const anchoredFullscreenMarkdown = useMemo(
+    () => injectOutlineSourceAnchorMarkers(markdown, viewModel.items),
+    [markdown, viewModel.items],
+  );
   const fullSourceDisabled = sorting || loading || Boolean(error) || !markdown;
 
   return (
@@ -86,7 +98,7 @@ function TenderSourcePanel({
         <div>
           <strong>标书原文</strong>
           <span aria-live="polite">
-            {itemCount > 0 ? `共 ${itemCount} 处关联原文` : '0 处'}
+            {itemCount > 0 ? `共 ${itemCount} 条关联来源` : '0 条'}
           </span>
         </div>
         <div className="outline-source-panel-actions">
@@ -97,8 +109,9 @@ function TenderSourcePanel({
             description="全屏查看当前招标文件 Markdown 原文。"
             buttonLabel="全屏查看招标原文"
             disabled={fullSourceDisabled}
-            autoScrollToHighlight
-            fullscreenChildren={<MarkdownRenderer allowRawHtml highlightTerms={sourceKeywords}>{markdown}</MarkdownRenderer>}
+            autoScrollToHighlight={viewModel.items.some((item) => item.status === 'located')}
+            scrollTargetSelector="[data-outline-source-anchor='primary-start']"
+            fullscreenChildren={<MarkdownRenderer allowRawHtml highlightSourceAnchor="primary">{anchoredFullscreenMarkdown}</MarkdownRenderer>}
           >
             <span className="outline-source-panel-fullscreen-placeholder" aria-hidden="true" />
           </MarkdownFullscreenViewer>
@@ -147,15 +160,30 @@ function TenderSourcePanel({
               const itemMarkdown = item.status === 'unlocated'
                 ? item.sourceText
                 : `${item.contextBefore}${item.matchedText}${item.contextAfter}`;
+              const anchoredItemMarkdown = item.status === 'located'
+                ? injectMarkdownSourceAnchor(
+                  itemMarkdown,
+                  item.contextBefore.length,
+                  item.contextBefore.length + item.matchedText.length,
+                )
+                : itemMarkdown;
               return (
                 <article className={`outline-source-panel-source-block${item.status === 'unlocated' ? ' is-unlocated' : ''}`} key={item.sourceId}>
                   <header className="outline-source-panel-source-head">
-                    <strong>第{formatChineseSourceIndex(index)}处</strong>
+                    <strong>第{formatChineseSourceIndex(index)}条</strong>
                     <span className={`is-${item.kind}`}>{sourceKindLabels[item.kind]}</span>
                   </header>
-                  {item.status === 'unlocated' && <p className="outline-source-panel-unlocated-notice">未定位到正文上下文，以下为已保存原文</p>}
+                  {item.status === 'unlocated' && (
+                    <p className="outline-source-panel-unlocated-notice">
+                      {item.locationReason === 'ambiguous'
+                        ? '原文存在多处相同内容，未自动标注，以下为已保存原文'
+                        : item.locationReason === 'stale-anchor'
+                          ? '招标原文已变化，原定位失效，以下为已保存原文'
+                          : '未能在当前招标原文中唯一定位，以下为已保存原文'}
+                    </p>
+                  )}
                   <div className="outline-source-panel-source-text markdown-viewer">
-                    <MarkdownRenderer allowRawHtml highlightTerms={sourceKeywords}>{normalizeTableFragments(itemMarkdown)}</MarkdownRenderer>
+                    <MarkdownRenderer allowRawHtml highlightSourceAnchor={item.status === 'located' ? 'primary' : undefined}>{normalizeTableFragments(anchoredItemMarkdown)}</MarkdownRenderer>
                   </div>
                 </article>
               );

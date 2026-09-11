@@ -15,6 +15,9 @@ export interface OutlineSourceViewItem {
   contextBefore: string;
   matchedText: string;
   contextAfter: string;
+  matchStart?: number;
+  matchEnd?: number;
+  locationReason?: 'not-found' | 'ambiguous' | 'stale-anchor';
 }
 
 export type LocatedOutlineSource =
@@ -29,7 +32,7 @@ export type LocatedOutlineSource =
       matchedText: string;
       contextAfter: string;
     }
-  | { status: 'unlocated'; sourceText: string };
+  | { status: 'unlocated'; sourceText: string; reason: 'not-found' | 'ambiguous' | 'stale-anchor' };
 
 const TENDER_SOURCE_KINDS = new Set<ScoreCoverageRecord['source_kind']>([
   'requirement',
@@ -77,16 +80,40 @@ export function locateOutlineSourceText(markdown: string, sourceText: string): L
   return createOutlineSourceLocator(markdown)(sourceText);
 }
 
+export function injectMarkdownSourceAnchor(markdown: string, matchStart: number, matchEnd: number) {
+  if (!Number.isInteger(matchStart)
+    || !Number.isInteger(matchEnd)
+    || matchStart < 0
+    || matchStart >= matchEnd
+    || matchEnd > markdown.length) return markdown;
+  const startMarker = '<span data-outline-source-anchor="primary-start" class="outline-source-anchor-marker"></span>';
+  const endMarker = '<span data-outline-source-anchor="primary-end"></span>';
+  return `${markdown.slice(0, matchStart)}${startMarker}${markdown.slice(matchStart, matchEnd)}${endMarker}${markdown.slice(matchEnd)}`;
+}
+
+export function injectOutlineSourceAnchorMarkers(markdown: string, items: OutlineSourceViewItem[]) {
+  const primary = items.find((item) => item.status === 'located'
+    && Number.isInteger(item.matchStart)
+    && Number.isInteger(item.matchEnd)
+    && Number(item.matchStart) >= 0
+    && Number(item.matchStart) < Number(item.matchEnd)
+    && Number(item.matchEnd) <= markdown.length);
+  if (!primary) return markdown;
+  return injectMarkdownSourceAnchor(markdown, Number(primary.matchStart), Number(primary.matchEnd));
+}
+
 export function buildOutlineSourceViewItems(
   outline: OutlineItem[],
   nodeId: string,
   records: ScoreCoverageRecord[],
   markdown: string,
+  currentDocumentHash?: string,
 ): { items: OutlineSourceViewItem[]; supplementKind?: 'professional' | 'user'; scope: OutlineSourceRecordSet['scope'] } {
   const sourceRecords = collectOutlineSourceRecords(outline, nodeId, records);
   const locateSourceText = createOutlineSourceLocator(markdown);
   const items = sourceRecords.tenderRecords.map((record) => {
-    const locatedSource = locateSourceText(record.source_text);
+    const fallbackSource = () => locateSourceText(record.source_text);
+    const locatedSource = locateFromStoredAnchor(markdown, record, currentDocumentHash, fallbackSource);
     return {
       sourceId: record.source_id,
       kind: record.source_kind,
@@ -95,6 +122,10 @@ export function buildOutlineSourceViewItems(
       contextBefore: locatedSource.status === 'located' ? locatedSource.contextBefore : '',
       matchedText: locatedSource.status === 'located' ? locatedSource.matchedText : record.source_text,
       contextAfter: locatedSource.status === 'located' ? locatedSource.contextAfter : '',
+      ...(locatedSource.status === 'located'
+        ? { matchStart: locatedSource.matchStart, matchEnd: locatedSource.matchEnd }
+        : {}),
+      ...(locatedSource.status === 'unlocated' ? { locationReason: locatedSource.reason } : {}),
     };
   }) as OutlineSourceViewItem[];
 
@@ -105,6 +136,55 @@ export function buildOutlineSourceViewItems(
       ? { supplementKind: supplementRecord.source_kind === 'professional-supplement' ? 'professional' as const : 'user' as const }
       : {}),
     scope: sourceRecords.scope,
+  };
+}
+
+function locateFromStoredAnchor(
+  markdown: string,
+  record: ScoreCoverageRecord,
+  currentDocumentHash: string | undefined,
+  fallback: () => LocatedOutlineSource,
+): LocatedOutlineSource {
+  const anchor = record.source_anchor;
+  if (!anchor || !currentDocumentHash) return fallback();
+  if (anchor.document_hash !== currentDocumentHash) {
+    const current = fallback();
+    return current.status === 'located'
+      ? current
+      : { status: 'unlocated', sourceText: record.source_text, reason: 'stale-anchor' };
+  }
+
+  const matchStart = Number(anchor.match_start);
+  const matchEnd = Number(anchor.match_end);
+  const contextStart = Number(anchor.context_start);
+  const contextEnd = Number(anchor.context_end);
+  const validRange = Number.isInteger(matchStart)
+    && Number.isInteger(matchEnd)
+    && Number.isInteger(contextStart)
+    && Number.isInteger(contextEnd)
+    && contextStart >= 0
+    && contextStart <= matchStart
+    && matchStart < matchEnd
+    && matchEnd <= contextEnd
+    && contextEnd <= markdown.length;
+  const anchoredText = validRange ? markdown.slice(matchStart, matchEnd) : '';
+  if (!validRange || normalizeWhitespace(anchoredText).text !== normalizeWhitespace(record.source_text).text) {
+    const current = fallback();
+    return current.status === 'located'
+      ? current
+      : { status: 'unlocated', sourceText: record.source_text, reason: 'stale-anchor' };
+  }
+
+  return {
+    status: 'located',
+    sourceText: record.source_text,
+    matchStart,
+    matchEnd,
+    contextStart,
+    contextEnd,
+    contextBefore: markdown.slice(contextStart, matchStart),
+    matchedText: anchoredText,
+    contextAfter: markdown.slice(matchEnd, contextEnd),
   };
 }
 
@@ -214,29 +294,51 @@ function createOutlineSourceLocator(markdown: string) {
 
   return (sourceText: string): LocatedOutlineSource => {
     if (!sourceText) {
-      return { status: 'unlocated', sourceText };
+      return { status: 'unlocated', sourceText, reason: 'not-found' };
     }
 
-    const exactStart = markdown.indexOf(sourceText);
-    if (exactStart >= 0) {
+    const exactStarts = findOccurrences(markdown, sourceText);
+    if (exactStarts.length === 1) {
+      const exactStart = exactStarts[0];
       return createLocatedSource(markdown, sourceText, exactStart, exactStart + sourceText.length, getParagraphs());
+    }
+    if (exactStarts.length > 1) {
+      return { status: 'unlocated', sourceText, reason: 'ambiguous' };
     }
 
     const normalizedSource = normalizeWhitespace(sourceText).text;
     if (!normalizedSource) {
-      return { status: 'unlocated', sourceText };
+      return { status: 'unlocated', sourceText, reason: 'not-found' };
     }
-    const normalizedStart = getNormalizedMarkdown().text.indexOf(normalizedSource);
-    if (normalizedStart < 0) {
-      return { status: 'unlocated', sourceText };
+    const normalizedStarts = findOccurrences(getNormalizedMarkdown().text, normalizedSource);
+    if (normalizedStarts.length !== 1) {
+      return {
+        status: 'unlocated',
+        sourceText,
+        reason: normalizedStarts.length > 1 ? 'ambiguous' : 'not-found',
+      };
     }
 
+    const normalizedStart = normalizedStarts[0];
     const normalizedEnd = normalizedStart + normalizedSource.length;
     const normalized = getNormalizedMarkdown();
     const matchStart = normalized.originalIndices[normalizedStart];
     const matchEnd = normalized.originalIndices[normalizedEnd - 1] + 1;
     return createLocatedSource(markdown, sourceText, matchStart, matchEnd, getParagraphs());
   };
+}
+
+function findOccurrences(text: string, search: string) {
+  if (!search) return [];
+  const positions: number[] = [];
+  let fromIndex = 0;
+  while (fromIndex <= text.length - search.length) {
+    const index = text.indexOf(search, fromIndex);
+    if (index < 0) break;
+    positions.push(index);
+    fromIndex = index + 1;
+  }
+  return positions;
 }
 
 function createLocatedSource(

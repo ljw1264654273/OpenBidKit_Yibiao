@@ -9,6 +9,9 @@ const {
   formatProgressTitle,
   validateFinalOutline,
 } = require('./outlineGenerationTaskV2.cjs');
+const { attachScoreCoverageAnchors } = require('./outlineSourceAnchorService.cjs');
+
+const TENDER_SOURCE_KINDS = new Set(['requirement', 'criterion', 'response-point']);
 
 // 只保留 Agent 目录结构字段，正文等业务字段不进入 Agent 工作区。
 function buildAgentOutlineInput(outlineData) {
@@ -62,14 +65,23 @@ function inheritCoverageOverrides(previous, generated) {
     return { version: 1, coverage_mode: 'legacy-structure-only', records: [] };
   }
   const generatedRecords = Array.isArray(generated?.records) ? generated.records : [];
-  const nextBySource = new Map(generatedRecords.map((record) => [record.source_id, { ...record }]));
+  const previousBySource = new Map((previous.records || []).map((record) => [record.source_id, record]));
+  const nextBySource = new Map(generatedRecords
+    .filter((record) => previousBySource.has(record.source_id) || !TENDER_SOURCE_KINDS.has(record.source_kind))
+    .map((record) => [record.source_id, { ...record }]));
   for (const previousRecord of previous.records || []) {
-    if (previousRecord.user_override === 'none') continue;
     const generatedRecord = nextBySource.get(previousRecord.source_id);
     if (!generatedRecord) {
-      nextBySource.set(previousRecord.source_id, { ...previousRecord });
+      const restoredRecord = { ...previousRecord };
+      delete restoredRecord.source_anchor;
+      delete restoredRecord.source_location_status;
+      nextBySource.set(previousRecord.source_id, restoredRecord);
       continue;
     }
+    generatedRecord.source_kind = previousRecord.source_kind;
+    generatedRecord.source_text = previousRecord.source_text;
+    delete generatedRecord.source_anchor;
+    delete generatedRecord.source_location_status;
     generatedRecord.user_override = previousRecord.user_override;
     if (previousRecord.user_override === 'removed') {
       generatedRecord.node_ids = [];
@@ -80,6 +92,22 @@ function inheritCoverageOverrides(previous, generated) {
     version: 1,
     coverage_mode: 'full',
     records: [...nextBySource.values()],
+  };
+}
+
+function toAgentCoverageMap(coverageMap) {
+  if (coverageMap?.coverage_mode !== 'full') {
+    return { version: 1, coverage_mode: 'legacy-structure-only', records: [] };
+  }
+  return {
+    version: 1,
+    coverage_mode: 'full',
+    records: (coverageMap.records || []).map((record) => {
+      const agentRecord = { ...record };
+      delete agentRecord.source_anchor;
+      delete agentRecord.source_location_status;
+      return agentRecord;
+    }),
   };
 }
 
@@ -147,6 +175,7 @@ async function runOutlineAdjustmentTask({ agentService, workspaceStore, updateTa
   const initialCoverageMap = coverageMode === 'full'
     ? previousCoverageMap
     : { version: 1, coverage_mode: 'legacy-structure-only', records: [] };
+  const agentCoverageMap = toAgentCoverageMap(initialCoverageMap);
   const workingOutline = buildAgentOutlineInput(storedPlan.outlineData);
   const baseline = buildAdjustmentBaseline(workingOutline);
   let adjustedOutline = null;
@@ -159,7 +188,7 @@ async function runOutlineAdjustmentTask({ agentService, workspaceStore, updateTa
     output_file: OUTLINE_OUTPUT_FILE,
     files: [
       { path: OUTLINE_OUTPUT_FILE, content: JSON.stringify(workingOutline, null, 2) },
-      { path: 'score-coverage-map.json', content: JSON.stringify(initialCoverageMap, null, 2) },
+      { path: 'score-coverage-map.json', content: JSON.stringify(agentCoverageMap, null, 2) },
     ],
     signal: taskControl.signal,
     persistent_task: {
@@ -200,6 +229,10 @@ async function runOutlineAdjustmentTask({ agentService, workspaceStore, updateTa
   if (!adjustedOutline || !adjustedCoverageMap) {
     throw new Error('目录调整最终校验未执行，已保留调整前目录');
   }
+  adjustedCoverageMap = attachScoreCoverageAnchors({
+    markdown: workspaceStore.readTenderMarkdown?.() || '',
+    scoreCoverageMap: adjustedCoverageMap,
+  });
   const persistedOutline = stripOutlineInternalFields(adjustedOutline);
   const summary = String(agentResult.assistant_text || '').trim() || '目录已按要求调整完成。';
 
