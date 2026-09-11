@@ -24,6 +24,7 @@ const {
   TEMPLATE_EXTRACTION_AGENT_TASK_KEY,
 } = require('./outlineGenerationAgentV2Config.cjs');
 const { GLOBAL_FACTS_AGENT_TASK_KEY } = require('./globalFactsAgentV2Config.cjs');
+const { normalizeOutlineHeadingTitles } = require('./mandatoryBidContentRules.cjs');
 
 const tenderMarkdownRelativePath = path.join('technical-plan', 'tender.md').replace(/\\/g, '/');
 const tenderOriginalMarkdownRelativePath = path.join('technical-plan', 'tender-original.md').replace(/\\/g, '/');
@@ -1383,13 +1384,14 @@ function createTechnicalPlanStore({ app, db, fileService, agentService, taskLogS
   }
 
   function saveOutlineData(outlineData) {
-    if (!outlineData?.outline?.length) {
+    const normalizedOutlineData = normalizeOutlineHeadingTitles(outlineData);
+    if (!normalizedOutlineData?.outline?.length) {
       db.prepare('DELETE FROM technical_plan_outline_nodes').run();
       updateMeta({ outline_project_name: null, outline_project_overview: null });
       return;
     }
 
-    const rows = flattenOutlineItems(outlineData.outline);
+    const rows = flattenOutlineItems(normalizedOutlineData.outline);
     const nextIds = new Set(rows.map((row) => row.node_id));
     const upsert = db.prepare(`
       INSERT INTO technical_plan_outline_nodes (
@@ -1424,8 +1426,8 @@ function createTechnicalPlanStore({ app, db, fileService, agentService, taskLogS
     }
 
     updateMeta({
-      outline_project_name: outlineData.project_name || null,
-      outline_project_overview: outlineData.project_overview || null,
+      outline_project_name: normalizedOutlineData.project_name || null,
+      outline_project_overview: normalizedOutlineData.project_overview || null,
     });
   }
 
@@ -2085,6 +2087,7 @@ function createTechnicalPlanStore({ app, db, fileService, agentService, taskLogS
       SET parent_node_id = @parent_node_id,
         sort_order = @sort_order,
         level = @level,
+        title = @title,
         updated_at = @updated_at
       WHERE node_id = @node_id
     `);
@@ -2413,7 +2416,7 @@ function createTechnicalPlanStore({ app, db, fileService, agentService, taskLogS
 
   function saveOutline(payload) {
     const request = payload?.outlineData ? payload : { outlineData: payload, reason: 'replace' };
-    const outlineData = request?.outlineData;
+    const outlineData = normalizeOutlineHeadingTitles(request?.outlineData);
     const reason = normalizeOutlineSaveReason(request?.reason);
     const idMap = normalizeStringMap(request?.idMap);
     const reverseMap = reverseIdMap(idMap);

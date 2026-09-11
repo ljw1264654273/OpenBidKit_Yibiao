@@ -1375,7 +1375,7 @@ test('original-only 真实目录任务不调用远程检索，也不注入远程
     readOriginalPlanMarkdown: () => '# 原方案目录',
     hasBidTemplate: () => false,
   };
-  const root = { id: '1', title: '原方案一级', description: '原方案一级的具体编写范围', attr: '技术', content_mode: 'ai-generate' };
+  const root = { id: '1', title: '原方案一级。', description: '原方案一级的具体编写范围', attr: '技术', content_mode: 'ai-generate' };
   const agentService = {
     runTask: async (input) => {
       runs.push(input);
@@ -1384,12 +1384,16 @@ test('original-only 真实目录任务不调用远程检索，也不注入远程
     },
     updatePersistentTask() {},
   };
-  const checkpointTask = (patch, data) => ({ task: {
-    task_id: 'task-outline-test',
-    stats: data || {},
-    logs: [],
-    ...patch,
-  } });
+  let savedOutlineData = null;
+  const checkpointTask = (patch, data) => {
+    if (data?.outlineData) savedOutlineData = data.outlineData;
+    return { task: {
+      task_id: 'task-outline-test',
+      stats: data || {},
+      logs: [],
+      ...patch,
+    } };
+  };
   await runOutlineGenerationTaskV2({
     aiService: {},
     agentService,
@@ -1412,6 +1416,7 @@ test('original-only 真实目录任务不调用远程检索，也不注入远程
   assert.deepEqual(runs[0].files, [{ path: '原方案.md', content: '# 原方案目录' }]);
   assert.equal(runs[0].files.some((file) => file.path === '远程知识参考.md'), false);
   assert.equal(runs[1].files.some((file) => file.path === '远程知识参考.md'), false);
+  assert.equal(savedOutlineData.outline[0].title, '原方案一级');
 });
 
 test('每小节字数为 0 时按 1500 字内部兜底估算目标叶子数', async () => {

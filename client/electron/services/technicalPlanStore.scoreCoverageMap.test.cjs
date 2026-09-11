@@ -58,7 +58,7 @@ async function runAssertions() {
     const app = createApp(userDataPath);
     database = createSqliteDatabase(app);
     const store = createStore(app, database.db);
-    const initialOutline = outline([leaf('1.1', '建设目标'), leaf('1.2', '建设目标实施要求')]);
+    const initialOutline = outline([leaf('1.1', '建设目标。'), leaf('1.2', '建设目标实施要求：')]);
     store.updateTechnicalPlan({
       outlineData: initialOutline,
       outlineGenerationTask: {
@@ -70,8 +70,11 @@ async function runAssertions() {
         },
       },
     });
+    let storedOutline = store.loadTechnicalPlan().outlineData;
+    assert.equal(storedOutline.outline[0].children[0].title, '建设目标');
+    assert.equal(storedOutline.outline[0].children[1].title, '建设目标实施要求');
 
-    const sortedOutline = outline([leaf('1.1', '建设目标实施要求'), leaf('1.2', '建设目标')]);
+    const sortedOutline = outline([leaf('1.1', '建设目标实施要求；'), leaf('1.2', '建设目标，')]);
     const sortedSaved = store.saveOutline({
       outlineData: sortedOutline,
       reason: 'sort',
@@ -79,6 +82,8 @@ async function runAssertions() {
     });
     let map = sortedSaved.outlineGenerationTask.stats.score_coverage_map;
     assert.deepEqual(map.records[0].node_ids, ['1.2', '1.1']);
+    assert.equal(sortedSaved.outlineData.outline[0].children[0].title, '建设目标实施要求');
+    assert.equal(sortedSaved.outlineData.outline[0].children[1].title, '建设目标');
 
     const editedOutline = outline([leaf('1.1', '用户修改的建设要求'), leaf('1.2', '建设目标')]);
     const editedSaved = store.saveOutline({ outlineData: editedOutline, reason: 'edit', affectedNodeIds: ['1.1'] });
