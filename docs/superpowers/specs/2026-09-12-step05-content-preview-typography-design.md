@@ -35,6 +35,7 @@
 - 无序列表和列表项显式继承正文的字体、字号和行高。
 - 有序列表及其嵌套层级继续使用现有 `--ef-body-outline-N-*` 字体和字号。
 - 有序列表项显式继承对应列表层级的字体和字号，避免子节点回退到浏览器默认值。
+- 所有正文段落和列表层级沿用统一的 `--ef-body-line-height`；当前导出格式没有分层行高配置，本次不新增配置字段。
 - 不改变现有对齐、缩进、间距、编号样式和 Markdown 语义。
 
 ### 2. 加粗文本规则
@@ -44,7 +45,8 @@
 - 普通段落中的 `strong/b` 使用 `--ef-body-font`、`--ef-body-size`，固定 `font-weight: 600`。
 - 无序列表中的 `strong/b` 使用 `--ef-body-font`、`--ef-body-size`，固定 `font-weight: 600`。
 - 有序列表各层级中的 `strong/b` 使用该层级已有的 `--ef-body-outline-N-font`、`--ef-body-outline-N-size`，固定 `font-weight: 600`。
-- 不对 `h1-h6`、`table/th/td`、`.markdown-figure-caption` 及图片说明中的 `strong/b` 应用第五步正文强调规则；这些节点继续使用各自已有的标题、表格和图片说明规则。
+- 不对 `h1-h6`、`table/th/td`、`.markdown-figure-caption` 及图片说明中的 `strong/b` 应用第五步正文强调规则；这些节点继续使用各自已有的标题、表格和图片说明规则。实现时使用 `p:not(.markdown-figure-caption)`，并将正文规则限定在段落/列表项直接内容范围内。
+- 嵌套有序列表的 `strong/b` 按其所在列表层级覆盖字体和字号；不使用外层列表规则覆盖内层列表。
 - 不使用浏览器相对值 `bolder`，不改变 Markdown 中 `**`/`__` 的语义。
 - 不把所有正文改为粗体，也不删除 Markdown 中的 `**` 标记。
 
@@ -72,17 +74,16 @@
 
 ```powershell
 cd client
-npm exec -- tsx --test src/features/technical-plan/services/workflowLayout.test.ts
 npm run build
 ```
 
-`tsx` 已由客户端锁文件提供，使用 `npm exec -- tsx --test` 执行 TypeScript `node:test` 文件；若安装环境缺失该锁定工具，应先按仓库约定执行 `npm ci`，不得把未执行的测试描述为已通过。
+本仓库未在 `client/package.json` 中声明稳定的 TypeScript 测试 runner，因此不把临时下载的 `tsx` 作为正式验证命令。回归测试通过仓库现有源码断言和 `npm run build` 中的 TypeScript 检查覆盖；若本地另有已安装 runner，可额外执行但不替代构建验证。
 
 ### 视觉验证
 
 启动客户端开发环境，在第五步正文预览中检查以下内容：
 
-1. 普通段落与无序列表遵循统一的正文字体、字号和行高；有序列表的每一层正文与该层级配置的字体、字号和行高一致，列表中的加粗引导语只增加固定的 `600` 字重。
+1. 普通段落与无序列表遵循统一的正文字体、字号和全局行高；有序列表的每一层正文与该层级配置的字体、字号一致，并沿用同一全局行高，列表中的加粗引导语只增加固定的 `600` 字重。
 2. `**引导语：**` 仍然可辨识，但不会比截图中的现状明显厚重。
 3. 一级到至少四级有序列表的正文和编号均使用对应层级样式。
 4. 查看模式、编辑后预览和全屏预览保持一致。
