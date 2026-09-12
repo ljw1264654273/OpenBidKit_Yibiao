@@ -42,8 +42,8 @@
 在 `.technical-plan-content-preview` 作用域内为正文段落和列表中的 `strong/b` 添加显式规则：
 
 - 普通段落中的 `strong/b` 使用 `--ef-body-font`、`--ef-body-size`，固定 `font-weight: 600`。
-- 有序列表各层级中的 `strong/b` 使用该层级已有的 `--ef-body-outline-N-font`、`--ef-body-outline-N-size`，固定 `font-weight: 600`。
 - 无序列表中的 `strong/b` 使用 `--ef-body-font`、`--ef-body-size`，固定 `font-weight: 600`。
+- 有序列表各层级中的 `strong/b` 使用该层级已有的 `--ef-body-outline-N-font`、`--ef-body-outline-N-size`，固定 `font-weight: 600`。
 - 不对 `h1-h6`、`table/th/td`、`.markdown-figure-caption` 及图片说明中的 `strong/b` 应用第五步正文强调规则；这些节点继续使用各自已有的标题、表格和图片说明规则。
 - 不使用浏览器相对值 `bolder`，不改变 Markdown 中 `**`/`__` 的语义。
 - 不把所有正文改为粗体，也不删除 Markdown 中的 `**` 标记。
@@ -54,7 +54,7 @@
 
 第五步预览在 `ContentEditPage.tsx` 的普通查看、编辑后预览和全屏预览节点上统一增加独立 class `technical-plan-content-preview`。新增规则放在 `client/src/styles/feature-technical-plan.css`，并以该 class 为根作用域，避免影响 `feasibility-report/pages/ContentPage.tsx` 同样使用的 `export-format-preview`。
 
-只补充第五步需要的 typography 规则，不复制完整 Markdown 排版规则。现有共享的编号、间距、图片和表格规则继续生效；新增第五步选择器在 CSS 总入口中位于共享 Markdown 样式之后，因此可以对第五步进行精确覆盖。
+只补充第五步需要的 typography 规则，不复制完整 Markdown 排版规则。现有共享的编号、间距、图片和表格规则继续生效；新增第五步选择器在 CSS 总入口中位于共享 Markdown 样式之后，因此可以对第五步进行精确覆盖。普通段落和无序列表遵循 `--ef-body-*`；有序列表各层级内部与对应的 `--ef-body-outline-N-*` 保持一致，这是“字体一致”在存在用户自定义层级字体/字号时的明确含义。
 
 ## 验证
 
@@ -65,24 +65,24 @@
 - 普通查看、编辑后预览和全屏预览都使用独立的第五步预览 class。
 - 第五步样式显式声明正文、无序列表和有序列表的 typography。
 - `strong/b` 只在第五步正文段落和列表作用域内使用固定 `font-weight: 600`，并使用对应正文层级字体/字号。
-- 标题、表格和图片说明不被第五步正文强调选择器覆盖。
+- 选择器使用 `p:not(.markdown-figure-caption)` 等边界，确保标题、表格和图片说明不被第五步正文强调规则覆盖。
 - 可行性报告仍使用原有通用预览 class，不被第五步独立 class 误匹配。
 
 按仓库约定执行：
 
 ```powershell
 cd client
-npm exec tsx --test src/features/technical-plan/services/workflowLayout.test.ts
+npm exec -- tsx --test src/features/technical-plan/services/workflowLayout.test.ts
 npm run build
 ```
 
-如果本地没有可用的 `tsx` 执行器，则使用仓库现有 TypeScript 测试运行方式，或说明该测试只能通过构建和源码检查验证；不得把未执行的测试描述为已通过。
+`tsx` 已由客户端锁文件提供，使用 `npm exec -- tsx --test` 执行 TypeScript `node:test` 文件；若安装环境缺失该锁定工具，应先按仓库约定执行 `npm ci`，不得把未执行的测试描述为已通过。
 
 ### 视觉验证
 
 启动客户端开发环境，在第五步正文预览中检查以下内容：
 
-1. 普通段落与列表正文的字体、字号和笔画粗细一致。
+1. 普通段落与无序列表遵循统一的正文字体、字号和行高；有序列表的每一层正文与该层级配置的字体、字号和行高一致，列表中的加粗引导语只增加固定的 `600` 字重。
 2. `**引导语：**` 仍然可辨识，但不会比截图中的现状明显厚重。
 3. 一级到至少四级有序列表的正文和编号均使用对应层级样式。
 4. 查看模式、编辑后预览和全屏预览保持一致。
