@@ -29,7 +29,7 @@
 
 ### 1. 预览 typography 统一规则
 
-在 `.markdown-viewer.export-format-preview` 作用域内：
+在第五步预览专用的 `.technical-plan-content-preview` 作用域内：
 
 - 普通段落显式使用 `--ef-body-font`、`--ef-body-size`、`--ef-body-line-height`。
 - 无序列表和列表项显式继承正文的字体、字号和行高。
@@ -39,20 +39,22 @@
 
 ### 2. 加粗文本规则
 
-在同一预览作用域内为 `strong` 和 `b` 添加显式规则：
+在 `.technical-plan-content-preview` 作用域内为正文段落和列表中的 `strong/b` 添加显式规则：
 
-- 使用所在正文容器的 `font-family` 和 `font-size`，不单独切换字体或字号。
-- 使用固定的中等强调字重，不使用浏览器相对值 `bolder`。
-- 允许标题和图片说明继续使用其自身规则；正文预览中的图片说明已经有独立的 `font-weight: inherit` 规则，不覆盖该行为。
+- 普通段落中的 `strong/b` 使用 `--ef-body-font`、`--ef-body-size`，固定 `font-weight: 600`。
+- 有序列表各层级中的 `strong/b` 使用该层级已有的 `--ef-body-outline-N-font`、`--ef-body-outline-N-size`，固定 `font-weight: 600`。
+- 无序列表中的 `strong/b` 使用 `--ef-body-font`、`--ef-body-size`，固定 `font-weight: 600`。
+- 不对 `h1-h6`、`table/th/td`、`.markdown-figure-caption` 及图片说明中的 `strong/b` 应用第五步正文强调规则；这些节点继续使用各自已有的标题、表格和图片说明规则。
+- 不使用浏览器相对值 `bolder`，不改变 Markdown 中 `**`/`__` 的语义。
 - 不把所有正文改为粗体，也不删除 Markdown 中的 `**` 标记。
 
-推荐使用 `font-weight: 600` 作为强调字重，若当前平台或字体没有对应字重，浏览器会选择最近可用字重，视觉上会比默认 `700/bolder` 更稳定。
+`font-weight: 600` 是本次规范的固定值；若当前平台或字体没有对应字重，浏览器选择最近可用字重属于平台渲染差异，但不能回退到 `bolder` 或 `700` 的 CSS 规则。
 
 ### 3. 作用域
 
-优先修改 `client/src/styles/shared-markdown.css` 中已有的 `export-format-preview` 规则，因为第五步预览与导出格式预览共享这套纸面样式。所有新增选择器必须挂在 `.markdown-viewer.export-format-preview` 下，避免影响非导出格式的 Markdown 阅读器。
+第五步预览在 `ContentEditPage.tsx` 的普通查看、编辑后预览和全屏预览节点上统一增加独立 class `technical-plan-content-preview`。新增规则放在 `client/src/styles/feature-technical-plan.css`，并以该 class 为根作用域，避免影响 `feasibility-report/pages/ContentPage.tsx` 同样使用的 `export-format-preview`。
 
-若浏览器验证发现共享预览页面需要不同的交互样式，只允许在 `client/src/styles/feature-technical-plan.css` 的 `.content-generation-output` 作用域内补充，不复制一整套 Markdown 排版规则。
+只补充第五步需要的 typography 规则，不复制完整 Markdown 排版规则。现有共享的编号、间距、图片和表格规则继续生效；新增第五步选择器在 CSS 总入口中位于共享 Markdown 样式之后，因此可以对第五步进行精确覆盖。
 
 ## 验证
 
@@ -60,17 +62,21 @@
 
 在现有 `client/src/features/technical-plan/services/workflowLayout.test.ts` 中增加源码级回归断言，确保：
 
-- 第五步预览仍使用 `export-format-preview`。
-- 预览样式显式声明正文和列表 typography。
-- `strong/b` 在正文预览作用域内使用固定字重并继承正文字体/字号。
-- 图片说明的独立字重规则仍然存在。
+- 普通查看、编辑后预览和全屏预览都使用独立的第五步预览 class。
+- 第五步样式显式声明正文、无序列表和有序列表的 typography。
+- `strong/b` 只在第五步正文段落和列表作用域内使用固定 `font-weight: 600`，并使用对应正文层级字体/字号。
+- 标题、表格和图片说明不被第五步正文强调选择器覆盖。
+- 可行性报告仍使用原有通用预览 class，不被第五步独立 class 误匹配。
 
 按仓库约定执行：
 
 ```powershell
 cd client
+npm exec tsx --test src/features/technical-plan/services/workflowLayout.test.ts
 npm run build
 ```
+
+如果本地没有可用的 `tsx` 执行器，则使用仓库现有 TypeScript 测试运行方式，或说明该测试只能通过构建和源码检查验证；不得把未执行的测试描述为已通过。
 
 ### 视觉验证
 
@@ -80,7 +86,7 @@ npm run build
 2. `**引导语：**` 仍然可辨识，但不会比截图中的现状明显厚重。
 3. 一级到至少四级有序列表的正文和编号均使用对应层级样式。
 4. 查看模式、编辑后预览和全屏预览保持一致。
-5. 普通段落、表格、图片说明和非第五步 Markdown 页面没有明显回归。
+5. 普通段落、表格、图片说明和可行性报告等非第五步 Markdown 页面没有明显回归。
 
 ## 不在本次范围
 
