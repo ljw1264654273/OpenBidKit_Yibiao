@@ -20,7 +20,7 @@ const initialState: TechnicalPlanState = {
   bidSections: [],
   bidSectionExtractionStatus: 'idle',
   bidSectionExtractionError: undefined,
-  outlineMode: 'aligned',
+  outlineMode: 'standalone-technical',
   outlineExpansionMode: 'ai-complement',
   outlineWordControlOptions: { ...DEFAULT_OUTLINE_WORD_CONTROL_OPTIONS },
   outlineWordControlSnapshot: undefined,

@@ -19,6 +19,7 @@ import type { SectionId } from '../../../shared/types/navigation';
 import { showRemoteKnowledgeDecision } from '../../../shared/navigation/appNavigation';
 import { buildExportFormatCssVars } from '../../../shared/utils/exportFormatCss';
 import { countReadableWords } from '../../../shared/utils/wordCount';
+import { getQuickConfigMissingItems, isQuickConfigComplete, resolvePageLadderKey } from '../services/quickConfig';
 
 interface TechnicalPlanHomeProps {
   workflowKind: TechnicalPlanWorkflowKind;
@@ -94,7 +95,7 @@ const resetState = {
   bidSections: [],
   bidSectionExtractionStatus: 'idle' as const,
   bidSectionExtractionError: undefined,
-  outlineMode: 'aligned' as const,
+  outlineMode: 'standalone-technical' as const,
   outlineExpansionMode: 'ai-complement' as const,
   outlineWordControlOptions: { ...DEFAULT_OUTLINE_WORD_CONTROL_OPTIONS },
   outlineWordControlSnapshot: undefined,
@@ -346,6 +347,18 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
   const bidSectionReady = state.bidSectionMode !== 'multiple'
     || (state.bidSectionExtractionStatus === 'success' && !isBidSectionExtractionRunning && selectedBidSectionValid);
   const bidAnalysisReady = requiredBidAnalysisReady && !isBidAnalysisTaskRunning && bidSectionReady;
+  const quickConfigMissingItems = getQuickConfigMissingItems({
+    pageLadder: resolvePageLadderKey(state.outlineWordControlOptions),
+    bidSectionMode: state.bidSectionMode,
+    selectedBidSectionValid,
+    contentGenerationOptions: state.contentGenerationOptions,
+  });
+  const quickConfigComplete = isQuickConfigComplete({
+    pageLadder: resolvePageLadderKey(state.outlineWordControlOptions),
+    bidSectionMode: state.bidSectionMode,
+    selectedBidSectionValid,
+    contentGenerationOptions: state.contentGenerationOptions,
+  });
   const firstMissingBidAnalysisTask = bidAnalysisTasks.find((task) => (
     state.bidAnalysisSelectedTaskIds.includes(task.id)
     && isMissingBidAnalysisResult(task, state.bidAnalysisTasks[task.id]?.content)
@@ -367,39 +380,58 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
   const exportTemplatePreviewStyle = useMemo(() => buildExportFormatCssVars(selectedExportTemplate?.config || exportFormat), [exportFormat, selectedExportTemplate]);
   const requiresOriginalPlan = workflowKind === 'existing-plan-expansion';
   const isNextDisabled = activeIndex >= steps.length - 1
-    || (state.step === 'document-analysis' && (!state.tenderFile || (requiresOriginalPlan && !state.originalPlanFile)))
+    || (state.step === 'document-analysis' && (!state.tenderFile || (requiresOriginalPlan && !state.originalPlanFile) || !quickConfigComplete))
     || (state.step === 'bid-analysis' && !bidAnalysisReady)
     || (state.step === 'outline-generation' && (!state.outlineData || !state.outlineWordControlSnapshot))
     || (state.step === 'global-facts' && (!globalFactsReady || isGlobalFactsAdjusting));
-  const nextTooltip = state.step === 'document-analysis' && !state.tenderFile
-      ? '上传完招标文件后才能进入下一步'
-      : state.step === 'document-analysis' && requiresOriginalPlan && !state.originalPlanFile
-        ? '上传完原方案后才能进入下一步'
-        : state.step === 'bid-analysis' && isBidSectionExtractionRunning
-          ? '多标段识别任务仍在运行，请等待当前任务结束'
-          : state.step === 'bid-analysis' && state.bidSectionMode === 'multiple' && state.bidSectionExtractionStatus === 'error'
-            ? '请重新识别标段或切回单标段'
-            : state.step === 'bid-analysis' && state.bidSectionMode === 'multiple' && !selectedBidSectionValid
-              ? '请先选择本次投标范围'
-              : state.step === 'bid-analysis' && isBidAnalysisTaskRunning
-                ? '招标文件解析任务仍在运行，请等待当前任务结束'
-                : state.step === 'bid-analysis' && firstMissingBidAnalysisTask
-                  ? `${firstMissingBidAnalysisTask.label}未提取到有效内容，点击后定位到该项`
-                : state.step === 'bid-analysis' && !requiredBidAnalysisReady
-                  ? '招标文件解析完成后才能进入目录生成'
-                  : state.step === 'outline-generation' && !state.outlineData
-                    ? '目录生成完成后才能进入全局事实设定'
-                    : state.step === 'outline-generation' && !state.outlineWordControlSnapshot
-                      ? '当前目录缺少字数控制生效配置，请重新生成目录'
-                    : state.step === 'global-facts' && isGlobalFactsAdjusting
-                      ? '全局事实正在 AI 调整，请等待结束后再进入正文生成'
-                    : state.step === 'global-facts' && !globalFactsReady
-                      ? '全局事实设定完成后才能进入正文生成'
-                      : state.step === 'global-facts' && globalFactsHasPlaceholder
-                        ? '请先将【待填写】替换为实际内容后再进入正文生成'
-                        : activeIndex >= steps.length - 1
-                          ? '当前已经是最后一步'
-                          : `进入${stepLabels[steps[activeIndex + 1]]}`;
+  const nextTooltip = (() => {
+    if (state.step === 'document-analysis' && !state.tenderFile) {
+      return '上传完招标文件后才能进入下一步';
+    }
+    if (state.step === 'document-analysis' && requiresOriginalPlan && !state.originalPlanFile) {
+      return '上传完原方案后才能进入下一步';
+    }
+    if (state.step === 'document-analysis' && !quickConfigComplete) {
+      return `请先完成快速配置：${quickConfigMissingItems.join('、')}`;
+    }
+    if (state.step === 'bid-analysis' && isBidSectionExtractionRunning) {
+      return '多标段识别任务仍在运行，请等待当前任务结束';
+    }
+    if (state.step === 'bid-analysis' && state.bidSectionMode === 'multiple' && state.bidSectionExtractionStatus === 'error') {
+      return '请重新识别标段或切回单标段';
+    }
+    if (state.step === 'bid-analysis' && state.bidSectionMode === 'multiple' && !selectedBidSectionValid) {
+      return '请先选择本次投标范围';
+    }
+    if (state.step === 'bid-analysis' && isBidAnalysisTaskRunning) {
+      return '招标文件解析任务仍在运行，请等待当前任务结束';
+    }
+    if (state.step === 'bid-analysis' && firstMissingBidAnalysisTask) {
+      return `${firstMissingBidAnalysisTask.label}未提取到有效内容，点击后定位到该项`;
+    }
+    if (state.step === 'bid-analysis' && !requiredBidAnalysisReady) {
+      return '招标文件解析完成后才能进入目录生成';
+    }
+    if (state.step === 'outline-generation' && !state.outlineData) {
+      return '目录生成完成后才能进入全局事实设定';
+    }
+    if (state.step === 'outline-generation' && !state.outlineWordControlSnapshot) {
+      return '当前目录缺少字数控制生效配置，请重新生成目录';
+    }
+    if (state.step === 'global-facts' && isGlobalFactsAdjusting) {
+      return '全局事实正在 AI 调整，请等待结束后再进入正文生成';
+    }
+    if (state.step === 'global-facts' && !globalFactsReady) {
+      return '全局事实设定完成后才能进入正文生成';
+    }
+    if (state.step === 'global-facts' && globalFactsHasPlaceholder) {
+      return '请先将【待填写】替换为实际内容后再进入正文生成';
+    }
+    if (activeIndex >= steps.length - 1) {
+      return '当前已经是最后一步';
+    }
+    return `进入${stepLabels[steps[activeIndex + 1]]}`;
+  })();
 
   const resolveSortLeave = (allowed: boolean) => {
     sortLeaveResolverRef.current?.(allowed);
@@ -1342,6 +1374,7 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
           bidSectionExtractionError={state.bidSectionExtractionError}
           outlineWordControlOptions={state.outlineWordControlOptions}
           contentGenerationOptions={state.contentGenerationOptions}
+          contentTaskStatus={state.contentGenerationTask?.status}
           onFileImported={(nextState, markdown) => {
             tenderMarkdownRequestRef.current += 1;
             tenderMarkdownVersionRef.current = nextState.tenderFile ? nextState.tenderFile.contentHash || nextState.tenderFile.updatedAt : null;
@@ -1378,11 +1411,9 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
           mode={state.bidAnalysisMode}
           selectedTaskIds={state.bidAnalysisSelectedTaskIds}
           bidSectionMode={state.bidSectionMode}
-          bidSections={state.bidSections}
           bidSectionExtractionTask={state.bidSectionExtractionTask}
-          bidSectionExtractionStatus={state.bidSectionExtractionStatus}
-          bidSectionExtractionError={state.bidSectionExtractionError}
           selectedSectionTitle={state.tenderFile?.selectedSectionTitle}
+          contentTaskStatus={state.contentGenerationTask?.status}
           tasks={state.bidAnalysisTasks}
           task={state.bidAnalysisTask}
           progress={state.bidAnalysisProgress}

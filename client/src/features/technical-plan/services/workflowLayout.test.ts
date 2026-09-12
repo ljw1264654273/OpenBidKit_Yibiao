@@ -86,6 +86,124 @@ test('选择标书使用局部紧凑上传样式并保留正文阅读器', () =>
   assert.match(source, /<MarkdownFullscreenViewer/);
 });
 
+test('STEP 01 以解析为主并把快速配置折叠成可展开摘要', () => {
+  const source = readFileSync(new URL('../pages/DocumentAnalysisPage.tsx', import.meta.url), 'utf8');
+  const quickConfig = readFileSync(new URL('./quickConfig.ts', import.meta.url), 'utf8');
+
+  assert.doesNotMatch(source, /quick-config-grid/);
+  assert.match(source, /quick-config-collapsible/);
+  assert.match(source, /aria-expanded=\{quickConfigExpanded\}/);
+  assert.match(source, /localStorage\.getItem\(QUICK_CONFIG_STORAGE_KEY\)[\s\S]*storedValue !== 'false'/);
+  assert.match(source, /localStorage/);
+  assert.match(quickConfig, /约50-100页/);
+  assert.match(quickConfig, /约1200-1500页/);
+  assert.doesNotMatch(source, /默认（不控制）/);
+  assert.match(source, /isQuickConfigLocked/);
+  assert.match(source, /checkBidSections/);
+  assert.match(source, /sectionDetectionRequestRef/);
+});
+
+test('STEP 01 快速配置和招标文件内容默认展开', () => {
+  const source = readFileSync(new URL('../pages/DocumentAnalysisPage.tsx', import.meta.url), 'utf8');
+
+  assert.match(source, /useState\(\(\) => \{[\s\S]*QUICK_CONFIG_STORAGE_KEY[\s\S]*storedValue !== 'false'/);
+  assert.match(source, /const \[documentContentExpanded, setDocumentContentExpanded\] = useState\(true\)/);
+  assert.match(source, /aria-expanded=\{documentContentExpanded\}/);
+  assert.match(source, /if \(nextExpanded\) updateQuickConfigExpanded\(false\)/);
+  assert.match(source, /\{documentContentExpanded && \(/);
+});
+
+test('STEP 01 已确认投标范围不再显示重复提示条，展开文件内容会收起快速配置', () => {
+  const source = readFileSync(new URL('../pages/DocumentAnalysisPage.tsx', import.meta.url), 'utf8');
+
+  assert.match(source, /\{bidSectionDetection\?\.hasMultiple && !selectedSectionTitle && \(/);
+  assert.doesNotMatch(source, /<strong>\{selectedSectionTitle \? '投标范围已确认'/);
+  assert.match(source, /const toggleDocumentContent = \(\) => \{[\s\S]*setDocumentContentExpanded\(nextExpanded\)[\s\S]*if \(nextExpanded\) updateQuickConfigExpanded\(false\)/);
+});
+
+test('STEP 01 下一步受快速配置完成状态控制', () => {
+  const home = readFileSync(new URL('../pages/TechnicalPlanHome.tsx', import.meta.url), 'utf8');
+
+  assert.match(home, /isQuickConfigComplete/);
+  assert.match(home, /state\.step === 'document-analysis' && !quickConfigComplete/);
+  assert.match(home, /quickConfigMissingItems/);
+});
+
+test('STEP 01 上传招标文件成功后重新展开快速配置', () => {
+  const source = readFileSync(new URL('../pages/DocumentAnalysisPage.tsx', import.meta.url), 'utf8');
+  const importFlow = source.slice(
+    source.indexOf('const importTenderDocument'),
+    source.indexOf('const removeTenderDocument'),
+  );
+
+  assert.match(importFlow, /onFileImported\(state, result\.markdown\);[\s\S]*updateQuickConfigExpanded\(true\)/);
+  assert.match(importFlow, /updateQuickConfigExpanded\(true\);[\s\S]*setDocumentContentExpanded\(true\)/);
+});
+
+test('STEP 01 导入疑似多标段文件后自动启动已有 AI 标段识别任务', () => {
+  const source = readFileSync(new URL('../pages/DocumentAnalysisPage.tsx', import.meta.url), 'utf8');
+
+  assert.match(
+    source,
+    /setBidSectionDetection\(result\.bidSectionDetection \|\| null\)[\s\S]*result\.bidSectionDetection\?\.hasMultiple[\s\S]*startBidSectionExtraction\(\)/,
+  );
+});
+
+test('STEP 01 加载已有招标文件时也会自动启动多标段 AI 识别', () => {
+  const source = readFileSync(new URL('../pages/DocumentAnalysisPage.tsx', import.meta.url), 'utf8');
+  const detectionEffect = source.slice(
+    source.indexOf('window.yibiao?.technicalPlan.checkBidSections()'),
+    source.indexOf('const resolveDroppedFilePaths'),
+  );
+
+  assert.match(
+    detectionEffect,
+    /checkBidSections\(\)\.then\(\(detection\) => \{[\s\S]*detection\?\.hasMultiple[\s\S]*startBidSectionExtraction\(\)/,
+  );
+});
+
+test('STEP 02 使用第一步确定的投标范围，正文任务锁定解析入口', () => {
+  const source = readFileSync(new URL('../pages/BidAnalysisPage.tsx', import.meta.url), 'utf8');
+  const home = readFileSync(new URL('../pages/TechnicalPlanHome.tsx', import.meta.url), 'utf8');
+
+  assert.match(source, /contentTaskStatus/);
+  assert.match(source, /bidSectionMode === 'multiple'[\s\S]*selectedSectionTitle/);
+  assert.match(source, /isQuickConfigLocked\(contentTaskStatus\)/);
+  assert.doesNotMatch(source, /更换标段/);
+  assert.match(home, /<DocumentAnalysisPage[\s\S]*contentTaskStatus=\{state\.contentGenerationTask\?\.status\}/);
+  assert.match(home, /<BidAnalysisPage[\s\S]*contentTaskStatus=\{state\.contentGenerationTask\?\.status\}/);
+});
+
+test('STEP 02 开始解析直接执行且不再修改多标段', () => {
+  const source = readFileSync(new URL('../pages/BidAnalysisPage.tsx', import.meta.url), 'utf8');
+  const commandActions = source.slice(
+    source.indexOf('<div className="bid-analysis-command-actions">'),
+    source.indexOf('</section>', source.indexOf('<div className="bid-analysis-command-actions">')),
+  );
+
+  assert.match(commandActions, /onClick=\{\(\) => \{ void startAnalysis\(undefined, effectiveSelectedTaskIds\); \}\}/);
+  assert.match(commandActions, /onClick=\{openSettingsDialog\}/);
+  assert.doesNotMatch(source, /<strong>投标范围<\/strong>/);
+  assert.doesNotMatch(source, /更换标段/);
+  assert.doesNotMatch(source, /openSectionSelectorFromConfig|startSectionExtractionOnly|sectionModeWarning/);
+  assert.doesNotMatch(source, /<BidSectionSelectorDialog/);
+});
+
+test('STEP 03 技术文件结构默认独立成册', () => {
+  const page = readFileSync(new URL('../pages/OutlineEditPage.tsx', import.meta.url), 'utf8');
+  const home = readFileSync(new URL('../pages/TechnicalPlanHome.tsx', import.meta.url), 'utf8');
+  const workflow = readFileSync(new URL('../hooks/useTechnicalPlanWorkflow.ts', import.meta.url), 'utf8');
+  const store = readFileSync(new URL('../../../../electron/services/technicalPlanStore.cjs', import.meta.url), 'utf8');
+
+  assert.match(page, /outlineMode === 'standalone-technical' \? 'standalone-technical' : 'response-file'/);
+  assert.match(home, /outlineMode: 'standalone-technical' as const/);
+  assert.match(workflow, /outlineMode: 'standalone-technical'/);
+  assert.match(store, /outlineMode: 'standalone-technical'/);
+  assert.match(store, /VALUES \(1, 'technical-plan', 'document-analysis', 'key', 'standalone-technical'/);
+  assert.match(store, /function defaultOutlineModeForWorkflow[\s\S]*existing-plan-expansion[\s\S]*aligned[\s\S]*standalone-technical/);
+  assert.match(store, /outline_mode: defaultOutlineModeForWorkflow\(ensureMetaRow\(\)\.workflow_kind\)/);
+});
+
 test('扩写步骤只优化真实占位状态而不伪造业务控件', () => {
   const source = readFileSync(new URL('../pages/TechnicalPlanHome.tsx', import.meta.url), 'utf8');
   const placeholder = source.split("state.step === 'expand'")[1]?.split('<AppDialog')[0] || '';

@@ -4,20 +4,18 @@ import { trackConfigUsage } from '../../../shared/analytics/analytics';
 import { bidAnalysisTasks, getBidAnalysisTasks, isMissingBidAnalysisResult } from '../services/bidAnalysisWorkflow';
 import { MarkdownFullscreenViewer, MarkdownRenderer, useToast } from '../../../shared/ui';
 import AdaptiveTwoPaneWorkspace, { type WorkspacePane } from '../components/AdaptiveTwoPaneWorkspace';
-import BidSectionSelectorDialog from '../components/BidSectionSelectorDialog';
 import CompactTaskProgress from '../components/CompactTaskProgress';
-import type { BackgroundTaskState, BidAnalysisMode, BidAnalysisTasks, BidAnalysisTaskState, BidSectionExtractionStatus, BidSectionMode, DetectedBidSection, TechnicalPlanState } from '../types';
+import type { BackgroundTaskState, BackgroundTaskStatus, BidAnalysisMode, BidAnalysisTasks, BidAnalysisTaskState, BidSectionMode, TechnicalPlanState } from '../types';
+import { isQuickConfigLocked } from '../services/quickConfig';
 
 interface BidAnalysisPageProps {
   hasTenderFile: boolean;
   mode: BidAnalysisMode;
   selectedTaskIds: string[];
   bidSectionMode: BidSectionMode;
-  bidSections: DetectedBidSection[];
   bidSectionExtractionTask?: BackgroundTaskState;
-  bidSectionExtractionStatus: BidSectionExtractionStatus;
-  bidSectionExtractionError?: string;
   selectedSectionTitle?: string;
+  contentTaskStatus?: BackgroundTaskStatus;
   tasks: BidAnalysisTasks;
   task?: BackgroundTaskState;
   progress: number;
@@ -204,11 +202,9 @@ function BidAnalysisPage({
   mode,
   selectedTaskIds,
   bidSectionMode,
-  bidSections,
   bidSectionExtractionTask,
-  bidSectionExtractionStatus,
-  bidSectionExtractionError,
   selectedSectionTitle,
+  contentTaskStatus,
   tasks,
   task,
   progress,
@@ -222,17 +218,9 @@ function BidAnalysisPage({
   const [selectedTaskId, setSelectedTaskId] = useState('projectOverview');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [draftSelectedTaskIds, setDraftSelectedTaskIds] = useState<string[]>(() => getSelectedTaskIdsForMode(mode, selectedTaskIds));
-  const [draftBidSectionMode, setDraftBidSectionMode] = useState<BidSectionMode>(bidSectionMode);
-  const [sectionSelectorOpen, setSectionSelectorOpen] = useState(false);
-  const [selectingSection, setSelectingSection] = useState(false);
-  const [pendingAnalysisAfterSection, setPendingAnalysisAfterSection] = useState<{ taskIds?: string[]; nextTaskIds: string[] } | null>(null);
-  const [sectionModeWarning, setSectionModeWarning] = useState<{
-    type: 'single-suspected-multiple' | 'multiple-not-detected';
-    taskIds?: string[];
-    nextTaskIds: string[];
-  } | null>(null);
   const [workspacePane, setWorkspacePane] = useState<WorkspacePane>('navigation');
   const { showToast } = useToast();
+  const contentTaskLocked = isQuickConfigLocked(contentTaskStatus);
   const effectiveSelectedTaskIds = useMemo(() => getSelectedTaskIdsForMode(mode, selectedTaskIds), [mode, selectedTaskIds]);
   const selectedTasks = useMemo(() => {
     const selectedIdSet = new Set(effectiveSelectedTaskIds);
@@ -308,45 +296,26 @@ function BidAnalysisPage({
   }, [fullRerunLocked, fullRerunSeenRunning, task?.status]);
 
   useEffect(() => {
-    setDraftBidSectionMode(bidSectionMode);
-  }, [bidSectionMode]);
-
-  useEffect(() => {
-    if (bidSectionMode === 'multiple' && bidSectionExtractionStatus === 'success' && bidSections.length >= 2 && !selectedSectionTitle && !sectionTaskRunning) {
-      setSectionSelectorOpen(true);
-    }
-  }, [bidSectionMode, bidSectionExtractionStatus, bidSections.length, selectedSectionTitle, sectionTaskRunning]);
-
-  useEffect(() => {
-    if (pendingAnalysisAfterSection && bidSectionExtractionStatus === 'error') {
-      setPendingAnalysisAfterSection(null);
-      showToast(bidSectionExtractionError || '多标段识别失败，请重新识别或改用单标段解析', 'error');
-    }
-  }, [bidSectionExtractionError, bidSectionExtractionStatus, pendingAnalysisAfterSection, showToast]);
-
-  useEffect(() => {
     if (!settingsOpen) {
       return;
     }
 
     setDraftSelectedTaskIds(effectiveSelectedTaskIds);
-    setDraftBidSectionMode(bidSectionMode);
-  }, [bidSectionMode, effectiveSelectedTaskIds, settingsOpen]);
+  }, [effectiveSelectedTaskIds, settingsOpen]);
 
   const openSettingsDialog = () => {
-    if (taskRunning) {
+    if (taskRunning || contentTaskLocked) {
       showToast('招标文件解析任务正在运行，请等待任务结束后再调整配置', 'info');
       return;
     }
     setDraftSelectedTaskIds(effectiveSelectedTaskIds);
-    setDraftBidSectionMode(bidSectionMode);
     setSettingsOpen(true);
   };
 
-  const saveConfig = async (nextTaskIds = draftSelectedTaskIds, closeDialog = true, nextBidSectionMode = draftBidSectionMode) => {
+  const saveConfig = async (nextTaskIds = draftSelectedTaskIds, closeDialog = true) => {
     const normalizedTaskIds = normalizeSelectedTaskIds(nextTaskIds);
     const nextMode = getModeForSelection(normalizedTaskIds);
-    await window.yibiao?.technicalPlan.saveBidAnalysisConfig({ mode: nextMode, selectedTaskIds: normalizedTaskIds, bidSectionMode: nextBidSectionMode });
+    await window.yibiao?.technicalPlan.saveBidAnalysisConfig({ mode: nextMode, selectedTaskIds: normalizedTaskIds, bidSectionMode });
     const saved = await window.yibiao?.technicalPlan.loadState();
     if (saved) onConfigSaved(saved);
     syncProgressForSelection(normalizedTaskIds);
@@ -354,10 +323,10 @@ function BidAnalysisPage({
       setSettingsOpen(false);
       showToast('招标文件解析配置已保存', 'success');
     }
-    return { mode: nextMode, selectedTaskIds: normalizedTaskIds, bidSectionMode: nextBidSectionMode };
+    return { mode: nextMode, selectedTaskIds: normalizedTaskIds };
   };
 
-  const startBidAnalysisOnly = async (taskIds: string[] | undefined, nextTaskIds: string[], nextBidSectionMode: BidSectionMode) => {
+  const startBidAnalysisOnly = async (taskIds: string[] | undefined, nextTaskIds: string[]) => {
     if (!hasTenderFile) {
       showToast('请先上传招标文件', 'info');
       return;
@@ -375,7 +344,7 @@ function BidAnalysisPage({
         setFullRerunSeenRunning(false);
         setFullRerunLocked(true);
       }
-      const configState = await saveConfig(normalizedTaskIds, false, nextBidSectionMode);
+      const configState = await saveConfig(normalizedTaskIds, false);
       const config = await window.yibiao?.config.load();
       await window.yibiao?.tasks.startBidAnalysis({
         mode: configState.mode,
@@ -397,52 +366,18 @@ function BidAnalysisPage({
     }
   };
 
-  const startAnalysis = async (taskIds?: string[], nextTaskIds = draftSelectedTaskIds, options: { skipCheck?: boolean; overrideMode?: BidSectionMode } = {}) => {
+  const startAnalysis = async (taskIds?: string[], nextTaskIds = draftSelectedTaskIds) => {
+    if (contentTaskLocked) {
+      showToast('正文生成任务进行中，请等待任务结束后再开始解析', 'info');
+      return;
+    }
     if (!hasTenderFile) {
       showToast('请先上传招标文件', 'info');
       return;
     }
 
-    const nextBidSectionMode = options.overrideMode || draftBidSectionMode;
     const normalizedTaskIds = normalizeSelectedTaskIds(nextTaskIds);
-
-    if (!options.skipCheck) {
-      try {
-        const detection = await window.yibiao?.technicalPlan.checkBidSections();
-        if (nextBidSectionMode === 'single' && detection?.hasMultiple) {
-          setSectionModeWarning({ type: 'single-suspected-multiple', taskIds, nextTaskIds: normalizedTaskIds });
-          return;
-        }
-        if (nextBidSectionMode === 'multiple' && detection && !detection.hasMultiple) {
-          setSectionModeWarning({ type: 'multiple-not-detected', taskIds, nextTaskIds: normalizedTaskIds });
-          return;
-        }
-      } catch (error) {
-        showToast(error instanceof Error ? error.message : '标段校验失败', 'error');
-        return;
-      }
-    }
-
-    if (nextBidSectionMode === 'multiple' && !selectedSectionTitle) {
-      try {
-        await saveConfig(normalizedTaskIds, false, 'multiple');
-        setPendingAnalysisAfterSection({ taskIds, nextTaskIds: normalizedTaskIds });
-        if (bidSectionExtractionStatus === 'success' && bidSections.length >= 2) {
-          setSettingsOpen(false);
-          setSectionSelectorOpen(true);
-          return;
-        }
-        setSettingsOpen(false);
-        await window.yibiao?.tasks.startBidSectionExtraction({});
-        showToast('多标段识别任务已在后台启动', 'success');
-      } catch (error) {
-        setPendingAnalysisAfterSection(null);
-        showToast(error instanceof Error ? error.message : '启动多标段识别失败', 'error');
-      }
-      return;
-    }
-
-    await startBidAnalysisOnly(taskIds, normalizedTaskIds, nextBidSectionMode);
+    await startBidAnalysisOnly(taskIds, normalizedTaskIds);
   };
 
   const retryActiveTask = () => {
@@ -452,62 +387,6 @@ function BidAnalysisPage({
     }
 
     startAnalysis([activeTask.id], effectiveSelectedTaskIds);
-  };
-
-  const continueFromSectionModeWarning = (nextBidSectionMode: BidSectionMode) => {
-    if (!sectionModeWarning) return;
-    const pending = sectionModeWarning;
-    setSectionModeWarning(null);
-    setDraftBidSectionMode(nextBidSectionMode);
-    void startAnalysis(pending.taskIds, pending.nextTaskIds, { skipCheck: true, overrideMode: nextBidSectionMode });
-  };
-
-  const startSectionExtractionOnly = async () => {
-    if (!hasTenderFile) {
-      showToast('请先上传招标文件', 'info');
-      return;
-    }
-    try {
-      await saveConfig(draftSelectedTaskIds, false, 'multiple');
-      setSettingsOpen(false);
-      await window.yibiao?.tasks.startBidSectionExtraction({});
-      showToast('多标段识别任务已在后台启动', 'success');
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : '启动多标段识别失败', 'error');
-    }
-  };
-
-  const handleSectionSelect = async (sectionId: string) => {
-    const selectedSection = bidSections.find((section) => section.id === sectionId);
-    if (!selectedSection) {
-      showToast('未找到选择的投标范围', 'error');
-      return;
-    }
-    try {
-      setSelectingSection(true);
-      const result = await window.yibiao?.technicalPlan.selectBidSection(selectedSection);
-      if (!result?.success) {
-        showToast(result?.message || '投标范围选择失败', 'error');
-        return;
-      }
-      onConfigSaved(await window.yibiao.technicalPlan.loadState());
-      setSectionSelectorOpen(false);
-      showToast(result.message || '已选择投标范围', 'success');
-      if (pendingAnalysisAfterSection) {
-        const pending = pendingAnalysisAfterSection;
-        setPendingAnalysisAfterSection(null);
-        await startBidAnalysisOnly(pending.taskIds, pending.nextTaskIds, 'multiple');
-      }
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : '投标范围选择失败', 'error');
-    } finally {
-      setSelectingSection(false);
-    }
-  };
-
-  const handleSectionCancel = () => {
-    setPendingAnalysisAfterSection(null);
-    setSectionSelectorOpen(false);
   };
 
   const toggleDraftTask = (taskId: string) => {
@@ -528,16 +407,6 @@ function BidAnalysisPage({
 
   const selectPreset = (preset: 'key' | 'full') => {
     setDraftSelectedTaskIds(preset === 'full' ? allBidAnalysisTaskIds : requiredBidAnalysisTaskIds);
-  };
-
-  const openSectionSelectorFromConfig = async () => {
-    try {
-      await saveConfig(draftSelectedTaskIds, false, 'multiple');
-      setSettingsOpen(false);
-      setSectionSelectorOpen(true);
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : '打开标段选择失败', 'error');
-    }
   };
 
   const copyActiveResult = async () => {
@@ -572,12 +441,6 @@ function BidAnalysisPage({
 
   const draftMode = getModeForSelection(draftSelectedTaskIds);
   const draftSelectedCount = normalizeSelectedTaskIds(draftSelectedTaskIds).length;
-  const hasExtractedBidSections = bidSectionExtractionStatus === 'success' && bidSections.length >= 2;
-  const bidSectionActionLabel = sectionTaskRunning
-    ? '识别中...'
-    : hasExtractedBidSections
-      ? selectedSectionTitle ? '更换' : '选择标段'
-      : bidSectionExtractionStatus === 'error' ? '重新识别标段' : '识别标段';
 
   return (
     <div className="plan-step-body bid-analysis-page">
@@ -608,7 +471,7 @@ function BidAnalysisPage({
             type="button"
             className="outline-config-action"
             onClick={openSettingsDialog}
-            disabled={taskRunning}
+            disabled={taskRunning || contentTaskLocked}
             aria-label="打开招标文件解析配置"
             title="招标文件解析配置"
           >
@@ -617,7 +480,7 @@ function BidAnalysisPage({
               <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.05.05a2 2 0 0 1-2.83 2.83l-.05-.05a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.04 1.56V21a2 2 0 0 1-4 0v-.08a1.7 1.7 0 0 0-1.04-1.56 1.7 1.7 0 0 0-1.87.34l-.05.05a2 2 0 0 1-2.83-2.83l.05-.05A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1.04H3a2 2 0 0 1 0-4h.08A1.7 1.7 0 0 0 4.6 8.93a1.7 1.7 0 0 0-.34-1.87l-.05-.05a2 2 0 0 1 2.83-2.83l.05.05a1.7 1.7 0 0 0 1.87.34A1.7 1.7 0 0 0 10 3.01V3a2 2 0 0 1 4 0v.08a1.7 1.7 0 0 0 1.04 1.56 1.7 1.7 0 0 0 1.87-.34l.05-.05a2 2 0 0 1 2.83 2.83l-.05.05a1.7 1.7 0 0 0-.34 1.87 1.7 1.7 0 0 0 1.56 1.04H21a2 2 0 0 1 0 4h-.08A1.7 1.7 0 0 0 19.4 15Z" />
             </svg>
           </button>
-          <button type="button" className="primary-action" onClick={openSettingsDialog} disabled={taskRunning}>
+          <button type="button" className="primary-action" onClick={() => { void startAnalysis(undefined, effectiveSelectedTaskIds); }} disabled={taskRunning || contentTaskLocked || !hasTenderFile}>
             {sectionTaskRunning ? '识别中...' : taskRunning ? '解析中...' : failedTaskCount > 0 ? `重试失败项(${failedTaskCount})` : progress > 0 ? '重新解析' : '开始解析'}
           </button>
         </div>
@@ -727,57 +590,6 @@ function BidAnalysisPage({
             <div className="bid-analysis-config-body">
               <section className="bid-analysis-config-section is-compact">
                 <div className="bid-analysis-config-section-head">
-                  <strong>投标范围</strong>
-                  <span>{draftBidSectionMode === 'multiple' ? '多标段' : '默认单标段'}</span>
-                </div>
-                <div className="bid-analysis-config-presets" role="group" aria-label="投标范围模式">
-                  <button
-                    type="button"
-                    className={`bid-analysis-config-preset${draftBidSectionMode === 'single' ? ' is-active' : ''}`}
-                    onClick={() => setDraftBidSectionMode('single')}
-                    disabled={taskRunning}
-                  >
-                    <span>单标段</span>
-                    <small>默认</small>
-                  </button>
-                  <button
-                    type="button"
-                    className={`bid-analysis-config-preset${draftBidSectionMode === 'multiple' ? ' is-active' : ''}`}
-                    onClick={() => setDraftBidSectionMode('multiple')}
-                    disabled={taskRunning}
-                  >
-                    <span>多标段</span>
-                    <small>AI 识别</small>
-                  </button>
-                </div>
-                {draftBidSectionMode === 'multiple' && (
-                  <div className="bid-analysis-section-action">
-                    {selectedSectionTitle && (
-                      <>
-                        <span className="bid-analysis-section-label">当前选择的标段</span>
-                        <span className="bid-analysis-section-chip">{selectedSectionTitle}</span>
-                      </>
-                    )}
-                    <button
-                      type="button"
-                      className="secondary-action bid-analysis-section-change"
-                      onClick={() => {
-                        if (hasExtractedBidSections) {
-                          void openSectionSelectorFromConfig();
-                          return;
-                        }
-                        void startSectionExtractionOnly();
-                      }}
-                      disabled={!hasTenderFile || taskRunning}
-                    >
-                      {bidSectionActionLabel}
-                    </button>
-                  </div>
-                )}
-              </section>
-
-              <section className="bid-analysis-config-section is-compact">
-                <div className="bid-analysis-config-section-head">
                   <strong>解析范围</strong>
                   <span>{getModeLabel(draftMode)}</span>
                 </div>
@@ -826,7 +638,7 @@ function BidAnalysisPage({
                 onClick={() => {
                   void saveConfig().catch((error) => showToast(error instanceof Error ? error.message : '保存解析配置失败', 'error'));
                 }}
-                disabled={taskRunning}
+                disabled={taskRunning || contentTaskLocked}
               >
                 保存配置
               </button>
@@ -834,7 +646,7 @@ function BidAnalysisPage({
                 type="button"
                 className="primary-action"
                 onClick={() => { void startAnalysis(undefined, draftSelectedTaskIds); }}
-                disabled={taskRunning || !hasTenderFile}
+                disabled={taskRunning || contentTaskLocked || !hasTenderFile}
               >
                 开始解析
               </button>
@@ -843,40 +655,6 @@ function BidAnalysisPage({
         </Dialog.Portal>
       </Dialog.Root>
 
-      <Dialog.Root open={Boolean(sectionModeWarning)} onOpenChange={(open) => { if (!open) setSectionModeWarning(null); }}>
-        <Dialog.Portal>
-          <Dialog.Overlay className="content-regenerate-modal" />
-          <Dialog.Content className="content-regenerate-card">
-            <Dialog.Title className="content-regenerate-title">投标范围确认</Dialog.Title>
-            <Dialog.Description className="content-regenerate-description">
-              {sectionModeWarning?.type === 'single-suspected-multiple'
-                ? '系统检测到招标文件疑似包含多个标段，建议切换为多标段解析，先选择本次投标范围后再解析。'
-                : '系统没有通过规则检测到明确多标段结构，是否仍继续使用 AI 识别多标段？'}
-            </Dialog.Description>
-            <div className="content-regenerate-actions">
-              {sectionModeWarning?.type === 'single-suspected-multiple' ? (
-                <>
-                  <button type="button" className="secondary-action" onClick={() => continueFromSectionModeWarning('single')}>继续单标段</button>
-                  <button type="button" className="primary-action" onClick={() => continueFromSectionModeWarning('multiple')}>切换多标段</button>
-                </>
-              ) : (
-                <>
-                  <button type="button" className="secondary-action" onClick={() => continueFromSectionModeWarning('single')}>改为单标段</button>
-                  <button type="button" className="primary-action" onClick={() => continueFromSectionModeWarning('multiple')}>继续 AI 识别</button>
-                </>
-              )}
-            </div>
-          </Dialog.Content>
-        </Dialog.Portal>
-      </Dialog.Root>
-
-      <BidSectionSelectorDialog
-        open={sectionSelectorOpen}
-        sections={bidSections}
-        onSelect={handleSectionSelect}
-        onCancel={handleSectionCancel}
-        busy={selectingSection}
-      />
     </div>
   );
 }

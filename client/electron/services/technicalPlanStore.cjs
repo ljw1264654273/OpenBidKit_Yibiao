@@ -59,7 +59,7 @@ const initialState = {
   bidSections: [],
   bidSectionExtractionStatus: 'idle',
   bidSectionExtractionError: undefined,
-  outlineMode: 'aligned',
+  outlineMode: 'standalone-technical',
   outlineExpansionMode: 'ai-complement',
   outlineWordControlOptions: { ...defaultOutlineWordControlOptions },
   outlineWordControlSnapshot: undefined,
@@ -174,6 +174,12 @@ function normalizeStatus(value, allowed, fallback) {
 
 function normalizeWorkflowKind(value) {
   return value === 'existing-plan-expansion' ? 'existing-plan-expansion' : 'technical-plan';
+}
+
+function defaultOutlineModeForWorkflow(workflowKind) {
+  return normalizeWorkflowKind(workflowKind) === 'existing-plan-expansion'
+    ? 'aligned'
+    : 'standalone-technical';
 }
 
 function normalizeNonNegativeInteger(value) {
@@ -771,7 +777,7 @@ function createTechnicalPlanStore({ app, db, fileService, agentService, taskLogS
     const timestamp = now();
     db.prepare(`
       INSERT INTO technical_plan_meta (id, workflow_kind, step, bid_analysis_mode, outline_mode, outline_expansion_mode, created_at, updated_at)
-      VALUES (1, 'technical-plan', 'document-analysis', 'key', 'aligned', 'ai-complement', @timestamp, @timestamp)
+      VALUES (1, 'technical-plan', 'document-analysis', 'key', 'standalone-technical', 'ai-complement', @timestamp, @timestamp)
     `).run({ timestamp });
     return db.prepare('SELECT * FROM technical_plan_meta WHERE id = 1').get();
   }
@@ -1843,7 +1849,7 @@ function createTechnicalPlanStore({ app, db, fileService, agentService, taskLogS
       step: 'document-analysis',
       bid_analysis_mode: 'key',
       bid_analysis_selected_task_ids_json: null,
-      outline_mode: 'aligned',
+      outline_mode: defaultOutlineModeForWorkflow(ensureMetaRow().workflow_kind),
       outline_expansion_mode: 'ai-complement',
       outline_word_control_snapshot_json: null,
       outline_project_name: null,
@@ -1882,7 +1888,6 @@ function createTechnicalPlanStore({ app, db, fileService, agentService, taskLogS
     clearOriginalOutlineRuntime();
     clearTechnicalPlanMermaidCache();
     updateMeta({
-      step: 'bid-analysis',
       content_generation_options_json: null,
       content_generation_runtime_json: null,
       outline_word_control_snapshot_json: null,
@@ -1955,6 +1960,7 @@ function createTechnicalPlanStore({ app, db, fileService, agentService, taskLogS
     updateMeta({
       workflow_kind: normalizeWorkflowKind(workflowKind),
       step: 'document-analysis',
+      outline_mode: defaultOutlineModeForWorkflow(workflowKind),
       outline_expansion_mode: 'ai-complement',
       global_facts_mode: 'fabricate',
       original_plan_file_name: null,
@@ -2243,7 +2249,7 @@ function createTechnicalPlanStore({ app, db, fileService, agentService, taskLogS
         ? normalizeBidSectionExtractionStatus(bidSectionExtractionTask.status)
         : normalizeBidSectionExtractionStatus(meta.bid_section_extraction_status),
       bidSectionExtractionError: bidSectionExtractionTask?.error || meta.bid_section_extraction_error || undefined,
-      outlineMode: isValidOutlineMode(meta.outline_mode) ? meta.outline_mode : 'aligned',
+      outlineMode: isValidOutlineMode(meta.outline_mode) ? meta.outline_mode : defaultOutlineModeForWorkflow(meta.workflow_kind),
       outlineExpansionMode: isValidOutlineExpansionMode(meta.outline_expansion_mode) ? meta.outline_expansion_mode : 'ai-complement',
       globalFactsMode: normalizeGlobalFactsMode(meta.global_facts_mode),
       outlineWordControlOptions: normalizeOutlineWordControlOptions(safeJsonParse(meta.outline_word_control_options_json, defaultOutlineWordControlOptions)),
@@ -2322,7 +2328,7 @@ function createTechnicalPlanStore({ app, db, fileService, agentService, taskLogS
       replaceReferenceDocumentIds(referenceKnowledgeDocumentIds);
       replaceRemoteKnowledgeScopes(remoteKnowledgeScopes);
       updateTechnicalPlan({
-        outlineMode: isValidOutlineMode(outlineMode) ? outlineMode : 'aligned',
+        outlineMode: isValidOutlineMode(outlineMode) ? outlineMode : defaultOutlineModeForWorkflow(ensureMetaRow().workflow_kind),
         outlineExpansionMode: isValidOutlineExpansionMode(outlineExpansionMode) ? outlineExpansionMode : 'ai-complement',
         outlineWordControlOptions: normalizeOutlineWordControlOptions(wordControlOptions),
       });

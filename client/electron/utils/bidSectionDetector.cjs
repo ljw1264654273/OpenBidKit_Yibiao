@@ -42,7 +42,7 @@ function normalizeChineseNumber(value) {
   return null;
 }
 
-const totalSectionPattern = /(?:本?项目)?(?:共|总计|共计|合计)?(?:划分|分|设|拆|分拆)?为?\s*(\d+|[一二三四五六七八九十]+)\s*个?\s*(?:标段|包|分包|标包|标的|子项目)/g;
+const totalSectionPattern = /(?:本?项目)?(?:共|总计|共计|合计)?(?:划分|分|设|拆|分拆)?为?\s*(\d+|[一二三四五六七八九十]+)\s*个?\s*(?:标段|标项|包|分包|标包|标的|子项目)/g;
 
 function detectTotalSectionCount(markdown) {
   const text = String(markdown || '');
@@ -68,6 +68,10 @@ const sectionDefinitionPatterns = [
   { pattern: /(\d+)标段[：:；;]/g, unit: '标段' },
   { pattern: /第([一二三四五六七八九十壹贰叁肆伍\d]+)标段[：:；;]/g, unit: '标段' },
   { pattern: /标段([一二三四五六七八九十壹贰叁肆伍\d]+)[：:；;]/g, unit: '标段' },
+  { pattern: /([一二三四五六七八九十壹贰叁肆伍]+)标项[：:；;]/g, unit: '标项' },
+  { pattern: /(\d+)标项[：:；;]/g, unit: '标项' },
+  { pattern: /第([一二三四五六七八九十壹贰叁肆伍\d]+)标项[：:；;]/g, unit: '标项' },
+  { pattern: /标项([一二三四五六七八九十壹贰叁肆伍\d]+)[：:；;]/g, unit: '标项' },
   { pattern: /([一二三四五六七八九十壹贰叁肆伍]+)标包[：:；;]/g, unit: '标包' },
   { pattern: /(\d+)标包[：:；;]/g, unit: '标包' },
   { pattern: /第([一二三四五六七八九十壹贰叁肆伍\d]+)标包[：:；;]/g, unit: '标包' },
@@ -91,7 +95,8 @@ function getLineAt(text, index) {
 }
 
 function isCombinedSectionMention(line) {
-  return /[一二三四五六七八九十\d]+[、,]\s*[一二三四五六七八九十\d]+\s*(?:标段|标包|分包|包)/.test(line);
+  return /(?:[一二三四五六七八九十\d]+[、,]\s*)+[一二三四五六七八九十\d]+\s*(?:标段|标项|标包|分包|包)/.test(line)
+    || /标项[一二三四五六七八九十\d]+(?:[、,]\s*[一二三四五六七八九十\d]+)+/.test(line);
 }
 
 function countDefinitionSections(text) {

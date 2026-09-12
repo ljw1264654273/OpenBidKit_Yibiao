@@ -39,7 +39,7 @@ function createInitialSchema(db) {
       bid_sections_json TEXT,
       bid_section_extraction_status TEXT NOT NULL DEFAULT 'idle',
       bid_section_extraction_error TEXT,
-      outline_mode TEXT NOT NULL DEFAULT 'aligned',
+      outline_mode TEXT NOT NULL DEFAULT 'standalone-technical',
       outline_expansion_mode TEXT NOT NULL DEFAULT 'ai-complement',
       global_facts_mode TEXT NOT NULL DEFAULT 'fabricate',
       outline_word_control_options_json TEXT,

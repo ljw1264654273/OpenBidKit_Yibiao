@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
-import { AppSwitch, isLibreOfficeRequiredMessage, MarkdownFullscreenViewer, MarkdownRenderer, UploadBoard, UploadEmpty, UploadFilePill, UploadRow, useDocumentParseNotice, useToast } from '../../../shared/ui';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { isLibreOfficeRequiredMessage, MarkdownFullscreenViewer, MarkdownRenderer, UploadBoard, UploadEmpty, UploadFilePill, UploadRow, useDocumentParseNotice, useToast } from '../../../shared/ui';
 import type { FileParserProvider, OutlineWordControlOptions } from '../../../shared/types';
-import { DEFAULT_OUTLINE_WORD_CONTROL_OPTIONS } from '../../../shared/types';
 import type {
   BackgroundTaskState,
+  BackgroundTaskStatus,
   BidSectionExtractionStatus,
   BidSectionMode,
   ContentGenerationOptions,
@@ -16,6 +16,14 @@ import type {
   TechnicalPlanWorkflowKind,
 } from '../types';
 import BidSectionSelectorDialog from '../components/BidSectionSelectorDialog';
+import {
+  isQuickConfigLocked,
+  mergeContentGenerationOptionsForQuickConfig,
+  PAGE_LADDER_PRESETS,
+  QUICK_CONFIG_STORAGE_KEY,
+  resolveContentGenerationOptionsForQuickConfig,
+  resolvePageLadderKey,
+} from '../services/quickConfig';
 
 type TechnicalPlanUploadBusy = 'tender' | 'originalPlan' | null;
 
@@ -63,6 +71,7 @@ interface DocumentAnalysisPageProps {
   bidSectionExtractionError?: string;
   outlineWordControlOptions: OutlineWordControlOptions;
   contentGenerationOptions?: ContentGenerationOptions;
+  contentTaskStatus?: BackgroundTaskStatus;
   onFileImported: (state: TechnicalPlanState, markdown: string) => void;
   onOriginalPlanImported: (state: TechnicalPlanState, markdown: string) => void;
   onOutlineWordControlChange: (options: OutlineWordControlOptions) => Promise<void>;
@@ -70,107 +79,12 @@ interface DocumentAnalysisPageProps {
   onStateRefresh: () => Promise<void>;
 }
 
-// 快速配置：标书篇幅页数阶梯预设
-// 与 OutlineEditPage 的 getEstimatedPages（650 字/页）保持同一换算
-// 每档同时给最小/最大字数 + 每小节字数；选择 0 档表示不控制
-const WORDS_PER_PAGE = 650;
-type PageLadderKey = 'none' | 'p30' | 'p50' | 'p80' | 'p100';
-
-const pageLadderPresets: Record<PageLadderKey, {
-  label: string;
-  description: string;
-  options: OutlineWordControlOptions;
-}> = {
-  none: {
-    label: '默认（不控制）',
-    description: '由 AI 自由决定篇幅',
-    options: { ...DEFAULT_OUTLINE_WORD_CONTROL_OPTIONS, strictSectionWords: false },
-  },
-  p30: {
-    label: '30 页',
-    description: `约 ${(30 * WORDS_PER_PAGE / 10000).toFixed(1)} 万字`,
-    options: {
-      minimumWords: 18000,
-      maximumWords: 21000,
-      sectionWords: 500,
-      strictSectionWords: false,
-    },
-  },
-  p50: {
-    label: '50 页',
-    description: `约 ${(50 * WORDS_PER_PAGE / 10000).toFixed(1)} 万字`,
-    options: {
-      minimumWords: 30000,
-      maximumWords: 36000,
-      sectionWords: 800,
-      strictSectionWords: false,
-    },
-  },
-  p80: {
-    label: '80 页',
-    description: `约 ${(80 * WORDS_PER_PAGE / 10000).toFixed(1)} 万字`,
-    options: {
-      minimumWords: 47000,
-      maximumWords: 57000,
-      sectionWords: 1400,
-      strictSectionWords: false,
-    },
-  },
-  p100: {
-    label: '100 页',
-    description: `约 ${(100 * WORDS_PER_PAGE / 10000).toFixed(1)} 万字`,
-    options: {
-      minimumWords: 58000,
-      maximumWords: 72000,
-      sectionWords: 1800,
-      strictSectionWords: false,
-    },
-  },
-};
-
 const tableDensityOptions: Array<{ value: ContentTableRequirement; label: string }> = [
-  { value: 'none', label: '不要' },
+  { value: 'none', label: '无表格' },
   { value: 'light', label: '少量' },
   { value: 'moderate', label: '适中' },
-  { value: 'heavy', label: '大量' },
+  { value: 'heavy', label: '丰富' },
 ];
-
-const DEFAULT_TABLE_DENSITY: ContentTableRequirement = 'heavy';
-const DEFAULT_USE_AI_IMAGES = false;
-const DEFAULT_USE_MERMAID_IMAGES = true;
-const DEFAULT_USE_HTML_IMAGES = true;
-
-function resolvePageLadderKey(options: OutlineWordControlOptions): PageLadderKey {
-  const min = options.minimumWords;
-  const max = options.maximumWords;
-  if (min === 0 && max === 0) return 'none';
-  if (min >= 17000 && min <= 19000 && max >= 20000 && max <= 22000) return 'p30';
-  if (min >= 28000 && min <= 32000 && max >= 34000 && max <= 38000) return 'p50';
-  if (min >= 45000 && min <= 49000 && max >= 55000 && max <= 59000) return 'p80';
-  if (min >= 56000 && min <= 60000 && max >= 70000 && max <= 74000) return 'p100';
-  // 自定义档：返回 none 标记交由 STEP 03 精确控制
-  return 'none';
-}
-
-function resolveContentGenerationOptionsForQuickConfig(
-  options: ContentGenerationOptions | undefined,
-): ContentGenerationOptions {
-  return {
-    useAiImages: options?.useAiImages ?? DEFAULT_USE_AI_IMAGES,
-    maxAiImages: options?.maxAiImages ?? 6,
-    useMermaidImages: options?.useMermaidImages ?? DEFAULT_USE_MERMAID_IMAGES,
-    useAiRedesignForMermaid: options?.useAiRedesignForMermaid ?? false,
-    maxMermaidImages: options?.maxMermaidImages ?? 5,
-    useHtmlImages: options?.useHtmlImages ?? DEFAULT_USE_HTML_IMAGES,
-    maxHtmlImages: options?.maxHtmlImages ?? 10,
-    htmlImageTypes: options?.htmlImageTypes ?? '甘特图、进度网络图、组织架构图、泳道图、RACI 职责矩阵、风险矩阵、系统架构与拓扑图、WBS 工作分解结构图、鱼骨图、柱状图、折线图、饼图',
-    tableRequirement: options?.tableRequirement ?? DEFAULT_TABLE_DENSITY,
-    enableConsistencyAudit: options?.enableConsistencyAudit ?? true,
-    consistencyRepairMode: options?.consistencyRepairMode ?? 'agent',
-    enableOriginalPlanCoverageAudit: options?.enableOriginalPlanCoverageAudit ?? false,
-    originalPlanCoverageRepairMode: options?.originalPlanCoverageRepairMode ?? 'agent',
-  };
-}
 
 function DocumentAnalysisPage({
   workflowKind,
@@ -186,6 +100,7 @@ function DocumentAnalysisPage({
   bidSectionExtractionError,
   outlineWordControlOptions,
   contentGenerationOptions,
+  contentTaskStatus,
   onFileImported,
   onOriginalPlanImported,
   onOutlineWordControlChange,
@@ -202,17 +117,31 @@ function DocumentAnalysisPage({
   const [sectionSelectorOpen, setSectionSelectorOpen] = useState(false);
   const [sectionExtracting, setSectionExtracting] = useState(false);
   const [quickConfigSaving, setQuickConfigSaving] = useState<string | null>(null);
+  const [quickConfigExpanded, setQuickConfigExpanded] = useState(() => {
+    try {
+      const storedValue = window.localStorage.getItem(QUICK_CONFIG_STORAGE_KEY);
+      return storedValue !== 'false';
+    } catch {
+      return true;
+    }
+  });
+  const [documentContentExpanded, setDocumentContentExpanded] = useState(true);
+  const [imageModelAvailable, setImageModelAvailable] = useState(false);
+  const sectionDetectionRequestRef = useRef(0);
+  const detectedDocumentVersionRef = useRef<string | null>(null);
   const { showToast } = useToast();
   const { showDocumentParseNotice } = useDocumentParseNotice();
   const isExpansionWorkflow = workflowKind === 'existing-plan-expansion';
   const isBusy = busy !== null;
   const firstTenderSourceId = tenderFiles[0]?.id || '';
   const resolvedContentOptions = useMemo(
-    () => resolveContentGenerationOptionsForQuickConfig(contentGenerationOptions),
-    [contentGenerationOptions],
+    () => resolveContentGenerationOptionsForQuickConfig(contentGenerationOptions, imageModelAvailable),
+    [contentGenerationOptions, imageModelAvailable],
   );
   const pageLadderKey = useMemo(() => resolvePageLadderKey(outlineWordControlOptions), [outlineWordControlOptions]);
   const sectionExtractionRunning = bidSectionExtractionStatus === 'running';
+  const contentTaskLocked = isQuickConfigLocked(contentTaskStatus);
+  const tenderDocumentVersion = tenderFile?.contentHash || tenderFile?.updatedAt || tenderFiles.map((file) => `${file.id}:${file.contentHash || file.updatedAt}`).join('|') || null;
 
   useEffect(() => {
     let mounted = true;
@@ -226,6 +155,7 @@ function DocumentAnalysisPage({
         const config = await window.yibiao.config.load();
         if (mounted) {
           setConfiguredParserLabel(parserLabels[config.components?.file_parser?.provider] || parserLabels.local);
+          setImageModelAvailable(config.image_model?.status === 'available');
         }
       } catch (error) {
         showToast(error instanceof Error ? error.message : '读取文件解析配置失败', 'error');
@@ -238,6 +168,60 @@ function DocumentAnalysisPage({
       mounted = false;
     };
   }, [showToast]);
+
+  useEffect(() => {
+    if (!tenderMarkdown || !tenderDocumentVersion || detectedDocumentVersionRef.current === tenderDocumentVersion) {
+      if (!tenderMarkdown || !tenderDocumentVersion) {
+        setBidSectionDetection(null);
+        detectedDocumentVersionRef.current = null;
+      }
+      return;
+    }
+
+    const requestId = sectionDetectionRequestRef.current + 1;
+    sectionDetectionRequestRef.current = requestId;
+    const requestVersion = tenderDocumentVersion;
+    let active = true;
+
+    window.yibiao?.technicalPlan.checkBidSections().then((detection) => {
+      if (!active || requestId !== sectionDetectionRequestRef.current || requestVersion !== tenderDocumentVersion) return;
+      detectedDocumentVersionRef.current = requestVersion;
+      const hasMultiple = Boolean(detection?.hasMultiple);
+      setBidSectionDetection({
+        hasMultiple,
+        totalDeclared: detection?.totalDeclared ?? null,
+      });
+      if (
+        hasMultiple
+        && bidSectionMode !== 'multiple'
+        && bidSectionExtractionStatus === 'idle'
+        && !sectionExtracting
+        && !tenderFile?.selectedSectionTitle
+      ) {
+        // 已有招标文件重新进入 STEP 01 时，也要前置执行原有 AI 标段识别。
+        void startBidSectionExtraction();
+      }
+    }).catch((error) => {
+      if (active && requestId === sectionDetectionRequestRef.current) {
+        showToast(error instanceof Error ? error.message : '检测标段失败', 'error');
+      }
+    });
+
+    return () => {
+      active = false;
+      if (sectionDetectionRequestRef.current === requestId) {
+        sectionDetectionRequestRef.current += 1;
+      }
+    };
+  }, [
+    bidSectionExtractionStatus,
+    bidSectionMode,
+    sectionExtracting,
+    showToast,
+    tenderDocumentVersion,
+    tenderFile?.selectedSectionTitle,
+    tenderMarkdown,
+  ]);
 
   useEffect(() => {
     if (isExpansionWorkflow) return;
@@ -284,15 +268,16 @@ function DocumentAnalysisPage({
     if (bidSectionExtractionStatus !== 'success') return;
     if (!bidSections.length || bidSections.length < 2) return;
     if (tenderFile?.selectedSectionTitle) return;
+    if (contentTaskLocked) return;
     if (sectionSelectorOpen) return;
     setSectionSelectorOpen(true);
-  }, [bidSectionExtractionStatus, bidSections, sectionSelectorOpen, tenderFile?.selectedSectionTitle]);
+  }, [bidSectionExtractionStatus, bidSections, contentTaskLocked, sectionSelectorOpen, tenderFile?.selectedSectionTitle]);
 
   const resolveDroppedFilePaths = (files: FileList) =>
     Array.from(files).map((file) => window.yibiao?.file.getPathForFile(file) || '').filter(Boolean);
 
   const startBidSectionExtraction = async () => {
-    if (sectionExtracting || sectionExtractionRunning) return;
+    if (contentTaskLocked || sectionExtracting || sectionExtractionRunning) return;
     setSectionExtracting(true);
     try {
       await window.yibiao?.tasks.startBidSectionExtraction({});
@@ -305,6 +290,10 @@ function DocumentAnalysisPage({
   };
 
   const handleSectionSelect = async (sectionId: string) => {
+    if (contentTaskLocked) {
+      showToast('正文生成任务进行中，请等待任务结束后再调整投标范围', 'info');
+      return;
+    }
     const selectedSection = bidSections.find((section) => section.id === sectionId);
     if (!selectedSection) {
       showToast('未找到选择的投标范围', 'error');
@@ -331,8 +320,12 @@ function DocumentAnalysisPage({
     setSectionSelectorOpen(false);
   };
 
-  const applyPageLadder = async (key: PageLadderKey) => {
-    const preset = pageLadderPresets[key];
+  const applyPageLadder = async (key: keyof typeof PAGE_LADDER_PRESETS) => {
+    if (contentTaskLocked) {
+      showToast('正文生成任务进行中，请等待任务结束后再调整快速配置', 'info');
+      return;
+    }
+    const preset = PAGE_LADDER_PRESETS[key];
     if (!preset) return;
     setQuickConfigSaving(`pageLadder:${key}`);
     try {
@@ -345,13 +338,20 @@ function DocumentAnalysisPage({
   };
 
   const applyTableDensity = async (value: ContentTableRequirement) => {
+    if (contentTaskLocked) {
+      showToast('正文生成任务进行中，请等待任务结束后再调整快速配置', 'info');
+      return;
+    }
     if (value === resolvedContentOptions.tableRequirement) return;
     setQuickConfigSaving(`table:${value}`);
     try {
-      await onContentGenerationOptionsChange({
-        ...resolvedContentOptions,
-        tableRequirement: value,
-      });
+      await onContentGenerationOptionsChange(mergeContentGenerationOptionsForQuickConfig(
+        resolvedContentOptions,
+        {
+          tableRequirement: value,
+        },
+        imageModelAvailable,
+      ));
     } catch (error) {
       showToast(error instanceof Error ? error.message : '保存表格密度失败', 'error');
     } finally {
@@ -363,13 +363,22 @@ function DocumentAnalysisPage({
     key: 'useAiImages' | 'useMermaidImages' | 'useHtmlImages',
     value: boolean,
   ) => {
+    if (contentTaskLocked) {
+      showToast('正文生成任务进行中，请等待任务结束后再调整快速配置', 'info');
+      return;
+    }
     if (resolvedContentOptions[key] === value) return;
+    if (key === 'useAiImages' && value && !imageModelAvailable) {
+      showToast('图片模型不可用，暂时无法启用 AI 配图', 'info');
+      return;
+    }
     setQuickConfigSaving(`image:${key}`);
     try {
-      await onContentGenerationOptionsChange({
-        ...resolvedContentOptions,
-        [key]: value,
-      });
+      await onContentGenerationOptionsChange(mergeContentGenerationOptionsForQuickConfig(
+        resolvedContentOptions,
+        { [key]: value },
+        imageModelAvailable,
+      ));
     } catch (error) {
       showToast(error instanceof Error ? error.message : '保存图片配置失败', 'error');
     } finally {
@@ -399,6 +408,11 @@ function DocumentAnalysisPage({
 
       const state = await window.yibiao.technicalPlan.loadState();
       onFileImported(state, result.markdown);
+      updateQuickConfigExpanded(true);
+      setDocumentContentExpanded(true);
+      detectedDocumentVersionRef.current = state.tenderFile
+        ? state.tenderFile.contentHash || state.tenderFile.updatedAt
+        : null;
       const lastSource = state.tenderFiles?.[state.tenderFiles.length - 1];
       if (lastSource) {
         setTenderSourceMarkdowns(state.tenderFiles.length === 1 ? { [lastSource.id]: result.markdown } : {});
@@ -406,6 +420,10 @@ function DocumentAnalysisPage({
       }
       // 本地标段检测结论：仅停留在 DocumentAnalysisPage 本地，不落库
       setBidSectionDetection(result.bidSectionDetection || null);
+      if (result.bidSectionDetection?.hasMultiple) {
+        // STEP 01 直接复用后续步骤已有的 AI 标段识别任务，完成后自动弹出投标范围选择。
+        void startBidSectionExtraction();
+      }
       const message = result.message || '招标文件已导入';
       showToast(message, resolveImportToastType(message, true));
     } catch (error) {
@@ -430,6 +448,9 @@ function DocumentAnalysisPage({
       }
       const state = await window.yibiao.technicalPlan.loadState();
       onFileImported(state, result.markdown || '');
+      detectedDocumentVersionRef.current = state.tenderFile
+        ? state.tenderFile.contentHash || state.tenderFile.updatedAt
+        : null;
       const firstSource = state.tenderFiles?.[0];
       if (firstSource) {
         setTenderSourceMarkdowns(state.tenderFiles.length === 1 ? { [firstSource.id]: result.markdown || '' } : {});
@@ -485,7 +506,53 @@ function DocumentAnalysisPage({
   };
 
   const selectedSectionTitle = tenderFile?.selectedSectionTitle;
-  const hasSectionHint = Boolean(selectedSectionTitle);
+  const hasSectionHint = Boolean(bidSectionDetection?.hasMultiple && !selectedSectionTitle);
+  const hasFormalBidSections = bidSections.length >= 2;
+  const sectionActionLabel = hasFormalBidSections ? '确认投标范围' : '识别标段';
+  const quickConfigPageSummary = pageLadderKey === 'unset'
+    ? '未设置'
+    : pageLadderKey === 'custom'
+      ? '自定义'
+      : PAGE_LADDER_PRESETS[pageLadderKey].label;
+  const quickConfigTableSummary = tableDensityOptions.find((option) => option.value === resolvedContentOptions.tableRequirement)?.label || '丰富';
+  const hasTableDensitySelection = contentGenerationOptions?.tableRequirement !== undefined;
+  const imageSelectionState = {
+    useAiImages: typeof contentGenerationOptions?.useAiImages === 'boolean',
+    useMermaidImages: typeof contentGenerationOptions?.useMermaidImages === 'boolean',
+    useHtmlImages: typeof contentGenerationOptions?.useHtmlImages === 'boolean',
+  };
+  const hasImageSelection = Object.values(imageSelectionState).every(Boolean);
+  const quickConfigImageSummary = hasImageSelection
+    ? [
+      resolvedContentOptions.useAiImages ? 'AI' : '',
+      resolvedContentOptions.useMermaidImages ? 'Mermaid' : '',
+      resolvedContentOptions.useHtmlImages ? 'HTML' : '',
+    ].filter(Boolean).join('、') || '未启用'
+    : '待选择';
+  const updateQuickConfigExpanded = (expanded: boolean) => {
+    setQuickConfigExpanded(expanded);
+    try {
+      window.localStorage.setItem(QUICK_CONFIG_STORAGE_KEY, String(expanded));
+    } catch {
+      // localStorage 不可用时仍保持当前页面内的折叠状态。
+    }
+  };
+  const toggleDocumentContent = () => {
+    const nextExpanded = !documentContentExpanded;
+    setDocumentContentExpanded(nextExpanded);
+    if (nextExpanded) updateQuickConfigExpanded(false);
+  };
+  const openSectionSelector = () => {
+    if (contentTaskLocked) {
+      showToast('正文生成任务进行中，请等待任务结束后再调整投标范围', 'info');
+      return;
+    }
+    if (hasFormalBidSections) {
+      setSectionSelectorOpen(true);
+      return;
+    }
+    void startBidSectionExtraction();
+  };
   const activeTenderSource = activeDocumentTab.startsWith('tender:')
     ? tenderFiles.find((file) => file.id === activeDocumentTab.slice('tender:'.length)) || null
     : null;
@@ -507,7 +574,7 @@ function DocumentAnalysisPage({
   const activeTenderSourceLoading = activeTenderSource && loadingTenderSourceId === activeTenderSource.id;
 
   return (
-    <div className={`plan-step-body document-analysis-page technical-document-page${hasSectionHint ? ' has-section-hint' : ''}${hasDocumentTabs ? ' has-document-tabs' : ''}`}>
+    <div className={`plan-step-body document-analysis-page technical-document-page${hasSectionHint ? ' has-section-hint' : ''}${bidSectionExtractionError ? ' has-section-error' : ''}${hasDocumentTabs ? ' has-document-tabs' : ''}`}>
       <UploadBoard
         className="technical-document-upload-board"
         kicker="STEP 01"
@@ -577,24 +644,16 @@ function DocumentAnalysisPage({
           <div>
             <strong>疑似多标段</strong>
             <span>
-              本地检测识别出
-              {bidSectionDetection.totalDeclared
-                ? ` ${bidSectionDetection.totalDeclared} 个标段/标包`
-                : '多个标段/标包'}
-              ，建议先识别并选择投标范围再继续。
+              本地检测识别出{bidSectionDetection?.totalDeclared ? ` ${bidSectionDetection.totalDeclared} 个标段/标包` : '多个标段/标包'}，建议先识别并选择投标范围再继续。
             </span>
           </div>
           <button
             type="button"
             className="primary-action"
-            onClick={() => void startBidSectionExtraction()}
-            disabled={sectionExtracting || sectionExtractionRunning || !tenderFile}
+            onClick={openSectionSelector}
+            disabled={contentTaskLocked || sectionExtracting || sectionExtractionRunning || !tenderFile}
           >
-            {sectionExtractionRunning
-              ? '识别中...'
-              : bidSectionExtractionStatus === 'success'
-                ? '重新识别标段'
-                : '识别标段'}
+            {sectionExtractionRunning ? '识别中...' : sectionActionLabel}
           </button>
         </section>
       )}
@@ -605,190 +664,153 @@ function DocumentAnalysisPage({
             <strong>多标段识别失败</strong>
             <span>{bidSectionExtractionError}</span>
           </div>
-          <button
-            type="button"
-            className="secondary-action"
-            onClick={() => void startBidSectionExtraction()}
-            disabled={sectionExtracting || sectionExtractionRunning}
-          >
+            <button
+              type="button"
+              className="secondary-action"
+              onClick={() => void startBidSectionExtraction()}
+            disabled={contentTaskLocked || sectionExtracting || sectionExtractionRunning}
+            >
             重试
           </button>
         </section>
       )}
 
-      <section className="quick-config-section" aria-label="快速配置">
-          <div className="quick-config-head">
+      <section className={`quick-config-collapsible${quickConfigExpanded ? ' is-expanded' : ''}`} aria-label="快速配置">
+        <div className="quick-config-summary">
+          <div className="quick-config-summary-title">
             <span className="section-kicker">快速配置</span>
-            <strong>先选好这些常用参数</strong>
-            <small>所有选项都会同步到后续步骤，此处只做早选；如需精调，进入对应页面后再改。</small>
+            <strong>生成约束</strong>
           </div>
-          <div className="quick-config-grid">
-            <article className="quick-config-card">
-              <div className="quick-config-card-head">
-                <strong>投标范围</strong>
-                <small>STEP 02 也会同步</small>
-              </div>
-              {selectedSectionTitle ? (
-                <>
-                  <div className="quick-config-card-value quick-config-card-chip">{selectedSectionTitle}</div>
-                  <div className="quick-config-card-actions">
-                    <button
-                      type="button"
-                      className="secondary-action"
-                      onClick={() => setSectionSelectorOpen(true)}
-                      disabled={bidSections.length < 2 || sectionExtracting}
-                    >
-                      {bidSections.length < 2 ? '需要先识别标段' : '更换标段'}
-                    </button>
-                  </div>
-                </>
-              ) : !tenderFile ? (
-                <>
-                  <div className="quick-config-card-value quick-config-card-muted">待上传招标文件</div>
-                  <div className="quick-config-card-actions">
-                    <span className="quick-config-card-hint">上传后可识别并选择标段</span>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="quick-config-card-value quick-config-card-muted">未选择</div>
-                  <div className="quick-config-card-actions">
-                    {bidSections.length >= 2 ? (
-                      <button
-                        type="button"
-                        className="secondary-action"
-                        onClick={() => setSectionSelectorOpen(true)}
-                      >
-                        选择投标范围
-                      </button>
-                    ) : bidSectionMode === 'multiple' ? (
-                      <button
-                        type="button"
-                        className="secondary-action"
-                        onClick={() => void startBidSectionExtraction()}
-                        disabled={sectionExtracting || sectionExtractionRunning}
-                      >
-                        {sectionExtractionRunning ? '识别中...' : '开始识别'}
-                      </button>
-                    ) : (
-                      <span className="quick-config-card-hint">下一步可调整</span>
-                    )}
-                  </div>
-                </>
-              )}
-            </article>
+              <div className="quick-config-summary-values" aria-label="当前快速配置">
+                <span>篇幅 <b>{quickConfigPageSummary}</b></span>
+                <span>表格 <b>{hasTableDensitySelection ? quickConfigTableSummary : '待选择'}</b></span>
+                <span>图片 <b>{quickConfigImageSummary}</b></span>
+          </div>
+          <button
+            type="button"
+            className="outline-config-action quick-config-toggle"
+            aria-expanded={quickConfigExpanded}
+            aria-controls="technical-plan-quick-config-panel"
+            onClick={() => updateQuickConfigExpanded(!quickConfigExpanded)}
+            title={quickConfigExpanded ? '收起设置' : '展开设置'}
+            aria-label={quickConfigExpanded ? '收起快速配置' : '展开快速配置'}
+          >
+            {quickConfigExpanded ? '收起' : '设置'}
+          </button>
+        </div>
 
-            <article className="quick-config-card">
-              <div className="quick-config-card-head">
-                <strong>标书篇幅</strong>
-                <small>STEP 03 也会同步</small>
+        {quickConfigExpanded && (
+          <div className="quick-config-panel" id="technical-plan-quick-config-panel">
+            <div className="quick-config-head">
+              <div>
+                <span className="section-kicker">快速配置</span>
+                <strong>本次标书的生成约束</strong>
               </div>
-              <div className="quick-config-card-value">
-                {outlineWordControlOptions.minimumWords > 0 || outlineWordControlOptions.maximumWords > 0
-                  ? `${(outlineWordControlOptions.minimumWords / 10000).toFixed(1)}-${(outlineWordControlOptions.maximumWords / 10000).toFixed(1)} 万字`
-                  : '默认（不控制）'}
-              </div>
-              <div className="quick-config-card-pills" role="radiogroup" aria-label="标书篇幅">
-                {(Object.keys(pageLadderPresets) as PageLadderKey[]).map((key) => {
-                  const preset = pageLadderPresets[key];
-                  const isActive = key === pageLadderKey && preset.options.minimumWords === outlineWordControlOptions.minimumWords;
-                  const isLoading = quickConfigSaving === `pageLadder:${key}`;
-                  return (
-                    <button
-                      key={key}
-                      type="button"
-                      role="radio"
-                      aria-checked={isActive}
-                      className={`quick-config-pill${isActive ? ' is-active' : ''}`}
-                      onClick={() => void applyPageLadder(key)}
-                      disabled={quickConfigSaving !== null}
-                      title={preset.description}
-                    >
-                      <span>{preset.label}</span>
-                      <small>{preset.description}</small>
-                    </button>
-                  );
-                })}
-              </div>
-              {outlineWordControlOptions.minimumWords > 0 &&
-                pageLadderKey === 'none' && (
-                  <small className="quick-config-card-note">
-                    当前为自定义字数，将在 STEP 03 精调（每节 {outlineWordControlOptions.sectionWords} 字）
-                  </small>
+              <small>早选不早生效：STEP 03 目录生成、STEP 05 正文生成时仍可调整</small>
+            </div>
+
+            <div className="quick-config-row">
+              <div className="quick-config-label"><strong>投标范围</strong><small>决定下游全部输入</small></div>
+              <div className="quick-config-row-body">
+                <span className={`quick-config-value${selectedSectionTitle ? '' : ' is-muted'}`}>
+                  {selectedSectionTitle ? `当前：多标段 · ${selectedSectionTitle}` : bidSectionMode === 'multiple' ? '当前：多标段 · 待选择' : '当前：单标段'}
+                </span>
+                <span className="quick-config-spacer" />
+                {(selectedSectionTitle || bidSectionMode === 'multiple' || bidSectionDetection?.hasMultiple || hasFormalBidSections) && (
+                  <button type="button" className="secondary-action" onClick={openSectionSelector} disabled={contentTaskLocked || sectionExtracting || sectionExtractionRunning || !tenderFile}>
+                    {selectedSectionTitle ? '更换标段' : hasFormalBidSections ? '选择标段' : '识别标段'}
+                  </button>
                 )}
-            </article>
-
-            <article className="quick-config-card">
-              <div className="quick-config-card-head">
-                <strong>表格密度</strong>
-                <small>STEP 05 也会同步</small>
               </div>
-              <div className="quick-config-card-value">{tableDensityOptions.find((opt) => opt.value === resolvedContentOptions.tableRequirement)?.label || '大量'}</div>
-              <div className="quick-config-card-pills" role="radiogroup" aria-label="表格密度">
-                {tableDensityOptions.map((option) => {
-                  const isActive = option.value === resolvedContentOptions.tableRequirement;
-                  return (
+            </div>
+
+            <div className="quick-config-row">
+              <div className="quick-config-label"><strong>标书篇幅</strong><small>字数控制预设</small></div>
+              <div className="quick-config-row-body quick-config-ladder-row">
+                <div className="quick-config-ladder" role="radiogroup" aria-label="标书篇幅">
+                  {(Object.keys(PAGE_LADDER_PRESETS) as Array<keyof typeof PAGE_LADDER_PRESETS>).map((key) => {
+                    const preset = PAGE_LADDER_PRESETS[key];
+                    const isActive = key === pageLadderKey;
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        role="radio"
+                        aria-checked={isActive}
+                        className={`quick-config-pill${isActive ? ' is-active' : ''}`}
+                        onClick={() => void applyPageLadder(key)}
+                        disabled={quickConfigSaving !== null || contentTaskLocked}
+                        title={preset.description}
+                      >
+                        {preset.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <small className="quick-config-note">
+                  {pageLadderKey === 'custom'
+                    ? `当前为自定义字数，将在 STEP 03 精调（每节 ${outlineWordControlOptions.sectionWords || '未设置'} 字）`
+                    : pageLadderKey === 'unset'
+                      ? '尚未设置篇幅约束'
+                      : `换算为全文 ${PAGE_LADDER_PRESETS[pageLadderKey].description}，STEP 03 可精确调整上下限与单节字数。`}
+                </small>
+              </div>
+            </div>
+
+            <div className="quick-config-row">
+              <div className="quick-config-label"><strong>表格密度</strong><small>正文表格要求</small></div>
+              <div className="quick-config-row-body">
+                <div className="quick-config-segment" role="radiogroup" aria-label="表格密度">
+                  {tableDensityOptions.map((option) => (
                     <button
                       key={option.value}
                       type="button"
                       role="radio"
-                      aria-checked={isActive}
-                      className={`quick-config-pill${isActive ? ' is-active' : ''}`}
+                      aria-checked={option.value === resolvedContentOptions.tableRequirement}
+                      className={hasTableDensitySelection && option.value === resolvedContentOptions.tableRequirement ? 'is-active' : ''}
                       onClick={() => void applyTableDensity(option.value)}
-                      disabled={quickConfigSaving !== null}
+                      disabled={quickConfigSaving !== null || contentTaskLocked}
                     >
                       {option.label}
                     </button>
-                  );
-                })}
+                  ))}
+                </div>
+                <span className="quick-config-note">对应 STEP 05 生成配置</span>
               </div>
-            </article>
+            </div>
 
-            <article className="quick-config-card">
-              <div className="quick-config-card-head">
-                <strong>图片开关</strong>
-                <small>STEP 05 也会同步</small>
+            <div className="quick-config-row">
+              <div className="quick-config-label"><strong>图片设置</strong><small>配图类型开关</small></div>
+              <div className="quick-config-row-body">
+                <div className="quick-config-image-pills" role="group" aria-label="图片设置">
+                  {([
+                    ['useAiImages', 'AI 配图'],
+                    ['useMermaidImages', 'Mermaid 图'],
+                    ['useHtmlImages', 'HTML 图'],
+                  ] as const).map(([key, label]) => {
+                    const active = imageSelectionState[key] && resolvedContentOptions[key];
+                    const disabled = quickConfigSaving !== null || contentTaskLocked || (key === 'useAiImages' && !imageModelAvailable);
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        className={`quick-config-image-pill${active ? ' is-active' : ''}`}
+                        aria-pressed={active}
+                        onClick={() => void applyImageToggle(key, !active)}
+                        disabled={disabled}
+                        title={key === 'useAiImages' && !imageModelAvailable ? '图片模型不可用' : undefined}
+                      >
+                        <span className="quick-config-image-dot" aria-hidden="true" />
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <span className="quick-config-note">修改后沿用现有失效规则（清空全文图片计划）</span>
               </div>
-              <div className="quick-config-card-toggles">
-                <label className="quick-config-toggle-row">
-                  <span>
-                    <strong>AI 生图</strong>
-                    <small>需要图片模型可用</small>
-                  </span>
-                  <AppSwitch
-                    checked={resolvedContentOptions.useAiImages}
-                    onCheckedChange={(value) => void applyImageToggle('useAiImages', value)}
-                    disabled={quickConfigSaving !== null}
-                    aria-label="启用 AI 生图"
-                  />
-                </label>
-                <label className="quick-config-toggle-row">
-                  <span>
-                    <strong>Mermaid 图</strong>
-                    <small>流程图、时序图等</small>
-                  </span>
-                  <AppSwitch
-                    checked={resolvedContentOptions.useMermaidImages}
-                    onCheckedChange={(value) => void applyImageToggle('useMermaidImages', value)}
-                    disabled={quickConfigSaving !== null}
-                    aria-label="启用 Mermaid 图"
-                  />
-                </label>
-                <label className="quick-config-toggle-row">
-                  <span>
-                    <strong>HTML 图</strong>
-                    <small>甘特图、矩阵等</small>
-                  </span>
-                  <AppSwitch
-                    checked={resolvedContentOptions.useHtmlImages}
-                    onCheckedChange={(value) => void applyImageToggle('useHtmlImages', value)}
-                    disabled={quickConfigSaving !== null}
-                    aria-label="启用 HTML 图"
-                  />
-                </label>
-              </div>
-            </article>
+            </div>
           </div>
+        )}
       </section>
 
       {hasDocumentTabs && (
@@ -814,31 +836,47 @@ function DocumentAnalysisPage({
       )}
 
       <section
-        className="technical-document-reader-card analysis-markdown-card"
+        className={`technical-document-reader-card analysis-markdown-card${documentContentExpanded ? ' is-expanded' : ' is-collapsed'}`}
         role={hasDocumentTabs ? 'tabpanel' : undefined}
         id={hasDocumentTabs ? `technical-document-panel-${activeDocumentTab}` : undefined}
         aria-labelledby={hasDocumentTabs ? `document-switch-tab-${activeDocumentTab}` : undefined}
       >
         <div className="analysis-result-head technical-document-reader-head">
-          <strong>{documentLabels[visibleDocumentTab]}内容</strong>
-          <span>{activeFile ? `${activeFile.fileName} · ${activeFile.markdownChars} 字` : '等待上传'}</span>
+          <div className="technical-document-reader-title">
+            <strong>{documentLabels[visibleDocumentTab]}内容</strong>
+            <span>{activeFile ? `${activeFile.fileName} · ${activeFile.markdownChars} 字` : '等待上传'}</span>
+          </div>
+          <button
+            type="button"
+            className="outline-config-action technical-document-reader-toggle"
+            aria-expanded={documentContentExpanded}
+            aria-controls="technical-document-reader-content"
+            onClick={toggleDocumentContent}
+            title={documentContentExpanded ? `收起${documentLabels[visibleDocumentTab]}内容` : `展开${documentLabels[visibleDocumentTab]}内容`}
+          >
+            {documentContentExpanded ? '收起' : '展开'}
+          </button>
         </div>
 
-        {activeTenderSourceLoading ? (
-          <div className="markdown-empty-state">
-            <strong>正在读取招标文件正文...</strong>
-            <p>文件较大时需要稍等片刻。</p>
-          </div>
-        ) : activeMarkdown ? (
-          <MarkdownFullscreenViewer title={`${documentLabels[visibleDocumentTab]}全屏预览`}>
-            <MarkdownRenderer>
-              {activeMarkdown}
-            </MarkdownRenderer>
-          </MarkdownFullscreenViewer>
-        ) : (
-          <div className="markdown-empty-state">
-            <strong>尚未导入{documentLabels[visibleDocumentTab]}</strong>
-            <p>{readerEmptyText}</p>
+        {documentContentExpanded && (
+          <div id="technical-document-reader-content" className="technical-document-reader-content">
+            {activeTenderSourceLoading ? (
+              <div className="markdown-empty-state">
+                <strong>正在读取招标文件正文...</strong>
+                <p>文件较大时需要稍等片刻。</p>
+              </div>
+            ) : activeMarkdown ? (
+              <MarkdownFullscreenViewer title={`${documentLabels[visibleDocumentTab]}全屏预览`}>
+                <MarkdownRenderer>
+                  {activeMarkdown}
+                </MarkdownRenderer>
+              </MarkdownFullscreenViewer>
+            ) : (
+              <div className="markdown-empty-state">
+                <strong>尚未导入{documentLabels[visibleDocumentTab]}</strong>
+                <p>{readerEmptyText}</p>
+              </div>
+            )}
           </div>
         )}
       </section>

@@ -64,7 +64,7 @@ CREATE TABLE IF NOT EXISTS technical_plan_meta (
   bid_sections_json TEXT,
   bid_section_extraction_status TEXT NOT NULL DEFAULT 'idle',
   bid_section_extraction_error TEXT,
-  outline_mode TEXT NOT NULL DEFAULT 'aligned',
+  outline_mode TEXT NOT NULL DEFAULT 'standalone-technical',
   -- v13 已有方案扩写目录使用方式：original-only / ai-complement。
   outline_expansion_mode TEXT NOT NULL DEFAULT 'ai-complement',
   -- v22 Step04 事实补全模式：fabricate / omit / placeholder，缺省 fabricate。
