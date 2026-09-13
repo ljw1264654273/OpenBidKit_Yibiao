@@ -5,6 +5,7 @@ const {
   applyGeneratedIllustrationsToDocument,
   generateMermaidIllustration,
   generateMermaidAiIllustration,
+  generateMermaidReviewDraft,
 } = require('./contentIllustrationGeneration.cjs');
 
 function createExecution() {
@@ -119,4 +120,50 @@ test('Mermaid AI asset_url result creates standard yibiao-asset image Markdown',
     'Existing text.\n\n<!-- yibiao-illustration:start id="mermaid-1" -->\n![Implementation flow](yibiao-asset://generated-images/mermaid-1.png)\n\n*<!-- yibiao-figure-caption -->Implementation flow*\n<!-- yibiao-illustration:end -->',
   );
   assert.equal(result.outlineData.outline[0].content, result.sections['1.1'].content);
+});
+
+test('Mermaid AI asset_url result takes priority over retained Mermaid code', () => {
+  const result = applyGeneratedIllustrationsToDocument({
+    items: [{
+      item_id: 'mermaid-1',
+      kind: 'mermaid',
+      title: 'Implementation flow',
+      section_ids: ['1.1'],
+      placement: 'after',
+      generation: {
+        status: 'success',
+        code: 'flowchart TD\n  A["Start"] --> B["Done"]',
+        asset_url: 'yibiao-asset://generated-images/mermaid-1.png',
+      },
+    }],
+  }, {
+    outline: [{ id: '1.1', title: 'Implementation flow', content: 'Existing text.' }],
+  }, {
+    '1.1': { id: '1.1', status: 'success', content: 'Existing text.' },
+  });
+
+  assert.match(result.sections['1.1'].content, /!\[Implementation flow\]\(yibiao-asset:\/\/generated-images\/mermaid-1\.png\)/);
+  assert.doesNotMatch(result.sections['1.1'].content, /```mermaid/);
+});
+
+test('Mermaid review draft returns validated code without calling image generation', async () => {
+  const renderService = createRenderService();
+  let imageCalled = false;
+  const result = await generateMermaidReviewDraft({
+    collectJsonResponse: async () => ({ code: 'flowchart TD\n  A["审核资料"] --> B["反馈结果"]' }),
+    generateImage: async () => {
+      imageCalled = true;
+      return { asset_url: 'yibiao-asset://generated-images/should-not-exist.png' };
+    },
+  }, createExecution(), undefined, renderService);
+
+  assert.deepEqual(result, {
+    status: 'reviewing',
+    code: 'flowchart TD\n  A["审核资料"] --> B["反馈结果"]',
+    draft_code: 'flowchart TD\n  A["审核资料"] --> B["反馈结果"]',
+    review_status: 'pending',
+    attempts: 0,
+  });
+  assert.equal(imageCalled, false);
+  assert.deepEqual(renderService.calls, [result.code]);
 });

@@ -334,6 +334,18 @@ async function generateMermaidAiIllustration(aiService, execution, isPauseLikeEr
   return { asset_url: generated.asset_url, attempts: mermaid.attempts + 1 };
 }
 
+async function generateMermaidReviewDraft(aiService, execution, isPauseLikeError, localImageRenderService) {
+  const runtime = resolveMermaidRuntimeArgs(isPauseLikeError, localImageRenderService);
+  const mermaid = await generateMermaidIllustration(aiService, execution, runtime.isPauseLikeError, runtime.localImageRenderService);
+  return {
+    status: 'reviewing',
+    code: mermaid.code,
+    draft_code: mermaid.code,
+    review_status: 'pending',
+    attempts: mermaid.attempts,
+  };
+}
+
 // 本地将 HTML 截取为 PNG，失败按统一策略重试。
 async function requestHtmlScreenshot(html, onRetry, pauseControl = {}, localImageRenderService = getLocalImageRenderService()) {
   let requestAttempts = 0;
@@ -519,10 +531,10 @@ function buildGeneratedIllustrationMarkdown(planItem) {
   const caption = singleLine(planItem.title);
   if (!caption) throw new Error(`图片计划缺少 title：${planItem.item_id || 'unknown'}`);
   let body = '';
-  if (planItem.kind === 'mermaid' && generation.code) {
-    body = `\`\`\`mermaid\n${normalizeMermaidCode(generation.code)}\n\`\`\`\n\n*<!-- yibiao-figure-caption -->${caption}*`;
-  } else if (generation.asset_url) {
+  if (generation.asset_url) {
     body = `![${caption}](${generation.asset_url})\n\n*<!-- yibiao-figure-caption -->${caption}*`;
+  } else if (planItem.kind === 'mermaid' && generation.code) {
+    body = `\`\`\`mermaid\n${normalizeMermaidCode(generation.code)}\n\`\`\`\n\n*<!-- yibiao-figure-caption -->${caption}*`;
   }
   if (!body) return '';
   return `<!-- yibiao-illustration:start id="${planItem.item_id}" -->\n${body}\n<!-- yibiao-illustration:end -->`;
@@ -604,6 +616,7 @@ module.exports = {
   generateMermaidCode,
   generateMermaidIllustration,
   generateMermaidAiIllustration,
+  generateMermaidReviewDraft,
   normalizeHtmlCode,
   prepareRenderableMermaid,
   stripGeneratedIllustrationsFromDocument,

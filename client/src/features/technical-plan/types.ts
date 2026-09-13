@@ -285,9 +285,13 @@ export interface ContentIllustrationPlanItem {
   placement: ContentIllustrationPlacement;
   priority: number;
   generation?: {
-    status: 'pending' | 'running' | 'success' | 'error';
+    status: 'pending' | 'running' | 'reviewing' | 'skipped' | 'success' | 'error';
     mode?: 'normal' | 'agent';
     code?: string;
+    draft_code?: string;
+    review_status?: 'pending' | 'confirmed' | 'skipped';
+    review_error?: string;
+    reviewed_at?: string;
     source_path?: string;
     asset_url?: string;
     attempts?: number;
