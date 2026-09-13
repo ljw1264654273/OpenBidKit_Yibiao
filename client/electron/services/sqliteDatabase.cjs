@@ -3,7 +3,7 @@ const path = require('node:path');
 const Database = require('better-sqlite3');
 const { getWorkspaceDatabasePath } = require('../utils/paths.cjs');
 
-const schemaVersion = 24;
+const schemaVersion = 25;
 
 function createInitialSchema(db) {
   db.exec(`
@@ -380,6 +380,10 @@ function createTaskLogsAndIllustrationItemsSchema(db) {
       generation_status TEXT,
       generation_mode TEXT,
       generation_code TEXT,
+      generation_draft_code TEXT,
+      generation_review_status TEXT,
+      generation_review_error TEXT,
+      generation_reviewed_at TEXT,
       generation_source_path TEXT,
       generation_asset_url TEXT,
       generation_attempts INTEGER,
@@ -399,6 +403,13 @@ function removeLegacyTechnicalPlanIllustrationType(db) {
   if (columns.has('illustration_type')) {
     db.exec('ALTER TABLE technical_plan_content_plans DROP COLUMN illustration_type');
   }
+}
+
+function addTechnicalPlanMermaidReviewState(db) {
+  addColumnIfMissing(db, 'technical_plan_illustration_items', 'generation_draft_code', 'TEXT');
+  addColumnIfMissing(db, 'technical_plan_illustration_items', 'generation_review_status', 'TEXT');
+  addColumnIfMissing(db, 'technical_plan_illustration_items', 'generation_review_error', 'TEXT');
+  addColumnIfMissing(db, 'technical_plan_illustration_items', 'generation_reviewed_at', 'TEXT');
 }
 
 function addKnowledgeDocumentSortOrder(db) {
@@ -1511,6 +1522,11 @@ const migrations = [
     version: 24,
     description: '技术方案新增远程知识库范围',
     up: createTechnicalPlanRemoteKnowledgeSchema,
+  },
+  {
+    version: 25,
+    description: '技术方案 Mermaid 配图新增人工审核状态',
+    up: addTechnicalPlanMermaidReviewState,
   },
 ];
 

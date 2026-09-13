@@ -1601,6 +1601,10 @@ function createTechnicalPlanStore({ app, db, fileService, agentService, taskLogS
       generation_status: generation?.status ? String(generation.status) : null,
       generation_mode: generation?.mode ? String(generation.mode) : null,
       generation_code: generation?.code ? String(generation.code) : null,
+      generation_draft_code: generation?.draft_code ? String(generation.draft_code) : null,
+      generation_review_status: generation?.review_status ? String(generation.review_status) : null,
+      generation_review_error: generation?.review_error ? String(generation.review_error) : null,
+      generation_reviewed_at: generation?.reviewed_at ? String(generation.reviewed_at) : null,
       generation_source_path: generation?.source_path ? String(generation.source_path) : null,
       generation_asset_url: generation?.asset_url ? String(generation.asset_url) : null,
       generation_attempts: generation?.attempts === undefined ? null : Number(generation.attempts || 0),
@@ -1614,12 +1618,14 @@ function createTechnicalPlanStore({ app, db, fileService, agentService, taskLogS
   const upsertIllustrationItem = db.prepare(`
     INSERT INTO technical_plan_illustration_items (
       item_id, kind, image_type, title, section_ids_json, placement, priority,
-      generation_status, generation_mode, generation_code, generation_source_path,
+      generation_status, generation_mode, generation_code, generation_draft_code,
+      generation_review_status, generation_review_error, generation_reviewed_at, generation_source_path,
       generation_asset_url, generation_attempts, generation_error, generation_updated_at,
       sort_order, updated_at
     ) VALUES (
       @item_id, @kind, @image_type, @title, @section_ids_json, @placement, @priority,
-      @generation_status, @generation_mode, @generation_code, @generation_source_path,
+      @generation_status, @generation_mode, @generation_code, @generation_draft_code,
+      @generation_review_status, @generation_review_error, @generation_reviewed_at, @generation_source_path,
       @generation_asset_url, @generation_attempts, @generation_error, @generation_updated_at,
       @sort_order, @updated_at
     ) ON CONFLICT(item_id) DO UPDATE SET
@@ -1632,6 +1638,10 @@ function createTechnicalPlanStore({ app, db, fileService, agentService, taskLogS
       generation_status = excluded.generation_status,
       generation_mode = excluded.generation_mode,
       generation_code = excluded.generation_code,
+      generation_draft_code = excluded.generation_draft_code,
+      generation_review_status = excluded.generation_review_status,
+      generation_review_error = excluded.generation_review_error,
+      generation_reviewed_at = excluded.generation_reviewed_at,
       generation_source_path = excluded.generation_source_path,
       generation_asset_url = excluded.generation_asset_url,
       generation_attempts = excluded.generation_attempts,
@@ -1678,6 +1688,10 @@ function createTechnicalPlanStore({ app, db, fileService, agentService, taskLogS
         status: row.generation_status,
         ...(row.generation_mode ? { mode: row.generation_mode } : {}),
         ...(row.generation_code ? { code: row.generation_code } : {}),
+        ...(row.generation_draft_code ? { draft_code: row.generation_draft_code } : {}),
+        ...(row.generation_review_status ? { review_status: row.generation_review_status } : {}),
+        ...(row.generation_review_error ? { review_error: row.generation_review_error } : {}),
+        ...(row.generation_reviewed_at ? { reviewed_at: row.generation_reviewed_at } : {}),
         ...(row.generation_source_path ? { source_path: row.generation_source_path } : {}),
         ...(row.generation_asset_url ? { asset_url: row.generation_asset_url } : {}),
         ...(row.generation_attempts === null ? {} : { attempts: Number(row.generation_attempts || 0) }),

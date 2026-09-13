@@ -103,8 +103,57 @@ async function runPersistenceAssertions() {
   }
 }
 
+async function runMermaidReviewPersistenceAssertions() {
+  const userDataPath = fs.mkdtempSync(path.join(os.tmpdir(), 'yibiao-mermaid-review-'));
+  let database;
+  let restartedDatabase;
+  try {
+    const app = createApp(userDataPath);
+    database = createSqliteDatabase(app);
+    const store = createStore(app, database.db);
+    const reviewGeneration = {
+      status: 'reviewing',
+      code: 'flowchart TD\n  A["开始"] --> B["结束"]',
+      draft_code: 'flowchart TD\n  A["开始"] --> B["结束"]',
+      review_status: 'pending',
+      review_error: '旧错误',
+      reviewed_at: '2026-09-13T00:00:00.000Z',
+      attempts: 1,
+    };
+
+    store.updateTechnicalPlan({
+      contentIllustrationPlan: {
+        plan_version: 1,
+        revision: 'review-state',
+        items: [{
+          item_id: 'mermaid-review-1',
+          kind: 'mermaid',
+          image_type: 'process',
+          title: '审核流程',
+          section_ids: ['1.1'],
+          placement: 'after',
+          generation: reviewGeneration,
+        }],
+      },
+    });
+
+    database.close();
+    database = null;
+    restartedDatabase = createSqliteDatabase(app);
+    const restarted = createStore(app, restartedDatabase.db).loadTechnicalPlan();
+    assert.deepEqual(restarted.contentIllustrationPlan.items[0].generation, reviewGeneration);
+  } finally {
+    database?.close();
+    restartedDatabase?.close();
+    fs.rmSync(userDataPath, { recursive: true, force: true });
+  }
+}
+
 if (process.argv.includes('--electron-native')) {
-  runPersistenceAssertions()
+  const run = process.argv.includes('--mermaid-review')
+    ? runMermaidReviewPersistenceAssertions
+    : runPersistenceAssertions;
+  run()
     .catch((error) => {
       console.error(error);
       process.exitCode = 1;
@@ -113,6 +162,14 @@ if (process.argv.includes('--electron-native')) {
 } else {
   test('saving Mermaid AI redraw options invalidates only illustration metadata', () => {
     const result = spawnSync(require('electron'), ['--runAsNode', __filename, '--electron-native'], {
+      encoding: 'utf8',
+      timeout: 30000,
+    });
+    assert.equal(result.status, 0, `${result.stderr || result.stdout || 'Electron native persistence test timed out'}`);
+  });
+
+  test('Mermaid review generation fields persist across restart', () => {
+    const result = spawnSync(require('electron'), ['--runAsNode', __filename, '--electron-native', '--mermaid-review'], {
       encoding: 'utf8',
       timeout: 30000,
     });
