@@ -58,7 +58,7 @@
 
 ## 数据模型
 
-复用 `contentIllustrationPlan.items` 作为权威列表，给 Mermaid 项的 `generation` 增加审核相关字段，避免新增平行缓存。为避免和现有 `success` 自动插图语义冲突，审核态不使用 `success`：
+复用 `contentIllustrationPlan.items` 作为权威列表，给 Mermaid 项的 `generation` 对象增加审核相关字段，避免新增平行缓存。字段归属统一为 `item.generation.<field>`；例如 `item.generation.review_status`、`item.generation.draft_code`。为避免和现有 `success` 自动插图语义冲突，审核态不使用 `success`：
 
 - `status`: 继续支持现有 `pending`、`running`、`success`、`error`，并为 Mermaid 审核模式新增 `reviewing`、`skipped`。`reviewing` 表示 Mermaid 代码已生成并通过本地校验，正在等待人工确认；`skipped` 表示用户跳过该图。只有 `success` 代表已有可插入正文的最终结果。
 - `code`: 当前生效 Mermaid 代码；用户确认后保存确认版。
@@ -79,12 +79,12 @@
 
 旧工作区没有这些字段时按现有生成状态兼容处理。普通 Mermaid 模式不写入 `review_status`，仍直接以 `code` 插入 Mermaid 代码块。开启 AI 重绘审核模式时，Mermaid 项先保存为 `reviewing`，不写入 `asset_url`，也不把 Mermaid 代码块提前插入正文。`applyGeneratedIllustrationsToDocument()` 继续只处理 `generation.status === 'success'` 的计划项，因此 `reviewing`、`pending`、`skipped`、`error` 都不会插入正文。
 
-SQLite 持久化沿用现有拆表方案，在 `technical_plan_illustration_items` 上新增列，而不是另建平行表或把状态塞进独立 JSON：
+SQLite 持久化沿用现有拆表方案，在 `technical_plan_illustration_items` 上新增列，而不是另建平行表或把状态塞进独立 JSON。列名沿用现有 `generation_*` 前缀，并映射回 `item.generation`：
 
 - `generation_draft_code TEXT`
-- `review_status TEXT`
-- `review_error TEXT`
-- `reviewed_at TEXT`
+- `generation_review_status TEXT`
+- `generation_review_error TEXT`
+- `generation_reviewed_at TEXT`
 
 实现时需要在 `sqliteDatabase.cjs` 增加 migration，并同步根目录 `sql/workspace_schema.sql` 的目标结构；`technicalPlanStore.cjs` 的 `illustrationItemValues()`、`upsertIllustrationItem` 和 `loadContentIllustrationPlan()` 同步映射这些列。
 
@@ -96,8 +96,8 @@ SQLite 持久化沿用现有拆表方案，在 `technical_plan_illustration_item
 
 - `previewMermaidReviewItem(itemId, code)`: 校验 Mermaid 语法并本地渲染，成功后返回校验通过状态和规范化后的代码；Renderer 使用 `MarkdownRenderer` 渲染同一段代码作为预览。Main 不另存预览图片，避免出现 Renderer 预览和持久化代码不一致。
 - `saveMermaidReviewCode(itemId, code)`: 保存当前代码草稿，但不确认。
-- `confirmMermaidReviewItem(itemId, code)`: 校验并保存确认代码，`review_status` 设为 `confirmed`，`generation.status` 设为 `pending`。
-- `skipMermaidReviewItem(itemId)`: `review_status` 设为 `skipped`，`generation.status` 设为 `skipped`。
+- `confirmMermaidReviewItem(itemId, code)`: 校验并保存确认代码，`generation.review_status` 设为 `confirmed`，`generation.status` 设为 `pending`。
+- `skipMermaidReviewItem(itemId)`: `generation.review_status` 设为 `skipped`，`generation.status` 设为 `skipped`。
 - `startMermaidReviewRedraw()`: 启动仅处理已确认 Mermaid 项的后台任务。
 
 Renderer 仍只通过 `window.yibiao` 调用，不直接访问 Node、`fs` 或 `ipcRenderer`。新增 preload API 时同步 `client/src/shared/types/ipc.ts`。
@@ -107,11 +107,11 @@ Renderer 仍只通过 `window.yibiao` 调用，不直接访问 Node、`fs` 或 `
 `contentGenerationTask` 在图片生成阶段按模式分支：
 
 - 普通 Mermaid 模式：保持当前 `generateMermaidIllustration()` 行为，生成 Mermaid 代码并插入 Mermaid 代码块。
-- Mermaid AI 重绘审核模式：生成并校验 Mermaid 代码后，将计划项保存为 `status: reviewing`、`review_status: pending`，不调用图片模型，不把 Mermaid 图插入正文。任务继续完成，并在日志中提示“已生成 Mermaid 待确认草稿”。该 `reviewing` 状态在初始正文任务的图片生成统计中视为“本阶段已处理完成”，但不是可插入正文的成功状态。
+- Mermaid AI 重绘审核模式：生成并校验 Mermaid 代码后，将计划项保存为 `generation.status: reviewing`、`generation.review_status: pending`，不调用图片模型，不把 Mermaid 图插入正文。任务继续完成，并在日志中提示“已生成 Mermaid 待确认草稿”。该 `reviewing` 状态在初始正文任务的图片生成统计中视为“本阶段已处理完成”，但不是可插入正文的成功状态。
 
-新增“审核后重绘”任务可以复用 `tasks.startContentGeneration()` 的 `rerunIllustrations` 思路，也可以增加明确 payload，例如 `redrawConfirmedMermaidIllustrations`。该任务只读取当前 `contentIllustrationPlan` 中 `kind === 'mermaid' && review_status === 'confirmed' && generation.status !== 'success' && !generation.asset_url` 的项，调用现有 `buildMermaidAiImagePrompt()` 和 `aiService.generateImage()`。成功后写入 `asset_url`、`status: success`，失败写入 `status: error` 和错误信息。重复点击“开始 AI 重绘”不会重新生成已经成功且已有 `asset_url` 的确认项。
+新增“审核后重绘”任务可以复用 `tasks.startContentGeneration()` 的 `rerunIllustrations` 思路，也可以增加明确 payload，例如 `redrawConfirmedMermaidIllustrations`。该任务只读取当前 `contentIllustrationPlan` 中 `kind === 'mermaid' && generation.review_status === 'confirmed' && generation.status !== 'success' && !generation.asset_url` 的项，调用现有 `buildMermaidAiImagePrompt()` 和 `aiService.generateImage()`。成功后写入 `asset_url`、`status: success`，失败写入 `status: error` 和错误信息。重复点击“开始 AI 重绘”不会重新生成已经成功且已有 `asset_url` 的确认项。
 
-重绘任务完成后调用现有 `applyGeneratedIllustrationsToDocument()` 插入最终图片。该函数需要继续按 `asset_url` 分支生成图片 Markdown；跳过和未确认项没有 `asset_url`，不会插入正文。
+重绘任务完成后调用现有 `applyGeneratedIllustrationsToDocument()` 插入最终图片。`buildGeneratedIllustrationMarkdown()` 需要调整为只要 `generation.asset_url` 存在就优先生成图片 Markdown；只有没有 `asset_url` 且 `kind === 'mermaid' && generation.code` 时，才生成 Mermaid 代码块。这样 AI 重绘成功的 Mermaid 项即使保留确认代码，也会插入最终 AI 图片。跳过和未确认项没有 `asset_url`，不会插入正文。
 
 暂停和恢复沿用现有任务体系。由于审核发生在正文任务完成后，应用关闭不会丢失待确认状态；下次打开仍从 SQLite 加载 `contentIllustrationPlan` 展示审核区。
 
@@ -134,10 +134,11 @@ AI 重绘失败时只影响该图项，不回退为普通 Mermaid 代码块，�
 重点测试：
 
 - 旧配置和普通 Mermaid 模式不出现审核区，生成行为保持不变。
-- 开启 AI 重绘审核模式后，Mermaid 项生成 `review_status: pending`，正文不提前插入 AI 重绘图片。
+- 开启 AI 重绘审核模式后，Mermaid 项生成 `generation.status: reviewing` 与 `generation.review_status: pending`，正文不提前插入 AI 重绘图片。
 - 用户修改 Mermaid 代码后，预览校验成功才能确认。
 - 跳过项不会进入 AI 重绘，也不会插入正文图片。
 - 已确认项使用确认后的代码生成 AI 图片，并通过现有插图块插入对应章节。
+- AI 重绘成功项同时存在 `generation.code` 与 `generation.asset_url` 时，正文插入的是图片 Markdown，而不是 Mermaid 代码块。
 - 应用重启后待确认、已确认、跳过和失败状态可恢复。
 - 保存正文、修改目录、保存正文生成配置时，仍按现有规则清空或保留图片计划。
 
