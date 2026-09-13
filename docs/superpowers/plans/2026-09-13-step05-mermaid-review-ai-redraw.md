@@ -252,6 +252,7 @@
   In `workflowLayout.test.ts`, assert `ContentEditPage.tsx` contains:
   - A Mermaid review entry point label such as `Mermaid 待确认`.
   - Calls to `previewMermaidReviewItem`, `confirmMermaidReviewItem`, `skipMermaidReviewItem`.
+  - A call to `saveMermaidReviewCode` after preview validation succeeds.
   - A “恢复 AI 初稿” control wired to the current item `generation.draft_code`.
   - A start action using `redrawConfirmedMermaidIllustrations`.
   - `MarkdownRenderer` preview with `renderMermaid` and `allowRawHtml={false}` in the review UI.
@@ -282,7 +283,7 @@
 
   - Add Dialog with item list, metadata, textarea code editor, preview panel, and actions.
   - Use `MarkdownRenderer renderMermaid allowRawHtml={false}` for preview.
-  - `更新预览` calls preview IPC; success updates local normalized code and clears error.
+  - `更新预览` calls preview IPC; success updates local normalized code, clears error, then calls `saveMermaidReviewCode` to persist the edited-but-unconfirmed draft and passes the returned `Partial<TechnicalPlanState>` to `onPlanPatched`.
   - `确认此图` calls confirm IPC and immediately passes the returned `Partial<TechnicalPlanState>` to `onPlanPatched`; do not wait for task events because these IPC calls are not background tasks.
   - `跳过` calls skip IPC and immediately applies the returned `Partial<TechnicalPlanState>`.
   - `恢复 AI 初稿` resets the editor to `generation.draft_code` and clears the local preview error; if the user confirms, the restored code is persisted through the same confirm path.
