@@ -51,11 +51,14 @@ Add `--yb-sidebar-expanded-width: 220px` and `--yb-sidebar-collapsed-width: 72px
 
 Replace the sidebar's hard-coded `286px` width/min-width with `var(--yb-sidebar-expanded-width)`. Replace the collapsed `88px` width/min-width with `var(--yb-sidebar-collapsed-width)`. Change `.app-shell.is-mac::before` so its `left` uses the expanded width variable by default and the collapsed sidebar selector uses the collapsed width variable. Preserve the current `28px` drag-region height and existing `no-drag` rules for controls.
 
+Because the collapse button extends `17px` beyond the sidebar edge, keep the sidebar stacking context above the macOS drag pseudo-element (for example, raise the macOS sidebar z-index above `15`) and explicitly keep `.collapse-button` as `-webkit-app-region: no-drag`. This must leave the existing button clickable in both sidebar states while preserving the drag region over the main content.
+
 - [ ] **Step 3: Compact the brand and navigation spacing**
 
 Update the expanded layout to the approved dimensions:
 
-- brand block fixed height target: `48px`;
+- brand block fixed height: `48px`, with `min-height: 48px` and `padding: 0 8px`;
+- expanded brand mark: `36px` square;
 - sidebar horizontal padding remains compatible with the `220px` width;
 - navigation item height: `40px`;
 - navigation item vertical padding: `6px`;
@@ -63,7 +66,7 @@ Update the expanded layout to the approved dimensions:
 - icon container: `28px`;
 - icon: `17px`.
 
-Hide the sidebar descriptions by removing them from the component markup, and keep `.nav-copy` as a single-line label layout. Preserve the nav's internal vertical scrolling.
+Hide the sidebar descriptions by removing them from the component markup, and keep `.nav-copy` as a single-line label layout. Apply the same `40px` height and `6px` vertical padding to expanded footer document/settings buttons. Set the footer group gap to `3px` and its top padding to `12px`. Preserve the nav's internal vertical scrolling.
 
 - [ ] **Step 4: Implement the compact selected and hover states**
 
@@ -74,10 +77,11 @@ Replace the current active-item blue/violet gradient, inset highlight, and heavy
 For `.sidebar.is-collapsed`:
 
 - use `10px` horizontal sidebar padding;
-- make the brand block horizontal padding `0`, set its logo to `32px`, and center it;
+- make the brand block `48px` high with `min-height: 48px`, vertical padding `0`, horizontal padding `0`, set its logo to `32px`, and center it;
 - set menu and footer button horizontal padding to `0`, fill the inner content width, and center their icon content;
 - set collapsed icon container to `30px` and its SVG to `18px`;
 - set collapsed item height to `38px` with `3px` gaps;
+- set the collapsed footer group gap to `3px` and its top padding to `12px`;
 - keep brand/menu/settings copy hidden;
 - keep the existing Tooltip wrapper and collapse button.
 
@@ -131,9 +135,13 @@ Clear only the `yibiao.sidebar.collapsed` preference in the Renderer devtools or
 
 Click the existing collapse button to expand the sidebar, close and reopen the client, and confirm it remains expanded. Collapse it again, close and reopen, and confirm it remains collapsed.
 
+Also verify that a missing key and an invalid value such as `"1"` fall back to collapsed, and that storage access failures do not prevent the visual toggle. Confirm normal writes are limited to the exact strings `"true"` and `"false"`.
+
 - [ ] **Step 5: Verify navigation and layout consumers**
 
 Click representative top-level menus, a menu item with a notice, document, and settings. Confirm navigation and Toast behavior are unchanged. Open the settings page in both sidebar states and confirm the `FloatingToolbar` remains offset after the sidebar edge. On macOS, verify the `28px` top drag region begins after the correct sidebar width in both states.
+
+On macOS, click the existing collapse button while expanded and while collapsed to confirm it remains clickable and does not start window dragging.
 
 - [ ] **Step 6: Commit the implementation**
 
@@ -145,4 +153,3 @@ git commit -m "feat: compact sidebar and persist layout state"
 ```
 
 Do not stage the brainstorming preview directory or unrelated worktree changes.
-
