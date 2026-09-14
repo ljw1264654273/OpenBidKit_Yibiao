@@ -242,12 +242,12 @@ In the `Generate macOS icon` step, replace every `assets/icon_256.png` input wit
 Run:
 
 ```powershell
-client\vendor\agent-tools\win32-x64\bin\rg.exe -n -S "icon_256|OpenBidKit_Yibiao|Yibiao-" .github\workflows\release.yml .github\scripts client\electron\services\updateService.cjs client\package.json
+client\vendor\agent-tools\win32-x64\bin\rg.exe -n -S "assets/icon_256\\.png|productName=OpenBidKit_Yibiao|Yibiao-" .github\workflows\release.yml .github\scripts client\electron\services\updateService.cjs client\package.json
 ```
 
 Expected:
 
-- No `icon_256` match.
+- No `assets/icon_256.png` source-image match. macOS `.iconset` output names such as `icon_256x256.png` are expected and should remain.
 - No `-c.productName=OpenBidKit_Yibiao` match.
 - Existing repository identifiers and `Yibiao-` artifact/update naming matches remain unchanged.
 
