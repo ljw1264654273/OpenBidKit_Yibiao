@@ -16,10 +16,14 @@
   position: fixed;
   top: 0;
   right: 0;
-  left: 84px;
+  left: var(--yb-sidebar-expanded-width);
   z-index: 15;
   height: 28px;
   -webkit-app-region: drag;
+}
+
+.app-shell.is-mac:has(.sidebar.is-collapsed)::before {
+  left: var(--yb-sidebar-collapsed-width);
 }
 
 .app-shell.is-mac button,
@@ -35,8 +39,8 @@
   position: relative;
   z-index: 2;
   display: flex;
-  width: 286px;
-  min-width: 286px;
+  width: var(--yb-sidebar-expanded-width);
+  min-width: var(--yb-sidebar-expanded-width);
   height: 100vh;
   flex-direction: column;
   overflow: visible;
@@ -49,10 +53,14 @@
 }
 
 .sidebar.is-collapsed {
-  width: 88px;
-  min-width: 88px;
-  padding-right: 14px;
-  padding-left: 14px;
+  width: var(--yb-sidebar-collapsed-width);
+  min-width: var(--yb-sidebar-collapsed-width);
+  padding-right: 10px;
+  padding-left: 10px;
+}
+
+.app-shell.is-mac .sidebar {
+  z-index: 16;
 }
 
 .sidebar-surface {
@@ -77,16 +85,17 @@
   flex: 0 0 auto;
   align-items: center;
   gap: 12px;
-  min-height: 52px;
-  padding: 2px 8px 22px;
+  height: 48px;
+  min-height: 48px;
+  padding: 0 8px;
   border-bottom: 1px solid var(--yb-border-soft);
 }
 
 .brand-mark {
   display: grid;
-  width: 44px;
-  height: 44px;
-  flex: 0 0 44px;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
   place-items: center;
   background: transparent;
   border: 0;
@@ -144,6 +153,10 @@
   transition: box-shadow var(--yb-duration-fast) ease, transform var(--yb-duration-fast) ease;
 }
 
+.app-shell.is-mac .collapse-button {
+  -webkit-app-region: no-drag;
+}
+
 .collapse-button:hover {
   box-shadow: 0 14px 30px rgba(33, 116, 253, 0.2), 0 0 0 4px rgba(248, 250, 253, 0.9);
   transform: scale(1.06);
@@ -164,7 +177,7 @@
   min-height: 0;
   flex: 1;
   flex-direction: column;
-  gap: 5px;
+  gap: 3px;
   margin-top: 20px;
   padding-right: 4px;
   overflow-x: hidden;
@@ -195,9 +208,10 @@
 .settings-trigger {
   display: flex;
   width: 100%;
+  height: 40px;
   align-items: center;
   gap: 13px;
-  padding: 11px 13px;
+  padding: 6px 13px;
   color: var(--yb-text-soft);
   text-align: left;
   background: transparent;
@@ -217,10 +231,10 @@
 
 .nav-item.is-active,
 .settings-trigger.is-active {
-  color: #ffffff;
-  background: linear-gradient(135deg, var(--yb-primary) 0%, var(--yb-violet) 100%);
-  border-color: rgba(33, 116, 253, 0.2);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.24), 0 14px 30px rgba(33, 116, 253, 0.22);
+  color: var(--yb-violet);
+  background: rgba(91, 84, 211, 0.1);
+  border-color: rgba(91, 84, 211, 0.18);
+  box-shadow: none;
 }
 
 .nav-item.is-active:hover,
@@ -230,31 +244,31 @@
 
 .nav-item.is-active .nav-icon,
 .settings-trigger.is-active .nav-icon {
-  background: rgba(255, 255, 255, 0.18);
-  border-color: rgba(255, 255, 255, 0.24);
+  background: rgba(91, 84, 211, 0.1);
+  border-color: rgba(91, 84, 211, 0.16);
 }
 
 .nav-item.is-active .nav-copy small,
 .settings-trigger.is-active .settings-copy small {
-  color: rgba(255, 255, 255, 0.8);
+  color: rgba(91, 84, 211, 0.72);
 }
 
 .nav-icon {
   display: grid;
-  width: 34px;
-  height: 34px;
-  flex: 0 0 34px;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
   place-items: center;
   color: inherit;
-  background: linear-gradient(150deg, rgba(33, 116, 253, 0.1), rgba(91, 84, 211, 0.07));
-  border: 1px solid rgba(33, 116, 253, 0.1);
+  background: transparent;
+  border: 1px solid transparent;
   border-radius: var(--yb-radius-md);
   transition: background var(--yb-duration-fast) ease, border-color var(--yb-duration-fast) ease;
 }
 
 .nav-icon svg {
-  width: 19px;
-  height: 19px;
+  width: 17px;
+  height: 17px;
 }
 
 .nav-copy,
@@ -284,16 +298,16 @@
   display: flex;
   flex: 0 0 auto;
   flex-direction: column;
-  gap: 5px;
+  gap: 3px;
   margin-top: auto;
-  padding-top: 16px;
+  padding-top: 12px;
   border-top: 1px solid var(--yb-border-soft);
 }
 
 .sidebar-footer-shortcuts {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 5px;
+  gap: 3px;
 }
 
 .sidebar-footer-shortcut {
@@ -302,6 +316,49 @@
 
 .sidebar.is-collapsed .sidebar-footer-shortcuts {
   grid-template-columns: 1fr;
+}
+
+.sidebar.is-collapsed .brand-block {
+  height: 48px;
+  min-height: 48px;
+  justify-content: center;
+  gap: 0;
+  padding: 0;
+}
+
+.sidebar.is-collapsed .brand-mark {
+  width: 32px;
+  height: 32px;
+  flex-basis: 32px;
+}
+
+.sidebar.is-collapsed .sidebar-nav {
+  gap: 3px;
+  padding-right: 0;
+}
+
+.sidebar.is-collapsed .sidebar-footer {
+  gap: 3px;
+  padding-top: 12px;
+}
+
+.sidebar.is-collapsed .nav-item,
+.sidebar.is-collapsed .settings-trigger {
+  height: 38px;
+  justify-content: center;
+  gap: 0;
+  padding: 6px 0;
+}
+
+.sidebar.is-collapsed .nav-icon {
+  width: 30px;
+  height: 30px;
+  flex-basis: 30px;
+}
+
+.sidebar.is-collapsed .nav-icon svg {
+  width: 18px;
+  height: 18px;
 }
 
 /* [434-537] main-area + agent-runtime-status-bar/dot/copy/meta + keyframes + section-kicker */
