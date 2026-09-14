@@ -11,8 +11,8 @@
   --yb-text: #1c2536;
   --yb-text-soft: #66707f;
   --yb-text-muted: #98a2b3;
-  --yb-sidebar-expanded-width: 220px;
-  --yb-sidebar-collapsed-width: 72px;
+  --yb-sidebar-expanded-width: 200px;
+  --yb-sidebar-collapsed-width: 64px;
 
   /* 语义色：成功 / 警告 / 危险，各含主色、深文字、浅背景、边框四档 */
   --yb-success: #168a4a;
