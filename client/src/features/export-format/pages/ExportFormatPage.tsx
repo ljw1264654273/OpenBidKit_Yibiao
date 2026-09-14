@@ -1165,7 +1165,7 @@ function ExportFormatPage({ mode = 'create', templateId = null, onBack }: Export
         <div className="export-body-outline-levels-head">
           <div>
             <strong>正文层次</strong>
-            <span>有序正文按层级使用不同编号、字体和字号；超过四层时自动扩展为带圈数字。</span>
+            <span>每层首行缩进都从正文左边界计算，设为 0 表示该层顶格；超过四层时自动扩展为带圈数字。</span>
           </div>
         </div>
         <div className="export-body-outline-level-list">
@@ -1194,6 +1194,19 @@ function ExportFormatPage({ mode = 'create', templateId = null, onBack }: Export
                   <select value={level.size} onChange={(event) => updateBodyOutlineLevel(index, { size: event.target.value })}>
                     {SIZE_OPTIONS.map((size) => <option key={size} value={size}>{size}</option>)}
                   </select>
+                </label>
+                <label>
+                  <span>首行缩进（字符）</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={10}
+                    step={0.5}
+                    value={level.first_line_indent_chars}
+                    onChange={(event) => updateBodyOutlineLevel(index, {
+                      first_line_indent_chars: Number(event.target.value),
+                    })}
+                  />
                 </label>
               </div>
             </div>

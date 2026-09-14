@@ -155,6 +155,7 @@ export function buildExportFormatCssVars(config: ExportFormatConfig): Record<str
     : '0';
   vars['--ef-body-line-height'] = String(config.body_text.line_spacing_multiple);
   const listIndent = `${config.body_text.list_indent_chars ?? 2}em`;
+  vars['--ef-body-outline-marker-width'] = '1em';
   vars['--ef-list-indent'] = listIndent;
   const unorderedListStyle = unorderedListStyleToCss(config.body_text.list_style, listIndent);
   vars['--ef-unordered-list-marker'] = unorderedListStyle.marker;
@@ -188,6 +189,12 @@ export function buildExportFormatCssVars(config: ExportFormatConfig): Record<str
     vars[`--ef-body-outline-${levelKey}-counter-style`] = levelListStyle.counterStyle;
     vars[`--ef-body-outline-${levelKey}-prefix`] = levelListStyle.prefix;
     vars[`--ef-body-outline-${levelKey}-suffix`] = levelListStyle.suffix;
+    if (index < DEFAULT_BODY_OUTLINE_LEVELS.length) {
+      const firstLineIndentChars = typeof level.first_line_indent_chars === 'number'
+        ? level.first_line_indent_chars
+        : 0;
+      vars[`--ef-body-outline-${levelKey}-indent`] = `${firstLineIndentChars}em`;
+    }
   }
 
   // ── 各级标题 h1-h6 ──

@@ -1,0 +1,783 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>需求文档 · 标书项目管理</title>
+<style>
+  :root {
+    --ink: #1a1f36;
+    --ink-2: #3c4257;
+    --ink-3: #697386;
+    --ink-4: #a3acb9;
+    --line: #e6e9ef;
+    --bg: #f7f9fc;
+    --card: #ffffff;
+    --brand: #635bff;
+    --brand-soft: #f0efff;
+    --brand-2: #8b7dff;
+    --cyan: #38c8f0;
+    --amber: #b25b00;
+    --amber-soft: #fff5e6;
+    --red: #c0123c;
+    --red-soft: #ffeef2;
+    --green: #0f7b6c;
+    --green-soft: #e8f7f3;
+    --shadow: 0 1px 2px rgba(26,31,54,.06), 0 8px 24px rgba(26,31,54,.06);
+    --shadow-lg: 0 2px 6px rgba(26,31,54,.08), 0 18px 48px rgba(26,31,54,.08);
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    font-size: 15px;
+    line-height: 1.75;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--brand); text-decoration: none; }
+
+  /* ---------- Hero ---------- */
+  .hero {
+    position: relative;
+    overflow: hidden;
+    background:
+      radial-gradient(900px 380px at 12% -10%, rgba(99,91,255,.20), transparent 62%),
+      radial-gradient(760px 320px at 88% 0%, rgba(56,200,240,.18), transparent 60%),
+      linear-gradient(180deg, #ffffff 0%, #fbfcff 100%);
+    border-bottom: 1px solid var(--line);
+  }
+  .hero-inner { max-width: 1080px; margin: 0 auto; padding: 56px 32px 40px; }
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
+    color: var(--brand); background: #fff; border: 1px solid #e2e0ff;
+    padding: 6px 12px; border-radius: 999px; box-shadow: 0 1px 2px rgba(99,91,255,.10);
+  }
+  .hero h1 {
+    font-size: 40px; line-height: 1.22; letter-spacing: -.02em;
+    margin: 18px 0 10px; font-weight: 700;
+  }
+  .hero h1 .grad {
+    background: linear-gradient(100deg, #635bff 0%, #8b7dff 45%, #38c8f0 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .hero .lede { color: var(--ink-2); max-width: 720px; margin: 0 0 26px; font-size: 16px; }
+  .meta-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(165px, 1fr));
+    gap: 10px; margin-top: 8px;
+  }
+  .meta-item {
+    background: rgba(255,255,255,.86); backdrop-filter: blur(6px);
+    border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px;
+    box-shadow: 0 1px 2px rgba(26,31,54,.04);
+  }
+  .meta-item dt { font-size: 11.5px; color: var(--ink-4); font-weight: 600; letter-spacing: .04em; }
+  .meta-item dd { margin: 4px 0 0; font-size: 14px; font-weight: 600; color: var(--ink); }
+
+  /* ---------- Layout ---------- */
+  .wrap {
+    max-width: 1080px; margin: 0 auto; padding: 36px 32px 96px;
+    display: grid; grid-template-columns: 208px 1fr; gap: 40px; align-items: start;
+  }
+  .toc { position: sticky; top: 28px; font-size: 13.5px; }
+  .toc-title { font-size: 11.5px; font-weight: 700; letter-spacing: .08em; color: var(--ink-4); text-transform: uppercase; margin-bottom: 10px; }
+  .toc ol { list-style: none; margin: 0; padding: 0; counter-reset: t; }
+  .toc li { counter-increment: t; margin-bottom: 2px; }
+  .toc a {
+    display: block; padding: 7px 10px 7px 26px; border-radius: 8px;
+    color: var(--ink-3); position: relative; transition: .15s;
+  }
+  .toc a::before {
+    content: counter(t); position: absolute; left: 8px; top: 7px;
+    font-size: 11px; color: var(--ink-4); font-variant-numeric: tabular-nums;
+  }
+  .toc a:hover { background: #fff; color: var(--brand); box-shadow: 0 1px 2px rgba(26,31,54,.05); }
+
+  main { min-width: 0; }
+  section { margin-bottom: 44px; scroll-margin-top: 24px; }
+  h2 {
+    font-size: 21px; letter-spacing: -.01em; margin: 0 0 16px; font-weight: 700;
+    display: flex; align-items: center; gap: 10px;
+  }
+  h2 .num {
+    flex: none; width: 26px; height: 26px; border-radius: 8px;
+    background: linear-gradient(140deg, var(--brand), var(--brand-2));
+    color: #fff; font-size: 13px; font-weight: 700;
+    display: inline-flex; align-items: center; justify-content: center;
+    box-shadow: 0 3px 8px rgba(99,91,255,.28);
+  }
+  h3 { font-size: 15.5px; margin: 22px 0 8px; color: var(--ink); font-weight: 650; }
+  p { margin: 0 0 12px; color: var(--ink-2); }
+  ul, ol.plain { margin: 0 0 12px; padding-left: 20px; color: var(--ink-2); }
+  li { margin-bottom: 4px; }
+
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+    padding: 22px 24px; box-shadow: var(--shadow);
+  }
+  .card + .card { margin-top: 14px; }
+
+  .quote {
+    border-left: 3px solid var(--brand); background: linear-gradient(90deg, var(--brand-soft), rgba(240,239,255,0));
+    padding: 12px 18px; border-radius: 0 10px 10px 0; color: var(--ink); font-size: 14.5px;
+  }
+  .quote .lbl { display: block; font-size: 11.5px; font-weight: 700; letter-spacing: .05em; color: var(--brand); text-transform: uppercase; margin-bottom: 2px; }
+
+  /* ---------- Tables ---------- */
+  table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13.8px; }
+  .table-card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; box-shadow: var(--shadow); }
+  th {
+    text-align: left; font-size: 12px; letter-spacing: .04em; color: var(--ink-3);
+    text-transform: uppercase; font-weight: 700; background: #fafbfe;
+    padding: 11px 16px; border-bottom: 1px solid var(--line); white-space: nowrap;
+  }
+  td { padding: 13px 16px; border-bottom: 1px solid #f0f2f7; vertical-align: top; color: var(--ink-2); }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover td { background: #fcfdff; }
+  td strong { color: var(--ink); }
+  .code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.6px; color: var(--ink-3); }
+
+  /* ---------- Chips ---------- */
+  .chip {
+    display: inline-block; padding: 2px 9px; border-radius: 999px;
+    font-size: 11.5px; font-weight: 700; white-space: nowrap; line-height: 1.7;
+  }
+  .chip.must { background: #efeaff; color: #4b41d6; }
+  .chip.should { background: var(--amber-soft); color: var(--amber); }
+  .chip.could { background: #eef1f6; color: var(--ink-3); }
+  .chip.wont { background: #f6f7fa; color: var(--ink-4); }
+  .todo {
+    display: inline-block; padding: 1px 8px; border-radius: 6px; margin-left: 4px;
+    font-size: 11.5px; font-weight: 700; background: var(--amber-soft); color: var(--amber);
+    border: 1px dashed #f0c98a; white-space: nowrap; vertical-align: 1px;
+  }
+
+  /* ---------- Given-When-Then ---------- */
+  .gwt { display: grid; gap: 12px; }
+  .gwt-item {
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+    padding: 16px 20px; box-shadow: var(--shadow);
+  }
+  .gwt-item .head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+  .gwt-item .name { font-weight: 650; font-size: 14.5px; color: var(--ink); }
+  .gwt-item .id { font-size: 12px; font-weight: 700; color: var(--brand); letter-spacing: .04em; }
+  .gwt-row { display: grid; grid-template-columns: 74px 1fr; gap: 12px; padding: 6px 0; border-top: 1px dashed #f0f2f7; }
+  .gwt-row:first-of-type { border-top: none; }
+  .gwt-key { font-size: 12px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; color: var(--ink-4); padding-top: 2px; }
+  .gwt-val { font-size: 14px; color: var(--ink-2); }
+  .gwt-val .then { color: var(--green); font-weight: 600; }
+
+  /* ---------- Callouts ---------- */
+  .note {
+    border-radius: 12px; padding: 14px 18px; font-size: 14px;
+    border: 1px solid #e2e0ff; background: var(--brand-soft); color: #3f37b8;
+  }
+  .note.warn { border-color: #f5dcb4; background: var(--amber-soft); color: #7a4400; }
+  .note .t { display: block; font-weight: 700; margin-bottom: 4px; font-size: 13.5px; }
+
+  /* ---------- Checklist ---------- */
+  .check { list-style: none; margin: 0; padding: 0; }
+  .check li {
+    display: flex; gap: 12px; align-items: flex-start;
+    padding: 14px 18px; background: var(--card); border: 1px solid var(--line);
+    border-radius: 12px; margin-bottom: 10px; box-shadow: 0 1px 2px rgba(26,31,54,.04);
+  }
+  .check .box {
+    flex: none; width: 18px; height: 18px; margin-top: 3px; border-radius: 5px;
+    border: 1.6px solid #cbd2e0; background: #fff;
+  }
+  .check .txt { font-size: 14px; color: var(--ink-2); }
+  .check .txt b { color: var(--ink); }
+  .check.must li { border-left: 3px solid var(--brand); }
+
+  /* ---------- Scope two-col ---------- */
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .scope { border-radius: 14px; padding: 18px 20px; border: 1px solid var(--line); background: var(--card); box-shadow: var(--shadow); }
+  .scope h3 { margin: 0 0 10px; font-size: 14px; display: flex; align-items: center; gap: 8px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .dot.in { background: var(--green); box-shadow: 0 0 0 4px var(--green-soft); }
+  .dot.out { background: var(--ink-4); box-shadow: 0 0 0 4px #f1f3f7; }
+  .scope ul { margin: 0; padding-left: 18px; font-size: 13.8px; }
+
+  figure { margin: 0 0 18px; }
+  figure svg { display: block; width: 100%; height: auto; }
+
+  footer {
+    max-width: 1080px; margin: 0 auto; padding: 0 32px 60px;
+    color: var(--ink-4); font-size: 12.5px;
+  }
+
+  @media (max-width: 900px) {
+    .wrap { grid-template-columns: 1fr; gap: 24px; padding: 28px 20px 72px; }
+    .toc { position: static; display: none; }
+    .hero h1 { font-size: 30px; }
+    .split { grid-template-columns: 1fr; }
+    .hero-inner, footer { padding-left: 20px; padding-right: 20px; }
+  }
+  @media print {
+    body { background: #fff; }
+    .toc { display: none; }
+    .wrap { grid-template-columns: 1fr; padding: 0 0 24px; }
+    .card, .gwt-item, .table-card, .check li, .scope { box-shadow: none; break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="hero-inner">
+    <span class="eyebrow">需求文档 · v1.0 业务已确认</span>
+    <h1>标书项目管理<br><span class="grad">从「一次写一个」到「多标书并行管理」</span></h1>
+    <p class="lede">当前客户端一次只能承载一个标书撰写流程，历史标书没有独立载体。本需求将标书升级为可持久化、可检索、可随时续写的项目实体，并在源文件层与生成内容层建立双层防重机制：同一招标文件不重复立项，同一项目下多方生成的正文保持可区分的原创性。</p>
+    <dl class="meta-grid">
+      <div class="meta-item"><dt>需求类型</dt><dd>新功能</dd></div>
+      <div class="meta-item"><dt>优先级</dt><dd>Must</dd></div>
+      <div class="meta-item"><dt>提出人</dt><dd>小哥（PM）</dd></div>
+      <div class="meta-item"><dt>状态</dt><dd>草稿 · 待评审</dd></div>
+      <div class="meta-item"><dt>版本</dt><dd>v0.3</dd></div>
+      <div class="meta-item"><dt>日期</dt><dd>2026-09-14</dd></div>
+    </dl>
+  </div>
+</header>
+
+<div class="wrap">
+  <nav class="toc">
+    <div class="toc-title">目录</div>
+    <ol>
+      <li><a href="#s1">背景与业务诉求</a></li>
+      <li><a href="#s2">目标与成功度量</a></li>
+      <li><a href="#s3">用户角色与场景</a></li>
+      <li><a href="#s4">功能需求清单</a></li>
+      <li><a href="#s5">非功能需求</a></li>
+      <li><a href="#s6">验收标准</a></li>
+      <li><a href="#s7">范围边界</a></li>
+      <li><a href="#s8">数据与实现要点</a></li>
+      <li><a href="#s9">依赖、风险与待确认</a></li>
+      <li><a href="#s10">人工审核清单</a></li>
+    </ol>
+  </nav>
+
+  <main>
+
+    <section id="s1">
+      <h2><span class="num">1</span>背景与业务诉求</h2>
+      <div class="card">
+        <h3>现状缺口</h3>
+        <p>当前客户端一次只能进行一个标书的撰写流程，生成的标书没有独立载体，无法回溯、无法并行处理多个投标项目。用户重新进入或新建流程后，历史标书的目录、正文、全局事实等中间产物即丢失或被覆盖。</p>
+        <h3>业务痛点</h3>
+        <ul>
+          <li>投标专员通常同时跟进 2–5 个项目，现有流程只允许串行处理，切换即中断；</li>
+          <li>撰写到一半的标书无法保存为“可继续的项目”，中断后需要重跑解析流程；</li>
+          <li>历史标书无法沉淀为资产，同类项目的目录与正文无法复用；</li>
+          <li>缺少统一入口感知“手上有哪些标书、各自走到哪一步”；</li>
+          <li>同一份招标文件被反复上传、重复生成标书，产生多份内容雷同的产物，既占用存储也无法分辨哪一份是最新、该继续跟进哪一份；</li>
+          <li>同一项目由多方分别生成标书时，正文表达高度雷同，在招投标场景下存在被认定为串标围标的风险，缺少可量化的原创性校验手段。</li>
+        </ul>
+        <div class="quote">
+          <span class="lbl">一句话需求原文</span>
+          “当前项目只能一次写一个标书，我希望可以管理自己生成的标书。”<br>
+          <span style="display:inline-block;margin-top:6px">“生成的标书需要考虑智能防重，同一个招标文件生成的标书要能识别出来。”</span><br>
+          <span style="display:inline-block;margin-top:6px">“基于内容指纹技术，确保多用户对同一项目的生成具有原创性，避免重复。”</span>
+        </div>
+      </div>
+    </section>
+
+    <section id="s2">
+      <h2><span class="num">2</span>目标与成功度量</h2>
+      <div class="card">
+        <h3>业务目标</h3>
+        <ol class="plain">
+          <li>支持多个标书项目在同一工作区内并存，数据互不干扰；</li>
+          <li>用户可随时回到任意历史标书，查看状态或继续未完成的撰写流程；</li>
+          <li>把标书沉淀为可检索、可复用的项目资产，降低同类项目的重复投入；</li>
+          <li>同一份招标文件不产生重复标书，重复上传时引导用户回到已有标书而非再生成一份；</li>
+          <li>同一用户先后生成的多份标书之间正文不重复，避免同一项目下不同标段的标书写成雷同内容。</li>
+        </ol>
+        <h3>成功度量</h3>
+        <div class="table-card">
+          <table>
+            <thead>
+              <tr><th>指标</th><th>基线</th><th>目标值</th><th>说明</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>可并存标书数量</td><td>1 个</td><td>≥ 20 个</td><td>在此规模下列表与打开操作无明显性能劣化 <span class="todo">待确认</span></td></tr>
+              <tr><td>标书找回耗时</td><td>不可找回</td><td>≤ 2 次点击</td><td>从进入应用至打开目标标书</td></tr>
+              <tr><td>流程中断率</td><td>—</td><td>下降</td><td>因“切换标书导致进度丢失”造成的中断 <span class="todo">待确认：基线采样方式</span></td></tr>
+              <tr><td>重复标书数量</td><td>不可控</td><td>0 份</td><td>同一招标文件未经用户显式确认，不产生第二份标书</td></tr>
+              <tr><td>重复文件识别率</td><td>—</td><td>100%</td><td>完全相同的招标文件重复上传时必须命中 <span class="todo">待确认：判定层级先做文件摘要还是同时做正文指纹</span></td></tr>
+              <tr><td>标书正文重复度</td><td>不可控</td><td>经处理后可接受</td><td>同一用户多份标书之间的重复段落被全部标出并处理 <span class="todo">待确认：相似度判定口径</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="s3">
+      <h2><span class="num">3</span>用户角色与关键场景</h2>
+      <div class="table-card" style="margin-bottom:14px">
+        <table>
+          <thead><tr><th>角色</th><th>职责</th><th>使用频率</th></tr></thead>
+          <tbody>
+            <tr><td><strong>投标专员</strong></td><td>新建标书、跟踪生成进度、继续编辑、导出交付</td><td>高（每日多次）</td></tr>
+            <tr><td><strong>标书负责人</strong> <span class="todo">待确认：是否存在该角色</span></td><td>查看全部标书状态、汇总进度</td><td>中</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <figure>
+        <svg viewBox="0 0 680 250" role="img" aria-label="标书管理主流程与异常分支">
+          <defs>
+            <linearGradient id="g1" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stop-color="#635bff"/><stop offset="100%" stop-color="#8b7dff"/>
+            </linearGradient>
+            <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+              <path d="M0,0 L10,5 L0,10 z" fill="#a3acb9"/>
+            </marker>
+          </defs>
+          <rect x="0" y="0" width="680" height="250" fill="none"/>
+          <!-- main track -->
+          <rect x="14" y="30" width="120" height="52" rx="12" fill="url(#g1)"/>
+          <text x="74" y="53" text-anchor="middle" fill="#fff" font-size="13" font-weight="700" font-family="sans-serif">新建标书</text>
+          <text x="74" y="70" text-anchor="middle" fill="#e9e7ff" font-size="11" font-family="sans-serif">上传招标文件</text>
+
+          <line x1="134" y1="56" x2="172" y2="56" stroke="#a3acb9" stroke-width="1.5" marker-end="url(#ar)"/>
+          <rect x="176" y="30" width="120" height="52" rx="12" fill="#ffffff" stroke="#e6e9ef"/>
+          <text x="236" y="53" text-anchor="middle" fill="#1a1f36" font-size="13" font-weight="700" font-family="sans-serif">进入撰写流程</text>
+          <text x="236" y="70" text-anchor="middle" fill="#697386" font-size="11" font-family="sans-serif">解析 / 大纲 / 正文</text>
+
+          <line x1="296" y1="56" x2="334" y2="56" stroke="#a3acb9" stroke-width="1.5" marker-end="url(#ar)"/>
+          <rect x="338" y="30" width="140" height="52" rx="12" fill="#ffffff" stroke="#e6e9ef"/>
+          <text x="408" y="53" text-anchor="middle" fill="#1a1f36" font-size="13" font-weight="700" font-family="sans-serif">列表出现卡片</text>
+          <text x="408" y="70" text-anchor="middle" fill="#697386" font-size="11" font-family="sans-serif">状态：未完成</text>
+
+          <line x1="478" y1="56" x2="516" y2="56" stroke="#a3acb9" stroke-width="1.5" marker-end="url(#ar)"/>
+          <rect x="520" y="30" width="146" height="52" rx="12" fill="#ffffff" stroke="#e6e9ef"/>
+          <text x="593" y="53" text-anchor="middle" fill="#1a1f36" font-size="13" font-weight="700" font-family="sans-serif">已完成 / 导出</text>
+          <text x="593" y="70" text-anchor="middle" fill="#697386" font-size="11" font-family="sans-serif">Word 交付</text>
+
+          <!-- return path -->
+          <path d="M593 96 L593 126 L408 126 L408 96" fill="none" stroke="#635bff" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#ar)"/>
+          <text x="500" y="120" text-anchor="middle" fill="#635bff" font-size="11.5" font-weight="600" font-family="sans-serif">随时回访：打开卡片继续编辑</text>
+
+          <!-- exception branch -->
+          <rect x="176" y="164" width="180" height="46" rx="11" fill="#fff5e6" stroke="#f5dcb4"/>
+          <text x="266" y="184" text-anchor="middle" fill="#7a4400" font-size="12.5" font-weight="700" font-family="sans-serif">异常分支：生成中断 / 失败</text>
+          <text x="266" y="200" text-anchor="middle" fill="#b25b00" font-size="11" font-family="sans-serif">卡片标记异常态，支持重试或删除</text>
+          <path d="M236 82 L236 164" fill="none" stroke="#f0c98a" stroke-width="1.5" stroke-dasharray="4 4" marker-end="url(#ar)"/>
+        </svg>
+      </figure>
+      <div class="card">
+        <h3>主流程</h3>
+        <p>新建标书（上传招标文件，支持 .doc / .docx / .pdf，可一次性上传多个文件）→ 上传即触发防重校验（见 F-10）→ 命名并确认 → 进入撰写流程 → 列表实时新增卡片，状态随流程推进变化 → 完成后可导出。</p>
+        <h3>回访流程</h3>
+        <p>从列表打开历史标书 → 查看状态、方案类型与正文预览 → 继续编辑或导出交付。</p>
+        <h3>异常分支</h3>
+        <p>（1）上传的招标文件命中已有源文件时，转入防重提示分支，用户可选择打开已有标书或带标段标识放行（见 F-10）。</p>
+        <p>（2）生成中断或失败的标书在列表中标记异常状态，支持重试或删除。<span class="todo">待确认：失败诊断展示到什么粒度</span></p>
+      </div>
+    </section>
+
+    <section id="s4">
+      <h2><span class="num">4</span>功能需求清单</h2>
+      <div class="table-card">
+        <table>
+          <thead>
+            <tr><th style="width:56px">编号</th><th>功能描述</th><th style="width:74px">优先级</th><th style="width:210px">要点</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="code">F-01</td>
+              <td><strong>标书列表</strong>：卡片式展示工作区内全部标书，含名称、状态标签（生成中 / 未完成 / 已完成 / 生成失败）、方案类型（技术方案 / 完整方案）、创建时间；首屏常驻“新建标书”卡片</td>
+              <td><span class="chip must">Must</span></td>
+              <td>默认按更新时间倒序；超长名称截断并支持悬浮查看全称</td>
+            </tr>
+            <tr>
+              <td class="code">F-02</td>
+              <td><strong>新建标书</strong>：从新建卡片上传招标文件，创建独立标书项目并进入撰写流程</td>
+              <td><span class="chip must">Must</span></td>
+              <td>支持 .doc/.docx/.pdf；多文件一次上传；文件不合法给出明确提示；上传即触发防重校验（见 F-10）</td>
+            </tr>
+            <tr>
+              <td class="code">F-03</td>
+              <td><strong>打开与续写</strong>：点击卡片进入该标书详情，目录、正文、全局事实等中间产物完整恢复</td>
+              <td><span class="chip must">Must</span></td>
+              <td>与上次退出时的内容一致；可同时打开多个标书 <span class="todo">并发生成策略待评估</span></td>
+            </tr>
+            <tr>
+              <td class="code">F-04</td>
+              <td><strong>状态筛选</strong>：顶部 Tab 按「全部 / 已完成 / 未完成」过滤列表，异常态可单独筛出</td>
+              <td><span class="chip must">Must</span></td>
+              <td>筛选结果为空时展示空态引导，而非空白页；状态枚举含生成中与生成失败为已确认决策</td>
+            </tr>
+            <tr>
+              <td class="code">F-05</td>
+              <td><strong>类型筛选 + 名称搜索</strong>：按方案类型下拉筛选；按方案名称关键字实时搜索</td>
+              <td><span class="chip should">Should</span></td>
+              <td>本地查询，输入即时过滤</td>
+            </tr>
+            <tr>
+              <td class="code">F-06</td>
+              <td><strong>卡片操作菜单</strong>：重命名、删除、导出 Word / PDF</td>
+              <td><span class="chip should">Should</span></td>
+              <td>删除为直接删除、不进回收站（已确认），但须二次确认并明确提示影响范围</td>
+            </tr>
+            <tr>
+              <td class="code">F-07</td>
+              <td><strong>视图切换</strong>：卡片视图 / 列表视图切换，并记住用户偏好</td>
+              <td><span class="chip could">Could</span></td>
+              <td>偏好仅存本地 UI 设置</td>
+            </tr>
+            <tr>
+              <td class="code">F-08</td>
+              <td><strong>生成失败标记与重试</strong>：生成中断或失败的标书在列表中标记为异常态，支持重新生成</td>
+              <td><span class="chip should">Should</span></td>
+              <td>与现有 Agent 失败诊断能力衔接 <span class="todo">待确认：诊断信息展示粒度</span></td>
+            </tr>
+            <tr>
+              <td class="code">F-09</td>
+              <td><strong>进度可见性</strong>：列表卡片直接展示当前所处阶段（如“招标文件解析”“大纲已生成”“正文部分预览中”）</td>
+              <td><span class="chip should">Should</span></td>
+              <td>不进入详情即可判断每个标书走到哪一步</td>
+            </tr>
+            <tr>
+              <td class="code">F-10</td>
+              <td><strong>智能防重</strong>：上传招标文件时自动与已有标书的源文件比对，识别“同一招标文件”并阻止重复生成，引导用户打开已有标书；用户确需另建（如多标段投标）时可显式放行</td>
+              <td><span class="chip must">Must</span></td>
+              <td>默认不创建重复项目；命中后给出来源标书与创建时间；放行须填写标段 / 包件标识</td>
+            </tr>
+            <tr>
+              <td class="code">F-11</td>
+              <td><strong>正文内容防重（内容指纹）</strong>：基于内容指纹检测本机已有标书的正文，识别新生成标书中与既有内容重复的段落，标出重复位置并给出改写建议，由用户确认后替换</td>
+              <td><span class="chip must">Must</span></td>
+              <td>比对范围限本人本机标书；只提示不自动改写；典型场景是同一招标文件下多标段标书之间的正文雷同</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 style="margin-top:26px">F-10 智能防重 · 判定规则与命中处理</h3>
+      <figure>
+        <svg viewBox="0 0 680 236" role="img" aria-label="智能防重判定流程">
+          <defs>
+            <linearGradient id="g2" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stop-color="#635bff"/><stop offset="100%" stop-color="#8b7dff"/>
+            </linearGradient>
+            <marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+              <path d="M0,0 L10,5 L0,10 z" fill="#a3acb9"/>
+            </marker>
+          </defs>
+          <rect x="12" y="28" width="120" height="54" rx="12" fill="url(#g2)"/>
+          <text x="72" y="52" text-anchor="middle" fill="#ffffff" font-size="12.5" font-weight="700" font-family="sans-serif">上传招标文件</text>
+          <text x="72" y="69" text-anchor="middle" fill="#e9e7ff" font-size="10.5" font-family="sans-serif">即时触发 / 不阻塞</text>
+
+          <line x1="134" y1="55" x2="160" y2="55" stroke="#a3acb9" stroke-width="1.5" marker-end="url(#ar2)"/>
+          <rect x="164" y="28" width="140" height="54" rx="12" fill="#ffffff" stroke="#e6e9ef"/>
+          <text x="234" y="52" text-anchor="middle" fill="#1a1f36" font-size="12.5" font-weight="700" font-family="sans-serif">计算内容指纹</text>
+          <text x="234" y="69" text-anchor="middle" fill="#697386" font-size="10.5" font-family="sans-serif">文件摘要 + 正文归一化</text>
+
+          <line x1="306" y1="55" x2="336" y2="55" stroke="#a3acb9" stroke-width="1.5" marker-end="url(#ar2)"/>
+          <rect x="340" y="28" width="170" height="54" rx="12" fill="#ffffff" stroke="#e6e9ef"/>
+          <text x="425" y="52" text-anchor="middle" fill="#1a1f36" font-size="12.5" font-weight="700" font-family="sans-serif">与已有标书源文件比对</text>
+          <text x="425" y="69" text-anchor="middle" fill="#697386" font-size="10.5" font-family="sans-serif">工作区内全量比对</text>
+
+          <path d="M234 82 L234 136" fill="none" stroke="#a3acb9" stroke-width="1.5" marker-end="url(#ar2)"/>
+          <path d="M425 82 L425 136" fill="none" stroke="#a3acb9" stroke-width="1.5" marker-end="url(#ar2)"/>
+
+          <rect x="134" y="140" width="200" height="48" rx="11" fill="#e8f7f3" stroke="#b8e0d8"/>
+          <text x="234" y="161" text-anchor="middle" fill="#0f7b6c" font-size="12.5" font-weight="700" font-family="sans-serif">未命中：正常创建</text>
+          <text x="234" y="177" text-anchor="middle" fill="#0f7b6c" font-size="10.5" font-family="sans-serif">进入撰写流程，无额外打扰</text>
+
+          <rect x="260" y="140" width="400" height="84" rx="11" fill="#fff5e6" stroke="#f5dcb4"/>
+          <text x="276" y="161" fill="#7a4400" font-size="12" font-weight="700" font-family="sans-serif">命中：不静默创建，提示已有标书《名称》· 创建时间 · 当前状态</text>
+          <text x="276" y="182" fill="#b25b00" font-size="11.5" font-family="sans-serif">① 打开已有标书（默认推荐）　② 带标段标识放行　③ 取消</text>
+          <text x="276" y="203" fill="#b25b00" font-size="11" font-family="sans-serif">选择 ② 时须填写标段 / 包件标识，放行后两份标书互为“同源标书”</text>
+        </svg>
+      </figure>
+
+      <div class="table-card" style="margin-bottom:14px">
+        <table>
+          <thead><tr><th style="width:132px">判定层级</th><th>依据</th><th style="width:250px">命中口径</th></tr></thead>
+          <tbody>
+            <tr><td class="code">L1 文件摘要</td><td>文件内容摘要（非文件名）</td><td>完全一致 → 强命中，直接提示</td></tr>
+            <tr><td class="code">L2 正文指纹</td><td>解析后正文文本归一化（去空白、页眉页脚、页码）后比对</td><td>文件字节不同但正文一致（如重新下载、另存）→ 命中</td></tr>
+            <tr><td class="code">L3 元信息</td><td>文件名、页数、招标编号、项目名称</td><td>仅作提示与展示，不单独作为判定依据</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <h3>多标段放行规则</h3>
+        <ul>
+          <li>同一招标文件含多个标段 / 包件、用户需分别投标时，允许在同一源文件下生成多份标书；</li>
+          <li>放行时须填写标段 / 包件标识，系统在标书名称后自动追加标识（如“XX 项目技术方案-标段二”），避免列表中出现多份无法分辨的同名标书；</li>
+          <li>同一源文件下的多份标书标记为“同源标书”，列表中可互相跳转查看 <span class="todo">待确认：是否需要同源分组视图</span>；</li>
+          <li>再次上传同一源文件时，提示中一并列出该源文件下已有的全部标书及其标段标识。</li>
+        </ul>
+        <div class="note warn" style="margin-top:12px">
+          <span class="t">设计边界</span>
+          防重是“识别 + 提示 + 显式确认”，不做硬拦截。多标段是真实业务场景，一刀切禁止会迫使绕过流程（如改文件名），反而让防重失效。
+        </div>
+      </div>
+
+      <h3 style="margin-top:26px">F-11 正文内容防重 · 检测范围与结果呈现</h3>
+      <figure>
+        <svg viewBox="0 0 680 128" role="img" aria-label="正文内容防重处理链路">
+          <defs>
+            <marker id="ar3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+              <path d="M0,0 L10,5 L0,10 z" fill="#a3acb9"/>
+            </marker>
+          </defs>
+          <rect x="8" y="28" width="120" height="54" rx="12" fill="#ffffff" stroke="#e6e9ef"/>
+          <text x="68" y="51" text-anchor="middle" fill="#1a1f36" font-size="11.5" font-weight="700" font-family="sans-serif">生成标书正文</text>
+          <text x="68" y="68" text-anchor="middle" fill="#697386" font-size="9.5" font-family="sans-serif">逐段产出</text>
+
+          <line x1="128" y1="55" x2="144" y2="55" stroke="#a3acb9" stroke-width="1.5" marker-end="url(#ar3)"/>
+          <rect x="148" y="28" width="120" height="54" rx="12" fill="#ffffff" stroke="#e6e9ef"/>
+          <text x="208" y="51" text-anchor="middle" fill="#1a1f36" font-size="11.5" font-weight="700" font-family="sans-serif">归一化切片</text>
+          <text x="208" y="68" text-anchor="middle" fill="#697386" font-size="9.5" font-family="sans-serif">生成内容指纹</text>
+
+          <line x1="268" y1="55" x2="284" y2="55" stroke="#a3acb9" stroke-width="1.5" marker-end="url(#ar3)"/>
+          <rect x="288" y="28" width="120" height="54" rx="12" fill="#ffffff" stroke="#e6e9ef"/>
+          <text x="348" y="51" text-anchor="middle" fill="#1a1f36" font-size="11.5" font-weight="700" font-family="sans-serif">比对已有标书</text>
+          <text x="348" y="68" text-anchor="middle" fill="#697386" font-size="9.5" font-family="sans-serif">本机本人范围</text>
+
+          <line x1="408" y1="55" x2="424" y2="55" stroke="#a3acb9" stroke-width="1.5" marker-end="url(#ar3)"/>
+          <rect x="428" y="28" width="120" height="54" rx="12" fill="#fff5e6" stroke="#f5dcb4"/>
+          <text x="488" y="51" text-anchor="middle" fill="#7a4400" font-size="11.5" font-weight="700" font-family="sans-serif">标出重复段落</text>
+          <text x="488" y="68" text-anchor="middle" fill="#b25b00" font-size="9.5" font-family="sans-serif">并给出改写建议</text>
+
+          <line x1="548" y1="55" x2="564" y2="55" stroke="#a3acb9" stroke-width="1.5" marker-end="url(#ar3)"/>
+          <rect x="568" y="28" width="106" height="54" rx="12" fill="#e8f7f3" stroke="#b8e0d8"/>
+          <text x="621" y="51" text-anchor="middle" fill="#0f7b6c" font-size="11.5" font-weight="700" font-family="sans-serif">用户确认替换</text>
+          <text x="621" y="68" text-anchor="middle" fill="#0f7b6c" font-size="9.5" font-family="sans-serif">不自动改写</text>
+
+          <text x="8" y="112" fill="#697386" font-size="10.5" font-family="sans-serif">说明：本链路仅在本机内部运行，不涉及跨用户、跨设备比对，也不引入共享指纹库。</text>
+        </svg>
+      </figure>
+
+      <div class="table-card" style="margin-bottom:14px">
+        <table>
+          <thead><tr><th style="width:132px">比对范围</th><th>范围定义</th><th style="width:200px">是否纳入</th></tr></thead>
+          <tbody>
+            <tr><td class="code">本人本机标书</td><td>同一客户端内我自己生成过的全部标书（跨项目）</td><td>纳入</td></tr>
+            <tr><td class="code">同一项目标书</td><td>同一招标文件 / 同源标书下的其他标书（重点场景：多标段）</td><td>纳入，重点提示</td></tr>
+            <tr><td class="code">他人及其他设备</td><td>其他用户、其他电脑上生成的标书</td><td>不纳入（本期已确认）</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <h3>重复程度分级与处理</h3>
+        <ul>
+          <li><strong>低重复</strong>：与既有内容基本无重叠，正常放行，不做打扰；</li>
+          <li><strong>中重复</strong>：存在部分段落表达接近，标注位置并给出改写建议，用户自行决定是否替换；</li>
+          <li><strong>高重复</strong>：存在整段级重复，显著提示并附带改写建议，建议处理后再导出 <span class="todo">待确认：是否允许带着高重复段落导出</span>。</li>
+        </ul>
+        <h3>边界说明</h3>
+        <ul>
+          <li>本能力只检测<strong>文本表达层面的重复</strong>，用于保证多份标书之间的可区分度，不等同于著作权意义上的原创性判定；</li>
+          <li>系统只做检测与建议，<strong>不自动改写正文</strong>，最终是否替换由用户确认（已确认决策）；</li>
+          <li>检测结果需能在正文中直接定位到段落，避免用户拿着一个总分却找不到改哪里 <span class="todo">待确认：是否需要导出重复清单</span>。</li>
+        </ul>
+      </div>
+    </section>
+
+    <section id="s5">
+      <h2><span class="num">5</span>非功能需求</h2>
+      <div class="card">
+        <ul>
+          <li><strong>性能</strong>：列表加载与筛选为本地查询，20 个标书规模下交互无明显卡顿 <span class="todo">待确认：建议 P95 &lt; 500ms</span>；并发生成策略见第 9 节评估结论——所接 DeepSeek 官方 API 并发配额充足，建议以有限并发（建议上限 2–3）实现，避免极端场景下打满账号配额</li>
+          <li><strong>安全</strong>：标书数据全部保存在用户本机工作区，不新增对外上传链路</li>
+          <li><strong>合规</strong>：招标文件与标书正文属敏感业务资料，删除操作须二次确认并明确提示影响范围（已确认：直接删除、不进回收站）<span class="todo">待确认：是否需要操作留痕</span></li>
+          <li><strong>可用性</strong>：列表页在无标书、筛选无结果、生成失败三种状态下均有明确引导文案</li>
+          <li><strong>兼容性</strong>：与现有客户端渲染层保持一致，长列表在低配置机器上不阻塞主线程</li>
+        </ul>
+      </div>
+    </section>
+
+    <section id="s6">
+      <h2><span class="num">6</span>验收标准（Given-When-Then）</h2>
+      <div class="gwt">
+        <div class="gwt-item">
+          <div class="head"><span class="name">新建标书后列表实时更新</span><span class="id">F-01 / F-02</span></div>
+          <div class="gwt-row"><span class="gwt-key">Given</span><span class="gwt-val">工作区已存在 3 个标书，用户位于标书管理页</span></div>
+          <div class="gwt-row"><span class="gwt-key">When</span><span class="gwt-val">点击“新建标书”卡片，上传一份合法的 .docx 招标文件并确认</span></div>
+          <div class="gwt-row"><span class="gwt-key">Then</span><span class="gwt-val"><span class="then">列表新增一张卡片，状态为“未完成”，并自动进入该标书的撰写流程</span></span></div>
+        </div>
+        <div class="gwt-item">
+          <div class="head"><span class="name">历史标书完整恢复</span><span class="id">F-03</span></div>
+          <div class="gwt-row"><span class="gwt-key">Given</span><span class="gwt-val">存在一个已生成大纲与部分正文的标书，且用户已退出该标书</span></div>
+          <div class="gwt-row"><span class="gwt-key">When</span><span class="gwt-val">用户在列表中点击该标书卡片</span></div>
+          <div class="gwt-row"><span class="gwt-key">Then</span><span class="gwt-val"><span class="then">进入详情页，目录结构与正文内容与上次退出时完全一致，可直接继续编辑</span></span></div>
+        </div>
+        <div class="gwt-item">
+          <div class="head"><span class="name">状态筛选结果正确</span><span class="id">F-04</span></div>
+          <div class="gwt-row"><span class="gwt-key">Given</span><span class="gwt-val">列表中有 2 个已完成、1 个未完成标书</span></div>
+          <div class="gwt-row"><span class="gwt-key">When</span><span class="gwt-val">用户点击“未完成” Tab</span></div>
+          <div class="gwt-row"><span class="gwt-key">Then</span><span class="gwt-val"><span class="then">仅展示 1 张未完成卡片，“全部” Tab 下恢复展示 3 张</span></span></div>
+        </div>
+        <div class="gwt-item">
+          <div class="head"><span class="name">多标书并行互不干扰</span><span class="id">F-03</span></div>
+          <div class="gwt-row"><span class="gwt-key">Given</span><span class="gwt-val">标书 A 正在后台生成正文</span></div>
+          <div class="gwt-row"><span class="gwt-key">When</span><span class="gwt-val">用户打开标书 B 并继续编辑</span></div>
+          <div class="gwt-row"><span class="gwt-key">Then</span><span class="gwt-val"><span class="then">标书 B 可正常编辑，标书 A 的后台任务不中断，返回 A 时进度与内容完整</span> <span class="todo">并发生成策略待评估，本场景验收口径随之确定</span></span></div>
+        </div>
+        <div class="gwt-item">
+          <div class="head"><span class="name">删除标书</span><span class="id">F-06</span></div>
+          <div class="gwt-row"><span class="gwt-key">Given</span><span class="gwt-val">列表中任一标书卡片</span></div>
+          <div class="gwt-row"><span class="gwt-key">When</span><span class="gwt-val">用户点击卡片“…”菜单选择删除，并在确认弹窗中确认</span></div>
+          <div class="gwt-row"><span class="gwt-key">Then</span><span class="gwt-val"><span class="then">卡片从列表移除，对应标书数据不再出现在任何筛选项下（直接删除、不进回收站）；取消确认则不发生任何变化</span></span></div>
+        </div>
+        <div class="gwt-item">
+          <div class="head"><span class="name">同一招标文件重复上传被拦截</span><span class="id">F-10</span></div>
+          <div class="gwt-row"><span class="gwt-key">Given</span><span class="gwt-val">工作区中已存在由招标文件 A 创建的标书《XX 项目技术方案》（状态：未完成）</span></div>
+          <div class="gwt-row"><span class="gwt-key">When</span><span class="gwt-val">用户再次上传同一份招标文件 A</span></div>
+          <div class="gwt-row"><span class="gwt-key">Then</span><span class="gwt-val"><span class="then">不创建新标书，弹出提示并展示已有标书名称、创建时间与当前状态，默认动作指向“打开已有标书”</span>，选择取消后列表无任何变化</span></div>
+        </div>
+        <div class="gwt-item">
+          <div class="head"><span class="name">文件字节不同但内容相同仍能识别</span><span class="id">F-10 · L2</span></div>
+          <div class="gwt-row"><span class="gwt-key">Given</span><span class="gwt-val">已存在由招标文件 A 创建的标书</span></div>
+          <div class="gwt-row"><span class="gwt-key">When</span><span class="gwt-val">用户从招标平台重新下载同名文件（文件名与字节均与 A 有差异，正文内容一致）并上传</span></div>
+          <div class="gwt-row"><span class="gwt-key">Then</span><span class="gwt-val"><span class="then">系统仍判定为同一招标文件并给出重复提示，不静默创建第二份标书</span></span></div>
+        </div>
+        <div class="gwt-item">
+          <div class="head"><span class="name">多标段场景带标识放行</span><span class="id">F-10</span></div>
+          <div class="gwt-row"><span class="gwt-key">Given</span><span class="gwt-val">招标文件 A 含 3 个标段，用户需分别投标；标书《XX 项目技术方案-标段一》已存在</span></div>
+          <div class="gwt-row"><span class="gwt-key">When</span><span class="gwt-val">用户再次上传文件 A，在重复提示中选择“带标段标识放行”，填写“标段二”并确认</span></div>
+          <div class="gwt-row"><span class="gwt-key">Then</span><span class="gwt-val"><span class="then">创建新标书《XX 项目技术方案-标段二》，与“标段一”标书记录为同源标书；后续再次上传 A 时，提示中同时列出这两份标书</span></span></div>
+        </div>
+        <div class="gwt-item">
+          <div class="head"><span class="name">不同招标文件不受影响</span><span class="id">F-10</span></div>
+          <div class="gwt-row"><span class="gwt-key">Given</span><span class="gwt-val">工作区中已存在若干标书</span></div>
+          <div class="gwt-row"><span class="gwt-key">When</span><span class="gwt-val">用户上传一份全新的、与既有标书源文件均不同的招标文件</span></div>
+          <div class="gwt-row"><span class="gwt-key">Then</span><span class="gwt-val"><span class="then">无任何重复提示，直接创建标书并进入撰写流程</span></span></div>
+        </div>
+        <div class="gwt-item">
+          <div class="head"><span class="name">同一项目多标段标书正文防重</span><span class="id">F-11</span></div>
+          <div class="gwt-row"><span class="gwt-key">Given</span><span class="gwt-val">同一招标文件下已存在标书《XX 项目技术方案-标段一》，用户新建了标书《-标段二》并生成正文</span></div>
+          <div class="gwt-row"><span class="gwt-key">When</span><span class="gwt-val">标书二正文生成完成</span></div>
+          <div class="gwt-row"><span class="gwt-key">Then</span><span class="gwt-val"><span class="then">系统标出与“标段一”正文重复的段落，逐段给出改写建议，用户确认后替换；未确认的段落保持原样，不做自动改写</span></span></div>
+        </div>
+        <div class="gwt-item">
+          <div class="head"><span class="name">比对范围限本机本人</span><span class="id">F-11</span></div>
+          <div class="gwt-row"><span class="gwt-key">Given</span><span class="gwt-val">同一台电脑上仅有当前用户自己的标书，且客户端未接入任何共享内容库</span></div>
+          <div class="gwt-row"><span class="gwt-key">When</span><span class="gwt-val">用户生成新标书正文</span></div>
+          <div class="gwt-row"><span class="gwt-key">Then</span><span class="gwt-val"><span class="then">检测只在本机本人已生成的标书范围内进行，不产生跨用户、跨设备的比对与数据外发</span></span></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="s7">
+      <h2><span class="num">7</span>范围边界</h2>
+      <div class="split">
+        <div class="scope">
+          <h3><span class="dot in"></span>In Scope（本期做）</h3>
+          <ul>
+            <li>标书项目的持久化与项目隔离</li>
+            <li>列表管理（状态 / 类型 / 搜索 / 视图切换）</li>
+            <li>打开续写、重命名、删除、导出</li>
+            <li>生成失败态标记与重试</li>
+            <li>同一招标文件的智能防重与多标段放行</li>
+            <li>本机本人标书之间的正文内容防重（内容指纹检测 + 改写建议）</li>
+          </ul>
+        </div>
+        <div class="scope">
+          <h3><span class="dot out"></span>Out of Scope（本期不做）<span class="todo" style="margin-left:6px">待确认</span></h3>
+          <ul>
+            <li>多人协作 / 标书共享</li>
+            <li>文件夹、标签等分组归类</li>
+            <li>跨用户、跨设备的正文比对与共享内容库</li>
+            <li>正文自动改写降重（本期只检测 + 建议，不自动改）</li>
+            <li>跨工作区迁移与云端同步</li>
+            <li>基于历史标书的模板库沉淀</li>
+            <li>标书正文层面的内容查重（防重仅针对源招标文件）</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section id="s8">
+      <h2><span class="num">8</span>数据与实现要点 <span class="todo" style="margin-left:8px">需开发确认</span></h2>
+      <div class="card">
+        <p>本需求的主要工作量集中在数据层，而非列表界面。现状流程状态为单例结构，需改造为按标书项目隔离。</p>
+        <ul>
+          <li><strong>新增实体</strong>：标书项目（名称、状态、方案类型、创建 / 更新时间、关联的招标文件与产物）；</li>
+          <li><strong>存储位置</strong>：权威存储落在工作区 SQLite，与本项目现有约定一致；</li>
+          <li><strong>状态机</strong>：现有单流程状态需拆分为“标书维度”的状态，状态枚举含生成中与生成失败（已确认），列表状态标签与详情状态同源；</li>
+          <li><strong>后台任务</strong>：解析、目录、正文等耗时流程需绑定到具体标书项目，页面卸载不影响任务推进；多标书的并发生成策略待评估；</li>
+          <li><strong>历史数据</strong>：本期不做存量迁移，现有标书不迁入列表（已确认）；</li>
+          <li><strong>源文件防重所需字段</strong>：标书项目需持久化源招标文件摘要（内容摘要值与正文归一化指纹）、来源文件名 / 页数 / 招标编号等元信息、标段 / 包件标识，以及同源标书之间的关联关系；</li>
+          <li><strong>正文防重所需数据</strong>：需保存标书正文的段落级内容指纹，作为后续跨标书比对的比对库；比对范围限本机本人（已确认），不涉及共享指纹库；</li>
+          <li><strong>比对的时机与代价</strong>：源文件摘要比对在上传时同步完成，成本极低；正文指纹比对依赖解析与生成结果，应复用现有产物，避免为防重额外跑一轮解析。</li>
+        </ul>
+        <div class="note warn" style="margin-top:14px">
+          <span class="t">评审提示</span>
+          建议需求评审时拉开发一起过本节。若项目隔离模型未同步改造，仅完成列表 UI 会导致“列表有多条、点进去内容互相覆盖”的伪需求实现。
+        </div>
+      </div>
+    </section>
+
+    <section id="s9">
+      <h2><span class="num">9</span>依赖、风险与待确认项</h2>
+      <div class="table-card">
+        <table>
+          <thead><tr><th style="width:120px">类型</th><th>内容</th><th style="width:230px">影响 / 缓解</th></tr></thead>
+          <tbody>
+            <tr><td class="code">依赖</td><td>现有招标文件解析、大纲生成、正文生成与导出能力</td><td>需全部支持按标书项目维度调用</td></tr>
+            <tr><td class="code">依赖</td><td>工作区 SQLite 存储与后台任务调度</td><td>改造范围评估的前提</td></tr>
+            <tr><td class="code">依赖</td><td>所接模型服务的并发配额</td><td>已核实：DeepSeek 官方 API 并发按账号计，deepseek-v4-pro 500、deepseek-v4-flash 2500，超出返回 429；同时写 2–5 份标书远在配额内，不构成瓶颈</td></tr>
+            <tr><td class="code">风险</td><td>本期不做存量迁移，现有正在撰写的那份标书不出现在列表中</td><td>需在列表页给出说明入口，避免用户误以为标书丢失</td></tr>
+            <tr><td class="code">风险</td><td>多标书并行后台任务打满账号并发配额（并发按账号计，与 API Key 无关，多人共用账号时共享额度）</td><td>已评估：DeepSeek 官方配额为 pro 500 / flash 2500 并发，本场景仅需个位数；仍建议设并发上限，超出排队</td></tr>
+            <tr><td class="code">风险</td><td>并行降低上下文缓存（KVCache）复用率，多份标书同时发起时 token 成本可能略升</td><td>并发上限设为 2–3 可兼顾耗时与缓存复用</td></tr>
+            <tr><td class="code">风险</td><td>长请求等待：10 分钟未开始推理服务端会断开连接，需与普通超时区分处理</td><td>需实现保活识别与失败退避重试，避免任务被判为生成失败</td></tr>
+            <tr><td class="code">风险</td><td>正文重复判定过严，把正常引用的规范条文、招标文件原话也标为重复</td><td>需明确豁免范围（如必须逐字引用的条款） <span class="todo">待确认</span></td></tr>
+            <tr><td class="code">风险</td><td>防重误判：不同招标文件（如同一项目不同标段的独立文件）被判定为重复，干扰正常创建</td><td>判定仅在高置信时触发，且命中后只提示不拦截，用户可放行</td></tr>
+            <tr><td class="code">风险</td><td>同一源文件下多份标书在列表中难以分辨</td><td>名称自动追加标段 / 包件标识，并关联同源标书</td></tr>
+            <tr><td class="code">待确认</td><td>源文件防重的判定层级：先只做文件摘要，还是同时做正文指纹</td><td>直接决定能否覆盖“重新下载导致字节不同”的实际场景</td></tr>
+            <tr><td class="code">待确认</td><td>正文重复的判定口径：多大的重合算“一段重复”、相似度用什么衡量</td><td>直接决定验收标准与误报率</td></tr>
+            <tr><td class="code">待确认</td><td>是否需要“同源标书”分组视图</td><td>影响列表交互复杂度</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="s10">
+      <h2><span class="num">10</span>人工审核清单</h2>
+      <ul class="check must">
+        <li><span class="box"></span><span class="txt"><b>数据模型改造方案</b>：现状单流程状态如何拆分为按标书项目隔离。影响最大，建议由开发先评估再定稿。</span></li>
+        <li><span class="box"></span><span class="txt"><b>源文件防重判定层级</b>：本期只做文件摘要，还是同时做正文指纹。建议两者都做——只做文件摘要会漏掉“从招标平台重新下载、字节不同但内容相同”这一最高频的重复场景。</span></li>
+        <li><span class="box"></span><span class="txt"><b>正文重复判定口径</b>：多大的重合算“一段重复”、相似度用什么衡量、必须逐字引用的规范条文是否需要豁免。直接决定验收标准与误报率。</span></li>
+        <li><span class="box"></span><span class="txt"><b>并发生成策略</b>：已评估——所接 DeepSeek 官方 API 账号级并发配额充足（pro 500 / flash 2500），支持并行；建议实现为有限并发（上限 2–3）+ 失败退避重试，需业务确认是否认可该上限。同时确认该账号是否为多人共用。</span></li>
+        <li><span class="box"></span><span class="txt"><b>同源标书展示</b>：同一招标文件下多份标书是否需要分组视图，还是仅在提示中列出即可。</span></li>
+        <li><span class="box"></span><span class="txt"><b>成功度量基线</b>：20 个标书规模、2 次点击找回、重复标书 0 份、正文重复段落经处理后可接受，是否认可为验收指标。</span></li>
+        <li><span class="box"></span><span class="txt"><b>范围边界</b>：Out of Scope 六项（协作 / 分组 / 跨用户比对 / 自动改写 / 迁移同步 / 模板库）是否本期确认不做。</span></li>
+        <li><span class="box"></span><span class="txt"><b>角色确认</b>：除投标专员外是否存在标书负责人等查看型角色。</span></li>
+      </ul>
+      <div class="note" style="margin-top:16px">
+        <span class="t">已确认决策（业务已拍板）</span>
+        ① 一个招标文件含多标段时，按标段各出一份标书，不做“一份标书分标段”；<br>
+        ② 源文件防重采取“识别 + 提示 + 显式确认”，不做硬拦截，放行时须填写标段 / 包件标识；<br>
+        ③ 正文内容防重的比对范围仅限本人本机标书，不涉及多人、不跨设备，也不需要主体隔离；<br>
+        ④ 检测到正文重复后只标出段落并给出改写建议，由用户确认后替换，不做自动改写；<br>
+        ⑤ 状态枚举包含“生成中”与“生成失败”；<br>
+        ⑥ 删除为直接删除、不进回收站，但须二次确认；<br>
+        ⑦ 本期不做存量标书迁移，现有标书不迁入列表；<br>
+        ⑧ 多标书并发生成：技术侧已核实所接 DeepSeek 官方 API 并发配额充足，支持并行，建议以有限并发（上限 2–3）实现。
+      </div>
+      <div class="note warn" style="margin-top:12px">
+        <span class="t">下一步建议</span>
+        先由开发评估第 8 节数据层改造范围（项目隔离 + 防重指纹存储），并就并发生成策略确认模型服务配额；再召集开发 / PM / QA 联合评审第 4、6 节，确认后由本稿升版为 v1.0 定稿。
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<footer>
+  标书项目管理 · 需求文档 v1.0（业务已确认，待开发评估实现范围） · 2026-09-14 · 黄色标记项为待确认内容，确认后即可进入设计与开发
+</footer>
+
+</body>
+</html>

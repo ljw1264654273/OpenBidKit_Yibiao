@@ -260,11 +260,12 @@
   margin-left: var(--ef-unordered-list-indent, var(--ef-list-indent, 2em));
 }
 .markdown-viewer.export-format-preview ol {
-  padding-left: var(--ef-list-indent, 2em);
+  padding-left: calc(var(--ef-body-outline-1-indent, 0) + var(--ef-body-outline-marker-width, 1em));
   counter-reset: ef-ordered-list;
   list-style: none;
   font-family: var(--ef-body-outline-1-font, var(--ef-body-font, inherit));
   font-size: var(--ef-body-outline-1-size, var(--ef-body-size, inherit));
+  text-indent: 0;
 }
 .markdown-viewer.export-format-preview li {
   text-align: var(--ef-body-align, inherit);
@@ -290,11 +291,15 @@
 .markdown-viewer.export-format-preview ol > li {
   position: relative;
   counter-increment: ef-ordered-list;
+  text-indent: 0;
+}
+.markdown-viewer.export-format-preview ol > li > p {
+  text-indent: 0;
 }
 .markdown-viewer.export-format-preview ol > li::before {
   position: absolute;
-  left: calc(var(--ef-list-indent, 2em) * -1);
-  width: calc(var(--ef-list-indent, 2em) - 0.25em);
+  left: calc(var(--ef-body-outline-marker-width, 1em) * -1);
+  width: var(--ef-body-outline-marker-width, 1em);
   font-family: var(--ef-body-outline-1-font, var(--ef-body-font, inherit));
   font-size: var(--ef-body-outline-1-size, var(--ef-body-size, inherit));
   text-align: right;
@@ -304,34 +309,73 @@
     var(--ef-body-outline-1-suffix, var(--ef-ordered-list-suffix, ". "));
 }
 .markdown-viewer.export-format-preview ol > li > ol {
+  margin-left: calc(-1 * (var(--ef-body-outline-1-indent, 0) + var(--ef-body-outline-marker-width, 1em)));
+  padding-left: calc(var(--ef-body-outline-2-indent, 0) + var(--ef-body-outline-marker-width, 1em));
   font-family: var(--ef-body-outline-2-font, var(--ef-body-font, inherit));
   font-size: var(--ef-body-outline-2-size, var(--ef-body-size, inherit));
+  text-indent: 0;
+}
+.markdown-viewer.export-format-preview ol > li > ol > li {
+  text-indent: 0;
+}
+.markdown-viewer.export-format-preview ol > li > ol > li > p {
+  text-indent: 0;
 }
 .markdown-viewer.export-format-preview ol > li > ol > li::before {
+  position: absolute;
+  left: calc(var(--ef-body-outline-marker-width, 1em) * -1);
+  width: var(--ef-body-outline-marker-width, 1em);
   font-family: var(--ef-body-outline-2-font, var(--ef-body-font, inherit));
   font-size: var(--ef-body-outline-2-size, var(--ef-body-size, inherit));
+  text-indent: 0;
   content: var(--ef-body-outline-2-prefix, "")
     counter(ef-ordered-list, var(--ef-body-outline-2-counter-style, decimal))
     var(--ef-body-outline-2-suffix, ". ");
 }
 .markdown-viewer.export-format-preview ol > li > ol > li > ol {
+  margin-left: calc(-1 * (var(--ef-body-outline-2-indent, 0) + var(--ef-body-outline-marker-width, 1em)));
+  padding-left: calc(var(--ef-body-outline-3-indent, 0) + var(--ef-body-outline-marker-width, 1em));
   font-family: var(--ef-body-outline-3-font, var(--ef-body-font, inherit));
   font-size: var(--ef-body-outline-3-size, var(--ef-body-size, inherit));
+  text-indent: 0;
+}
+.markdown-viewer.export-format-preview ol > li > ol > li > ol > li {
+  text-indent: 0;
+}
+.markdown-viewer.export-format-preview ol > li > ol > li > ol > li > p {
+  text-indent: 0;
 }
 .markdown-viewer.export-format-preview ol > li > ol > li > ol > li::before {
+  position: absolute;
+  left: calc(var(--ef-body-outline-marker-width, 1em) * -1);
+  width: var(--ef-body-outline-marker-width, 1em);
   font-family: var(--ef-body-outline-3-font, var(--ef-body-font, inherit));
   font-size: var(--ef-body-outline-3-size, var(--ef-body-size, inherit));
+  text-indent: 0;
   content: var(--ef-body-outline-3-prefix, "")
     counter(ef-ordered-list, var(--ef-body-outline-3-counter-style, decimal))
     var(--ef-body-outline-3-suffix, ". ");
 }
 .markdown-viewer.export-format-preview ol > li > ol > li > ol > li > ol {
+  margin-left: calc(-1 * (var(--ef-body-outline-3-indent, 0) + var(--ef-body-outline-marker-width, 1em)));
+  padding-left: calc(var(--ef-body-outline-4-indent, 0) + var(--ef-body-outline-marker-width, 1em));
   font-family: var(--ef-body-outline-4-font, var(--ef-body-font, inherit));
   font-size: var(--ef-body-outline-4-size, var(--ef-body-size, inherit));
+  text-indent: 0;
+}
+.markdown-viewer.export-format-preview ol > li > ol > li > ol > li > ol > li {
+  text-indent: 0;
+}
+.markdown-viewer.export-format-preview ol > li > ol > li > ol > li > ol > li > p {
+  text-indent: 0;
 }
 .markdown-viewer.export-format-preview ol > li > ol > li > ol > li > ol > li::before {
+  position: absolute;
+  left: calc(var(--ef-body-outline-marker-width, 1em) * -1);
+  width: var(--ef-body-outline-marker-width, 1em);
   font-family: var(--ef-body-outline-4-font, var(--ef-body-font, inherit));
   font-size: var(--ef-body-outline-4-size, var(--ef-body-size, inherit));
+  text-indent: 0;
   content: var(--ef-body-outline-4-prefix, "")
     counter(ef-ordered-list, var(--ef-body-outline-4-counter-style, decimal))
     var(--ef-body-outline-4-suffix, ". ");
@@ -339,10 +383,21 @@
 .markdown-viewer.export-format-preview ol > li > ol > li > ol > li > ol > li > ol {
   font-family: var(--ef-body-outline-5-font, var(--ef-body-font, inherit));
   font-size: var(--ef-body-outline-5-size, var(--ef-body-size, inherit));
+  text-indent: 0;
+}
+.markdown-viewer.export-format-preview ol > li > ol > li > ol > li > ol > li > ol > li {
+  text-indent: 0;
+}
+.markdown-viewer.export-format-preview ol > li > ol > li > ol > li > ol > li > ol > li > p {
+  text-indent: 0;
 }
 .markdown-viewer.export-format-preview ol > li > ol > li > ol > li > ol > li > ol > li::before {
+  position: absolute;
+  left: calc(var(--ef-body-outline-marker-width, 1em) * -1);
+  width: var(--ef-body-outline-marker-width, 1em);
   font-family: var(--ef-body-outline-5-font, var(--ef-body-font, inherit));
   font-size: var(--ef-body-outline-5-size, var(--ef-body-size, inherit));
+  text-indent: 0;
   content: var(--ef-body-outline-5-prefix, "")
     counter(ef-ordered-list, var(--ef-body-outline-5-counter-style, decimal))
     var(--ef-body-outline-5-suffix, ". ");

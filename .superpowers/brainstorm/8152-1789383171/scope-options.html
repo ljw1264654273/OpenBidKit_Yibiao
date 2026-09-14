@@ -1,0 +1,74 @@
+<h2>先确认“标书项目”的边界</h2>
+<p class="subtitle">你这次要的不是单点修补，而是把现有一次性流程升级成多项目工作区。下面是我理解的三种范围。</p>
+
+<div class="cards">
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">A. 只包技术方案</div>
+        <div class="mockup-body">
+          <div class="mock-nav">标书项目列表</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
+            <div class="placeholder">项目 1：技术方案流程</div>
+            <div class="placeholder">项目 2：技术方案流程</div>
+          </div>
+          <p style="margin:12px 0 0;color:#68758a">废标检查、独立查重仍是独立工具。</p>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A. 多份技术方案</h3>
+      <p>最快落地，只解决“新建覆盖、退出丢失、继续编辑/导出”的核心痛点。</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">B. 推荐：统一标书项目</div>
+        <div class="mockup-body">
+          <div class="mock-nav">标书项目列表 · 状态 · 类型 · 查重</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:12px">
+            <div class="placeholder">技术方案</div>
+            <div class="placeholder">源文件指纹</div>
+            <div class="placeholder">同源正文查重</div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">
+            <div class="placeholder">导出 Word</div>
+            <div class="placeholder">任务状态</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B. 标书项目工作区</h3>
+      <p>把技术方案作为第一类项目内容，同时把源文件防重、同源查重、并行任务纳入项目管理。</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">C. 全套投标项目平台</div>
+        <div class="mockup-body">
+          <div class="mock-nav">项目 · 标段 · 团队 · 模版 · 附件 · 审批</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:12px">
+            <div class="placeholder">商务标</div>
+            <div class="placeholder">技术标</div>
+            <div class="placeholder">资质卷</div>
+          </div>
+          <p style="margin:12px 0 0;color:#68758a">会明显扩大一期复杂度。</p>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C. 完整项目平台</h3>
+      <p>覆盖面最广，但会把本次目标拖成大型重构，不适合作为第一期。</p>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>我的初步判断</h3>
+  <p>我推荐 B：它能解决你说的“多份并存、状态管理、继续编辑、源文件提醒、同源正文查重、并行生成上限”，同时不把商务标/团队协同/跨设备这些未提到的东西拉进来。</p>
+</div>

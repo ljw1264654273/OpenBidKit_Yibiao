@@ -65,10 +65,10 @@ const DEFAULT_IMAGE_STYLE = {
   caption_italic: false,
 };
 const DEFAULT_BODY_OUTLINE_LEVELS = [
-  { numbering_style: 'chinese-dot', font: '宋体', size: '小四' },
-  { numbering_style: 'chinese-paren', font: '宋体', size: '小四' },
-  { numbering_style: 'decimal-dot', font: '宋体', size: '小四' },
-  { numbering_style: 'decimal-full-paren', font: '宋体', size: '小四' },
+  { numbering_style: 'chinese-dot', font: '宋体', size: '小四', first_line_indent_chars: 0 },
+  { numbering_style: 'chinese-paren', font: '宋体', size: '小四', first_line_indent_chars: 0 },
+  { numbering_style: 'decimal-dot', font: '宋体', size: '小四', first_line_indent_chars: 0 },
+  { numbering_style: 'decimal-full-paren', font: '宋体', size: '小四', first_line_indent_chars: 0 },
 ];
 const UNORDERED_LIST_MARKERS = {
   disc: { text: '•', font: 'Arial', sizeScale: 0.75 },
@@ -887,6 +887,9 @@ function getBodyOutlineLevels(bodyStyle = {}) {
         || (!sourceLevels && index === 0 ? legacyOrderedListStyle : defaultLevel.numbering_style),
       font: sourceLevel?.font || defaultLevel.font,
       size: sourceLevel?.size || defaultLevel.size,
+      first_line_indent_chars: typeof sourceLevel?.first_line_indent_chars === 'number'
+        ? sourceLevel.first_line_indent_chars
+        : defaultLevel.first_line_indent_chars,
     };
   });
 }
@@ -897,6 +900,7 @@ function getBodyOutlineLevel(referenceConfig, level) {
     numbering_style: 'circled',
     font: referenceConfig.bodyRunFont || '宋体',
     size: referenceConfig.bodyRunSize ? undefined : '三号',
+    first_line_indent_chars: 0,
   };
 }
 
@@ -2368,9 +2372,23 @@ function getManualUnorderedListLevelIndent(context, level) {
 }
 
 function getListLevelIndent(referenceConfig, level) {
+  if (referenceConfig.ordered === true) {
+    const outlineLevel = getBodyOutlineLevel(referenceConfig, level);
+    const outlineSizeHalfPt = chineseSizeToHalfPt(outlineLevel.size || '小四');
+    const markerWidth = charsToTwips(1, outlineSizeHalfPt);
+    const firstLineIndentChars = typeof outlineLevel.first_line_indent_chars === 'number'
+      ? outlineLevel.first_line_indent_chars
+      : 0;
+    return {
+      left: charsToTwips(firstLineIndentChars, outlineSizeHalfPt) + markerWidth,
+      hanging: markerWidth,
+    };
+  }
+
+  const markerWidth = charsToTwips(1, referenceConfig.bodyRunSize);
   const baseIndent = charsToTwips(referenceConfig.listIndentChars, referenceConfig.bodyRunSize);
   const left = Math.round(baseIndent * (level + 1));
-  const hanging = Math.min(left, charsToTwips(1, referenceConfig.bodyRunSize));
+  const hanging = Math.min(left, markerWidth);
   return { left, hanging };
 }
 

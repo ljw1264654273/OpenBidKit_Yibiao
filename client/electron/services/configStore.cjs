@@ -18,10 +18,10 @@ const MAX_COMPONENT_CONCURRENCY_LIMIT = 20;
 const DEFAULT_AGENT_AUTO_ANSWER_ENABLED = false;
 const DEFAULT_HEADING_BORDER_CELL_COLORS = ['#eef5ff', '#f3f7ff', '#f8fbff', '#fbfdff', '#ffffff', '#ffffff'];
 const DEFAULT_BODY_OUTLINE_LEVELS = [
-  { numbering_style: 'chinese-dot', font: '宋体', size: '小四' },
-  { numbering_style: 'chinese-paren', font: '宋体', size: '小四' },
-  { numbering_style: 'decimal-dot', font: '宋体', size: '小四' },
-  { numbering_style: 'decimal-full-paren', font: '宋体', size: '小四' },
+  { numbering_style: 'chinese-dot', font: '宋体', size: '小四', first_line_indent_chars: 0 },
+  { numbering_style: 'chinese-paren', font: '宋体', size: '小四', first_line_indent_chars: 0 },
+  { numbering_style: 'decimal-dot', font: '宋体', size: '小四', first_line_indent_chars: 0 },
+  { numbering_style: 'decimal-full-paren', font: '宋体', size: '小四', first_line_indent_chars: 0 },
 ];
 const openAICompatibleImageSizes = ['auto', '1K', '2K', '3K', '4K', '1024x768', '1024x1024', '768x1024', '1536x1024', '1024x1536', '2048x2048', '2048x1152', '3840x2160', '2160x3840'];
 const googleImageSizes = ['512', '1K', '2K', '4K'];
@@ -684,6 +684,9 @@ function normalizeExportFormat(source) {
         : (!srcBodyOutlineLevels && index === 0 && legacyOrderedListStyle ? legacyOrderedListStyle : defaultLevel.numbering_style),
       font: typeof sourceLevel.font === 'string' && sourceLevel.font ? sourceLevel.font : defaultLevel.font,
       size: typeof sourceLevel.size === 'string' && sourceLevel.size ? sourceLevel.size : defaultLevel.size,
+      first_line_indent_chars: typeof sourceLevel.first_line_indent_chars === 'number'
+        ? sourceLevel.first_line_indent_chars
+        : defaultLevel.first_line_indent_chars,
     };
   });
   const body_text = {

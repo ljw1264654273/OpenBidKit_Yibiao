@@ -59,6 +59,7 @@ export interface BodyOutlineLevelConfig {
   numbering_style: OrderedListStyle;
   font: string;
   size: string;
+  first_line_indent_chars: number;
 }
 
 export interface TableCellStyleConfig {
@@ -257,10 +258,10 @@ export type OrderedListStyle = (typeof ORDERED_LIST_STYLE_OPTIONS)[number]['valu
 export const BODY_OUTLINE_LEVEL_LABELS = ['第一层', '第二层', '第三层', '第四层', '第五层'] as const;
 
 export const DEFAULT_BODY_OUTLINE_LEVELS: BodyOutlineLevelConfig[] = [
-  { numbering_style: 'chinese-dot', font: '宋体', size: '小四' },
-  { numbering_style: 'chinese-paren', font: '宋体', size: '小四' },
-  { numbering_style: 'decimal-dot', font: '宋体', size: '小四' },
-  { numbering_style: 'decimal-full-paren', font: '宋体', size: '小四' },
+  { numbering_style: 'chinese-dot', font: '宋体', size: '小四', first_line_indent_chars: 0 },
+  { numbering_style: 'chinese-paren', font: '宋体', size: '小四', first_line_indent_chars: 0 },
+  { numbering_style: 'decimal-dot', font: '宋体', size: '小四', first_line_indent_chars: 0 },
+  { numbering_style: 'decimal-full-paren', font: '宋体', size: '小四', first_line_indent_chars: 0 },
 ];
 
 // ── 中文字号 → pt 映射 ────────────────────────────

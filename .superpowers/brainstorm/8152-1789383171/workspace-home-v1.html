@@ -1,0 +1,174 @@
+<style>
+  :root {
+    --ink: #16243a;
+    --muted: #64748b;
+    --line: #e4eaf1;
+    --blue: #216eea;
+    --blue-soft: #eaf2ff;
+    --green: #169b62;
+    --green-soft: #e8f7ef;
+    --amber: #b77908;
+    --amber-soft: #fff5d9;
+    --red: #cb3b42;
+    --red-soft: #fff0f0;
+  }
+  .prototype-shell {
+    margin: 4px auto 30px;
+    max-width: 1120px;
+    border: 1px solid #dce4ed;
+    background: #f7f9fc;
+    color: var(--ink);
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 16px 45px rgba(20, 42, 72, .12);
+    text-align: left;
+  }
+  .prototype-topbar {
+    height: 58px;
+    padding: 0 22px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: white;
+    border-bottom: 1px solid var(--line);
+  }
+  .brand { display: flex; gap: 10px; align-items: center; font-weight: 800; }
+  .brand-mark {
+    width: 28px; height: 28px; display: grid; place-items: center;
+    color: white; background: var(--blue); border-radius: 7px; font-size: 13px;
+  }
+  .top-actions { display: flex; gap: 10px; align-items: center; color: var(--muted); font-size: 12px; }
+  .avatar { width: 28px; height: 28px; border-radius: 50%; background: #dbe7f7; display: grid; place-items: center; color: #31527b; font-weight: 700; }
+  .prototype-body { display: grid; grid-template-columns: 206px minmax(0, 1fr); min-height: 630px; }
+  .side-nav { background: #fbfcfe; border-right: 1px solid var(--line); padding: 18px 12px; }
+  .side-title { padding: 0 10px 14px; color: #8a99ab; font-size: 11px; letter-spacing: .06em; }
+  .nav-item { display: flex; align-items: center; gap: 9px; padding: 10px 11px; border-radius: 6px; font-size: 13px; color: #53647a; margin-bottom: 3px; }
+  .nav-item.active { background: var(--blue-soft); color: var(--blue); font-weight: 700; }
+  .nav-icon { width: 17px; text-align: center; font-size: 14px; }
+  .side-foot { margin: 28px 10px 0; padding-top: 14px; border-top: 1px solid var(--line); color: #8b98a9; font-size: 11px; line-height: 1.6; }
+  .workspace-main { padding: 25px 28px 32px; min-width: 0; }
+  .heading-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; }
+  .eyebrow { color: var(--blue); font-size: 11px; font-weight: 800; letter-spacing: .08em; }
+  .heading-row h2 { margin: 5px 0 6px; font-size: 24px; letter-spacing: 0; }
+  .heading-row p { margin: 0; color: var(--muted); font-size: 13px; }
+  .primary-btn { border: 0; background: var(--blue); color: white; padding: 10px 14px; border-radius: 6px; font-weight: 700; font-size: 12px; white-space: nowrap; }
+  .summary-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 24px 0 18px; }
+  .summary { background: white; border: 1px solid var(--line); border-radius: 7px; padding: 13px 14px; }
+  .summary-label { color: var(--muted); font-size: 11px; }
+  .summary-value { margin-top: 5px; font-size: 22px; font-weight: 800; }
+  .summary-hint { margin-top: 2px; font-size: 10px; color: #8794a4; }
+  .toolbar { display: flex; gap: 9px; align-items: center; background: white; border: 1px solid var(--line); padding: 11px; border-radius: 7px 7px 0 0; }
+  .search { flex: 1; min-width: 100px; border: 1px solid #d8e1eb; color: #8a98a8; padding: 8px 10px; border-radius: 5px; font-size: 12px; background: #fbfcfe; }
+  .filter { border: 1px solid #d8e1eb; color: #53647a; padding: 8px 10px; border-radius: 5px; font-size: 12px; background: white; }
+  .list-head { display: grid; grid-template-columns: minmax(220px, 2.3fr) 1.1fr .8fr 1fr 90px; gap: 12px; padding: 10px 14px; background: #f3f6fa; color: #8492a3; font-size: 10px; border: 1px solid var(--line); border-top: 0; }
+  .project-row { display: grid; grid-template-columns: minmax(220px, 2.3fr) 1.1fr .8fr 1fr 90px; gap: 12px; align-items: center; padding: 15px 14px; background: white; border: 1px solid var(--line); border-top: 0; font-size: 12px; }
+  .project-row:last-child { border-radius: 0 0 7px 7px; }
+  .project-name { font-weight: 750; color: #1f3350; }
+  .project-meta { color: #8492a3; font-size: 10px; margin-top: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .type { color: #52657e; }
+  .status { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 700; white-space: nowrap; }
+  .status::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .status.green { color: var(--green); }
+  .status.amber { color: var(--amber); }
+  .status.blue { color: var(--blue); }
+  .status.red { color: var(--red); }
+  .action-link { color: var(--blue); font-size: 11px; font-weight: 700; text-align: right; }
+  .next-step { margin-top: 18px; padding: 14px 16px; border: 1px solid #cfe0fa; border-left: 3px solid var(--blue); background: #f4f8ff; border-radius: 6px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .next-step strong { font-size: 12px; }
+  .next-step span { display: block; color: var(--muted); font-size: 11px; margin-top: 4px; }
+  .small-action { border: 1px solid #bcd2f4; color: var(--blue); background: white; padding: 7px 10px; border-radius: 5px; font-size: 11px; white-space: nowrap; }
+  @media (max-width: 760px) {
+    .prototype-body { grid-template-columns: 1fr; }
+    .side-nav { display: none; }
+    .workspace-main { padding: 20px 15px 25px; }
+    .summary-strip { grid-template-columns: repeat(2, 1fr); }
+    .list-head { display: none; }
+    .project-row { grid-template-columns: 1fr auto; gap: 7px 12px; }
+    .project-row > :nth-child(2), .project-row > :nth-child(3) { display: none; }
+    .action-link { grid-column: 2; grid-row: 1 / span 2; }
+  }
+</style>
+
+<h2>方案 B：工作区首页原型</h2>
+<p class="subtitle">这张图回答一个问题：打开软件后，如何一眼知道“我有哪些标书、各自走到哪一步、下一步该做什么”。</p>
+
+<div class="prototype-shell">
+  <div class="prototype-topbar">
+    <div class="brand"><div class="brand-mark">易</div><span>易标投标工具箱</span></div>
+    <div class="top-actions"><span>本地工作区</span><div class="avatar">我</div></div>
+  </div>
+  <div class="prototype-body">
+    <aside class="side-nav">
+      <div class="side-title">工作区</div>
+      <div class="nav-item active"><span class="nav-icon">▦</span>标书项目</div>
+      <div class="nav-item"><span class="nav-icon">＋</span>新建标书</div>
+      <div class="nav-item"><span class="nav-icon">⌕</span>正文查重</div>
+      <div class="side-foot">所有数据保存在本机<br>退出软件不会丢失项目</div>
+    </aside>
+    <main class="workspace-main">
+      <div class="heading-row">
+        <div>
+          <div class="eyebrow">PROJECT WORKSPACE</div>
+          <h2>我的标书项目</h2>
+          <p>管理本机上的标书方案，随时继续编辑、查重或导出。</p>
+        </div>
+        <button class="primary-btn">＋ 新建标书</button>
+      </div>
+
+      <div class="summary-strip">
+        <div class="summary"><div class="summary-label">全部项目</div><div class="summary-value">6</div><div class="summary-hint">本机保存</div></div>
+        <div class="summary"><div class="summary-label">生成中</div><div class="summary-value" style="color:#216eea">2</div><div class="summary-hint">含 1 个排队任务</div></div>
+        <div class="summary"><div class="summary-label">未完成</div><div class="summary-value" style="color:#b77908">2</div><div class="summary-hint">可以继续处理</div></div>
+        <div class="summary"><div class="summary-label">已完成</div><div class="summary-value" style="color:#169b62">2</div><div class="summary-hint">可直接导出</div></div>
+      </div>
+
+      <div class="toolbar">
+        <div class="search">⌕　搜索标书名称</div>
+        <div class="filter">状态：全部　⌄</div>
+        <div class="filter">类型：全部　⌄</div>
+      </div>
+      <div class="list-head"><div>标书项目</div><div>来源文件</div><div>类型</div><div>状态</div><div>操作</div></div>
+
+      <div class="project-row">
+        <div><div class="project-name">智慧园区综合管理平台方案 - 第 1 份</div><div class="project-meta">最后编辑：今天 14:32　·　正文 82%</div></div>
+        <div class="project-meta">某市智慧园区招标文件.docx</div>
+        <div class="type">技术方案</div>
+        <div><span class="status green">已完成</span></div>
+        <div class="action-link">打开　···</div>
+      </div>
+      <div class="project-row">
+        <div><div class="project-name">智慧园区综合管理平台方案 - 第 2 份</div><div class="project-meta">最后编辑：今天 13:18　·　正文 46%</div></div>
+        <div class="project-meta">某市智慧园区招标文件.docx</div>
+        <div class="type">技术方案</div>
+        <div><span class="status blue">生成中</span></div>
+        <div class="action-link">查看进度　···</div>
+      </div>
+      <div class="project-row">
+        <div><div class="project-name">智慧园区综合管理平台方案 - 第 3 份</div><div class="project-meta">最后编辑：昨天 17:05　·　正文 12%</div></div>
+        <div class="project-meta">某市智慧园区招标文件.docx</div>
+        <div class="type">技术方案</div>
+        <div><span class="status amber">未完成</span></div>
+        <div class="action-link">继续编辑　···</div>
+      </div>
+      <div class="project-row">
+        <div><div class="project-name">智慧园区综合管理平台方案 - 第 4 份</div><div class="project-meta">最后编辑：昨天 15:41　·　需要重试正文生成</div></div>
+        <div class="project-meta">某市智慧园区招标文件.docx</div>
+        <div class="type">技术方案</div>
+        <div><span class="status red">生成失败</span></div>
+        <div class="action-link">查看原因　···</div>
+      </div>
+
+      <div class="next-step">
+        <div><strong>有 2 份同源标书可以进行正文查重</strong><span>系统已发现“智慧园区综合管理平台”下有多份可比较正文。</span></div>
+        <button class="small-action">去查重 →</button>
+      </div>
+    </main>
+  </div>
+</div>
+
+<div class="section">
+  <h3>这张首页的设计逻辑</h3>
+  <p><strong>第一眼看状态：</strong>顶部四个数字告诉你工作量和风险；列表用颜色区分生成中、未完成、已完成、生成失败。</p>
+  <p><strong>第二眼找项目：</strong>搜索框和两个筛选器解决项目多了以后快速定位的问题；同一源文件的第 1、2、3、4 份明确写在名称里。</p>
+  <p><strong>第三步直接行动：</strong>每一行右侧的动作会根据状态变化：已完成是“打开”，生成中是“查看进度”，未完成是“继续编辑”，失败是“查看原因”。</p>
+</div>

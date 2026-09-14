@@ -810,7 +810,7 @@
 
 .export-body-outline-level-grid {
   min-width: 0;
-  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1.25fr) minmax(96px, 0.7fr);
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1.15fr) minmax(88px, 0.7fr) minmax(96px, 0.8fr);
 }
 
 .export-format-heading-card .export-format-heading-grid {
@@ -864,19 +864,11 @@
   .export-body-outline-level-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-
-  .export-body-outline-level-grid > label:last-child {
-    grid-column: span 2;
-  }
 }
 
 @media (max-width: 520px) {
   .export-body-outline-level-grid {
     grid-template-columns: minmax(0, 1fr);
-  }
-
-  .export-body-outline-level-grid > label:last-child {
-    grid-column: auto;
   }
 }
 
@@ -1152,11 +1144,12 @@
 }
 
 .export-format-preview-content ol {
-  padding-left: var(--ef-list-indent, 2em);
+  padding-left: calc(var(--ef-body-outline-1-indent, 0) + var(--ef-body-outline-marker-width, 1em));
   counter-reset: ef-ordered-list;
   list-style: none;
   font-family: var(--ef-body-outline-1-font, var(--ef-body-font, 'SimSun', serif));
   font-size: var(--ef-body-outline-1-size, var(--ef-body-size, 12pt));
+  text-indent: 0;
 }
 
 .export-format-preview-content li {
@@ -1167,6 +1160,11 @@
 
 .export-format-preview-content ol > li {
   counter-increment: ef-ordered-list;
+  text-indent: 0;
+}
+
+.export-format-preview-content ol > li > p {
+  text-indent: 0;
 }
 
 .export-format-preview-content ul > li::before {
@@ -1183,8 +1181,8 @@
 
 .export-format-preview-content ol > li::before {
   position: absolute;
-  left: calc(var(--ef-list-indent, 2em) * -1);
-  width: calc(var(--ef-list-indent, 2em) - 0.25em);
+  left: calc(var(--ef-body-outline-marker-width, 1em) * -1);
+  width: var(--ef-body-outline-marker-width, 1em);
   font-family: var(--ef-body-outline-1-font, var(--ef-body-font, 'SimSun', serif));
   font-size: var(--ef-body-outline-1-size, var(--ef-body-size, 12pt));
   text-align: right;
@@ -1195,52 +1193,112 @@
 }
 
 .export-format-preview-content ol > li > ol {
+  margin-left: calc(-1 * (var(--ef-body-outline-1-indent, 0) + var(--ef-body-outline-marker-width, 1em)));
+  padding-left: calc(var(--ef-body-outline-2-indent, 0) + var(--ef-body-outline-marker-width, 1em));
   font-family: var(--ef-body-outline-2-font, var(--ef-body-font, 'SimSun', serif));
   font-size: var(--ef-body-outline-2-size, var(--ef-body-size, 12pt));
+  text-indent: 0;
+}
+
+.export-format-preview-content ol > li > ol > li {
+  text-indent: 0;
+}
+
+.export-format-preview-content ol > li > ol > li > p {
+  text-indent: 0;
 }
 
 .export-format-preview-content ol > li > ol > li::before {
+  position: absolute;
+  left: calc(var(--ef-body-outline-marker-width, 1em) * -1);
+  width: var(--ef-body-outline-marker-width, 1em);
   font-family: var(--ef-body-outline-2-font, var(--ef-body-font, 'SimSun', serif));
   font-size: var(--ef-body-outline-2-size, var(--ef-body-size, 12pt));
+  text-indent: 0;
   content: var(--ef-body-outline-2-prefix, "")
     counter(ef-ordered-list, var(--ef-body-outline-2-counter-style, decimal))
     var(--ef-body-outline-2-suffix, ". ");
 }
 
 .export-format-preview-content ol > li > ol > li > ol {
+  margin-left: calc(-1 * (var(--ef-body-outline-2-indent, 0) + var(--ef-body-outline-marker-width, 1em)));
+  padding-left: calc(var(--ef-body-outline-3-indent, 0) + var(--ef-body-outline-marker-width, 1em));
   font-family: var(--ef-body-outline-3-font, var(--ef-body-font, 'SimSun', serif));
   font-size: var(--ef-body-outline-3-size, var(--ef-body-size, 12pt));
+  text-indent: 0;
+}
+
+.export-format-preview-content ol > li > ol > li > ol > li {
+  text-indent: 0;
+}
+
+.export-format-preview-content ol > li > ol > li > ol > li > p {
+  text-indent: 0;
 }
 
 .export-format-preview-content ol > li > ol > li > ol > li::before {
+  position: absolute;
+  left: calc(var(--ef-body-outline-marker-width, 1em) * -1);
+  width: var(--ef-body-outline-marker-width, 1em);
   font-family: var(--ef-body-outline-3-font, var(--ef-body-font, 'SimSun', serif));
   font-size: var(--ef-body-outline-3-size, var(--ef-body-size, 12pt));
+  text-indent: 0;
   content: var(--ef-body-outline-3-prefix, "")
     counter(ef-ordered-list, var(--ef-body-outline-3-counter-style, decimal))
     var(--ef-body-outline-3-suffix, ". ");
 }
 
 .export-format-preview-content ol > li > ol > li > ol > li > ol {
+  margin-left: calc(-1 * (var(--ef-body-outline-3-indent, 0) + var(--ef-body-outline-marker-width, 1em)));
+  padding-left: calc(var(--ef-body-outline-4-indent, 0) + var(--ef-body-outline-marker-width, 1em));
   font-family: var(--ef-body-outline-4-font, var(--ef-body-font, 'SimSun', serif));
   font-size: var(--ef-body-outline-4-size, var(--ef-body-size, 12pt));
+  text-indent: 0;
+}
+
+.export-format-preview-content ol > li > ol > li > ol > li > ol > li {
+  text-indent: 0;
+}
+
+.export-format-preview-content ol > li > ol > li > ol > li > ol > li > p {
+  text-indent: 0;
 }
 
 .export-format-preview-content ol > li > ol > li > ol > li > ol > li::before {
+  position: absolute;
+  left: calc(var(--ef-body-outline-marker-width, 1em) * -1);
+  width: var(--ef-body-outline-marker-width, 1em);
   font-family: var(--ef-body-outline-4-font, var(--ef-body-font, 'SimSun', serif));
   font-size: var(--ef-body-outline-4-size, var(--ef-body-size, 12pt));
+  text-indent: 0;
   content: var(--ef-body-outline-4-prefix, "")
     counter(ef-ordered-list, var(--ef-body-outline-4-counter-style, decimal))
     var(--ef-body-outline-4-suffix, ". ");
 }
 
 .export-format-preview-content ol > li > ol > li > ol > li > ol > li > ol {
+  margin-left: calc(-1 * (var(--ef-body-outline-4-indent, 0) + var(--ef-body-outline-marker-width, 1em)));
+  padding-left: calc(var(--ef-body-outline-5-indent, 0) + var(--ef-body-outline-marker-width, 1em));
   font-family: var(--ef-body-outline-5-font, var(--ef-body-font, 'SimSun', serif));
   font-size: var(--ef-body-outline-5-size, var(--ef-body-size, 12pt));
+  text-indent: 0;
+}
+
+.export-format-preview-content ol > li > ol > li > ol > li > ol > li > ol > li {
+  text-indent: 0;
+}
+
+.export-format-preview-content ol > li > ol > li > ol > li > ol > li > ol > li > p {
+  text-indent: 0;
 }
 
 .export-format-preview-content ol > li > ol > li > ol > li > ol > li > ol > li::before {
+  position: absolute;
+  left: calc(var(--ef-body-outline-marker-width, 1em) * -1);
+  width: var(--ef-body-outline-marker-width, 1em);
   font-family: var(--ef-body-outline-5-font, var(--ef-body-font, 'SimSun', serif));
   font-size: var(--ef-body-outline-5-size, var(--ef-body-size, 12pt));
+  text-indent: 0;
   content: var(--ef-body-outline-5-prefix, "")
     counter(ef-ordered-list, var(--ef-body-outline-5-counter-style, decimal))
     var(--ef-body-outline-5-suffix, ". ");
