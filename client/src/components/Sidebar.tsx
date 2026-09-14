@@ -3,7 +3,7 @@ import { useEffect, useState, type ComponentType, type ReactElement, type SVGPro
 import { getAppMenuItems, getParentMenuItemBySection } from '../app/menuConfig';
 import type { AppMenuItem, SectionId } from '../shared/types/navigation';
 import { useToast } from '../shared/ui';
-import logoUrl from '../../assets/icon_256.png';
+import logoUrl from '../../assets/brand-logo.png';
 
 interface SidebarProps {
   activeSection: SectionId;
@@ -89,7 +89,7 @@ function Sidebar({ activeSection, developerMode, onSectionChange }: SidebarProps
           <img src={logoUrl} alt="" />
         </div>
         <div className="brand-copy">
-          <span>易标</span>
+          <span>园测</span>
           <strong>投标工具箱</strong>
         </div>
       </div>
