@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI 调整流程图布局示意</title>
+  <style>
+    :root {
+      --ink: #172033;
+      --muted: #667085;
+      --line: #d9e1ec;
+      --blue: #2563eb;
+      --blue-soft: #eff6ff;
+      --green: #0f766e;
+      --green-soft: #ecfdf5;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: #f3f6fa;
+      color: var(--ink);
+      font-family: "Microsoft YaHei", "PingFang SC", Arial, sans-serif;
+    }
+    main { padding: 28px; }
+    .intro { max-width: 1180px; margin: 0 auto 18px; }
+    .intro h1 { margin: 0 0 6px; font-size: 24px; }
+    .intro p { color: var(--muted); margin: 0; }
+    .options { max-width: 1180px; margin: 0 auto; display: grid; gap: 18px; }
+    .option {
+      background: #fff;
+      border: 2px solid var(--line);
+      border-radius: 10px;
+      padding: 16px;
+      cursor: pointer;
+      transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease;
+    }
+    .option:hover { border-color: #9bb8ed; transform: translateY(-1px); }
+    .option.selected {
+      border-color: var(--blue);
+      box-shadow: 0 0 0 4px rgba(37, 99, 235, .12);
+    }
+    .option-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+    .letter {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      flex: 0 0 auto;
+      background: var(--blue-soft);
+      color: var(--blue);
+      font-weight: 800;
+    }
+    .option h2 { margin: 0; font-size: 17px; }
+    .option-head p { margin: 3px 0 0; color: var(--muted); font-size: 13px; }
+    .mockup {
+      border: 1px solid #dfe6ef;
+      background: #fff;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .mockup-bar {
+      height: 34px;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 0 12px;
+      background: #f8fafc;
+      border-bottom: 1px solid #e5eaf0;
+      color: #7b8798;
+      font-size: 12px;
+    }
+    .dot { width: 7px; height: 7px; border-radius: 50%; background: #c7d2e2; }
+    .mockup-body { padding: 12px; }
+    .screen {
+      min-height: 188px;
+      display: grid;
+      grid-template-columns: 1.15fr .85fr;
+      gap: 10px;
+      background: #fbfcfe;
+      border: 1px solid #edf1f6;
+      padding: 10px;
+    }
+    .screen-bottom {
+      min-height: 188px;
+      display: grid;
+      grid-template-rows: 1fr auto;
+      gap: 10px;
+      background: #fbfcfe;
+      border: 1px solid #edf1f6;
+      padding: 10px;
+    }
+    .code, .preview, .assistant { border: 1px solid var(--line); border-radius: 6px; min-width: 0; }
+    .code {
+      background: #f8fafc;
+      padding: 10px;
+      font: 12px/1.55 Consolas, monospace;
+      color: #334155;
+      white-space: pre-line;
+    }
+    .code strong { color: var(--blue); }
+    .preview { background: #fff; display: grid; place-items: center; padding: 12px; }
+    .flow { display: grid; gap: 5px; justify-items: center; }
+    .node {
+      border: 1px solid #9f8bea;
+      background: #f1efff;
+      padding: 7px 15px;
+      border-radius: 3px;
+      color: #4338a8;
+      font-size: 11px;
+      text-align: center;
+    }
+    .arrow { color: #8491a5; font-size: 12px; line-height: 8px; }
+    .assistant { background: #fff; padding: 11px; display: flex; flex-direction: column; gap: 8px; }
+    .assistant-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .assistant-title strong { font-size: 13px; }
+    .tag { padding: 3px 7px; border-radius: 99px; font-size: 11px; color: var(--green); background: var(--green-soft); }
+    .prompt {
+      min-height: 62px;
+      border: 1px solid #cfd8e5;
+      border-radius: 5px;
+      padding: 8px;
+      color: #64748b;
+      font-size: 12px;
+      line-height: 1.45;
+      background: #fcfdff;
+    }
+    .suggestions { display: flex; flex-wrap: wrap; gap: 5px; }
+    .suggestions span {
+      border: 1px solid #dbe4ef;
+      border-radius: 4px;
+      padding: 4px 6px;
+      color: #526174;
+      font-size: 10px;
+      background: #fff;
+    }
+    .assistant-actions { display: flex; justify-content: flex-end; gap: 6px; }
+    .mini-btn { border: 1px solid #cbd7e7; border-radius: 5px; padding: 5px 8px; color: #526174; background: #fff; font-size: 11px; }
+    .mini-btn.primary { color: #fff; background: var(--blue); border-color: var(--blue); }
+    .wide-assistant { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: end; }
+    .wide-assistant .assistant-title { grid-column: 1 / -1; }
+    .wide-assistant .prompt { min-height: 48px; }
+    .recommend {
+      margin: 14px auto 0;
+      max-width: 1180px;
+      padding: 11px 14px;
+      color: #1e3a8a;
+      background: #eff6ff;
+      border-left: 3px solid var(--blue);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    @media (max-width: 760px) {
+      main { padding: 18px; }
+      .screen { grid-template-columns: 1fr; }
+      .screen-bottom { min-height: 260px; }
+      .wide-assistant { grid-template-columns: 1fr; }
+      .wide-assistant .assistant-actions { justify-content: flex-start; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="intro">
+      <h1>AI 调整流程图区域放在哪里？</h1>
+      <p>红框区域可以承载自然语言调整。点击你更倾向的交互方式，后续我按选定方案细化流程。</p>
+    </div>
+
+    <div class="options">
+      <section class="option selected" data-choice="a">
+        <div class="option-head">
+          <div class="letter">A</div>
+          <div>
+            <h2>右侧固定 AI 调整面板（推荐）</h2>
+            <p>与 Mermaid 代码编辑区并列，调整时上下文最清晰</p>
+          </div>
+        </div>
+        <div class="mockup">
+          <div class="mockup-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span> Mermaid 审核弹窗</div>
+          <div class="mockup-body">
+            <div class="screen">
+              <div class="code"><strong>Mermaid 代码</strong>
+
+flowchart TD
+  A["资料收集"] --> B["摸底调查"]
+  B --> C["地块核查"]
+  C --> D["成果验收"]</div>
+              <div class="assistant">
+                <div class="assistant-title"><strong>AI 调整流程图</strong><span class="tag">可对话调整</span></div>
+                <div class="prompt">例如：在“地块核查”后增加“问题整改”，并把“成果验收”改为“成果检查与验收”。</div>
+                <div class="suggestions"><span>增加一个判断节点</span><span>调整流程顺序</span><span>补充责任人</span></div>
+                <div class="assistant-actions"><span class="mini-btn">清空</span><span class="mini-btn primary">AI 调整代码</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="option" data-choice="b">
+        <div class="option-head">
+          <div class="letter">B</div>
+          <div>
+            <h2>代码区下方 AI 调整抽屉</h2>
+            <p>面板横向空间更大，但会压缩下方 Mermaid 预览区域</p>
+          </div>
+        </div>
+        <div class="mockup">
+          <div class="mockup-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span> Mermaid 审核弹窗</div>
+          <div class="mockup-body">
+            <div class="screen-bottom">
+              <div class="code"><strong>Mermaid 代码</strong> flowchart TD A["资料收集"] --> B["摸底调查"] --> C["地块核查"]</div>
+              <div class="assistant wide-assistant">
+                <div class="assistant-title"><strong>AI 调整流程图</strong><span class="tag">根据当前代码修改</span></div>
+                <div class="prompt">描述你希望调整的流程、节点或连接关系……</div>
+                <div class="assistant-actions"><span class="mini-btn primary">AI 调整代码</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="option" data-choice="c">
+        <div class="option-head">
+          <div class="letter">C</div>
+          <div>
+            <h2>在代码编辑器内嵌 AI 操作条</h2>
+            <p>占用空间最少，但代码和 AI 指令容易混在一起</p>
+          </div>
+        </div>
+        <div class="mockup">
+          <div class="mockup-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span> Mermaid 审核弹窗</div>
+          <div class="mockup-body">
+            <div class="screen">
+              <div class="code"><strong>Mermaid 代码</strong>
+
+flowchart TD
+  A["资料收集"] --> B["摸底调查"]
+  B --> C["地块核查"]
+  C --> D["成果验收"]
+
+AI：在核查后增加整改节点
+[执行调整]</div>
+              <div class="preview">
+                <div class="flow"><div class="node">资料收集</div><div class="arrow">↓</div><div class="node">摸底调查</div><div class="arrow">↓</div><div class="node">地块核查</div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <div class="recommend">
+      推荐采用 A：右侧面板提供“自然语言输入 + 快捷指令 + AI 调整代码 + 更新预览”，并保留人工编辑代码能力。AI 只修改当前选中的 Mermaid 图，不直接触发 AI 图片重绘；用户仍需确认 Mermaid 后才能进入重绘阶段。
+    </div>
+  </main>
+
+  <script>
+    document.querySelectorAll('.option').forEach((item) => {
+      item.addEventListener('click', () => {
+        document.querySelectorAll('.option').forEach((other) => other.classList.remove('selected'));
+        item.classList.add('selected');
+      });
+    });
+  </script>
+</body>
+</html>

@@ -63,6 +63,138 @@ test('正文生成把现有阶段进度原样放入公共命令区', () => {
   assert.match(source, /setWorkspacePane\('content'\)/);
 });
 
+test('第五步正文预览统一普通正文并让正文层次字体字号服从模板', () => {
+  const pageSource = readFileSync(new URL('../pages/ContentEditPage.tsx', import.meta.url), 'utf8');
+  const css = readFileSync(new URL('../../../styles/feature-technical-plan.css', import.meta.url), 'utf8');
+  const previewUsages = pageSource.match(/className="markdown-viewer content-generation-output export-format-preview[^"]*"/g) || [];
+  const previewCssStart = css.indexOf('/* 第五步正文预览');
+  const previewCssEnd = css.indexOf('.content-generation-empty', previewCssStart);
+  const previewCss = css.slice(previewCssStart, previewCssEnd);
+
+  assert.equal(previewUsages.length, 2);
+  assert.ok(previewUsages.every((usage) => usage.includes('technical-plan-content-preview')));
+  assert.match(css, /\.technical-plan-content-preview\s*>\s*p:not\(\.markdown-figure-caption\)\s*\{[^}]*font-family:\s*var\(--ef-body-font[^}]*font-size:\s*var\(--ef-body-size[^}]*line-height:\s*var\(--ef-body-line-height/s);
+  assert.match(previewCss, /\.markdown-viewer\.export-format-preview\.technical-plan-content-preview\s+:where\(h1,\s*h2,\s*h3,\s*h4,\s*h5,\s*h6\)\s*\{[^}]*font-family:\s*var\(--ef-body-font[^}]*font-size:\s*var\(--ef-body-size[^}]*font-weight:\s*400/s);
+  assert.match(previewCss, /\.markdown-viewer\.export-format-preview\.technical-plan-content-preview\s+:where\(h1,\s*h2,\s*h3,\s*h4,\s*h5,\s*h6\)\s+strong/s);
+  assert.match(previewCss, /\.markdown-viewer\.export-format-preview\.technical-plan-content-preview\s+(?:ul|ol)[\s\S]*font-weight:\s*400/);
+  assert.doesNotMatch(previewCss, /\.markdown-viewer\.export-format-preview\.technical-plan-content-preview\s+(?:ul|ol)[\s\S]*font-family:\s*var\(--ef-body-font/);
+  assert.doesNotMatch(previewCss, /\.markdown-viewer\.export-format-preview\.technical-plan-content-preview\s+(?:ul|ol)[\s\S]*font-size:\s*var\(--ef-body-size/);
+  assert.match(previewCss, /\.markdown-viewer\.export-format-preview\.technical-plan-content-preview\s+(?:ul|ol)[\s\S]*line-height:\s*var\(--ef-body-line-height/);
+  assert.match(previewCss, /\.technical-plan-content-preview\s*>\s*p:not\(\.markdown-figure-caption\)\s+strong/);
+  assert.match(previewCss, /\.technical-plan-content-preview\s*>\s*p:not\(\.markdown-figure-caption\)\s+b/);
+  assert.match(css, /\.technical-plan-content-preview[\s\S]*font-weight:\s*600/);
+  assert.doesNotMatch(css, /\.markdown-viewer\.export-format-preview\s+(?:strong|b)\s*\{/);
+});
+
+test('第五步正文预览启用正文层次结构纠正，避免历史编号破坏嵌套列表', () => {
+  const pageSource = readFileSync(new URL('../pages/ContentEditPage.tsx', import.meta.url), 'utf8');
+  const rendererSource = readFileSync(new URL('../../../shared/ui/MarkdownRenderer.tsx', import.meta.url), 'utf8');
+
+  assert.match(pageSource, /normalizeOrderedListStructure/);
+  assert.match(rendererSource, /normalizeOrderedListStructure\?: boolean/);
+  assert.match(rendererSource, /normalizeOrderedListMarkers\(children\)/);
+});
+
+test('第五步提供 Mermaid 审核后 AI 重绘操作区', () => {
+  const pageSource = readFileSync(new URL('../pages/ContentEditPage.tsx', import.meta.url), 'utf8');
+  const homeSource = readFileSync(new URL('../pages/TechnicalPlanHome.tsx', import.meta.url), 'utf8');
+
+  assert.match(pageSource, /Mermaid 待确认/);
+  assert.match(pageSource, /previewMermaidReviewItem/);
+  assert.match(pageSource, /saveMermaidReviewCode/);
+  assert.match(pageSource, /confirmMermaidReviewItem/);
+  assert.match(pageSource, /skipMermaidReviewItem/);
+  assert.match(pageSource, /恢复 AI 初稿/);
+  assert.match(pageSource, /redrawConfirmedMermaidIllustrations/);
+  assert.match(pageSource, /allowRawHtml=\{false\}/);
+  assert.match(pageSource, /renderMermaid/);
+  assert.match(homeSource, /onPlanPatched/);
+  assert.match(homeSource, /setState\(\(prev\) => \(\{ \.\.\.prev, \.\.\.patch \}\)\)/);
+});
+
+test('Mermaid 审核确认后保留弹窗并继续选择下一张待确认图', () => {
+  const pageSource = readFileSync(new URL('../pages/ContentEditPage.tsx', import.meta.url), 'utf8');
+  const confirmStart = pageSource.indexOf('const confirmMermaidReviewItem = async');
+  const confirmEnd = pageSource.indexOf('const skipMermaidReviewItem = async', confirmStart);
+  const redrawStart = pageSource.indexOf('const startConfirmedMermaidRedraw = async');
+  const redrawEnd = pageSource.indexOf('const handleGenerationButtonClick', redrawStart);
+  const confirmSource = pageSource.slice(confirmStart, confirmEnd);
+  const redrawSource = pageSource.slice(redrawStart, redrawEnd);
+
+  assert.match(pageSource, /redrawableMermaidReviewCount/);
+  assert.match(pageSource, /selectNextPendingMermaidReviewItem/);
+  assert.match(confirmSource, /selectNextPendingMermaidReviewItem\(item\.item_id\)/);
+  assert.doesNotMatch(confirmSource, /setMermaidReviewOpen\(false\)/);
+  assert.doesNotMatch(redrawSource, /setMermaidReviewOpen\(false\)/);
+  assert.match(redrawSource, /pendingMermaidReviewCount/);
+  assert.match(pageSource, /开始 AI 重绘（\{redrawableMermaidReviewCount\} 张）/);
+});
+
+test('Mermaid 审核入口跟随对应章节状态按钮并按章节定位', () => {
+  const pageSource = readFileSync(new URL('../pages/ContentEditPage.tsx', import.meta.url), 'utf8');
+
+  assert.match(pageSource, /getMermaidReviewItemsForSection/);
+  assert.match(pageSource, /openMermaidReviewForSection/);
+  assert.match(pageSource, /openMermaidReviewForSection\(item\.id\)/);
+  assert.match(pageSource, /content-outline-mermaid-review-action/);
+  assert.match(pageSource, /审核 Mermaid 图/);
+  assert.match(pageSource, /mermaidReviewItemsForSection\.length/);
+  assert.doesNotMatch(pageSource, /<button type="button" className="primary-action" onClick=\{\(\) => setMermaidReviewOpen\(true\)\}>\s*审核 Mermaid 图/);
+});
+
+test('Mermaid 审核弹窗把更多可用高度分配给流程图预览', () => {
+  const pageSource = readFileSync(new URL('../pages/ContentEditPage.tsx', import.meta.url), 'utf8');
+  const css = readFileSync(new URL('../../../styles/feature-technical-plan.css', import.meta.url), 'utf8');
+  const reviewCss = css.slice(css.indexOf('.content-mermaid-review-card'), css.indexOf('/* 进度条已迁移到共享'));
+
+  assert.match(pageSource, /mermaidPreviewZoom/);
+  assert.match(pageSource, /setMermaidPreviewZoom/);
+  assert.match(pageSource, /aria-label="缩小流程图预览"/);
+  assert.match(pageSource, /aria-label="放大流程图预览"/);
+  assert.match(pageSource, /style=\{mermaidPreviewZoomStyle\}/);
+  assert.match(reviewCss, /height:\s*min\(920px,\s*calc\(100vh\s*-\s*24px\)\)/);
+  assert.match(reviewCss, /\.content-mermaid-review-grid\s*\{[^}]*height:\s*100%/s);
+  assert.match(reviewCss, /\.content-mermaid-review-workspace\s*\{[^}]*grid-template-columns:\s*minmax\(420px,\s*0\.9fr\)\s+minmax\(520px,\s*1\.1fr\)/s);
+  assert.match(reviewCss, /\.content-mermaid-review-left\s*\{[^}]*grid-template-rows:\s*minmax\(240px,\s*0\.95fr\)\s+minmax\(260px,\s*1\.05fr\)/s);
+  assert.match(reviewCss, /\.content-mermaid-ai-inline-bar\s*\{[^}]*min-height:\s*260px/s);
+  assert.match(reviewCss, /\.content-mermaid-ai-input\s*\{[^}]*grid-template-rows:\s*auto\s+minmax\(0,\s*1fr\)/s);
+  assert.match(reviewCss, /\.content-mermaid-ai-input textarea\s*\{[^}]*height:\s*100%;[^}]*max-height:\s*none;/s);
+  assert.match(reviewCss, /\.content-mermaid-review-preview-panel\s*\{[^}]*grid-template-rows:\s*auto\s+minmax\(0,\s*1fr\)/s);
+  assert.match(reviewCss, /\.content-mermaid-review-preview-scale\s*\{[^}]*transform-origin:\s*top left/s);
+});
+
+test('Mermaid 审核预览使用固定画布并支持滚轮缩放和拖拽平移', () => {
+  const pageSource = readFileSync(new URL('../pages/ContentEditPage.tsx', import.meta.url), 'utf8');
+  const css = readFileSync(new URL('../../../styles/feature-technical-plan.css', import.meta.url), 'utf8');
+  const reviewCss = css.slice(css.indexOf('.content-mermaid-review-card'), css.indexOf('/* 进度条已迁移到共享'));
+
+  assert.match(pageSource, /MERMAID_PREVIEW_ZOOM_MAX\s*=\s*5/);
+  assert.match(pageSource, /mermaidPreviewPan/);
+  assert.match(pageSource, /handleMermaidPreviewWheel/);
+  assert.match(pageSource, /handleMermaidPreviewPointerDown/);
+  assert.match(pageSource, /handleMermaidPreviewPointerMove/);
+  assert.match(pageSource, /handleMermaidPreviewPointerUp/);
+  assert.match(pageSource, /适应窗口/);
+  assert.match(pageSource, /onWheel=\{handleMermaidPreviewWheel\}/);
+  assert.match(pageSource, /onPointerDown=\{handleMermaidPreviewPointerDown\}/);
+  assert.match(pageSource, /onPointerMove=\{handleMermaidPreviewPointerMove\}/);
+  assert.match(pageSource, /onPointerUp=\{handleMermaidPreviewPointerUp\}/);
+  assert.match(reviewCss, /\.content-mermaid-review-preview\s*\{[^}]*overflow:\s*hidden/s);
+  assert.match(reviewCss, /\.content-mermaid-review-preview-scale\s*\{[^}]*height:\s*100%;[^}]*transform:\s*translate3d\(var\(--content-mermaid-preview-pan-x,\s*0px\),\s*var\(--content-mermaid-preview-pan-y,\s*0px\),\s*0\)\s+scale\(var\(--content-mermaid-preview-zoom,\s*1\)\)/s);
+  assert.match(reviewCss, /\.content-mermaid-review-preview-scale\s+\.mermaid-preview-card\s*\{[^}]*height:\s*100%/s);
+  assert.match(reviewCss, /\.content-mermaid-review-preview\.is-dragging/s);
+});
+
+test('Word 导出核对提示不把表格等普通警告误写成图片提示', () => {
+  const homeSource = readFileSync(new URL('../pages/TechnicalPlanHome.tsx', import.meta.url), 'utf8');
+  const exportServiceSource = readFileSync(new URL('../../../../electron/services/exportService.cjs', import.meta.url), 'utf8');
+
+  assert.match(homeSource, /条内容提示，请打开导出的 Word 核对。/);
+  assert.doesNotMatch(homeSource, /条图片提示，请打开导出的 Word 核对。/);
+  assert.match(exportServiceSource, /Word 已导出，但有 \$\{buildResult\.warnings\.length\} 处内容需要核对，请打开文档查看。/);
+  assert.doesNotMatch(exportServiceSource, /处图片未能插入/);
+});
+
 test('正文生成目录支持拖拽调宽并让长标题最多显示两行', () => {
   const pageSource = readFileSync(new URL('../pages/ContentEditPage.tsx', import.meta.url), 'utf8');
   const workspaceSource = componentSource('AdaptiveTwoPaneWorkspace');
@@ -256,10 +388,15 @@ test('目录原文面板只展示当前分屏并保留精确原文高亮', () =>
 
 test('目录详情提供 AI 添加子目录并直接使用 add-child 持久化', () => {
   const source = readFileSync(new URL('../pages/OutlineEditPage.tsx', import.meta.url), 'utf8');
+  const css = readFileSync(new URL('../../../styles/feature-technical-plan.css', import.meta.url), 'utf8');
   assert.match(source, /const addAiChildren = async/);
   assert.match(source, /window\.yibiao\?\.ai\?\.requestJson/);
   assert.match(source, /'add-child', \[selectedItem\.id\]\)/);
   assert.match(source, /AI 添加子目录/);
+  const detailActionIndex = source.indexOf('className="outline-detail-actions"', source.indexOf('className="outline-detail-source-action"'));
+  const aiChildrenBoxIndex = source.indexOf('className="outline-ai-children-box"');
+  assert.ok(detailActionIndex > -1 && aiChildrenBoxIndex > detailActionIndex, 'AI 子目录填写区应在详情按钮下方展开');
+  assert.match(css, /\.outline-workspace-shell \.outline-detail-actions button\s*\{[^}]*min-height:\s*30px;[^}]*padding:\s*6px 10px;[^}]*font-size:\s*12px;/s);
 });
 
 test('其余活动步骤沿用两行摘要和紧凑命令栏标准', () => {

@@ -133,6 +133,11 @@ const workspaceDatabaseChannels = [
   'technical-plan:save-global-facts',
   'technical-plan:save-content-generation-options',
   'technical-plan:save-chapter-content',
+  'technical-plan:preview-mermaid-review-item',
+  'technical-plan:save-mermaid-review-code',
+  'technical-plan:adjust-mermaid-review-code',
+  'technical-plan:confirm-mermaid-review-item',
+  'technical-plan:skip-mermaid-review-item',
   'technical-plan:clear',
   'technical-plan:open-bid-template',
   'feasibility-report:load-state',
@@ -287,7 +292,7 @@ function registerWorkspaceDatabaseServices({ app, configStore, aiService, agentS
 
   clearWorkspaceDatabaseIpc();
   registerKnowledgeBaseIpc({ knowledgeBaseService });
-  registerTechnicalPlanIpc({ technicalPlanStore, taskService, remoteKnowledgeService });
+  registerTechnicalPlanIpc({ technicalPlanStore, taskService, remoteKnowledgeService, aiService });
   registerFeasibilityReportIpc({ feasibilityReportStore, taskService });
   registerDuplicateCheckIpc({ duplicateCheckStore, checkResultExportService });
   registerRejectionCheckIpc({ rejectionCheckStore, taskService, checkResultExportService });

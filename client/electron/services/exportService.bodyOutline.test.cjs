@@ -2,7 +2,7 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 const AdmZip = require('adm-zip');
 
-const { buildDocxBuffer } = require('./exportService.cjs');
+const { buildDocxBuffer, buildDocxResult } = require('./exportService.cjs');
 
 function readDocxXml(buffer, entryName) {
   const entry = new AdmZip(buffer).getEntry(entryName);
@@ -27,6 +27,8 @@ function numberingLevel(numberingXml, reference, level) {
   assert.ok(levels.length, `expected numbering level ${level} for ${reference}`);
   return levels.at(-1)[0];
 }
+
+const onePixelPngDataUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=';
 
 const bodyOutlineLevels = [
   { numbering_style: 'chinese-dot', font: '黑体', size: '三号' },
@@ -87,6 +89,61 @@ test('Word export preserves four body outline levels and applies per-level typog
   assert.match(numberingLevel(numberingXml, 'body-outline', 1), /<w:numFmt w:val="chineseCounting"\/>[\s\S]*<w:lvlText w:val="（%2）"\/>/);
   assert.match(numberingLevel(numberingXml, 'body-outline', 2), /<w:numFmt w:val="decimal"\/>[\s\S]*<w:lvlText w:val="%3\."\/>/);
   assert.match(numberingLevel(numberingXml, 'body-outline', 3), /<w:numFmt w:val="decimal"\/>[\s\S]*<w:lvlText w:val="（%4）"\/>/);
+});
+
+test('Word export repairs non-reset nested heading numbers before Markdown parsing', async () => {
+  const buffer = await buildDocxBuffer({
+    project_name: '嵌套编号修复测试',
+    export_format: {
+      body_text: {
+        font: '宋体',
+        size: '小四',
+        alignment: '左对齐',
+        spacing_before_pt: 0,
+        spacing_after_pt: 0,
+        first_line_indent_chars: 2,
+        line_spacing_multiple: 1.2,
+        list_style: 'disc',
+        ordered_list_style: 'decimal-dot',
+        list_indent_chars: 2,
+        body_outline_levels: bodyOutlineLevels,
+      },
+      headings: [],
+    },
+    outline: [{
+      id: '1',
+      title: '嵌套编号修复',
+      content: [
+        '1. **存储环节控制**',
+        '   1. **载体登记报告：** 项目使用的硬盘。',
+        '   2. **分区分类存放：** 数据库成果。',
+        '   3. **备份与移交管控：** 所有数据。',
+        '2. **复制环节控制**',
+        '   4. **复制审批：** 因工作需要。',
+        '   5. **复制过程监管：** 复制操作。',
+        '3. **传输环节控制**',
+        '   6. **传输途径限制：** 数据交换。',
+      ].join('\n'),
+    }],
+  });
+
+  const documentXml = readDocxXml(buffer, 'word/document.xml');
+  const paragraphs = paragraphsContaining(documentXml, [
+    '存储环节控制',
+    '载体登记报告：',
+    '分区分类存放：',
+    '备份与移交管控：',
+    '复制环节控制',
+    '复制审批：',
+    '复制过程监管：',
+    '传输环节控制',
+    '传输途径限制：',
+  ]);
+
+  assert.deepEqual(
+    paragraphs.map((paragraph) => Number(paragraph.match(/<w:ilvl w:val="(\d+)"\/>/)?.[1])),
+    [0, 1, 1, 1, 0, 1, 1, 0, 1],
+  );
 });
 
 test('Word export uses the fifth-level circled-number fallback', async () => {
@@ -160,6 +217,87 @@ test('Word export keeps ordinary body paragraphs on the unified body typography'
 
   assert.match(paragraph, /<w:rFonts[^>]*w:eastAsia="宋体"/);
   assert.match(paragraph, /<w:sz w:val="24"\/>/);
+});
+
+test('Word export treats Markdown headings inside body content as ordinary body text', async () => {
+  const buffer = await buildDocxBuffer({
+    project_name: '正文内部标题测试',
+    export_format: {
+      body_text: {
+        font: '宋体',
+        size: '小四',
+        alignment: '左对齐',
+        spacing_before_pt: 0,
+        spacing_after_pt: 0,
+        first_line_indent_chars: 2,
+        line_spacing_multiple: 1.2,
+        list_style: 'disc',
+        ordered_list_style: 'decimal-dot',
+        list_indent_chars: 2,
+        body_outline_levels: bodyOutlineLevels,
+      },
+      headings: [
+        { font: '黑体', size: '三号', spacing_before_pt: 10, spacing_after_pt: 10 },
+      ],
+    },
+    outline: [{
+      id: '1',
+      title: '普通正文',
+      content: '# 不应变成黑体三号\n\n这是一段普通正文。',
+    }],
+  });
+
+  const documentXml = readDocxXml(buffer, 'word/document.xml');
+  const markdownHeadingParagraph = paragraphsContaining(documentXml, ['不应变成黑体三号'])[0];
+
+  assert.doesNotMatch(markdownHeadingParagraph, /<w:pStyle w:val="Heading1"\/>/);
+  assert.match(markdownHeadingParagraph, /<w:rFonts[^>]*w:eastAsia="宋体"/);
+  assert.match(markdownHeadingParagraph, /<w:sz w:val="24"\/>/);
+});
+
+test('Word export preserves HTML tables and block images inside list items', async () => {
+  const warnings = [];
+  const result = await buildDocxResult({
+    project_name: '列表块级内容测试',
+    export_format: {
+      body_text: {
+        font: '宋体',
+        size: '小四',
+        alignment: '左对齐',
+        spacing_before_pt: 0,
+        spacing_after_pt: 0,
+        first_line_indent_chars: 2,
+        line_spacing_multiple: 1.2,
+        list_style: 'disc',
+        ordered_list_style: 'decimal-dot',
+        list_indent_chars: 2,
+        body_outline_levels: bodyOutlineLevels,
+      },
+      headings: [],
+    },
+    outline: [{
+      id: '1',
+      title: '列表块级内容',
+      content: [
+        '1. 含表格与图片',
+        '',
+        '   <table>',
+        '   <thead><tr><th>项目</th><th>说明</th></tr></thead>',
+        '   <tbody><tr><td>图片</td><td>应正常导出</td></tr></tbody>',
+        '   </table>',
+        '',
+        `   <img src="${onePixelPngDataUrl}" alt="测试图片" />`,
+      ].join('\n'),
+    }],
+  }, { warnings });
+
+  const zip = new AdmZip(result.buffer);
+  const documentXml = readDocxXml(result.buffer, 'word/document.xml');
+  const mediaEntries = zip.getEntries().filter((entry) => entry.entryName.startsWith('word/media/'));
+
+  assert.doesNotMatch(warnings.join('\n'), /HTML 标签 <(?:table|thead|tbody|tr|th|td)> 导出时已降级/);
+  assert.match(documentXml, /<w:tbl>/);
+  assert.ok(mediaEntries.length >= 1, 'expected exported DOCX to contain an image media entry');
 });
 
 test('Word export keeps legacy ordered-list style when body outline levels are absent', async () => {

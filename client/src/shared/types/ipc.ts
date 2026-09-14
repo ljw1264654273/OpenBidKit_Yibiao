@@ -694,6 +694,11 @@ export interface YibiaoBridge {
     saveGlobalFacts: (globalFacts: GlobalFactGroupState[]) => Promise<Partial<TechnicalPlanState>>;
     saveContentGenerationOptions: (options: ContentGenerationOptions) => Promise<Partial<TechnicalPlanState>>;
     saveChapterContent: (payload: { nodeId: string; content: string }) => Promise<Partial<TechnicalPlanState>>;
+    previewMermaidReviewItem: (payload: { itemId?: string; code: string }) => Promise<{ success: boolean; code: string }>;
+    saveMermaidReviewCode: (payload: { itemId: string; code: string }) => Promise<Partial<TechnicalPlanState>>;
+    adjustMermaidReviewCode: (payload: { itemId: string; code: string; instruction: string }) => Promise<Partial<TechnicalPlanState> & { code: string }>;
+    confirmMermaidReviewItem: (payload: { itemId: string; code: string }) => Promise<Partial<TechnicalPlanState>>;
+    skipMermaidReviewItem: (payload: { itemId: string }) => Promise<Partial<TechnicalPlanState>>;
     clear: () => Promise<{ success: boolean; message?: string }>;
     openBidTemplate: () => Promise<{ success: boolean; message?: string }>;
   };

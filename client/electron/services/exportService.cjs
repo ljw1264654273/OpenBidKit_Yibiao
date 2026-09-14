@@ -846,6 +846,37 @@ function normalizeMarkdownListMarkersForDocx(content) {
   }).join('\n');
 }
 
+// Markdown 解析器要求嵌套有序列表从 1 开始；正文层次编号由 Word 模板负责显示。
+function normalizeOrderedListMarkersForDocx(content) {
+  const lines = String(content || '').split('\n');
+  let inFence = false;
+  const listStack = [];
+
+  return lines.map((line) => {
+    if (/^\s*(?:```|~~~)/.test(line)) {
+      inFence = !inFence;
+      return line;
+    }
+    if (inFence) return line;
+
+    const match = /^([ \t]*)\d+\.\s+(.*)$/.exec(line);
+    if (!match) return line;
+
+    const indent = match[1];
+    const indentKey = indent.replace(/\t/g, '    ').length;
+    while (listStack.length && listStack[listStack.length - 1].indentKey > indentKey) {
+      listStack.pop();
+    }
+    let currentList = listStack[listStack.length - 1];
+    if (!currentList || currentList.indentKey !== indentKey) {
+      currentList = { indentKey, sequence: 0 };
+      listStack.push(currentList);
+    }
+    currentList.sequence += 1;
+    return `${indent}${currentList.sequence}. ${match[2]}`;
+  }).join('\n');
+}
+
 function getBodyOutlineLevels(bodyStyle = {}) {
   const legacyOrderedListStyle = bodyStyle.ordered_list_style || 'decimal-dot';
   const sourceLevels = Array.isArray(bodyStyle.body_outline_levels) ? bodyStyle.body_outline_levels : null;
@@ -1645,6 +1676,44 @@ function isTaskListItem($, itemNode, inlineNodes = []) {
   });
 }
 
+function isListItemBlockContentNode($, node) {
+  const tag = htmlTagName(node);
+  if (!tag) return false;
+  if (['table', 'blockquote', 'pre', 'img', 'hr', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'].includes(tag)) {
+    return true;
+  }
+  return ['p', 'div', 'section', 'article'].includes(tag) && hasBlockHtmlChildren($, node);
+}
+
+function hasRenderableInlineNodes(nodes = []) {
+  return nodes.some((node) => !isWhitespaceHtmlTextNode(node));
+}
+
+function groupListItemContentNodes($, itemNode) {
+  const groups = [];
+  let inlineNodes = [];
+
+  for (const child of $(itemNode).contents().toArray()) {
+    if (['ul', 'ol'].includes(htmlTagName(child))) {
+      continue;
+    }
+    if (isListItemBlockContentNode($, child)) {
+      if (hasRenderableInlineNodes(inlineNodes)) {
+        groups.push({ type: 'inline', nodes: inlineNodes });
+      }
+      inlineNodes = [];
+      groups.push({ type: 'block', node: child });
+      continue;
+    }
+    inlineNodes.push(child);
+  }
+
+  if (hasRenderableInlineNodes(inlineNodes)) {
+    groups.push({ type: 'inline', nodes: inlineNodes });
+  }
+  return groups;
+}
+
 async function htmlListToDocx($, listNode, context, options = {}) {
   const blocks = [];
   const ordered = htmlTagName(listNode) === 'ol';
@@ -1681,7 +1750,27 @@ async function htmlListToDocx($, listNode, context, options = {}) {
           size: outlineLevel.size ? chineseSizeToHalfPt(outlineLevel.size) : context.bodyRunSize || 24,
         }
       : {};
-    blocks.push(paragraph(await htmlInlineRuns($, inlineNodes, context, listRunMarks), listOptions));
+    const contentGroups = groupListItemContentNodes($, itemNode);
+    let wroteListParagraph = false;
+
+    for (const group of contentGroups) {
+      if (group.type === 'inline') {
+        const paragraphOptions = wroteListParagraph ? buildHtmlBodyParaOpts(context) : listOptions;
+        blocks.push(paragraph(await htmlInlineRuns($, group.nodes, context, listRunMarks), paragraphOptions));
+        wroteListParagraph = true;
+        continue;
+      }
+
+      if (!wroteListParagraph) {
+        blocks.push(paragraph([textRun('')], listOptions));
+        wroteListParagraph = true;
+      }
+      blocks.push(...await htmlNodeToDocxBlocks($, group.node, context, options));
+    }
+
+    if (!wroteListParagraph) {
+      blocks.push(paragraph([textRun('')], listOptions));
+    }
 
     for (const childList of $(itemNode).children('ul,ol').toArray()) {
       blocks.push(...await htmlListToDocx($, childList, context, { ...options, listLevel: (options.listLevel || 0) + 1 }));
@@ -1766,6 +1855,13 @@ function isMermaidCodeElement($, codeNode) {
 }
 
 async function htmlHeadingToDocxBlocks($, node, context) {
+  if (context.bodyMarkdownHeadingsAsText) {
+    return [paragraph(
+      await htmlInlineRuns($, $(node).contents().toArray(), context),
+      buildHtmlBodyParaOpts(context),
+    )];
+  }
+
   const mdLevel = Math.min(Math.max(parseInt(htmlTagName(node).slice(1), 10) || 1, 1), 6);
   const style = getHeadingStyle(context.exportFormat, mdLevel);
   const headingOpts = {
@@ -1900,7 +1996,9 @@ async function htmlToDocxBlocks(html, context = {}, options = {}) {
 }
 
 async function markdownToDocxBlocks(content, context = {}) {
-  const markdown = normalizeMarkdownTablesForDocx(normalizeMarkdownListMarkersForDocx(content));
+  const markdown = normalizeOrderedListMarkersForDocx(
+    normalizeMarkdownTablesForDocx(normalizeMarkdownListMarkersForDocx(content)),
+  );
   const html = await renderMarkdownHtml(markdown, { allowRawHtml: true, enableGfm: true });
   return htmlToDocxBlocks(html, context);
 }
@@ -2439,6 +2537,7 @@ async function buildDocxResult(payload, options = {}) {
   context.bodyListStyle = bodyStyle ? (bodyStyle.list_style || 'disc') : 'disc';
   context.bodyOrderedListStyle = bodyStyle ? (bodyStyle.ordered_list_style || 'decimal-dot') : 'decimal-dot';
   context.bodyListIndentChars = bodyStyle ? (bodyStyle.list_indent_chars ?? 2) : 2;
+  context.bodyMarkdownHeadingsAsText = true;
   if (bodyStyle) {
     context.bodyAlignment = alignmentToWordType(bodyStyle.alignment);
     if (bodyStyle.first_line_indent_chars > 0) {
@@ -2606,7 +2705,7 @@ function createExportService({ configStore } = {}) {
         });
         fs.writeFileSync(result.filePath, buildResult.buffer);
         const message = buildResult.warnings.length
-          ? `Word 已导出，但有 ${buildResult.warnings.length} 处图片未能插入，请打开文档核对。`
+          ? `Word 已导出，但有 ${buildResult.warnings.length} 处内容需要核对，请打开文档查看。`
           : 'Word 已导出，请打开文档核对图片、表格和版式。';
         reportProgress({ onProgress, warnings: buildResult.warnings, stats: buildResult.stats }, 100, message, { phase: 'success' });
         developerLogger.write('export.word.completed', {

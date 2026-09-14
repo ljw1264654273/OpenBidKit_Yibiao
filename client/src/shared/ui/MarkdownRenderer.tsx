@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
 import { renderMarkdownHtml } from '../markdown/renderMarkdownHtml';
+import { normalizeOrderedListMarkers } from '../markdown/normalizeMarkdownStructure';
 
 type MarkdownImageMode = 'default' | 'preview' | 'lazy';
 type MarkdownLinkMode = 'default' | 'external' | 'text';
@@ -16,6 +17,7 @@ interface MarkdownRendererProps {
   linkMode?: MarkdownLinkMode;
   linkTextClassName?: string;
   renderMermaid?: boolean;
+  normalizeOrderedListStructure?: boolean;
   previewImageTitle?: string;
   onPreviewImage?: (src: string, alt: string) => void;
 }
@@ -209,10 +211,15 @@ function MarkdownRenderer({
   linkMode = 'external',
   linkTextClassName,
   renderMermaid = false,
+  normalizeOrderedListStructure = false,
   previewImageTitle = '点击放大查看',
   onPreviewImage,
 }: MarkdownRendererProps) {
-  const html = useMemo(() => renderMarkdownHtml(children, { allowRawHtml, enableGfm }), [allowRawHtml, children, enableGfm]);
+  const markdown = useMemo(
+    () => normalizeOrderedListStructure ? normalizeOrderedListMarkers(children) : children,
+    [children, normalizeOrderedListStructure],
+  );
+  const html = useMemo(() => renderMarkdownHtml(markdown, { allowRawHtml, enableGfm }), [allowRawHtml, enableGfm, markdown]);
 
   const content = useMemo(() => {
     const document = new DOMParser().parseFromString(`<div>${html}</div>`, 'text/html');

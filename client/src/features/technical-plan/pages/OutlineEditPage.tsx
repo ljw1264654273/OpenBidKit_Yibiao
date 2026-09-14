@@ -1847,6 +1847,14 @@ function OutlineEditPage({
                     >
                       已关联 {selectedSourceCount} 处原文
                     </button>
+                    <div className="outline-detail-actions">
+                      <button type="button" className="primary-action" onClick={() => startEditing(selectedItem)} disabled={outlineMutationLocked || sorting}>编辑</button>
+                      <button type="button" className="secondary-action" onClick={() => { void addChildItem(selectedItem.id); }} disabled={outlineMutationLocked || sorting || !canAddOutlineChild(selectedItem.id)}>添加子目录</button>
+                      <button type="button" className="secondary-action outline-ai-children-action" onClick={() => setAiChildrenOpen((prev) => !prev)} disabled={outlineMutationLocked || sorting || !canAddOutlineChild(selectedItem.id)}>
+                        {aiChildrenOpen ? '收起 AI 添加' : 'AI 添加子目录'}
+                      </button>
+                      <button type="button" className="danger-action" onClick={() => { void removeItem(selectedItem.id); }} disabled={outlineMutationLocked || sorting}>删除</button>
+                    </div>
                     {aiChildrenOpen && (
                       <div className="outline-ai-children-box">
                         <label>
@@ -1871,14 +1879,6 @@ function OutlineEditPage({
                         </div>
                       </div>
                     )}
-                    <div className="outline-detail-actions">
-                      <button type="button" className="primary-action" onClick={() => startEditing(selectedItem)} disabled={outlineMutationLocked || sorting}>编辑</button>
-                      <button type="button" className="secondary-action" onClick={() => { void addChildItem(selectedItem.id); }} disabled={outlineMutationLocked || sorting || !canAddOutlineChild(selectedItem.id)}>添加子目录</button>
-                      <button type="button" className="secondary-action outline-ai-children-action" onClick={() => setAiChildrenOpen((prev) => !prev)} disabled={outlineMutationLocked || sorting || !canAddOutlineChild(selectedItem.id)}>
-                        {aiChildrenOpen ? '收起 AI 添加' : 'AI 添加子目录'}
-                      </button>
-                      <button type="button" className="danger-action" onClick={() => { void removeItem(selectedItem.id); }} disabled={outlineMutationLocked || sorting}>删除</button>
-                    </div>
                   </>
                 )}
               </div>

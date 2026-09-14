@@ -14,7 +14,9 @@ const {
   generateAiIllustration,
   generateHtmlIllustration,
   generateMermaidAiIllustration,
+  generateMermaidAiIllustrationFromCode,
   generateMermaidIllustration,
+  generateMermaidReviewDraft,
   stripGeneratedIllustrationsFromDocument,
 } = require('./contentIllustrationGeneration.cjs');
 const { applyRangeEdits, findTextMatches } = require('../utils/textEdit.cjs');
@@ -54,9 +56,26 @@ const TABLE_REQUIREMENT_LABELS = {
   moderate: '适中',
   heavy: '大量',
 };
+const DURABLE_ILLUSTRATION_GENERATION_STATUSES = new Set(['success', 'error', 'reviewing', 'skipped']);
+const BODY_OUTLINE_STRUCTURE_PROMPT = `正文层次规则：
+1. 需要表达第一层、第二层、第三层等正文层次时，必须使用嵌套 Markdown 有序列表，使用缩进表达从属关系，同一级列表项使用相同缩进。
+2. 结构示例（仅示范层级，最终编号样式由模板“正文层次”设置渲染）：
+1. **全过程登记制度**
+   正文内容……
+   1. **借阅利用审批**
+      正文内容……
+      1. **申请提出：** 借阅人填写申请单。
+      2. **审批权限：** 项目负责人审批。
+3. Markdown 列表语法统一使用“1.”作为结构标记；不要把“一、”“（一）”等最终展示编号写进正文文字。每个新开的子列表必须从“1.”开始，不能沿用父级或前一个列表的“4.”、“5.”等序号。
+4. 不要把不同层级都写成顶格列表，也不要把 Markdown 列表标记写进加粗标题文字；预览和 Word 导出会依据模板设置自动显示最终编号。
+5. 同一层级的多个并列分项使用同一层级的有序列表；不属于层次结构的普通段落不要机械编号。`;
 
 function isAiQueueScopePausedError(error) {
   return error?.code === AI_QUEUE_SCOPE_PAUSED;
+}
+
+function shouldCheckpointIllustrationGeneration(status) {
+  return DURABLE_ILLUSTRATION_GENERATION_STATUSES.has(status);
 }
 
 function isContentGenerationPausedError(error) {
@@ -264,12 +283,53 @@ function normalizeParallelLeadInNumbering(content) {
   if (eligibleIndexes.length < 2) return lines.join('\n');
 
   const eligible = new Set(eligibleIndexes);
-  let sequence = 0;
+  const listStack = [];
   return lines.map((line, index) => {
     if (!eligible.has(index)) return line;
-    sequence += 1;
-    const match = /^(\s*)(?:\d+\.\s+)?((?:\*\*|__).*)$/.exec(line);
-    return match ? `${match[1]}${sequence}. ${match[2]}` : line;
+    const match = /^([ \t]*)(?:\d+\.\s+)?((?:\*\*|__).*)$/.exec(line);
+    if (!match) return line;
+    const indent = match[1];
+    const indentKey = indent.replace(/\t/g, '    ').length;
+    while (listStack.length && listStack[listStack.length - 1].indentKey > indentKey) {
+      listStack.pop();
+    }
+    let currentList = listStack[listStack.length - 1];
+    if (!currentList || currentList.indentKey !== indentKey) {
+      currentList = { indentKey, sequence: 0 };
+      listStack.push(currentList);
+    }
+    currentList.sequence += 1;
+    return `${indent}${currentList.sequence}. ${match[2]}`;
+  }).join('\n');
+}
+
+function normalizeOrderedListMarkersForSave(content) {
+  const lines = String(content || '').split(/\r?\n/);
+  let inFence = false;
+  const listStack = [];
+
+  return lines.map((line) => {
+    if (/^\s*(?:```|~~~)/.test(line)) {
+      inFence = !inFence;
+      return line;
+    }
+    if (inFence) return line;
+
+    const match = /^([ \t]*)\d+\.\s+(.*)$/.exec(line);
+    if (!match) return line;
+
+    const indent = match[1];
+    const indentKey = indent.replace(/\t/g, '    ').length;
+    while (listStack.length && listStack[listStack.length - 1].indentKey > indentKey) {
+      listStack.pop();
+    }
+    let currentList = listStack[listStack.length - 1];
+    if (!currentList || currentList.indentKey !== indentKey) {
+      currentList = { indentKey, sequence: 0 };
+      listStack.push(currentList);
+    }
+    currentList.sequence += 1;
+    return `${indent}${currentList.sequence}. ${match[2]}`;
   }).join('\n');
 }
 
@@ -974,7 +1034,7 @@ function buildChapterContentMessages({ chapter, projectOverview, bidAnalysisFact
 10. 严禁使用 Markdown 标题语法（#、##、###、####、#####、######），也不要生成与当前章节同级或下级的伪目录标题。
 11. 如需在正文中分层表达，可以使用普通段落、列表、表格或简短加粗引导语，例如 **实施要点：**。
 12. 行内加粗引导标题后面仍有正文时，标题末尾必须使用一个中文冒号，且冒号必须写在加粗标记内；加粗结束标记后不得再写句号、逗号、顿号、分号或冒号，直接空一格接正文。独立成行的加粗引导标题不得带句末标点。
-13. 同一层级出现两个及以上并列论述分项时，每个分项标题必须按出现顺序使用连续阿拉伯数字序号，格式为“1. **标题**”“2. **标题**”；标题与正文同一行时使用“1. **标题：** 正文”。
+${BODY_OUTLINE_STRUCTURE_PROMPT}
 14. 步骤、流程、时间顺序和操作顺序可以使用有序列表；普通段落不机械编号。
 15. 直接返回章节内容，不生成标题，不要任何额外说明。
 16. 如果本章节需要使用的全局事实变量中包含相关内容，必须优先使用变量值，不得前后矛盾。
@@ -1057,7 +1117,8 @@ function buildRestoredChapterContentMessages({ chapter, projectOverview, bidAnal
 4. 正文底稿中可能包含原方案 Markdown 标题行或编号标题，例如“# 第一章...”“## 第一节...”“### 二、...”“（一）...”，这些只作为章节定位线索，不属于最终正文。
 5. 输出时必须跳过底稿中的章节标题、Markdown 标题和编号标题；当前章节标题会由程序统一渲染，不要在正文中重复。
 6. 不要提到“原方案”“历史文档”“用户原文”或“底稿”。
-7. 行内加粗引导标题必须以中文冒号结尾；同一层级出现两个及以上并列论述分项时，必须按出现顺序使用连续阿拉伯数字序号，格式为“1. **标题**”“2. **标题**”，标题与正文同一行时使用“1. **标题：** 正文”。
+7. 行内加粗引导标题必须以中文冒号结尾。
+${BODY_OUTLINE_STRUCTURE_PROMPT}
 8. 输出当前章节完整正文，不输出标题。`,
   });
   const finalMessage = messages.pop();
@@ -1257,7 +1318,8 @@ workspace 文件：
 7. 严禁输出 Mermaid、PlantUML、Graphviz、flowchart、graph、sequenceDiagram 等图表代码块、mermaid.ink 链接或图片 Markdown。
 8. restored-content.md 可能包含原方案 Markdown 标题行或编号标题，例如“# 第一章...”“## 第一节...”“### 二、...”“（一）...”，这些只作为章节定位线索，不属于最终正文。
 9. 不要输出章节标题、Markdown 标题、编号标题、解释、总结或过程说明；当前章节标题会由程序统一渲染。
-10. 行内加粗引导标题必须以一个中文冒号结尾，冒号写在加粗标记内；独立成行的加粗引导标题不得带句末标点。同一层级出现两个及以上并列论述分项时，必须按出现顺序使用连续阿拉伯数字序号，格式为“1. **标题**”“2. **标题**”，标题与正文同一行时使用“1. **标题：** 正文”。
+10. 行内加粗引导标题必须以一个中文冒号结尾，冒号写在加粗标记内；独立成行的加粗引导标题不得带句末标点。
+${BODY_OUTLINE_STRUCTURE_PROMPT}
 11. chapter-context.md 如包含小节字数目标，应尽量遵守，但保留原方案实质内容的要求优先。
 12. 不要修改业务数据库，程序会读取你的输出文件后自行写回。
 
@@ -2525,7 +2587,9 @@ function normalizeLeafContentForSave(content, chapter) {
   const normalized = stripMarkdownHeadingsFromLeafContent(
     stripRepeatedChapterTitle(normalizeGeneratedMarkdown(content), chapter),
   );
-  return normalizeGeneratedLeadInPunctuation(normalizeParallelLeadInNumbering(normalized));
+  return normalizeOrderedListMarkersForSave(
+    normalizeGeneratedLeadInPunctuation(normalizeParallelLeadInNumbering(normalized)),
+  );
 }
 
 function normalizeWordAdjustmentResponse(value) {
@@ -2614,7 +2678,8 @@ ${operationRules}
 6. 不改变核心意思，不修改参数、数量、日期、周期和标准，不删除技术路线、职责、流程、风险措施、人员安排、验收要求、售后和服务承诺。
 7. 不新增未提供的品牌、型号、人员、承诺和服务期限。
 8. 不修改图片、Mermaid、代码块、表格结构、列表编号层级和资源路径，不生成 Markdown 标题或伪目录标题。
-9. 行内加粗引导标题必须以一个中文冒号结尾，冒号写在加粗标记内；加粗结束标记后不得再写句号、逗号、顿号、分号或冒号，直接空一格接正文。独立成行的加粗引导标题不得带句末标点。同一层级出现两个及以上并列论述分项时，必须按出现顺序使用连续阿拉伯数字序号，格式为“1. **标题**”“2. **标题**”，标题与正文同一行时使用“1. **标题：** 正文”。
+9. 行内加粗引导标题必须以一个中文冒号结尾，冒号写在加粗标记内；加粗结束标记后不得再写句号、逗号、顿号、分号或冒号，直接空一格接正文。独立成行的加粗引导标题不得带句末标点。
+${BODY_OUTLINE_STRUCTURE_PROMPT}
 10. 不把其他目录应承载的内容移动到当前小节。
 
 ${MANDATORY_SCHEDULE_RULE_PROMPT}${buildContentFactCompletenessInstruction(globalFactsMode) ? `\n\n${buildContentFactCompletenessInstruction(globalFactsMode)}` : ''}`,
@@ -3175,6 +3240,7 @@ async function runContentGenerationTask({ aiService, agentService, workspaceStor
   }
   const retryContentCorrection = !resume && Boolean(payload.retryContentCorrection ?? payload.retry_content_correction);
   const rerunIllustrations = !resume && Boolean(payload.rerunIllustrations ?? payload.rerun_illustrations);
+  const redrawConfirmedMermaidIllustrations = !resume && Boolean(payload.redrawConfirmedMermaidIllustrations ?? payload.redraw_confirmed_mermaid_illustrations);
   const retryFailedSections = !resume && Boolean(payload.retryFailedSections ?? payload.retry_failed_sections);
   const continuePostProcessing = !resume && Boolean(payload.continuePostProcessing ?? payload.continue_post_processing);
   let contentRuntime = normalizeContentGenerationRuntime(resume || retryContentCorrection || retryFailedSections || continuePostProcessing
@@ -3183,10 +3249,11 @@ async function runContentGenerationTask({ aiService, agentService, workspaceStor
   const runOnlyIllustrationPlanning = rerunIllustrations
     || (resume && contentRuntime.phase === 'illustration-planning')
     || (retryContentCorrection && previousState?.contentGenerationTask?.stats?.content?.phase === 'illustration-planning');
-  const runOnlyIllustrationGeneration = (resume && contentRuntime.phase === 'illustration-generating')
+  const runOnlyIllustrationGeneration = redrawConfirmedMermaidIllustrations
+    || (resume && contentRuntime.phase === 'illustration-generating')
     || (retryContentCorrection && previousState?.contentGenerationTask?.stats?.content?.phase === 'illustration-generating');
   const runOnlyIllustrationStage = runOnlyIllustrationPlanning || runOnlyIllustrationGeneration;
-  const regenerate = !resume && !retryContentCorrection && !rerunIllustrations && !retryFailedSections && !continuePostProcessing && Boolean(payload.regenerate);
+  const regenerate = !resume && !retryContentCorrection && !rerunIllustrations && !redrawConfirmedMermaidIllustrations && !retryFailedSections && !continuePostProcessing && Boolean(payload.regenerate);
   const targetItemId = resume ? contentRuntime.target_item_id : String(payload.targetItemId || '').trim();
   if (retryContentCorrection && targetItemId) {
     throw new Error('单小节重新生成不支持重试内容矫正');
@@ -3343,6 +3410,7 @@ async function runContentGenerationTask({ aiService, agentService, workspaceStor
   const simulatePartialFailures = !resume
     && !retryContentCorrection
     && !rerunIllustrations
+    && !redrawConfirmedMermaidIllustrations
     && !retryFailedSections
     && !continuePostProcessing
     && developerModeEnabled
@@ -6555,14 +6623,20 @@ async function runContentGenerationTask({ aiService, agentService, workspaceStor
         ? { ...item, generation: { ...item.generation, status: 'pending', error: undefined, updated_at: now() } }
         : item),
     };
-    const executions = buildIllustrationExecutionContexts(illustrationPlan, leaves, sections);
+    const allExecutions = buildIllustrationExecutionContexts(illustrationPlan, leaves, sections);
+    const executions = redrawConfirmedMermaidIllustrations
+      ? allExecutions.filter(({ planItem }) => planItem.kind === 'mermaid'
+        && planItem.generation?.review_status === 'confirmed'
+        && planItem.generation?.status !== 'success'
+        && !planItem.generation?.asset_url)
+      : allExecutions;
     const aiExecutions = executions.filter(({ planItem }) => planItem.kind === 'ai');
     const normalTextExecutions = executions.filter(({ planItem, reference }) => planItem.kind === 'mermaid'
       || (planItem.kind === 'html' && reference.length <= HTML_AGENT_THRESHOLD_CHARS));
     const agentHtmlExecutions = executions.filter(({ planItem, reference }) => planItem.kind === 'html' && reference.length > HTML_AGENT_THRESHOLD_CHARS);
 
     function countCompleted(kind) {
-      return illustrationPlan.items.filter((item) => item.kind === kind && ['success', 'error'].includes(item.generation?.status)).length;
+      return illustrationPlan.items.filter((item) => item.kind === kind && ['success', 'error', 'reviewing', 'skipped'].includes(item.generation?.status)).length;
     }
 
     function refreshIllustrationGenerationStats(label) {
@@ -6593,7 +6667,7 @@ async function runContentGenerationTask({ aiService, agentService, workspaceStor
         contentRuntime: runtime,
         technicalPlanPatch: { contentIllustrationPlan: illustrationPlan, contentGenerationRuntime: runtime },
       };
-      if (changedItem && ['success', 'error'].includes(changedItem.generation?.status)) {
+      if (changedItem && shouldCheckpointIllustrationGeneration(changedItem.generation?.status)) {
         checkpointTask(taskPatch, {
           contentIllustrationItem: changedItem,
           contentGenerationRuntime: runtime,
@@ -6605,8 +6679,8 @@ async function runContentGenerationTask({ aiService, agentService, workspaceStor
 
     async function runExecution(execution) {
       const { planItem } = execution;
-      if (['success', 'error'].includes(planItem.generation?.status)) return;
-      const mermaidAiRedesign = planItem.kind === 'mermaid' && useAiRedesignForMermaid;
+      if (['success', 'error', 'reviewing', 'skipped'].includes(planItem.generation?.status)) return;
+      const mermaidAiRedesign = planItem.kind === 'mermaid' && (useAiRedesignForMermaid || redrawConfirmedMermaidIllustrations);
       persistIllustrationGeneration(
         planItem.item_id,
         { status: 'running', error: undefined },
@@ -6621,8 +6695,13 @@ async function runContentGenerationTask({ aiService, agentService, workspaceStor
           logs = [...logs, `AI 配图完成：${planItem.section_ids[0]} ${planItem.title}`];
         } else if (planItem.kind === 'mermaid') {
           if (mermaidAiRedesign) {
-            result = await generateMermaidAiIllustration(aiService, execution, isPauseLikeError);
-            logs = [...logs, `Mermaid AI 图片重绘完成：${planItem.section_ids[0]} ${planItem.title}${result.attempts > 1 ? `（含 Mermaid 修复 ${result.attempts - 1} 轮）` : ''}`];
+            if (redrawConfirmedMermaidIllustrations) {
+              result = await generateMermaidAiIllustrationFromCode(aiService, execution, planItem.generation?.code || '', isPauseLikeError, Number(planItem.generation?.attempts || 0) + 1);
+              logs = [...logs, `Mermaid 审核后 AI 图片重绘完成：${planItem.section_ids[0]} ${planItem.title}`];
+            } else {
+              result = await generateMermaidReviewDraft(aiService, execution, isPauseLikeError);
+              logs = [...logs, `Mermaid 待确认草稿已生成：${planItem.section_ids[0]} ${planItem.title}${result.attempts ? `（含 Mermaid 修复 ${result.attempts} 轮）` : ''}`];
+            }
           } else {
             result = await generateMermaidIllustration(aiService, execution, isPauseLikeError);
             logs = [...logs, result.attempts
@@ -6727,6 +6806,7 @@ async function runContentGenerationTask({ aiService, agentService, workspaceStor
     checkpointTask({ status: 'running', progress: progressFor(leaves, sections), logs, stats: statsSnapshot() }, {
       outlineData,
       contentGenerationSections: sections,
+      contentIllustrationPlan: illustrationPlan,
       contentGenerationRuntime: completedRuntime,
     }, {
       outlineData,
@@ -7022,4 +7102,5 @@ module.exports = {
   renderAgentTechnicalPlanOutline,
   __developerContentExpansionPatchRuntime,
   __mandatoryBidContentRulesTestRuntime,
+  shouldCheckpointIllustrationGeneration,
 };

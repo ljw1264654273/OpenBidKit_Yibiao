@@ -16,6 +16,7 @@ const {
 } = require('../utils/paths.cjs');
 const { deleteImportedImageBatches } = require('../utils/importedImages.cjs');
 const { clearMermaidCache } = require('../utils/mermaidCache.cjs');
+const { assertSupportedMermaidSyntax } = require('../utils/mermaidPolicy.cjs');
 const { detectBidSections } = require('../utils/bidSectionDetector.cjs');
 const { compactLogError, createDeveloperLogger } = require('../utils/developerLog.cjs');
 const { forceRemoveSync, isFileLockError } = require('../utils/forceRemove.cjs');
@@ -1717,6 +1718,92 @@ function createTechnicalPlanStore({ app, db, fileService, agentService, taskLogS
     };
   }
 
+  function normalizeMermaidReviewCode(value) {
+    const code = String(value || '').replace(/^```mermaid\s*/i, '').replace(/```$/i, '').trim();
+    if (!code) throw new Error('Mermaid 代码不能为空');
+    assertSupportedMermaidSyntax(code);
+    if (/[;；]/.test(code)) throw new Error('Mermaid 代码不能使用分号');
+    if (/\s&\s/.test(code) && /-->|---|==>/.test(code)) throw new Error('Mermaid 代码不能使用多节点 & 连接简写');
+    if (/\[[^\]\n"']*[\u3400-\u9fff][^\]\n"']*\]/u.test(code)) throw new Error('Mermaid 中文节点标签必须使用双引号');
+    if (/^\s*[\u3400-\u9fff][\w\u3400-\u9fff-]*\s*(?:-->|---|==>)/mu.test(code)) throw new Error('Mermaid 节点 ID 不能直接使用中文');
+    return code;
+  }
+
+  function findMermaidReviewPlanItem(itemId) {
+    const plan = loadContentIllustrationPlan();
+    const id = String(itemId || '').trim();
+    const item = plan?.items?.find((entry) => entry.item_id === id);
+    if (!item) throw new Error('未找到 Mermaid 审核项');
+    if (item.kind !== 'mermaid') throw new Error('当前图片项不是 Mermaid 图');
+    return { plan, item };
+  }
+
+  function saveMermaidReviewItemGeneration(item, generationPatch) {
+    const nextGeneration = {
+      ...(item.generation || {}),
+      ...generationPatch,
+      updated_at: now(),
+    };
+    Object.keys(nextGeneration).forEach((key) => {
+      if (nextGeneration[key] === undefined) delete nextGeneration[key];
+    });
+    const nextItem = {
+      ...item,
+      generation: nextGeneration,
+      updated_at: now(),
+    };
+    saveContentIllustrationItem(nextItem);
+    return { contentIllustrationPlan: loadContentIllustrationPlan() };
+  }
+
+  function saveMermaidReviewCode({ itemId, code }) {
+    const { item } = findMermaidReviewPlanItem(itemId);
+    const normalizedCode = normalizeMermaidReviewCode(code);
+    return saveMermaidReviewItemGeneration(item, {
+      status: 'reviewing',
+      code: normalizedCode,
+      review_status: 'pending',
+      review_error: undefined,
+      asset_url: undefined,
+      source_path: undefined,
+      error: undefined,
+    });
+  }
+
+  function previewMermaidReviewItem({ code }) {
+    return { success: true, code: normalizeMermaidReviewCode(code) };
+  }
+
+  function confirmMermaidReviewItem({ itemId, code }) {
+    const { item } = findMermaidReviewPlanItem(itemId);
+    const normalizedCode = normalizeMermaidReviewCode(code);
+    return saveMermaidReviewItemGeneration(item, {
+      status: 'pending',
+      code: normalizedCode,
+      review_status: 'confirmed',
+      review_error: undefined,
+      reviewed_at: now(),
+      asset_url: undefined,
+      source_path: undefined,
+      error: undefined,
+      attempts: undefined,
+    });
+  }
+
+  function skipMermaidReviewItem({ itemId }) {
+    const { item } = findMermaidReviewPlanItem(itemId);
+    return saveMermaidReviewItemGeneration(item, {
+      status: 'skipped',
+      review_status: 'skipped',
+      review_error: undefined,
+      reviewed_at: now(),
+      asset_url: undefined,
+      source_path: undefined,
+      error: undefined,
+      attempts: undefined,
+    });
+  }
+
   function normalizeGlobalFactGroups(groups) {
     const seen = new Set();
     return (Array.isArray(groups) ? groups : []).map((group, index) => {
@@ -2956,6 +3043,10 @@ function createTechnicalPlanStore({ app, db, fileService, agentService, taskLogS
     saveIllustrationPng,
     saveContentGenerationOptions,
     saveChapterContent,
+    previewMermaidReviewItem,
+    saveMermaidReviewCode,
+    confirmMermaidReviewItem,
+    skipMermaidReviewItem,
     clearBidTemplate,
     listTenderSourceDocxRelativePaths() {
       return loadTenderSourceFiles()

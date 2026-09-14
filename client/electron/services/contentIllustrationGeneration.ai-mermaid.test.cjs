@@ -3,8 +3,10 @@ const test = require('node:test');
 
 const {
   applyGeneratedIllustrationsToDocument,
+  adjustMermaidReviewCode,
   generateMermaidIllustration,
   generateMermaidAiIllustration,
+  generateMermaidAiIllustrationFromCode,
   generateMermaidReviewDraft,
 } = require('./contentIllustrationGeneration.cjs');
 
@@ -166,4 +168,51 @@ test('Mermaid review draft returns validated code without calling image generati
   });
   assert.equal(imageCalled, false);
   assert.deepEqual(renderService.calls, [result.code]);
+});
+
+test('Mermaid review AI adjustment returns updated code without image generation', async () => {
+  const requests = [];
+  let imageCalled = false;
+  const result = await adjustMermaidReviewCode({
+    collectJsonResponse: async (request) => {
+      requests.push(request);
+      return { code: 'flowchart TD\n  A["资料收集"] --> B["问题整改"]\n  B --> C["成果验收"]' };
+    },
+    generateImage: async () => {
+      imageCalled = true;
+      return { asset_url: 'yibiao-asset://generated-images/should-not-exist.png' };
+    },
+  }, {
+    execution: createExecution(),
+    currentCode: 'flowchart TD\n  A["资料收集"] --> C["成果验收"]',
+    adjustment: '在资料收集和成果验收之间增加问题整改节点',
+  });
+
+  assert.equal(result.code, 'flowchart TD\n  A["资料收集"] --> B["问题整改"]\n  B --> C["成果验收"]');
+  assert.equal(imageCalled, false);
+  assert.match(requests[0].messages[0].content, /Mermaid 流程图调整助手/);
+  assert.match(requests[0].messages[1].content, /在资料收集和成果验收之间增加问题整改节点/);
+  assert.match(requests[0].messages[1].content, /flowchart TD/);
+  assert.match(requests[0].messages[1].content, /正文事实：先审核资料，再反馈结果。/);
+});
+
+test('Mermaid AI 重绘确认代码时不重新生成 Mermaid code', async () => {
+  const imageRequests = [];
+  let textGenerationCalled = false;
+  const result = await generateMermaidAiIllustrationFromCode({
+    collectJsonResponse: async () => {
+      textGenerationCalled = true;
+      return { code: 'flowchart TD\n  X["错误"] --> Y["不应使用"]' };
+    },
+    generateImage: async (request) => {
+      imageRequests.push(request);
+      return { asset_url: 'yibiao-asset://generated-images/confirmed.png' };
+    },
+  }, createExecution(), 'flowchart TD\n  A["用户确认"] --> B["AI重绘"]');
+
+  assert.equal(result.asset_url, 'yibiao-asset://generated-images/confirmed.png');
+  assert.equal(result.attempts, 1);
+  assert.equal(textGenerationCalled, false);
+  assert.match(imageRequests[0].prompt, /A\["用户确认"\]/);
+  assert.doesNotMatch(imageRequests[0].prompt, /X\["错误"\]/);
 });

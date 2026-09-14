@@ -149,9 +149,75 @@ async function runMermaidReviewPersistenceAssertions() {
   }
 }
 
+async function runMermaidReviewActionAssertions() {
+  const userDataPath = fs.mkdtempSync(path.join(os.tmpdir(), 'yibiao-mermaid-review-actions-'));
+  let database;
+  try {
+    const app = createApp(userDataPath);
+    database = createSqliteDatabase(app);
+    const store = createStore(app, database.db);
+    store.updateTechnicalPlan({
+      contentIllustrationPlan: {
+        plan_version: 1,
+        revision: 'review-actions',
+        items: [{
+          item_id: 'mermaid-review-1',
+          kind: 'mermaid',
+          image_type: 'process',
+          title: '审核流程',
+          section_ids: ['1.1'],
+          placement: 'after',
+          generation: {
+            status: 'success',
+            code: 'flowchart TD\n  A["旧代码"] --> B["旧结果"]',
+            draft_code: 'flowchart TD\n  A["初稿"] --> B["结果"]',
+            review_status: 'pending',
+            asset_url: 'yibiao-asset://generated-images/old.png',
+            source_path: 'technical-plan/old.html',
+            error: '旧错误',
+            attempts: 2,
+          },
+        }],
+      },
+    });
+
+    const saveResult = store.saveMermaidReviewCode({
+      itemId: 'mermaid-review-1',
+      code: 'flowchart TD\n  A["保存草稿"] --> B["等待确认"]',
+    });
+    assert.equal(saveResult.contentIllustrationPlan.items[0].generation.status, 'reviewing');
+    assert.equal(saveResult.contentIllustrationPlan.items[0].generation.review_status, 'pending');
+    assert.equal(saveResult.contentIllustrationPlan.items[0].generation.code, 'flowchart TD\n  A["保存草稿"] --> B["等待确认"]');
+
+    const confirmResult = store.confirmMermaidReviewItem({
+      itemId: 'mermaid-review-1',
+      code: 'flowchart TD\n  A["确认代码"] --> B["进入重绘"]',
+    });
+    assert.equal(confirmResult.contentIllustrationPlan.items[0].generation.status, 'pending');
+    assert.equal(confirmResult.contentIllustrationPlan.items[0].generation.code, 'flowchart TD\n  A["确认代码"] --> B["进入重绘"]');
+    assert.equal(confirmResult.contentIllustrationPlan.items[0].generation.draft_code, 'flowchart TD\n  A["初稿"] --> B["结果"]');
+    assert.equal(confirmResult.contentIllustrationPlan.items[0].generation.review_status, 'confirmed');
+    assert.match(confirmResult.contentIllustrationPlan.items[0].generation.reviewed_at, /^\d{4}-\d{2}-\d{2}T/);
+    assert.equal(confirmResult.contentIllustrationPlan.items[0].generation.asset_url, undefined);
+    assert.equal(confirmResult.contentIllustrationPlan.items[0].generation.source_path, undefined);
+    assert.equal(confirmResult.contentIllustrationPlan.items[0].generation.error, undefined);
+    assert.equal(confirmResult.contentIllustrationPlan.items[0].generation.attempts, undefined);
+
+    const skipResult = store.skipMermaidReviewItem({ itemId: 'mermaid-review-1' });
+    assert.equal(skipResult.contentIllustrationPlan.items[0].generation.status, 'skipped');
+    assert.equal(skipResult.contentIllustrationPlan.items[0].generation.review_status, 'skipped');
+    assert.equal(skipResult.contentIllustrationPlan.items[0].generation.asset_url, undefined);
+  } finally {
+    database?.close();
+    fs.rmSync(userDataPath, { recursive: true, force: true });
+  }
+}
+
 if (process.argv.includes('--electron-native')) {
   const run = process.argv.includes('--mermaid-review')
     ? runMermaidReviewPersistenceAssertions
+    : process.argv.includes('--mermaid-review-actions')
+      ? runMermaidReviewActionAssertions
     : runPersistenceAssertions;
   run()
     .catch((error) => {
@@ -170,6 +236,14 @@ if (process.argv.includes('--electron-native')) {
 
   test('Mermaid review generation fields persist across restart', () => {
     const result = spawnSync(require('electron'), ['--runAsNode', __filename, '--electron-native', '--mermaid-review'], {
+      encoding: 'utf8',
+      timeout: 30000,
+    });
+    assert.equal(result.status, 0, `${result.stderr || result.stdout || 'Electron native persistence test timed out'}`);
+  });
+
+  test('Mermaid review actions update generation state and clear stale redraw output', () => {
+    const result = spawnSync(require('electron'), ['--runAsNode', __filename, '--electron-native', '--mermaid-review-actions'], {
       encoding: 'utf8',
       timeout: 30000,
     });

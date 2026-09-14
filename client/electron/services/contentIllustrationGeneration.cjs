@@ -169,6 +169,49 @@ ${buildIllustrationScheduleRule()}`,
   ];
 }
 
+function buildMermaidAdjustmentMessages({ execution, currentCode, adjustment }) {
+  const type = assertSupportedMermaidDiagramType(execution.planItem.image_type);
+  const typeLabel = getMermaidDiagramTypeLabel(type);
+  const title = getPlannedTitle(execution);
+  return [
+    {
+      role: 'system',
+      content: `你是投标技术方案 Mermaid 流程图调整助手。请根据用户的调整要求，修改现有 Mermaid 代码。
+
+要求：
+1. 只返回 JSON，不要输出解释、总结或 Markdown。
+2. 只能使用 flowchart TD/TB/LR/RL/BT 语法，不得使用 graph 别名或其他 Mermaid 语法族。
+3. 中文节点标签必须写成 A["中文标签"]。
+4. 不使用 & 多节点连接简写，不使用分号，每行只写一个 Mermaid 语句。
+5. 保持“${typeLabel}”业务类型，优先保留现有 Mermaid 代码中的节点语义、顺序和连接关系。
+6. 只执行用户明确提出的流程图调整；不得新增正文中没有的流程、角色、设备、数据、日期或承诺。
+7. 图中节点原则上不超过 12 个，单个节点文字不得超过 16 个汉字；复杂内容应提炼。
+8. code 不包含 Markdown 代码围栏。
+
+${buildIllustrationScheduleRule()}`,
+    },
+    {
+      role: 'user',
+      content: `最终图题：${title}
+图表类型：${typeLabel}
+
+用户调整要求：
+${adjustment}
+
+当前 Mermaid 代码：
+${currentCode}
+
+参考正文：
+${execution.reference}
+
+请返回：
+{
+  "code": "调整后的 Mermaid 代码"
+}`,
+    },
+  ];
+}
+
 function normalizeMermaidGenerationResult(value) {
   const source = value?.result && typeof value.result === 'object' ? value.result : value || {};
   return {
@@ -234,6 +277,35 @@ function normalizeMermaidRepairResult(value) {
 function validateMermaidRepairResult(result) {
   if (!result?.code || /```/.test(result.code)) throw new Error('Mermaid 修复结果缺少有效 code');
   assertSupportedMermaidSyntax(result.code);
+}
+
+function normalizeMermaidAdjustmentResult(value) {
+  const source = value?.result && typeof value.result === 'object' ? value.result : value || {};
+  return { code: normalizeMermaidCode(source.code || source.adjusted_code || source.mermaid_code || '') };
+}
+
+function validateMermaidAdjustmentResult(result) {
+  if (!result?.code || /```/.test(result.code)) throw new Error('Mermaid 调整结果缺少有效 code');
+  assertMermaidPreviewCompatible(result.code);
+}
+
+async function adjustMermaidReviewCode(aiService, { execution, currentCode, adjustment }) {
+  const normalizedCurrentCode = normalizeMermaidCode(currentCode);
+  const normalizedAdjustment = singleLine(adjustment);
+  if (!normalizedCurrentCode) throw new Error('Mermaid 代码不能为空');
+  if (!normalizedAdjustment) throw new Error('请输入需要 AI 调整的内容');
+  assertMermaidPreviewCompatible(normalizedCurrentCode);
+  return aiService.collectJsonResponse({
+    messages: buildMermaidAdjustmentMessages({
+      execution,
+      currentCode: normalizedCurrentCode,
+      adjustment: normalizedAdjustment,
+    }),
+    normalizer: normalizeMermaidAdjustmentResult,
+    validator: validateMermaidAdjustmentResult,
+    progressLabel: 'Mermaid流程图调整',
+    failureMessage: 'Mermaid 流程图调整结果格式无效',
+  });
 }
 
 async function prepareRenderableMermaid({ aiService, execution, mermaidPlan, isPauseLikeError, localImageRenderService = getLocalImageRenderService() }) {
@@ -318,20 +390,24 @@ async function generateMermaidIllustration(aiService, execution, isPauseLikeErro
 async function generateMermaidAiIllustration(aiService, execution, isPauseLikeError, localImageRenderService) {
   const runtime = resolveMermaidRuntimeArgs(isPauseLikeError, localImageRenderService);
   const mermaid = await generateMermaidIllustration(aiService, execution, runtime.isPauseLikeError, runtime.localImageRenderService);
+  return generateMermaidAiIllustrationFromCode(aiService, execution, mermaid.code, runtime.isPauseLikeError, mermaid.attempts + 1);
+}
+
+async function generateMermaidAiIllustrationFromCode(aiService, execution, code, isPauseLikeError, attempts = 1) {
   let generated;
   try {
     generated = await aiService.generateImage({
       title: getPlannedTitle(execution),
       logTitle: `Mermaid AI图片重绘-${execution.planItem.item_id}-${getPlannedTitle(execution)}`,
-      prompt: buildMermaidAiImagePrompt(execution, mermaid.code),
+      prompt: buildMermaidAiImagePrompt(execution, normalizeMermaidCode(code)),
       style: execution.planItem.image_type,
     });
   } catch (error) {
-    if (runtime.isPauseLikeError?.(error)) throw error;
+    if (isPauseLikeError?.(error)) throw error;
     throw new Error(`Mermaid AI 图片重绘失败：${error?.message || error}`, { cause: error });
   }
   if (!generated?.asset_url) throw new Error('Mermaid AI 图片重绘失败：生图模型未返回本地图片地址');
-  return { asset_url: generated.asset_url, attempts: mermaid.attempts + 1 };
+  return { asset_url: generated.asset_url, attempts };
 }
 
 async function generateMermaidReviewDraft(aiService, execution, isPauseLikeError, localImageRenderService) {
@@ -607,8 +683,10 @@ module.exports = {
   HTML_AGENT_THRESHOLD_CHARS,
   HTML_LAYOUT_REPAIR_ATTEMPTS,
   applyGeneratedIllustrationsToDocument,
+  adjustMermaidReviewCode,
   buildAiImagePrompt,
   buildMermaidAiImagePrompt,
+  buildMermaidAdjustmentMessages,
   buildHtmlImagePrompt,
   buildIllustrationExecutionContexts,
   generateAiIllustration,
@@ -616,6 +694,7 @@ module.exports = {
   generateMermaidCode,
   generateMermaidIllustration,
   generateMermaidAiIllustration,
+  generateMermaidAiIllustrationFromCode,
   generateMermaidReviewDraft,
   normalizeHtmlCode,
   prepareRenderableMermaid,

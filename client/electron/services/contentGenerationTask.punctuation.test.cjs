@@ -4,6 +4,7 @@ const test = require('node:test');
 const {
   __developerContentExpansionPatchRuntime,
   buildChapterContentMessages,
+  shouldCheckpointIllustrationGeneration,
 } = require('./contentGenerationTask.cjs');
 
 const normalize = (value) => __developerContentExpansionPatchRuntime.normalizeGeneratedLeadInPunctuation(value);
@@ -11,6 +12,12 @@ const normalizeSave = (value) => __developerContentExpansionPatchRuntime.normali
   value,
   { id: '1.1', title: '测试章节' },
 );
+
+test('Mermaid review results use a durable illustration checkpoint', () => {
+  assert.equal(shouldCheckpointIllustrationGeneration('reviewing'), true);
+  assert.equal(shouldCheckpointIllustrationGeneration('success'), true);
+  assert.equal(shouldCheckpointIllustrationGeneration('running'), false);
+});
 
 test('inline bold lead-ins use a Chinese colon before following prose', () => {
   assert.equal(
@@ -90,6 +97,49 @@ test('skipped, duplicate, and out-of-order peer numbers are normalized by appear
   assert.equal(normalizeSave('1. **第一项**\n2. **第二项**'), '1. **第一项**\n2. **第二项**');
 });
 
+test('nested body outline items restart numbering within each indentation level', () => {
+  const source = [
+    '8. **全过程登记制度**',
+    '   6. **借阅利用审批**',
+    '      4. **申请提出：** 借阅人填写申请单。',
+    '      9. **审批权限：** 项目负责人审批。',
+    '   7. **档案移交**',
+    '2. **其他管理制度**',
+    '   8. **其他审批**',
+  ].join('\n');
+  assert.equal(
+    normalizeSave(source),
+    [
+      '1. **全过程登记制度**',
+      '   1. **借阅利用审批**',
+      '      1. **申请提出：** 借阅人填写申请单。',
+      '      2. **审批权限：** 项目负责人审批。',
+      '   2. **档案移交**',
+      '2. **其他管理制度**',
+      '   1. **其他审批**',
+    ].join('\n'),
+  );
+});
+
+test('ordinary nested ordered-list items are normalized to valid Markdown list starts', () => {
+  assert.equal(
+    normalizeSave([
+      '1. **全过程登记制度**',
+      '   4. 申请提出',
+      '   5. 审批权限',
+      '2. **其他管理制度**',
+      '   8. 其他审批',
+    ].join('\n')),
+    [
+      '1. **全过程登记制度**',
+      '   1. 申请提出',
+      '   2. 审批权限',
+      '2. **其他管理制度**',
+      '   1. 其他审批',
+    ].join('\n'),
+  );
+});
+
 test('a single structural bold title remains unnumbered', () => {
   assert.equal(normalizeSave('**唯一分项。**\n正文。'), '**唯一分项**\n正文。');
 });
@@ -155,12 +205,32 @@ test('chapter content prompt states the lead-in punctuation rules', () => {
   assert.match(prompt, /中文冒号/);
   assert.match(prompt, /独立成行/);
   assert.match(prompt, /加粗结束标记后不得再写/);
-  assert.match(prompt, /两个及以上/);
-  assert.match(prompt, /连续阿拉伯数字序号/);
   assert.doesNotMatch(prompt, /加粗引导语只允许写简短主题词，禁止使用任何形式的编号/);
 });
 
-test('ordinary and Agent restored optimization prompts require peer numbering', () => {
+test('chapter content prompt requires nested Markdown for body outline hierarchy', () => {
+  const messages = buildChapterContentMessages({
+    chapter: { id: '1.1', title: '测试章节', description: '' },
+    projectOverview: '',
+    selectedFactsText: '',
+    regenerateRequirement: '',
+    contentPlan: null,
+    knowledgeContents: [],
+    wordControl: {},
+  });
+  const prompt = messages.map((message) => message.content).join('\n');
+  assert.match(prompt, /嵌套 Markdown 有序列表/);
+  assert.match(
+    prompt,
+    /1\. \*\*全过程登记制度\*\*\n {3}正文内容……\n {3}1\. \*\*借阅利用审批\*\*\n {6}正文内容……\n {6}1\. \*\*申请提出：\*\*/,
+  );
+  assert.match(prompt, /Markdown 列表语法统一使用“1\.”/);
+  assert.match(prompt, /每个新开的子列表必须从“1\.”开始/);
+  assert.match(prompt, /不要把“一、”“（一）”等最终展示编号写进正文文字/);
+  assert.doesNotMatch(prompt, /同一层级出现两个及以上并列论述分项时，每个分项标题必须按出现顺序使用连续阿拉伯数字序号/);
+});
+
+test('ordinary and Agent restored optimization prompts require nested body outline structure', () => {
   const ordinary = __developerContentExpansionPatchRuntime.buildRestoredChapterContentMessages({
     chapter: { id: '1.1', title: '测试章节', description: '' },
     projectOverview: '', selectedFactsText: '', regenerateRequirement: '', contentPlan: null,
@@ -168,10 +238,10 @@ test('ordinary and Agent restored optimization prompts require peer numbering', 
   }).map((message) => message.content).join('\n');
   const agent = __developerContentExpansionPatchRuntime.buildAgentRestoredChapterContentPrompt('fabricate');
   for (const prompt of [ordinary, agent]) {
-    assert.match(prompt, /两个及以上/);
-    assert.match(prompt, /连续阿拉伯数字序号/);
+    assert.match(prompt, /嵌套 Markdown 有序列表/);
+    assert.match(prompt, /Markdown 列表语法统一使用“1\.”/);
+    assert.match(prompt, /每个新开的子列表必须从“1\.”开始/);
     assert.match(prompt, /中文冒号/);
-    assert.doesNotMatch(prompt, /加粗引导语不得使用任何形式的编号/);
   }
 });
 
@@ -192,6 +262,7 @@ test('word adjustment prompt states the lead-in punctuation rules', () => {
   assert.match(prompt, /中文冒号/);
   assert.match(prompt, /独立成行/);
   assert.match(prompt, /加粗结束标记后不得再写/);
-  assert.match(prompt, /两个及以上/);
-  assert.match(prompt, /连续阿拉伯数字序号/);
+  assert.match(prompt, /嵌套 Markdown 有序列表/);
+  assert.match(prompt, /Markdown 列表语法统一使用“1\.”/);
+  assert.match(prompt, /每个新开的子列表必须从“1\.”开始/);
 });

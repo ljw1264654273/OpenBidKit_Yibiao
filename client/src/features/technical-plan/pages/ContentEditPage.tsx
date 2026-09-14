@@ -1,12 +1,12 @@
 import * as Dialog from '@radix-ui/react-dialog';
 import * as Popover from '@radix-ui/react-popover';
-import { memo, useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode, type WheelEvent } from 'react';
 import { trackConfigUsage } from '../../../shared/analytics/analytics';
 import { AppSwitch, MarkdownEditor, MarkdownFullscreenViewer, MarkdownRenderer, useToast } from '../../../shared/ui';
 import { OUTLINE_CONTENT_MODE_LABELS } from '../../../shared/types';
 import type { ClientConfig, ImageModelStatus, OutlineContentMode, OutlineData, OutlineItem, OutlineWordControlOptions } from '../../../shared/types';
 import { countReadableWords } from '../../../shared/utils/wordCount';
-import type { BackgroundTaskState, ConsistencyRepairMode, ContentGenerationOptions, ContentGenerationSectionStatus, ContentGenerationSections, ContentIllustrationKind, ContentIllustrationPlanState, ContentTableRequirement, OriginalPlanCoverageRepairMode, TechnicalPlanWorkflowKind } from '../types';
+import type { BackgroundTaskState, ConsistencyRepairMode, ContentGenerationOptions, ContentGenerationSectionStatus, ContentGenerationSections, ContentIllustrationKind, ContentIllustrationPlanItem, ContentIllustrationPlanState, ContentTableRequirement, OriginalPlanCoverageRepairMode, TechnicalPlanState, TechnicalPlanWorkflowKind } from '../types';
 import type { ExportFormatConfig } from '../../../shared/types/exportFormat';
 import { DEFAULT_EXPORT_FORMAT } from '../../../shared/types/exportFormat';
 import { buildExportFormatCssVars } from '../../../shared/utils/exportFormatCss';
@@ -27,6 +27,7 @@ interface ContentEditPageProps {
   sections: ContentGenerationSections;
   onContentGenerationOptionsChange: (options: ContentGenerationOptions) => Promise<void> | void;
   onContentSaved: (item: OutlineItem, content: string) => Promise<void> | void;
+  onPlanPatched?: (patch: Partial<TechnicalPlanState>) => void;
 }
 
 type TreeStatus = ContentGenerationSectionStatus | 'partial' | 'planning' | 'pending';
@@ -84,6 +85,16 @@ const illustrationKindLabels: Record<ContentIllustrationKind, string> = {
   mermaid: 'Mermaid 图片',
   ai: 'AI 图片',
 };
+
+const mermaidReviewStatusLabels: Record<'pending' | 'confirmed' | 'skipped', string> = {
+  pending: '待确认',
+  confirmed: '已确认',
+  skipped: '已跳过',
+};
+
+const MERMAID_PREVIEW_ZOOM_MIN = 0.6;
+const MERMAID_PREVIEW_ZOOM_MAX = 5;
+const MERMAID_PREVIEW_ZOOM_STEP = 0.25;
 
 const illustrationKinds: ContentIllustrationKind[] = ['html', 'mermaid', 'ai'];
 
@@ -283,6 +294,7 @@ const MarkdownContent = memo(function MarkdownContent({ content, onPreviewImage 
       imageMode="preview"
       imageClassName="markdown-clickable-image"
       renderMermaid
+      normalizeOrderedListStructure
       onPreviewImage={onPreviewImage}
     >
       {content}
@@ -300,6 +312,7 @@ function ContentEditPage({
   sections,
   onContentGenerationOptionsChange,
   onContentSaved,
+  onPlanPatched,
 }: ContentEditPageProps) {
   const { showToast } = useToast();
   const isExpansionWorkflow = workflowKind === 'existing-plan-expansion';
@@ -323,6 +336,17 @@ function ContentEditPage({
   const [pausePending, setPausePending] = useState(false);
   const [exportFormat, setExportFormat] = useState<ExportFormatConfig>(DEFAULT_EXPORT_FORMAT);
   const [developerMode, setDeveloperMode] = useState(false);
+  const [mermaidReviewOpen, setMermaidReviewOpen] = useState(false);
+  const [selectedMermaidReviewItemId, setSelectedMermaidReviewItemId] = useState('');
+  const [mermaidReviewDraftCode, setMermaidReviewDraftCode] = useState('');
+  const [mermaidAiInstruction, setMermaidAiInstruction] = useState('');
+  const [mermaidReviewError, setMermaidReviewError] = useState('');
+  const [mermaidReviewBusy, setMermaidReviewBusy] = useState(false);
+  const [mermaidAiBusy, setMermaidAiBusy] = useState(false);
+  const [mermaidPreviewZoom, setMermaidPreviewZoom] = useState(1);
+  const [mermaidPreviewPan, setMermaidPreviewPan] = useState({ x: 0, y: 0 });
+  const [mermaidPreviewDragging, setMermaidPreviewDragging] = useState(false);
+  const mermaidPreviewDragRef = useRef<{ pointerId: number; startX: number; startY: number; originX: number; originY: number } | null>(null);
   const firstLeafId = allLeaves[0]?.id || '';
   const selectedItem = outlineData?.outline && selectedItemId ? findItem(outlineData.outline, selectedItemId) : null;
   const selectedIsLeaf = Boolean(selectedItem && !selectedItem.children?.length);
@@ -356,6 +380,23 @@ function ContentEditPage({
   const illustrationPlannedTotal = illustrationKinds.reduce((sum, kind) => sum + illustrationStats[kind].planned, 0);
   const illustrationSuccessTotal = illustrationKinds.reduce((sum, kind) => sum + illustrationStats[kind].success, 0);
   const showIllustrationStats = developerMode && Boolean(contentIllustrationPlan);
+  const mermaidReviewItems = useMemo(() => (contentIllustrationPlan?.items || [])
+    .filter((item) => item.kind === 'mermaid' && item.generation?.review_status), [contentIllustrationPlan]);
+  const selectedMermaidReviewItem = useMemo(
+    () => mermaidReviewItems.find((item) => item.item_id === selectedMermaidReviewItemId) || mermaidReviewItems[0] || null,
+    [mermaidReviewItems, selectedMermaidReviewItemId],
+  );
+  const getMermaidReviewItemsForSection = (sectionId: string) => mermaidReviewItems.filter((item) => item.section_ids.includes(sectionId));
+  const mermaidPreviewZoomStyle = useMemo<CSSProperties>(() => ({
+    '--content-mermaid-preview-zoom': mermaidPreviewZoom,
+    '--content-mermaid-preview-pan-x': `${mermaidPreviewPan.x}px`,
+    '--content-mermaid-preview-pan-y': `${mermaidPreviewPan.y}px`,
+  } as CSSProperties), [mermaidPreviewPan.x, mermaidPreviewPan.y, mermaidPreviewZoom]);
+  const pendingMermaidReviewCount = mermaidReviewItems.filter((item) => item.generation?.review_status === 'pending').length;
+  const confirmedMermaidReviewCount = mermaidReviewItems.filter((item) => item.generation?.review_status === 'confirmed' && !item.generation?.asset_url).length;
+  const redrawableMermaidReviewCount = mermaidReviewItems.filter((item) => item.generation?.review_status === 'confirmed'
+    && item.generation?.status !== 'success'
+    && !item.generation?.asset_url).length;
   const planning = phaseVisible && contentStats?.phase === 'planning';
   const restoring = phaseVisible && contentStats?.phase === 'restoring';
   const sectionWordAdjusting = phaseVisible && contentStats?.phase === 'section-word-adjusting';
@@ -612,6 +653,34 @@ function ContentEditPage({
   }, [firstLeafId, outlineData, selectedItemId]);
 
   useEffect(() => {
+    if (!mermaidReviewItems.length) {
+      setSelectedMermaidReviewItemId('');
+      return;
+    }
+
+    if (!selectedMermaidReviewItemId || !mermaidReviewItems.some((item) => item.item_id === selectedMermaidReviewItemId)) {
+      setSelectedMermaidReviewItemId(mermaidReviewItems[0].item_id);
+    }
+  }, [mermaidReviewItems, selectedMermaidReviewItemId]);
+
+  useEffect(() => {
+    if (!selectedMermaidReviewItem) {
+      setMermaidReviewDraftCode('');
+      setMermaidAiInstruction('');
+      setMermaidReviewError('');
+      return;
+    }
+
+    setMermaidReviewDraftCode(selectedMermaidReviewItem.generation?.code || selectedMermaidReviewItem.generation?.draft_code || '');
+    setMermaidAiInstruction('');
+    setMermaidReviewError(selectedMermaidReviewItem.generation?.review_error || selectedMermaidReviewItem.generation?.error || '');
+    setMermaidPreviewZoom(1);
+    setMermaidPreviewPan({ x: 0, y: 0 });
+    setMermaidPreviewDragging(false);
+    mermaidPreviewDragRef.current = null;
+  }, [selectedMermaidReviewItem]);
+
+  useEffect(() => {
     window.yibiao?.config.load()
       .then((config) => {
         setDeveloperMode(Boolean(config.developer_mode));
@@ -774,6 +843,250 @@ function ContentEditPage({
       showToast('仅重新配图任务已在后台启动', 'success');
     } catch (error) {
       showToast(error instanceof Error ? error.message : '启动仅重新配图任务失败', 'error');
+    }
+  };
+
+  const applyPlanPatch = (patch?: Partial<TechnicalPlanState>) => {
+    if (patch) {
+      onPlanPatched?.(patch);
+    }
+  };
+
+  const requireSelectedMermaidReviewItem = (): ContentIllustrationPlanItem | null => {
+    if (!selectedMermaidReviewItem) {
+      showToast('请选择需要审核的 Mermaid 图', 'info');
+      return null;
+    }
+    return selectedMermaidReviewItem;
+  };
+
+  const updateMermaidPreviewZoom = (nextZoom: number) => {
+    const boundedZoom = Math.min(MERMAID_PREVIEW_ZOOM_MAX, Math.max(MERMAID_PREVIEW_ZOOM_MIN, nextZoom));
+    setMermaidPreviewZoom(Number(boundedZoom.toFixed(2)));
+  };
+
+  const resetMermaidPreviewView = () => {
+    setMermaidPreviewZoom(1);
+    setMermaidPreviewPan({ x: 0, y: 0 });
+  };
+
+  const handleMermaidPreviewWheel = (event: WheelEvent<HTMLDivElement>) => {
+    if (!mermaidReviewDraftCode.trim()) return;
+    event.preventDefault();
+    const currentZoom = mermaidPreviewZoom;
+    const zoomDirection = event.deltaY < 0 ? 1 : -1;
+    const nextZoom = Math.min(
+      MERMAID_PREVIEW_ZOOM_MAX,
+      Math.max(MERMAID_PREVIEW_ZOOM_MIN, currentZoom + zoomDirection * MERMAID_PREVIEW_ZOOM_STEP),
+    );
+    if (nextZoom === currentZoom) return;
+
+    const rect = event.currentTarget.getBoundingClientRect();
+    const pointerX = event.clientX - rect.left;
+    const pointerY = event.clientY - rect.top;
+    const contentX = (pointerX - mermaidPreviewPan.x) / currentZoom;
+    const contentY = (pointerY - mermaidPreviewPan.y) / currentZoom;
+
+    setMermaidPreviewZoom(Number(nextZoom.toFixed(2)));
+    setMermaidPreviewPan({
+      x: Number((pointerX - contentX * nextZoom).toFixed(1)),
+      y: Number((pointerY - contentY * nextZoom).toFixed(1)),
+    });
+  };
+
+  const handleMermaidPreviewPointerDown = (event: PointerEvent<HTMLDivElement>) => {
+    if (!mermaidReviewDraftCode.trim() || event.button !== 0) return;
+    event.preventDefault();
+    mermaidPreviewDragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: mermaidPreviewPan.x,
+      originY: mermaidPreviewPan.y,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setMermaidPreviewDragging(true);
+  };
+
+  const handleMermaidPreviewPointerMove = (event: PointerEvent<HTMLDivElement>) => {
+    const drag = mermaidPreviewDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    setMermaidPreviewPan({
+      x: drag.originX + event.clientX - drag.startX,
+      y: drag.originY + event.clientY - drag.startY,
+    });
+  };
+
+  const handleMermaidPreviewPointerUp = (event: PointerEvent<HTMLDivElement>) => {
+    const drag = mermaidPreviewDragRef.current;
+    if (drag?.pointerId === event.pointerId) {
+      mermaidPreviewDragRef.current = null;
+      setMermaidPreviewDragging(false);
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+    }
+  };
+
+  const previewMermaidReviewItem = async () => {
+    const item = requireSelectedMermaidReviewItem();
+    if (!item) return;
+    const code = mermaidReviewDraftCode.trim();
+    if (!code) {
+      setMermaidReviewError('Mermaid 代码不能为空');
+      showToast('Mermaid 代码不能为空', 'info');
+      return;
+    }
+
+    setMermaidReviewBusy(true);
+    setMermaidReviewError('');
+    try {
+      const preview = await window.yibiao?.technicalPlan.previewMermaidReviewItem({ itemId: item.item_id, code });
+      if (!preview?.success) {
+        throw new Error('Mermaid 代码预览失败');
+      }
+      const patch = await window.yibiao?.technicalPlan.saveMermaidReviewCode({ itemId: item.item_id, code: preview.code });
+      applyPlanPatch(patch);
+      setMermaidReviewDraftCode(preview.code);
+      showToast('Mermaid 预览已更新', 'success');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Mermaid 代码预览失败';
+      setMermaidReviewError(message);
+      showToast(message, 'error');
+    } finally {
+      setMermaidReviewBusy(false);
+    }
+  };
+
+  const adjustMermaidReviewCode = async () => {
+    const item = requireSelectedMermaidReviewItem();
+    if (!item) return;
+    const code = mermaidReviewDraftCode.trim();
+    const instruction = mermaidAiInstruction.trim();
+    if (!code) {
+      setMermaidReviewError('Mermaid 代码不能为空');
+      showToast('Mermaid 代码不能为空', 'info');
+      return;
+    }
+    if (!instruction) {
+      setMermaidReviewError('请输入需要 AI 调整的内容');
+      showToast('请输入需要 AI 调整的内容', 'info');
+      return;
+    }
+
+    setMermaidReviewBusy(true);
+    setMermaidAiBusy(true);
+    setMermaidReviewError('');
+    try {
+      const result = await window.yibiao?.technicalPlan.adjustMermaidReviewCode({
+        itemId: item.item_id,
+        code,
+        instruction,
+      });
+      if (!result?.code) {
+        throw new Error('AI 未返回有效 Mermaid 代码');
+      }
+      const { code: adjustedCode, ...patch } = result;
+      applyPlanPatch(patch);
+      setMermaidReviewDraftCode(adjustedCode);
+      showToast('AI 已调整 Mermaid 代码，请查看下方效果图', 'success');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'AI 调整 Mermaid 代码失败';
+      setMermaidReviewError(message);
+      showToast(message, 'error');
+    } finally {
+      setMermaidAiBusy(false);
+      setMermaidReviewBusy(false);
+    }
+  };
+
+  const selectNextPendingMermaidReviewItem = (currentItemId: string) => {
+    const currentIndex = mermaidReviewItems.findIndex((item) => item.item_id === currentItemId);
+    const isNextPending = (item: ContentIllustrationPlanItem) => item.item_id !== currentItemId && item.generation?.review_status === 'pending';
+    const nextItem = currentIndex >= 0
+      ? mermaidReviewItems.slice(currentIndex + 1).find(isNextPending) || mermaidReviewItems.slice(0, currentIndex).find(isNextPending)
+      : mermaidReviewItems.find(isNextPending);
+    if (nextItem) {
+      setSelectedMermaidReviewItemId(nextItem.item_id);
+    }
+  };
+
+  const openMermaidReviewForSection = (sectionId: string) => {
+    const sectionReviewItems = getMermaidReviewItemsForSection(sectionId);
+    const targetItem = sectionReviewItems.find((item) => item.generation?.review_status === 'pending')
+      || sectionReviewItems.find((item) => item.generation?.review_status === 'confirmed')
+      || sectionReviewItems[0];
+    if (!targetItem) return;
+    setSelectedMermaidReviewItemId(targetItem.item_id);
+    setMermaidReviewOpen(true);
+  };
+
+  const confirmMermaidReviewItem = async () => {
+    const item = requireSelectedMermaidReviewItem();
+    if (!item) return;
+    const code = mermaidReviewDraftCode.trim();
+    if (!code) {
+      setMermaidReviewError('Mermaid 代码不能为空');
+      showToast('Mermaid 代码不能为空', 'info');
+      return;
+    }
+
+    setMermaidReviewBusy(true);
+    setMermaidReviewError('');
+    try {
+      const patch = await window.yibiao?.technicalPlan.confirmMermaidReviewItem({ itemId: item.item_id, code });
+      applyPlanPatch(patch);
+      selectNextPendingMermaidReviewItem(item.item_id);
+      showToast('此 Mermaid 图已确认，稍后可统一 AI 重绘', 'success');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '确认 Mermaid 图失败';
+      setMermaidReviewError(message);
+      showToast(message, 'error');
+    } finally {
+      setMermaidReviewBusy(false);
+    }
+  };
+
+  const skipMermaidReviewItem = async () => {
+    const item = requireSelectedMermaidReviewItem();
+    if (!item) return;
+
+    setMermaidReviewBusy(true);
+    setMermaidReviewError('');
+    try {
+      const patch = await window.yibiao?.technicalPlan.skipMermaidReviewItem({ itemId: item.item_id });
+      applyPlanPatch(patch);
+      selectNextPendingMermaidReviewItem(item.item_id);
+      showToast('已跳过此 Mermaid 图', 'success');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '跳过 Mermaid 图失败';
+      setMermaidReviewError(message);
+      showToast(message, 'error');
+    } finally {
+      setMermaidReviewBusy(false);
+    }
+  };
+
+  const restoreMermaidReviewDraft = () => {
+    if (!selectedMermaidReviewItem) return;
+    setMermaidReviewDraftCode(selectedMermaidReviewItem.generation?.draft_code || selectedMermaidReviewItem.generation?.code || '');
+    setMermaidReviewError('');
+  };
+
+  const startConfirmedMermaidRedraw = async () => {
+    if (pendingMermaidReviewCount > 0) {
+      showToast(`还有 ${pendingMermaidReviewCount} 张 Mermaid 图待确认，请全部确认或跳过后再开始 AI 重绘。`, 'info');
+      return;
+    }
+    if (!redrawableMermaidReviewCount || taskBlocksGeneration) {
+      return;
+    }
+
+    try {
+      await window.yibiao?.tasks.startContentGeneration({ redrawConfirmedMermaidIllustrations: true });
+      showToast(`已启动 ${redrawableMermaidReviewCount} 张 Mermaid 图的 AI 重绘任务`, 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '启动 Mermaid AI 重绘失败', 'error');
     }
   };
 
@@ -986,60 +1299,77 @@ function ContentEditPage({
     const words = meta?.words || 0;
     const modeLabel = isLeaf && item.content_mode ? OUTLINE_CONTENT_MODE_LABELS[item.content_mode] : '';
     const formattedTitle = formatOutlineTitle(item.id, item.title, exportFormat.headings[Math.min(item.id.split('.').length - 1, 5)]);
+    const mermaidReviewItemsForSection = getMermaidReviewItemsForSection(item.id);
 
     return (
       <div className="content-outline-node" key={item.id} style={{ '--content-level': level } as CSSProperties}>
-        <button
-          type="button"
-          className={`content-outline-item is-${status}${selectedItemId === item.id ? ' is-active' : ''}`}
-          onClick={() => {
-            setSelectedItemId(item.id);
-            setWorkspacePane('content');
-          }}
-        >
-          <span className="content-outline-dot" aria-hidden="true" />
-          <span className="content-outline-text">
-            <strong title={formattedTitle}>{formattedTitle}</strong>
-            <small>{isLeaf ? `${modeLabel || '未标记'} · ${statusLabels[status]} · ${words} 字` : `${statusLabels[status]} · ${leafCount} 个小节 · ${words} 字`}</small>
-          </span>
-          {isLeaf && item.content_mode === 'ai-generate' && (status === 'success' || status === 'error') ? (
-            <Popover.Root
-              open={confirmRegenerateItem?.id === item.id}
-              onOpenChange={(open) => setConfirmRegenerateItem(open ? item : null)}
+        <div className="content-outline-row">
+          <button
+            type="button"
+            className={`content-outline-item is-${status}${selectedItemId === item.id ? ' is-active' : ''}`}
+            onClick={() => {
+              setSelectedItemId(item.id);
+              setWorkspacePane('content');
+            }}
+          >
+            <span className="content-outline-dot" aria-hidden="true" />
+            <span className="content-outline-text">
+              <strong title={formattedTitle}>{formattedTitle}</strong>
+              <small>{isLeaf ? `${modeLabel || '未标记'} · ${statusLabels[status]} · ${words} 字` : `${statusLabels[status]} · ${leafCount} 个小节 · ${words} 字`}</small>
+            </span>
+            {isLeaf && item.content_mode === 'ai-generate' && (status === 'success' || status === 'error') ? (
+              <Popover.Root
+                open={confirmRegenerateItem?.id === item.id}
+                onOpenChange={(open) => setConfirmRegenerateItem(open ? item : null)}
+              >
+                <Popover.Trigger asChild>
+                  <em
+                    className="is-clickable"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                    }}
+                  >{statusLabels[status]}</em>
+                </Popover.Trigger>
+                <Popover.Portal>
+                  <Popover.Content className="content-regenerate-popover" side="top" align="end" sideOffset={8}>
+                    <strong>重新生成此小节？</strong>
+                    <span>{status === 'error' ? '将重新尝试生成失败的小节。' : '将覆盖当前正文内容。'}</span>
+                    <div>
+                      <button
+                        type="button"
+                        className="primary-action"
+                        disabled={taskBlocksGeneration}
+                        onClick={() => {
+                          setRequirementItem(item);
+                          setRegenerateRequirement('');
+                          setConfirmRegenerateItem(null);
+                        }}
+                      >是</button>
+                      <Popover.Close className="secondary-action" type="button">否</Popover.Close>
+                    </div>
+                    <Popover.Arrow className="content-regenerate-popover-arrow" />
+                  </Popover.Content>
+                </Popover.Portal>
+              </Popover.Root>
+            ) : (
+              <em>{statusLabels[status]}</em>
+            )}
+          </button>
+          {mermaidReviewItemsForSection.length > 0 && (
+            <button
+              type="button"
+              className="content-outline-mermaid-review-action"
+              onClick={(event) => {
+                event.stopPropagation();
+                openMermaidReviewForSection(item.id);
+              }}
+              aria-label={`审核${formattedTitle}的 Mermaid 图`}
+              title={`审核${formattedTitle}的 Mermaid 图`}
             >
-              <Popover.Trigger asChild>
-                <em
-                  className="is-clickable"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                  }}
-                >{statusLabels[status]}</em>
-              </Popover.Trigger>
-              <Popover.Portal>
-                <Popover.Content className="content-regenerate-popover" side="top" align="end" sideOffset={8}>
-                  <strong>重新生成此小节？</strong>
-                  <span>{status === 'error' ? '将重新尝试生成失败的小节。' : '将覆盖当前正文内容。'}</span>
-                  <div>
-                    <button
-                      type="button"
-                      className="primary-action"
-                      disabled={taskBlocksGeneration}
-                      onClick={() => {
-                        setRequirementItem(item);
-                        setRegenerateRequirement('');
-                        setConfirmRegenerateItem(null);
-                      }}
-                    >是</button>
-                    <Popover.Close className="secondary-action" type="button">否</Popover.Close>
-                  </div>
-                  <Popover.Arrow className="content-regenerate-popover-arrow" />
-                </Popover.Content>
-              </Popover.Portal>
-            </Popover.Root>
-          ) : (
-            <em>{statusLabels[status]}</em>
+              审核 Mermaid 图{mermaidReviewItemsForSection.length > 1 ? `（${mermaidReviewItemsForSection.length}）` : ''}
+            </button>
           )}
-        </button>
+        </div>
         {item.children?.length ? renderTree(item.children, level + 1) : null}
       </div>
     );
@@ -1057,7 +1387,7 @@ function ContentEditPage({
   }
 
   return (
-    <div className={`plan-step-body content-generation-page${showIllustrationStats ? ' has-dev-stats' : ''}`}>
+    <div className={`plan-step-body content-generation-page${showIllustrationStats ? ' has-dev-stats' : ''}${mermaidReviewItems.length ? ' has-mermaid-review' : ''}`}>
       <section className="content-generation-command-bar">
         <div>
           <span className="section-kicker">STEP 05</span>
@@ -1140,6 +1470,21 @@ function ContentEditPage({
         </aside>
       )}
 
+      {mermaidReviewItems.length > 0 && (
+        <section className="content-mermaid-review-banner" aria-label="Mermaid 待确认">
+          <div>
+            <span className="section-kicker">Mermaid 待确认</span>
+            <strong>{pendingMermaidReviewCount} 张流程图待确认</strong>
+            <p>先核对 Mermaid 代码和 Markdown 效果图，确认后再统一改用 AI 图片重绘。</p>
+          </div>
+          <div className="content-mermaid-review-summary">
+            <span>全部 {mermaidReviewItems.length}</span>
+            <span>已确认 {confirmedMermaidReviewCount}</span>
+            <span>可重绘 {redrawableMermaidReviewCount}</span>
+          </div>
+        </section>
+      )}
+
       <AdaptiveTwoPaneWorkspace
         id="content-generation-workspace"
         className="content-generation-workspace"
@@ -1196,7 +1541,7 @@ function ContentEditPage({
               disabled={taskBlocksGeneration}
             />
           ) : selectedItem && selectedIsLeaf && editing && isPreviewing ? (
-            <MarkdownFullscreenViewer className="markdown-viewer content-generation-output export-format-preview" style={exportFormatPreviewStyle} title="正文预览全屏查看">
+            <MarkdownFullscreenViewer className="markdown-viewer content-generation-output export-format-preview technical-plan-content-preview" style={exportFormatPreviewStyle} title="正文预览全屏查看">
               {draftContent.trim() ? (
                 <MarkdownContent content={draftContent} onPreviewImage={handlePreviewImage} />
               ) : (
@@ -1204,7 +1549,7 @@ function ContentEditPage({
               )}
             </MarkdownFullscreenViewer>
           ) : selectedItem && selectedIsLeaf && selectedContent.trim() ? (
-            <MarkdownFullscreenViewer className="markdown-viewer content-generation-output export-format-preview" style={exportFormatPreviewStyle} title={`${selectedItem.id} ${selectedItem.title}全屏查看`}>
+            <MarkdownFullscreenViewer className="markdown-viewer content-generation-output export-format-preview technical-plan-content-preview" style={exportFormatPreviewStyle} title={`${selectedItem.id} ${selectedItem.title}全屏查看`}>
               <MarkdownContent content={selectedContent} onPreviewImage={handlePreviewImage} />
             </MarkdownFullscreenViewer>
           ) : selectedItem && selectedIsLeaf ? (
@@ -1229,6 +1574,171 @@ function ContentEditPage({
           </article>
         )}
       />
+
+      <Dialog.Root open={mermaidReviewOpen} onOpenChange={setMermaidReviewOpen}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="content-regenerate-modal" />
+          <Dialog.Content className="content-mermaid-review-card" aria-describedby={undefined}>
+            <div className="content-regenerate-card-head">
+              <span className="section-kicker">Mermaid 待确认</span>
+              <Dialog.Title>审核流程图后再 AI 重绘</Dialog.Title>
+              <Dialog.Description>
+                可先修改 Mermaid 代码并查看 Markdown 效果图；确认无误后，再把已确认的 Mermaid 图交给 AI 重绘成图片。
+              </Dialog.Description>
+            </div>
+
+            <div className="content-mermaid-review-grid">
+              <aside className="content-mermaid-review-list" aria-label="Mermaid 图列表">
+                {mermaidReviewItems.map((item) => {
+                  const status = item.generation?.review_status || 'pending';
+                  return (
+                    <button
+                      type="button"
+                      key={item.item_id}
+                      className={`content-mermaid-review-list-item is-${status}${selectedMermaidReviewItem?.item_id === item.item_id ? ' is-active' : ''}`}
+                      onClick={() => setSelectedMermaidReviewItemId(item.item_id)}
+                    >
+                      <strong>{item.title || item.image_type || 'Mermaid 流程图'}</strong>
+                      <span>{item.section_ids.join('、') || item.item_id}</span>
+                      <em>{mermaidReviewStatusLabels[status]}</em>
+                    </button>
+                  );
+                })}
+              </aside>
+
+              <section className="content-mermaid-review-editor" aria-label="Mermaid 代码">
+                <div className="content-mermaid-review-toolbar">
+                  <div>
+                    <strong>{selectedMermaidReviewItem?.title || 'Mermaid 流程图'}</strong>
+                    <span>
+                      {selectedMermaidReviewItem?.image_type || '流程图'}
+                      {selectedMermaidReviewItem?.section_ids.length ? ` · ${selectedMermaidReviewItem.section_ids.join('、')}` : ''}
+                    </span>
+                  </div>
+                  <span className={`content-mermaid-review-status is-${selectedMermaidReviewItem?.generation?.review_status || 'pending'}`}>
+                    {mermaidReviewStatusLabels[selectedMermaidReviewItem?.generation?.review_status || 'pending']}
+                  </span>
+                </div>
+
+                {mermaidReviewError && <p className="content-mermaid-review-error">{mermaidReviewError}</p>}
+
+                <div className="content-mermaid-review-workspace">
+                  <div className="content-mermaid-review-left">
+                    <textarea
+                      value={mermaidReviewDraftCode}
+                      onChange={(event) => setMermaidReviewDraftCode(event.target.value)}
+                      disabled={mermaidReviewBusy}
+                      spellCheck={false}
+                      aria-label="Mermaid 流程图代码"
+                    />
+
+                    <div className="content-mermaid-ai-inline-bar" aria-label="AI 调整流程图">
+                      <label className="content-mermaid-ai-input">
+                        <span>AI 调整流程图</span>
+                        <textarea
+                          value={mermaidAiInstruction}
+                          onChange={(event) => setMermaidAiInstruction(event.target.value)}
+                          disabled={mermaidReviewBusy}
+                          placeholder="描述希望 AI 修改的地方，例如：在资料收集和成果验收之间增加问题整改节点"
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        className="primary-action"
+                        onClick={() => void adjustMermaidReviewCode()}
+                        disabled={mermaidReviewBusy || !selectedMermaidReviewItem || !mermaidAiInstruction.trim()}
+                      >
+                        {mermaidAiBusy ? 'AI 调整中...' : 'AI 调整代码'}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="content-mermaid-review-preview-panel" aria-label="Markdown 效果图">
+                    <div className="content-mermaid-review-preview-toolbar">
+                      <strong>Markdown 效果图</strong>
+                      <div className="content-mermaid-review-zoom-controls" aria-label="流程图缩放">
+                        <button
+                          type="button"
+                          onClick={() => updateMermaidPreviewZoom(mermaidPreviewZoom - MERMAID_PREVIEW_ZOOM_STEP)}
+                          disabled={mermaidPreviewZoom <= MERMAID_PREVIEW_ZOOM_MIN}
+                          aria-label="缩小流程图预览"
+                        >
+                          -
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => updateMermaidPreviewZoom(1)}
+                          disabled={mermaidPreviewZoom === 1}
+                          aria-label="恢复流程图预览为 100%"
+                        >
+                          {Math.round(mermaidPreviewZoom * 100)}%
+                        </button>
+                        <button
+                          type="button"
+                          onClick={resetMermaidPreviewView}
+                          disabled={mermaidPreviewZoom === 1 && mermaidPreviewPan.x === 0 && mermaidPreviewPan.y === 0}
+                          aria-label="适应窗口查看流程图预览"
+                        >
+                          适应窗口
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => updateMermaidPreviewZoom(mermaidPreviewZoom + MERMAID_PREVIEW_ZOOM_STEP)}
+                          disabled={mermaidPreviewZoom >= MERMAID_PREVIEW_ZOOM_MAX}
+                          aria-label="放大流程图预览"
+                        >
+                          +
+                        </button>
+                      </div>
+                    </div>
+                    <div
+                      className={`content-mermaid-review-preview${mermaidPreviewDragging ? ' is-dragging' : ''}`}
+                      onWheel={handleMermaidPreviewWheel}
+                      onPointerDown={handleMermaidPreviewPointerDown}
+                      onPointerMove={handleMermaidPreviewPointerMove}
+                      onPointerUp={handleMermaidPreviewPointerUp}
+                      onPointerCancel={handleMermaidPreviewPointerUp}
+                    >
+                      <div className="content-mermaid-review-preview-scale" style={mermaidPreviewZoomStyle}>
+                        {mermaidReviewDraftCode.trim() ? (
+                          <MarkdownRenderer renderMermaid allowRawHtml={false}>
+                            {`\
+\`\`\`mermaid
+${mermaidReviewDraftCode.trim()}
+\`\`\`
+`}
+                          </MarkdownRenderer>
+                        ) : (
+                          <p>暂无 Mermaid 代码</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            </div>
+
+            <div className="content-regenerate-actions content-mermaid-review-actions">
+              <button type="button" className="secondary-action" onClick={restoreMermaidReviewDraft} disabled={mermaidReviewBusy || !selectedMermaidReviewItem}>
+                恢复 AI 初稿
+              </button>
+              <button type="button" className="secondary-action" onClick={() => void skipMermaidReviewItem()} disabled={mermaidReviewBusy || !selectedMermaidReviewItem}>
+                跳过此图
+              </button>
+              <button type="button" className="secondary-action" onClick={() => void previewMermaidReviewItem()} disabled={mermaidReviewBusy || !selectedMermaidReviewItem}>
+                更新预览
+              </button>
+              <button type="button" className="primary-action" onClick={() => void confirmMermaidReviewItem()} disabled={mermaidReviewBusy || !selectedMermaidReviewItem}>
+                确认此图
+              </button>
+              <button type="button" className="primary-action" onClick={() => void startConfirmedMermaidRedraw()} disabled={mermaidReviewBusy || taskBlocksGeneration || pendingMermaidReviewCount > 0 || redrawableMermaidReviewCount === 0}>
+                开始 AI 重绘（{redrawableMermaidReviewCount} 张）
+              </button>
+              <Dialog.Close className="secondary-action" type="button" disabled={mermaidReviewBusy}>关闭</Dialog.Close>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
 
       <Dialog.Root open={continuePostProcessingDialogOpen} onOpenChange={setContinuePostProcessingDialogOpen}>
         <Dialog.Portal>
