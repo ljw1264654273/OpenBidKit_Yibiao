@@ -1,0 +1,179 @@
+<style>
+  .choice-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(320px, 1fr));
+    gap: 22px;
+    margin-top: 24px;
+  }
+
+  .choice {
+    overflow: hidden;
+    cursor: pointer;
+    background: #ffffff;
+    border: 1px solid #dfe4ed;
+    border-radius: 12px;
+    box-shadow: 0 12px 28px rgba(27, 40, 72, 0.08);
+    transition: border-color 160ms ease, transform 160ms ease, box-shadow 160ms ease;
+  }
+
+  .choice:hover {
+    border-color: #7f6af2;
+    box-shadow: 0 16px 34px rgba(61, 47, 171, 0.14);
+    transform: translateY(-2px);
+  }
+
+  .preview {
+    display: flex;
+    height: 310px;
+    background: #f6f7fb;
+  }
+
+  .mini-sidebar {
+    display: flex;
+    width: 72px;
+    flex: 0 0 72px;
+    flex-direction: column;
+    align-items: center;
+    gap: 13px;
+    padding: 18px 10px;
+    background: #ffffff;
+    border-right: 1px solid #e6e9f0;
+  }
+
+  .mini-sidebar.expanded {
+    width: 176px;
+    flex-basis: 176px;
+    align-items: stretch;
+  }
+
+  .mini-logo {
+    width: 30px;
+    height: 30px;
+    margin-bottom: 14px;
+    border-radius: 8px;
+    background: #eeeafe;
+  }
+
+  .mini-sidebar.expanded .mini-logo {
+    width: 128px;
+  }
+
+  .mini-item {
+    display: flex;
+    min-height: 34px;
+    align-items: center;
+    justify-content: center;
+    color: #596176;
+    border-radius: 8px;
+  }
+
+  .mini-sidebar.expanded .mini-item {
+    justify-content: flex-start;
+    gap: 10px;
+    padding: 0 10px;
+  }
+
+  .mini-item.active {
+    color: #5c43e8;
+    background: #f0edff;
+  }
+
+  .mini-icon {
+    width: 15px;
+    height: 15px;
+    border: 2px solid currentColor;
+    border-radius: 4px;
+  }
+
+  .mini-label {
+    width: 76px;
+    height: 10px;
+    border-radius: 5px;
+    background: currentColor;
+    opacity: 0.72;
+  }
+
+  .mini-content {
+    flex: 1;
+    padding: 30px;
+  }
+
+  .mini-line {
+    width: 75%;
+    height: 16px;
+    margin-bottom: 16px;
+    border-radius: 5px;
+    background: #dfe4ed;
+  }
+
+  .mini-line.short {
+    width: 42%;
+    height: 11px;
+  }
+
+  .choice-copy {
+    padding: 18px 20px 20px;
+  }
+
+  .choice-copy h3 {
+    margin: 0 0 7px;
+    font-size: 18px;
+  }
+
+  .choice-copy p {
+    margin: 0;
+    color: #667085;
+    line-height: 1.55;
+  }
+
+  @media (max-width: 780px) {
+    .choice-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+<h2>收缩菜单如何展开？</h2>
+<p class="subtitle">默认进入软件时保持窄栏状态，请选择你更习惯的展开方式。</p>
+
+<div class="choice-grid">
+  <div class="choice" data-choice="click-fixed" onclick="toggleSelect(this)">
+    <div class="preview">
+      <div class="mini-sidebar expanded">
+        <div class="mini-logo"></div>
+        <div class="mini-item active"><span class="mini-icon"></span><span class="mini-label"></span></div>
+        <div class="mini-item"><span class="mini-icon"></span><span class="mini-label"></span></div>
+        <div class="mini-item"><span class="mini-icon"></span><span class="mini-label"></span></div>
+        <div class="mini-item"><span class="mini-icon"></span><span class="mini-label"></span></div>
+      </div>
+      <div class="mini-content">
+        <div class="mini-line"></div>
+        <div class="mini-line short"></div>
+      </div>
+    </div>
+    <div class="choice-copy">
+      <h3>A：点击展开并固定</h3>
+      <p>点击侧栏按钮后展开，菜单保持展开；再次点击收回。适合需要连续查看菜单文字的场景。</p>
+    </div>
+  </div>
+
+  <div class="choice" data-choice="hover-temporary" onclick="toggleSelect(this)">
+    <div class="preview">
+      <div class="mini-sidebar">
+        <div class="mini-logo"></div>
+        <div class="mini-item active"><span class="mini-icon"></span></div>
+        <div class="mini-item"><span class="mini-icon"></span></div>
+        <div class="mini-item"><span class="mini-icon"></span></div>
+        <div class="mini-item"><span class="mini-icon"></span></div>
+      </div>
+      <div class="mini-content">
+        <div class="mini-line"></div>
+        <div class="mini-line short"></div>
+      </div>
+    </div>
+    <div class="choice-copy">
+      <h3>B：移入临时展开</h3>
+      <p>鼠标移入侧栏时临时显示文字，移出后自动收回。常态最省空间，但需要依赖鼠标悬停。</p>
+    </div>
+  </div>
+</div>
