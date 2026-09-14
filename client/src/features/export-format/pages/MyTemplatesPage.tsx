@@ -27,18 +27,25 @@ function MyTemplatesPage({ onCreateTemplate, onEditTemplate }: MyTemplatesPagePr
   const [loading, setLoading] = useState(true);
   const [deleteTarget, setDeleteTarget] = useState<ExportTemplateRecord | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [exportingId, setExportingId] = useState('');
 
   const selectedTemplate = templates.find((template) => template.template_id === selectedId) || templates[0] || null;
   const previewConfig = selectedTemplate?.config || DEFAULT_EXPORT_FORMAT;
   const previewStyle = useMemo<CSSProperties>(() => buildExportFormatCssVars(previewConfig), [previewConfig]);
 
-  const loadTemplates = useCallback(async () => {
+  const loadTemplates = useCallback(async (preferredId = '') => {
     setLoading(true);
     try {
       const items = await window.yibiao?.templates.list();
       const nextTemplates = items || [];
       setTemplates(nextTemplates);
-      setSelectedId((prev) => nextTemplates.some((template) => template.template_id === prev) ? prev : nextTemplates[0]?.template_id || '');
+      setSelectedId((prev) => {
+        if (preferredId && nextTemplates.some((template) => template.template_id === preferredId)) {
+          return preferredId;
+        }
+        return nextTemplates.some((template) => template.template_id === prev) ? prev : nextTemplates[0]?.template_id || '';
+      });
     } catch (error) {
       showToast(error instanceof Error ? error.message : '读取模板列表失败', 'error');
       setTemplates([]);
@@ -71,16 +78,54 @@ function MyTemplatesPage({ onCreateTemplate, onEditTemplate }: MyTemplatesPagePr
     }
   };
 
+  const handleImport = useCallback(async () => {
+    setImporting(true);
+    try {
+      const result = await window.yibiao?.templates.import();
+      if (result?.canceled) return;
+      if (!result?.success || !result.template) {
+        throw new Error(result?.message || '模板导入失败');
+      }
+      await loadTemplates(result.template.template_id);
+      showToast(result.message || '模板已导入', 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '模板导入失败', 'error');
+    } finally {
+      setImporting(false);
+    }
+  }, [loadTemplates, showToast]);
+
+  const handleExport = useCallback(async (template: ExportTemplateRecord) => {
+    setExportingId(template.template_id);
+    try {
+      const result = await window.yibiao?.templates.export(template.config);
+      if (result?.canceled) return;
+      if (!result?.success) {
+        throw new Error(result?.message || '模板导出失败');
+      }
+      showToast(result.message || '模板已导出', 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '模板导出失败', 'error');
+    } finally {
+      setExportingId('');
+    }
+  }, [showToast]);
+
   return (
     <div className="template-library-page">
       <section className="template-library-panel" aria-label="我的模板">
         <div className="template-library-head">
-          <div>
+          <div className="template-library-head-copy">
             <span className="section-kicker">模版设置</span>
             <h2>我的模板</h2>
             <p>查看、编辑和删除已保存的标书导出模板。</p>
           </div>
-          <button type="button" className="primary-action" onClick={onCreateTemplate}>新建模板</button>
+          <div className="template-library-head-actions">
+            <button type="button" className="secondary-action template-library-action" onClick={() => void handleImport()} disabled={importing}>
+              {importing ? '导入中...' : '导入模板'}
+            </button>
+            <button type="button" className="primary-action template-library-action" onClick={onCreateTemplate} disabled={importing}>新建模板</button>
+          </div>
         </div>
 
         <div className="template-library-list">
@@ -101,8 +146,16 @@ function MyTemplatesPage({ onCreateTemplate, onEditTemplate }: MyTemplatesPagePr
                   <small>更新于 {formatTemplateDate(template.updated_at)}</small>
                 </button>
                 <div className="template-library-card-actions">
-                  <button type="button" onClick={() => onEditTemplate(template.template_id)}>编辑</button>
-                  <button type="button" className="is-danger" onClick={() => setDeleteTarget(template)}>删除</button>
+                  <button type="button" onClick={() => onEditTemplate(template.template_id)} disabled={Boolean(exportingId)}>编辑</button>
+                  <button type="button" className="is-danger" onClick={() => setDeleteTarget(template)} disabled={Boolean(exportingId)}>删除</button>
+                  <button
+                    type="button"
+                    className="is-export"
+                    onClick={() => void handleExport(template)}
+                    disabled={Boolean(exportingId)}
+                  >
+                    {exportingId === template.template_id ? '导出中...' : '导出'}
+                  </button>
                 </div>
               </article>
             );
@@ -118,7 +171,7 @@ function MyTemplatesPage({ onCreateTemplate, onEditTemplate }: MyTemplatesPagePr
                 <span className="section-kicker">实时预览</span>
                 <h3>{selectedTemplate.template_name}</h3>
               </div>
-              <button type="button" className="secondary-action" onClick={() => onEditTemplate(selectedTemplate.template_id)}>编辑模板</button>
+              <button type="button" className="secondary-action template-library-action" onClick={() => onEditTemplate(selectedTemplate.template_id)}>编辑模板</button>
             </div>
             <TemplatePreview config={previewConfig} previewStyle={previewStyle} />
           </>

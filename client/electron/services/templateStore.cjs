@@ -1,5 +1,7 @@
 const crypto = require('node:crypto');
 
+const BUILT_IN_DEFAULT_TEMPLATE_ID = 'tpl-built-in-default';
+
 function now() {
   return new Date().toISOString();
 }
@@ -10,6 +12,16 @@ function createTemplateId() {
 
 function resolveTemplateName(config) {
   return String(config?.template_name || '').trim() || '未命名模板';
+}
+
+function stableStringify(value) {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableStringify).join(',')}]`;
+  }
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
 }
 
 function templateFromRow(row) {
@@ -24,26 +36,7 @@ function templateFromRow(row) {
 }
 
 function createTemplateStore({ db }) {
-  function listTemplates() {
-    return db.prepare(`
-      SELECT template_id, template_name, config_json, created_at, updated_at
-      FROM export_templates
-      ORDER BY updated_at DESC, created_at DESC
-    `).all().map(templateFromRow);
-  }
-
-  function getTemplate(templateId) {
-    const row = db.prepare(`
-      SELECT template_id, template_name, config_json, created_at, updated_at
-      FROM export_templates
-      WHERE template_id = ?
-    `).get(templateId);
-    return templateFromRow(row);
-  }
-
-  function createTemplate(config) {
-    const timestamp = now();
-    const templateId = createTemplateId();
+  function insertTemplate(templateId, config, timestamp = now()) {
     const templateName = resolveTemplateName(config);
     const nextConfig = { ...config, template_name: templateName };
 
@@ -65,6 +58,56 @@ function createTemplateStore({ db }) {
       created_at: timestamp,
       updated_at: timestamp,
     };
+  }
+
+  function listTemplates() {
+    return db.prepare(`
+      SELECT template_id, template_name, config_json, created_at, updated_at
+      FROM export_templates
+      ORDER BY updated_at DESC, created_at DESC
+    `).all().map(templateFromRow);
+  }
+
+  function getTemplate(templateId) {
+    const row = db.prepare(`
+      SELECT template_id, template_name, config_json, created_at, updated_at
+      FROM export_templates
+      WHERE template_id = ?
+    `).get(templateId);
+    return templateFromRow(row);
+  }
+
+  function createTemplate(config) {
+    return insertTemplate(createTemplateId(), config);
+  }
+
+  function ensureBuiltInTemplate(config) {
+    const seed = db.prepare(`
+      SELECT seed_id
+      FROM export_template_seeds
+      WHERE seed_id = ?
+    `).get(BUILT_IN_DEFAULT_TEMPLATE_ID);
+    if (seed) {
+      return getTemplate(BUILT_IN_DEFAULT_TEMPLATE_ID);
+    }
+
+    const normalizedConfig = { ...config, template_name: resolveTemplateName(config) };
+    const configSignature = stableStringify(normalizedConfig);
+    const existing = listTemplates().find((template) => stableStringify(template.config) === configSignature);
+    if (existing) {
+      db.prepare(`
+        INSERT OR IGNORE INTO export_template_seeds (seed_id, seeded_at)
+        VALUES (?, ?)
+      `).run(BUILT_IN_DEFAULT_TEMPLATE_ID, now());
+      return existing;
+    }
+
+    const template = insertTemplate(BUILT_IN_DEFAULT_TEMPLATE_ID, config);
+    db.prepare(`
+      INSERT OR IGNORE INTO export_template_seeds (seed_id, seeded_at)
+      VALUES (?, ?)
+    `).run(BUILT_IN_DEFAULT_TEMPLATE_ID, now());
+    return template;
   }
 
   function updateTemplate(templateId, config) {
@@ -104,11 +147,13 @@ function createTemplateStore({ db }) {
     listTemplates,
     getTemplate,
     createTemplate,
+    ensureBuiltInTemplate,
     updateTemplate,
     deleteTemplate,
   };
 }
 
 module.exports = {
+  BUILT_IN_DEFAULT_TEMPLATE_ID,
   createTemplateStore,
 };

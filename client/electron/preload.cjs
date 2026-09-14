@@ -238,6 +238,8 @@ const bridge = {
     create: (config) => ipcRenderer.invoke('templates:create', config),
     update: (templateId, config) => ipcRenderer.invoke('templates:update', templateId, config),
     delete: (templateId) => ipcRenderer.invoke('templates:delete', templateId),
+    import: () => ipcRenderer.invoke('templates:import'),
+    export: (config) => ipcRenderer.invoke('templates:export', config),
   },
   tasks: {
     startBidSectionExtraction: (payload) => ipcRenderer.invoke('tasks:start-bid-section-extraction', payload),

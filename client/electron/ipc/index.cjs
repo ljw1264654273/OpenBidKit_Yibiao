@@ -44,6 +44,8 @@ const { createTaskLogStore } = require('../services/taskLogStore.cjs');
 const { createTechnicalPlanStore } = require('../services/technicalPlanStore.cjs');
 const { createFeasibilityReportStore } = require('../services/feasibilityReportStore.cjs');
 const { createTemplateStore } = require('../services/templateStore.cjs');
+const { createTemplateFileService } = require('../services/templateFileService.cjs');
+const defaultExportTemplate = require('../resources/default-export-template.json');
 const { checkRequiredOnlineServices, getRequiredOnlineServiceStatus } = require('../services/requiredOnlineServices.cjs');
 const { initLocalImageRenderService } = require('../services/localImageRenderService.cjs');
 const { createOpenXmlHelperService } = require('../services/openXmlHelperService.cjs');
@@ -200,6 +202,8 @@ const workspaceDatabaseChannels = [
   'templates:create',
   'templates:update',
   'templates:delete',
+  'templates:import',
+  'templates:export',
 ];
 
 function clearWorkspaceDatabaseIpc() {
@@ -274,6 +278,8 @@ function registerWorkspaceDatabaseServices({ app, configStore, aiService, agentS
   const duplicateCheckStore = createDuplicateCheckStore({ app, db: sqliteDatabase.db, taskLogStore });
   const rejectionCheckStore = createRejectionCheckStore({ app, db: sqliteDatabase.db, fileService, technicalPlanStore, taskLogStore });
   const templateStore = createTemplateStore({ db: sqliteDatabase.db });
+  templateStore.ensureBuiltInTemplate(defaultExportTemplate.config);
+  const templateFileService = createTemplateFileService({ app, dialog, templateStore });
   const duplicateCheckService = createDuplicateCheckService({ app, configStore, workspaceStore: duplicateCheckStore });
   const checkResultExportService = createCheckResultExportService({
     app,
@@ -296,7 +302,7 @@ function registerWorkspaceDatabaseServices({ app, configStore, aiService, agentS
   registerFeasibilityReportIpc({ feasibilityReportStore, taskService });
   registerDuplicateCheckIpc({ duplicateCheckStore, checkResultExportService });
   registerRejectionCheckIpc({ rejectionCheckStore, taskService, checkResultExportService });
-  registerTemplateIpc({ templateStore });
+  registerTemplateIpc({ templateStore, templateFileService });
   registerTaskIpc({ taskService });
   updateStatus({ phase: 'ready', ready: true, message: '本地数据库已就绪' });
   

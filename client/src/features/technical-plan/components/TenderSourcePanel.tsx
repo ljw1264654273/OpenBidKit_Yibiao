@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { OutlineExpansionMode, OutlineItem } from '../../../shared/types';
-import { MarkdownRenderer, ToolbarArrowLeftIcon, ToolbarArrowRightIcon } from '../../../shared/ui';
+import { MarkdownFullscreenViewer, MarkdownRenderer, ToolbarArrowLeftIcon, ToolbarArrowRightIcon } from '../../../shared/ui';
 import type { ScoreCoverageRecord } from '../types';
 import { buildOutlineSourceViewItems, injectOutlineSourceAnchorMarkers } from '../services/outlineSourceMatcher';
 
@@ -64,6 +64,7 @@ function TenderSourcePanel({
   const selectedItemId = selectedItem?.id;
   const sourceBodyRef = useRef<HTMLDivElement | null>(null);
   const [activeSourceIndex, setActiveSourceIndex] = useState(0);
+  const [fullscreenOpen, setFullscreenOpen] = useState(false);
   const markdownHash = useMarkdownHash(markdown);
   const viewModel = useMemo(
     () => selectedItemId
@@ -147,6 +148,17 @@ function TenderSourcePanel({
               </button>
             </div>
           )}
+          {markdown && !loading && !error && (
+            <button
+              type="button"
+              className="outline-source-panel-fullscreen-action"
+              aria-label="全屏查看标书原文"
+              title="全屏查看标书原文"
+              onClick={() => setFullscreenOpen(true)}
+            >
+              全屏
+            </button>
+          )}
           {headerAction}
         </div>
       </header>
@@ -171,12 +183,23 @@ function TenderSourcePanel({
             <strong>暂无招标文件原文</strong>
           </div>
         ) : (
-          <div ref={sourceBodyRef} className="outline-source-panel-document markdown-viewer">
+          <MarkdownFullscreenViewer
+            contentRef={sourceBodyRef}
+            className="outline-source-panel-document markdown-viewer"
+            fullscreenClassName="markdown-viewer"
+            title="标书原文全屏查看"
+            description="全屏查看当前标书原文。"
+            showFullscreen={false}
+            open={fullscreenOpen}
+            onOpenChange={setFullscreenOpen}
+            autoScrollToHighlight={Boolean(activeSourceItem)}
+            scrollTargetSelector=".markdown-source-anchor-highlight"
+          >
             {associationNotice && <p className="outline-source-panel-association-notice">{associationNotice}</p>}
             <MarkdownRenderer allowRawHtml highlightSourceAnchor={activeSourceItem ? 'primary' : undefined} preserveTableCellSpans>
               {normalizeTableFragments(anchoredMarkdown)}
             </MarkdownRenderer>
-          </div>
+          </MarkdownFullscreenViewer>
         )}
       </div>
     </section>

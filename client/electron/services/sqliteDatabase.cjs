@@ -3,7 +3,7 @@ const path = require('node:path');
 const Database = require('better-sqlite3');
 const { getWorkspaceDatabasePath } = require('../utils/paths.cjs');
 
-const schemaVersion = 25;
+const schemaVersion = 26;
 
 function createInitialSchema(db) {
   db.exec(`
@@ -1036,6 +1036,15 @@ function createExportTemplatesSchema(db) {
   `);
 }
 
+function createExportTemplateSeedSchema(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS export_template_seeds (
+      seed_id TEXT PRIMARY KEY,
+      seeded_at TEXT NOT NULL
+    );
+  `);
+}
+
 function createFeasibilityReportSchema(db) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS feasibility_report_meta (
@@ -1176,6 +1185,11 @@ const schemaHealthTableGroups = [
     version: 24,
     tables: ['technical_plan_remote_knowledge_scopes', 'technical_plan_remote_knowledge_documents'],
     repair: createTechnicalPlanRemoteKnowledgeSchema,
+  },
+  {
+    version: 26,
+    tables: ['export_template_seeds'],
+    repair: createExportTemplateSeedSchema,
   },
 ];
 
@@ -1527,6 +1541,11 @@ const migrations = [
     version: 25,
     description: '技术方案 Mermaid 配图新增人工审核状态',
     up: addTechnicalPlanMermaidReviewState,
+  },
+  {
+    version: 26,
+    description: '导出模板新增内置模板初始化状态',
+    up: createExportTemplateSeedSchema,
   },
 ];
 

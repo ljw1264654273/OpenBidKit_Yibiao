@@ -14,7 +14,7 @@ PRAGMA busy_timeout = 5000;
 
 -- 目标完整结构版本。
 -- 运行时代码应通过 PRAGMA user_version 判断是否需要自动升级。
-PRAGMA user_version = 23;
+PRAGMA user_version = 26;
 
 -- ============================================================================
 -- 技术方案 technical_plan_*（v1 已落地）
@@ -872,6 +872,12 @@ CREATE TABLE IF NOT EXISTS export_templates (
 
 CREATE INDEX IF NOT EXISTS idx_export_templates_updated
 ON export_templates(updated_at DESC);
+
+-- 内置默认模板是否已经在当前工作区初始化过。保留该记录可以让用户删除内置模板后不再自动恢复。
+CREATE TABLE IF NOT EXISTS export_template_seeds (
+  seed_id TEXT PRIMARY KEY,
+  seeded_at TEXT NOT NULL
+);
 
 -- ============================================================================
 -- 可行性研究报告 feasibility_report_*（v23 已落地）

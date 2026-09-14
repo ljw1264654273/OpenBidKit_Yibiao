@@ -9,7 +9,7 @@ import { TemplatePreview } from '../../export-format/pages/ExportFormatPage';
 import { useTechnicalPlanWorkflow } from '../hooks/useTechnicalPlanWorkflow';
 import { bidAnalysisTasks, getBidAnalysisTasks, isMissingBidAnalysisResult } from '../services/bidAnalysisWorkflow';
 import { trackPageView } from '../../../shared/analytics/analytics';
-import { AppDialog, FloatingToolbar, ProgressBar, ToolbarArrowLeftIcon, ToolbarArrowRightIcon, ToolbarDocumentIcon, ToolbarSparkleIcon, useToast } from '../../../shared/ui';
+import { AppDialog, FloatingToolbar, ProgressBar, ToolbarArrowLeftIcon, ToolbarArrowRightIcon, ToolbarDocumentIcon, useToast } from '../../../shared/ui';
 import type { BackgroundTaskState, BidAnalysisTasks, ContentGenerationOptions, GlobalFactGroupState, GlobalFactsMode, RemoteKnowledgeScope, SaveOutlineRequest, SaveOutlineSelectionRequest, TechnicalPlanState, TechnicalPlanStep, TechnicalPlanWorkflowKind } from '../types';
 import { DEFAULT_OUTLINE_WORD_CONTROL_OPTIONS } from '../../../shared/types';
 import type { OutlineData, OutlineItem, OutlineWordControlOptions, WordExportProgressEvent } from '../../../shared/types';
@@ -1334,20 +1334,6 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
         },
       ],
     },
-    ...(state.step === 'outline-generation' || state.step === 'global-facts' ? [{
-      id: 'technical-plan-ai',
-      actions: [
-        {
-          id: 'ai-adjust',
-          label: isAiAdjusting ? 'AI调整中' : 'AI调整',
-          icon: <ToolbarSparkleIcon />,
-          variant: 'ai' as const,
-          disabled: aiAdjustDisabled,
-          tooltip: aiAdjustTooltip,
-          onClick: () => { void handleAiAdjustClick(); },
-        },
-      ],
-    }] : []),
     {
       id: 'technical-plan-navigation',
       actions: navigationActions,

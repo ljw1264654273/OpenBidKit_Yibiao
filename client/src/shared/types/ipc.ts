@@ -53,6 +53,14 @@ export interface WordExportResult {
   warnings?: string[];
 }
 
+export interface TemplateFileResult {
+  success: boolean;
+  canceled?: boolean;
+  path?: string;
+  message?: string;
+  template?: ExportTemplateRecord;
+}
+
 export interface CheckResultExportResult {
   success: boolean;
   canceled?: boolean;
@@ -741,6 +749,8 @@ export interface YibiaoBridge {
     create: (config: ExportFormatConfig) => Promise<ExportTemplateRecord>;
     update: (templateId: string, config: ExportFormatConfig) => Promise<ExportTemplateRecord>;
     delete: (templateId: string) => Promise<{ success: boolean; message: string }>;
+    import: () => Promise<TemplateFileResult>;
+    export: (config: ExportFormatConfig) => Promise<Omit<TemplateFileResult, 'template'>>;
   };
   tasks: {
     startBidSectionExtraction: (payload?: unknown) => Promise<unknown>;

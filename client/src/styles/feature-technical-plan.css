@@ -4779,6 +4779,31 @@
   font-variant-numeric: tabular-nums;
 }
 
+.outline-source-panel-fullscreen-action {
+  height: 32px;
+  padding: 0 14px;
+  color: var(--yb-primary);
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1;
+  background: #ffffff;
+  border: 1px solid rgba(33, 116, 253, 0.22);
+  border-radius: var(--yb-radius-pill);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+  cursor: pointer;
+  transition: background var(--yb-duration-fast) ease, border-color var(--yb-duration-fast) ease, color var(--yb-duration-fast) ease, transform var(--yb-duration-fast) ease;
+}
+
+.outline-source-panel-fullscreen-action:hover {
+  color: var(--yb-primary-deep);
+  background: #fbfdff;
+  border-color: rgba(33, 116, 253, 0.38);
+}
+
+.outline-source-panel-fullscreen-action:active {
+  transform: translateY(1px);
+}
+
 .outline-source-panel-icon-button {
   display: grid;
   place-items: center;
