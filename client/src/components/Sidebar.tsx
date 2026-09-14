@@ -1,5 +1,5 @@
 import * as Tooltip from '@radix-ui/react-tooltip';
-import { useState, type ComponentType, type ReactElement, type SVGProps } from 'react';
+import { useEffect, useState, type ComponentType, type ReactElement, type SVGProps } from 'react';
 import { getAppMenuItems, getParentMenuItemBySection } from '../app/menuConfig';
 import type { AppMenuItem, SectionId } from '../shared/types/navigation';
 import { useToast } from '../shared/ui';
@@ -43,12 +43,33 @@ const navigationIcons: Record<SectionId, ComponentType<SVGProps<SVGSVGElement>>>
 };
 
 const USER_GUIDE_URL = 'https://wiki.agnet.top/';
+const SIDEBAR_COLLAPSED_STORAGE_KEY = 'yibiao.sidebar.collapsed';
+
+function readSidebarCollapsedPreference() {
+  try {
+    const storedValue = window.localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY);
+    if (storedValue === 'true') return true;
+    if (storedValue === 'false') return false;
+  } catch {
+    // Storage may be unavailable; keep the compact default.
+  }
+
+  return true;
+}
 
 function Sidebar({ activeSection, developerMode, onSectionChange }: SidebarProps) {
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(readSidebarCollapsedPreference);
   const { showToast } = useToast();
   const menuItems = getAppMenuItems(developerMode);
   const activeParent = getParentMenuItemBySection(activeSection, developerMode);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, collapsed ? 'true' : 'false');
+    } catch {
+      // Storage failures should not prevent visual toggling.
+    }
+  }, [collapsed]);
 
   const handleMenuItemClick = (item: AppMenuItem) => {
     if (!item.notice) {
@@ -100,7 +121,6 @@ function Sidebar({ activeSection, developerMode, onSectionChange }: SidebarProps
               </span>
               <span className="nav-copy">
                 <strong>{item.label}</strong>
-                <small>{item.description}</small>
               </span>
             </button>
           );
@@ -146,7 +166,6 @@ function renderSettingsButton(activeSection: SectionId, onSectionChange: (sectio
       </span>
       <span className="settings-copy">
         <strong>设置</strong>
-        <small>模型与解析配置</small>
       </span>
     </button>
   );
