@@ -49,9 +49,9 @@ Add `--yb-sidebar-expanded-width: 220px` and `--yb-sidebar-collapsed-width: 72px
 
 - [ ] **Step 2: Update the shell and macOS drag boundary**
 
-Replace the sidebar's hard-coded `286px` width/min-width with `var(--yb-sidebar-expanded-width)`. Replace the collapsed `88px` width/min-width with `var(--yb-sidebar-collapsed-width)`. Change `.app-shell.is-mac::before` so its `left` uses the expanded width variable by default and the collapsed sidebar selector uses the collapsed width variable. Preserve the current `28px` drag-region height and existing `no-drag` rules for controls.
+Replace the sidebar's hard-coded `286px` width/min-width with `var(--yb-sidebar-expanded-width)`. Replace the collapsed `88px` width/min-width with `var(--yb-sidebar-collapsed-width)`. Set `.app-shell.is-mac::before { left: var(--yb-sidebar-expanded-width); }` and add an explicit `.app-shell.is-mac:has(.sidebar.is-collapsed)::before { left: var(--yb-sidebar-collapsed-width); }` override. Preserve the current `28px` drag-region height and existing `no-drag` rules for controls.
 
-Because the collapse button extends `17px` beyond the sidebar edge, keep the sidebar stacking context above the macOS drag pseudo-element (for example, raise the macOS sidebar z-index above `15`) and explicitly keep `.collapse-button` as `-webkit-app-region: no-drag`. This must leave the existing button clickable in both sidebar states while preserving the drag region over the main content.
+Because the collapse button extends `17px` beyond the sidebar edge, set `.app-shell.is-mac .sidebar { z-index: 16; }` (or another value strictly above the pseudo-element's `z-index: 15`) and explicitly set `.app-shell.is-mac .collapse-button { -webkit-app-region: no-drag; }`. This must leave the existing button clickable in both sidebar states while preserving the drag region over the main content.
 
 - [ ] **Step 3: Compact the brand and navigation spacing**
 
@@ -66,7 +66,7 @@ Update the expanded layout to the approved dimensions:
 - icon container: `28px`;
 - icon: `17px`.
 
-Hide the sidebar descriptions by removing them from the component markup, and keep `.nav-copy` as a single-line label layout. Apply the same `40px` height and `6px` vertical padding to expanded footer document/settings buttons. Set the footer group gap to `3px` and its top padding to `12px`. Preserve the nav's internal vertical scrolling.
+Hide the sidebar descriptions by removing them from the component markup, and keep `.nav-copy` as a single-line label layout. Remove the existing `.nav-icon` gradient background and border in the normal state, leaving a transparent icon container with the current text color. Apply the same `40px` height and `6px` vertical padding to expanded footer document/settings buttons. Set the footer group gap to `3px` and its top padding to `12px`. Preserve the nav's internal vertical scrolling.
 
 - [ ] **Step 4: Implement the compact selected and hover states**
 
@@ -80,8 +80,9 @@ For `.sidebar.is-collapsed`:
 - make the brand block `48px` high with `min-height: 48px`, vertical padding `0`, horizontal padding `0`, set its logo to `32px`, and center it;
 - set menu and footer button horizontal padding to `0`, fill the inner content width, and center their icon content;
 - set collapsed icon container to `30px` and its SVG to `18px`;
-- set collapsed item height to `38px` with `3px` gaps;
-- set the collapsed footer group gap to `3px` and its top padding to `12px`;
+- set both `.sidebar.is-collapsed .nav-item` and `.sidebar.is-collapsed .settings-trigger` to `38px` height with `6px` vertical padding; set the collapsed navigation and footer groups to `3px` gaps;
+- keep the icon container transparent in the collapsed normal state, with the same light active background treatment as the selected item;
+- set the collapsed footer group's top padding to `12px`;
 - keep brand/menu/settings copy hidden;
 - keep the existing Tooltip wrapper and collapse button.
 
