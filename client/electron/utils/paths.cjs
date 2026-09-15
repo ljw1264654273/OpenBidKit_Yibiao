@@ -33,6 +33,18 @@ function getTechnicalPlanDir(app) {
   return path.join(getWorkspaceDir(app), 'technical-plan');
 }
 
+function getBidProjectsDir(app) {
+  return path.join(getWorkspaceDir(app), 'bid-projects');
+}
+
+function getBidProjectDir(app, projectId) {
+  return path.join(getBidProjectsDir(app), String(projectId || ''));
+}
+
+function getBidProjectTechnicalPlanDir(app, projectId) {
+  return path.join(getBidProjectDir(app, projectId), 'technical-plan');
+}
+
 function getFeasibilityReportDir(app) {
   return path.join(getWorkspaceDir(app), 'feasibility-report');
 }
@@ -212,6 +224,9 @@ module.exports = {
   getRejectionCheckDir,
   getRejectionCheckDocumentMarkdownPath,
   getTechnicalPlanDir,
+  getBidProjectsDir,
+  getBidProjectDir,
+  getBidProjectTechnicalPlanDir,
   getTechnicalPlanGeneratedIllustrationsDir,
   getTechnicalPlanIllustrationsDir,
   getTechnicalPlanLogsDir,

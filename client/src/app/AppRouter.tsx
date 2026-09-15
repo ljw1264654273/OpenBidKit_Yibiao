@@ -18,17 +18,20 @@ import PluginsPage from '../features/plugins/pages/PluginsPage';
 import SettingsPage from '../features/settings/pages/SettingsPage';
 import TechnicalPlanHome from '../features/technical-plan/pages/TechnicalPlanHome';
 import FeasibilityReportHome from '../features/feasibility-report/pages/FeasibilityReportHome';
+import BidProjectWorkspacePage from '../features/bid-project/pages/BidProjectWorkspacePage';
 import SecondaryMenuPage from '../shared/ui/SecondaryMenuPage';
 
 interface AppRouterProps {
   activeSection: SectionId;
+  activeProjectId: string | null;
   developerMode: boolean;
   onDeveloperModeChange: (developerMode: boolean) => void;
   onSectionChange: (section: SectionId) => void;
+  onProjectChange: (projectId: string | null) => void;
   registerLeaveGuard?: (guard: ((nextSection?: string) => Promise<boolean>) | null) => void;
 }
 
-function AppRouter({ activeSection, developerMode, onDeveloperModeChange, onSectionChange, registerLeaveGuard }: AppRouterProps) {
+function AppRouter({ activeSection, activeProjectId, developerMode, onDeveloperModeChange, onSectionChange, onProjectChange, registerLeaveGuard }: AppRouterProps) {
   const activeMenuItem = getAppMenuItemById(activeSection, developerMode);
   const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
 
@@ -47,10 +50,12 @@ function AppRouter({ activeSection, developerMode, onDeveloperModeChange, onSect
   }
 
   switch (activeSection) {
+    case 'bid-projects':
+      return <BidProjectWorkspacePage onSectionChange={onSectionChange} onProjectChange={onProjectChange} />;
     case 'technical-plan':
-      return <TechnicalPlanHome workflowKind="technical-plan" registerLeaveGuard={registerLeaveGuard} onSectionChange={onSectionChange} />;
+      return <TechnicalPlanHome workflowKind="technical-plan" projectId={activeProjectId || undefined} registerLeaveGuard={registerLeaveGuard} onSectionChange={onSectionChange} />;
     case 'existing-plan-expansion':
-      return <TechnicalPlanHome workflowKind="existing-plan-expansion" registerLeaveGuard={registerLeaveGuard} onSectionChange={onSectionChange} />;
+      return <TechnicalPlanHome workflowKind="existing-plan-expansion" projectId={activeProjectId || undefined} registerLeaveGuard={registerLeaveGuard} onSectionChange={onSectionChange} />;
     case 'feasibility-report':
       return <FeasibilityReportHome registerLeaveGuard={registerLeaveGuard} onSectionChange={onSectionChange} />;
     case 'business-bid':

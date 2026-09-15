@@ -13,7 +13,9 @@ const {
   getTechnicalPlanTenderOriginalsDir,
   getGeneratedImagesDir,
   getWorkspaceTrashDir,
+  getBidProjectTechnicalPlanDir,
 } = require('../utils/paths.cjs');
+const { getTechnicalPlanProjectTablePrefix } = require('./sqliteDatabase.cjs');
 const { deleteImportedImageBatches } = require('../utils/importedImages.cjs');
 const { clearMermaidCache } = require('../utils/mermaidCache.cjs');
 const { assertSupportedMermaidSyntax } = require('../utils/mermaidPolicy.cjs');
@@ -26,6 +28,7 @@ const {
 } = require('./outlineGenerationAgentV2Config.cjs');
 const { GLOBAL_FACTS_AGENT_TASK_KEY } = require('./globalFactsAgentV2Config.cjs');
 const { normalizeOutlineHeadingTitles } = require('./mandatoryBidContentRules.cjs');
+const { getProjectAgentTaskKey } = require('./agentTaskKeys.cjs');
 
 const tenderMarkdownRelativePath = path.join('technical-plan', 'tender.md').replace(/\\/g, '/');
 const tenderOriginalMarkdownRelativePath = path.join('technical-plan', 'tender-original.md').replace(/\\/g, '/');
@@ -535,13 +538,80 @@ function updateScoreCoverageForOutlineSave({ coverageMap, suppliedCoverageMap, r
   return { ...coverageMap, records };
 }
 
-function createTechnicalPlanStore({ app, db, fileService, agentService, taskLogStore, configStore }) {
+function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, taskLogStore: rawTaskLogStore, configStore, projectId }) {
+  const projectScoped = Boolean(projectId);
+  const projectTablePrefix = projectScoped ? getTechnicalPlanProjectTablePrefix(projectId) : '';
+  const tableName = (name) => `${projectTablePrefix || 'technical_plan_'}${name}`;
+  const technicalPlanDir = projectScoped
+    ? getBidProjectTechnicalPlanDir(app, projectId)
+    : require('../utils/paths.cjs').getTechnicalPlanDir(app);
+  const projectTable = (name) => tableName(name);
+  const originalTechnicalPlanTables = {
+    meta: 'technical_plan_meta',
+    tasks: 'technical_plan_tasks',
+    bidItems: 'technical_plan_bid_items',
+    referenceDocs: 'technical_plan_reference_docs',
+    remoteScopes: 'technical_plan_remote_knowledge_scopes',
+    remoteDocuments: 'technical_plan_remote_knowledge_documents',
+    outlineNodes: 'technical_plan_outline_nodes',
+    contentSections: 'technical_plan_content_sections',
+    contentPlans: 'technical_plan_content_plans',
+    globalFacts: 'technical_plan_global_fact_groups',
+    illustrationPlans: 'technical_plan_illustration_plans',
+    illustrationItems: 'technical_plan_illustration_items',
+  };
+  const projectTechnicalPlanTables = projectScoped
+    ? {
+        meta: projectTable('meta'),
+        tasks: projectTable('tasks'),
+        bidItems: projectTable('bid_items'),
+        referenceDocs: projectTable('reference_docs'),
+        remoteScopes: projectTable('remote_knowledge_scopes'),
+        remoteDocuments: projectTable('remote_knowledge_documents'),
+        outlineNodes: projectTable('outline_nodes'),
+        contentSections: projectTable('content_sections'),
+        contentPlans: projectTable('content_plans'),
+        globalFacts: projectTable('global_fact_groups'),
+        illustrationPlans: projectTable('illustration_plans'),
+        illustrationItems: projectTable('illustration_items'),
+      }
+    : originalTechnicalPlanTables;
+  const technicalPlanTable = (name) => projectTechnicalPlanTables[name];
+  const rewriteSql = (sql) => {
+    if (!projectScoped || typeof sql !== 'string') return sql;
+    let rewritten = sql;
+    for (const [key, table] of Object.entries(originalTechnicalPlanTables)) {
+      rewritten = rewritten.replace(new RegExp(`\\b${table}\\b`, 'g'), projectTechnicalPlanTables[key]);
+    }
+    return rewritten;
+  };
+  const db = projectScoped
+    ? new Proxy(rawDb, {
+        get(target, property) {
+          if (property === 'prepare') return (sql) => target.prepare(rewriteSql(sql));
+          if (property === 'exec') return (sql) => target.exec(rewriteSql(sql));
+          if (property === 'transaction') {
+            return (handler) => target.transaction((...args) => handler(...args));
+          }
+          const value = target[property];
+          return typeof value === 'function' ? value.bind(target) : value;
+        },
+      })
+    : rawDb;
+  const taskLogStore = projectScoped
+    ? {
+        list: (domain, ...args) => rawTaskLogStore.list(`${domain}:${projectId}`, ...args),
+        sync: (domain, ...args) => rawTaskLogStore.sync(`${domain}:${projectId}`, ...args),
+        normalizeLogs: rawTaskLogStore.normalizeLogs,
+      }
+    : rawTaskLogStore;
+  const scopedAgentTaskKey = (baseKey) => getProjectAgentTaskKey(baseKey, projectId);
   function deleteOutlineAgentTask() {
-    agentService.deletePersistentTask(OUTLINE_AGENT_TASK_KEY);
-    agentService.deletePersistentTask(TEMPLATE_EXTRACTION_AGENT_TASK_KEY);
+    agentService.deletePersistentTask(scopedAgentTaskKey(OUTLINE_AGENT_TASK_KEY));
+    agentService.deletePersistentTask(scopedAgentTaskKey(TEMPLATE_EXTRACTION_AGENT_TASK_KEY));
   }
   function deleteGlobalFactsAgentTask() {
-    agentService.deletePersistentTask(GLOBAL_FACTS_AGENT_TASK_KEY);
+    agentService.deletePersistentTask(scopedAgentTaskKey(GLOBAL_FACTS_AGENT_TASK_KEY));
   }
   let agentWorkspaceChangeListener = null;
   let lastAgentWorkspaceSignal = null;
@@ -565,17 +635,21 @@ function createTechnicalPlanStore({ app, db, fileService, agentService, taskLogS
       console.error('[technical-plan] Agent 工作空间变更通知失败:', error);
     }
   }
-  const tenderMarkdownPath = getTechnicalPlanTenderMarkdownPath(app);
-  const tenderOriginalMarkdownPath = path.join(path.dirname(tenderMarkdownPath), 'tender-original.md');
-  const tenderSourceFilesDir = path.join(path.dirname(tenderMarkdownPath), 'tender-files');
-  const tenderOriginalsDir = getTechnicalPlanTenderOriginalsDir(app);
-  const bidTemplatePath = getTechnicalPlanBidTemplatePath(app);
-  const bidTemplateSourcePath = getTechnicalPlanBidTemplateSourcePath(app);
-  const bidTemplateFieldsPath = getTechnicalPlanBidTemplateFieldsPath(app);
-  const originalPlanMarkdownPath = getTechnicalPlanOriginalPlanMarkdownPath(app);
+  const tenderMarkdownPath = path.join(technicalPlanDir, 'tender.md');
+  const tenderOriginalMarkdownPath = path.join(technicalPlanDir, 'tender-original.md');
+  const tenderSourceFilesDir = path.join(technicalPlanDir, 'tender-files');
+  const tenderOriginalsDir = path.join(technicalPlanDir, 'tender-originals');
+  const bidTemplatePath = path.join(technicalPlanDir, 'bid-template.docx');
+  const bidTemplateSourcePath = path.join(technicalPlanDir, 'bid-template-source.docx');
+  const bidTemplateFieldsPath = path.join(technicalPlanDir, 'bid-template-fields.json');
+  const originalPlanMarkdownPath = path.join(technicalPlanDir, 'original-plan.md');
   const originalOutlineRuntimePath = path.join(path.dirname(originalPlanMarkdownPath), originalOutlineRuntimeFileName);
-  const illustrationsDir = getTechnicalPlanIllustrationsDir(app);
-  const generatedIllustrationsDir = getTechnicalPlanGeneratedIllustrationsDir(app);
+  const illustrationsDir = projectScoped
+    ? path.join(technicalPlanDir, 'illustrations')
+    : getTechnicalPlanIllustrationsDir(app);
+  const generatedIllustrationsDir = projectScoped
+    ? path.join(technicalPlanDir, 'generated-illustrations')
+    : getTechnicalPlanGeneratedIllustrationsDir(app);
   const workspaceDir = path.dirname(path.dirname(tenderMarkdownPath));
   const tenderOriginalLogger = createDeveloperLogger({
     app,

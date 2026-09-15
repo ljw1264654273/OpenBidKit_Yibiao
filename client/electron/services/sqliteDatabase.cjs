@@ -3,7 +3,199 @@ const path = require('node:path');
 const Database = require('better-sqlite3');
 const { getWorkspaceDatabasePath } = require('../utils/paths.cjs');
 
-const schemaVersion = 26;
+const schemaVersion = 27;
+
+function safeProjectTablePart(projectId) {
+  return String(projectId || '')
+    .replace(/[^a-zA-Z0-9_]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 48) || 'project';
+}
+
+function getTechnicalPlanProjectTablePrefix(projectId) {
+  return `technical_plan_project_${safeProjectTablePart(projectId)}_`;
+}
+
+function createTechnicalPlanProjectSchema(db, projectId) {
+  const prefix = getTechnicalPlanProjectTablePrefix(projectId);
+  const table = (name) => `${prefix}${name}`;
+  const index = (name) => `${prefix}idx_${name}`;
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS ${table('meta')} (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      workflow_kind TEXT NOT NULL DEFAULT 'technical-plan',
+      step TEXT NOT NULL DEFAULT 'document-analysis',
+      tender_file_name TEXT,
+      tender_markdown_path TEXT,
+      tender_markdown_hash TEXT,
+      tender_markdown_chars INTEGER NOT NULL DEFAULT 0,
+      tender_parser_label TEXT,
+      tender_imported_at TEXT,
+      tender_files_json TEXT,
+      tender_original_markdown_path TEXT,
+      tender_original_markdown_hash TEXT,
+      tender_original_markdown_chars INTEGER NOT NULL DEFAULT 0,
+      original_plan_file_name TEXT,
+      original_plan_markdown_path TEXT,
+      original_plan_markdown_hash TEXT,
+      original_plan_markdown_chars INTEGER NOT NULL DEFAULT 0,
+      original_plan_parser_label TEXT,
+      original_plan_imported_at TEXT,
+      pending_tender_markdown_path TEXT,
+      pending_tender_file_name TEXT,
+      pending_tender_parser_label TEXT,
+      pending_tender_sections_json TEXT,
+      pending_tender_total_declared INTEGER,
+      pending_tender_created_at TEXT,
+      bid_analysis_mode TEXT NOT NULL DEFAULT 'key',
+      bid_analysis_selected_task_ids_json TEXT,
+      bid_section_mode TEXT NOT NULL DEFAULT 'single',
+      bid_sections_json TEXT,
+      bid_section_extraction_status TEXT NOT NULL DEFAULT 'idle',
+      bid_section_extraction_error TEXT,
+      outline_mode TEXT NOT NULL DEFAULT 'standalone-technical',
+      outline_expansion_mode TEXT NOT NULL DEFAULT 'ai-complement',
+      global_facts_mode TEXT NOT NULL DEFAULT 'fabricate',
+      outline_word_control_options_json TEXT,
+      outline_word_control_snapshot_json TEXT,
+      outline_project_name TEXT,
+      outline_project_overview TEXT,
+      content_generation_options_json TEXT,
+      content_generation_runtime_json TEXT,
+      selected_section_id TEXT,
+      selected_section_title TEXT,
+      selected_section_head_line TEXT,
+      current_bid_section_id TEXT,
+      bid_sections_extracted INTEGER,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS ${table('tasks')} (
+      type TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      progress INTEGER NOT NULL DEFAULT 0,
+      stats_json TEXT,
+      error TEXT,
+      pause_requested INTEGER NOT NULL DEFAULT 0,
+      started_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS ${table('bid_items')} (
+      item_id TEXT PRIMARY KEY,
+      label TEXT NOT NULL,
+      status TEXT NOT NULL,
+      content TEXT NOT NULL DEFAULT '',
+      error TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS ${index('bid_items_order')} ON ${table('bid_items')}(sort_order);
+
+    CREATE TABLE IF NOT EXISTS ${table('reference_docs')} (
+      document_id TEXT PRIMARY KEY,
+      sort_order INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS ${index('reference_docs_order')} ON ${table('reference_docs')}(sort_order);
+
+    CREATE TABLE IF NOT EXISTS ${table('remote_knowledge_scopes')} (
+      knowledge_base_id TEXT PRIMARY KEY,
+      knowledge_base_name TEXT NOT NULL,
+      scope_mode TEXT NOT NULL CHECK (scope_mode IN ('all', 'documents')),
+      endpoint_fingerprint TEXT NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS ${table('remote_knowledge_documents')} (
+      knowledge_base_id TEXT NOT NULL,
+      knowledge_id TEXT NOT NULL,
+      knowledge_title TEXT NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (knowledge_base_id, knowledge_id),
+      FOREIGN KEY (knowledge_base_id) REFERENCES ${table('remote_knowledge_scopes')}(knowledge_base_id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS ${table('outline_nodes')} (
+      node_id TEXT PRIMARY KEY,
+      parent_node_id TEXT,
+      sort_order INTEGER NOT NULL,
+      level INTEGER NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      content_mode TEXT,
+      content_mode_note TEXT,
+      source_requirement_id TEXT,
+      source_requirement_title TEXT,
+      knowledge_item_ids_json TEXT,
+      content TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (parent_node_id) REFERENCES ${table('outline_nodes')}(node_id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS ${index('outline_parent_order')} ON ${table('outline_nodes')}(parent_node_id, sort_order);
+    CREATE INDEX IF NOT EXISTS ${index('outline_level')} ON ${table('outline_nodes')}(level);
+
+    CREATE TABLE IF NOT EXISTS ${table('content_sections')} (
+      node_id TEXT PRIMARY KEY,
+      status TEXT NOT NULL DEFAULT 'idle',
+      error TEXT,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (node_id) REFERENCES ${table('outline_nodes')}(node_id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS ${index('content_sections_status')} ON ${table('content_sections')}(status);
+
+    CREATE TABLE IF NOT EXISTS ${table('content_plans')} (
+      node_id TEXT PRIMARY KEY,
+      plan_json TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (node_id) REFERENCES ${table('outline_nodes')}(node_id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS ${table('global_fact_groups')} (
+      group_id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      content TEXT NOT NULL DEFAULT '',
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS ${index('global_fact_groups_order')} ON ${table('global_fact_groups')}(sort_order);
+
+    CREATE TABLE IF NOT EXISTS ${table('illustration_plans')} (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      plan_version INTEGER NOT NULL,
+      revision TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS ${table('illustration_items')} (
+      item_id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL,
+      image_type TEXT NOT NULL,
+      title TEXT NOT NULL,
+      section_ids_json TEXT NOT NULL,
+      placement TEXT NOT NULL,
+      priority INTEGER NOT NULL DEFAULT 0,
+      generation_status TEXT,
+      generation_mode TEXT,
+      generation_code TEXT,
+      generation_draft_code TEXT,
+      generation_review_status TEXT,
+      generation_review_error TEXT,
+      generation_reviewed_at TEXT,
+      generation_source_path TEXT,
+      generation_asset_url TEXT,
+      generation_attempts INTEGER,
+      generation_error TEXT,
+      generation_updated_at TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS ${index('illustration_items_order')} ON ${table('illustration_items')}(sort_order);
+  `);
+}
 
 function createInitialSchema(db) {
   db.exec(`
@@ -410,6 +602,66 @@ function addTechnicalPlanMermaidReviewState(db) {
   addColumnIfMissing(db, 'technical_plan_illustration_items', 'generation_review_status', 'TEXT');
   addColumnIfMissing(db, 'technical_plan_illustration_items', 'generation_review_error', 'TEXT');
   addColumnIfMissing(db, 'technical_plan_illustration_items', 'generation_reviewed_at', 'TEXT');
+}
+
+function createBidProjectSchema(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS bid_projects (
+      project_id TEXT PRIMARY KEY,
+      project_name TEXT NOT NULL,
+      project_type TEXT NOT NULL DEFAULT 'technical-plan',
+      status TEXT NOT NULL DEFAULT 'incomplete',
+      source_group_id TEXT,
+      source_sequence INTEGER NOT NULL DEFAULT 1,
+      source_file_name TEXT,
+      source_file_hash TEXT,
+      source_content_hash TEXT,
+      source_file_size INTEGER NOT NULL DEFAULT 0,
+      source_file_modified_at TEXT,
+      section_label TEXT,
+      current_step TEXT NOT NULL DEFAULT 'document-analysis',
+      last_task_type TEXT,
+      last_task_status TEXT,
+      last_error TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_bid_projects_updated ON bid_projects(updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_bid_projects_status ON bid_projects(status);
+    CREATE INDEX IF NOT EXISTS idx_bid_projects_source_group ON bid_projects(source_group_id, source_sequence);
+
+    CREATE TABLE IF NOT EXISTS bid_project_source_files (
+      source_id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      file_name TEXT NOT NULL,
+      source_docx_path TEXT,
+      markdown_path TEXT,
+      file_hash TEXT,
+      content_hash TEXT,
+      file_size INTEGER NOT NULL DEFAULT 0,
+      modified_at TEXT,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (project_id) REFERENCES bid_projects(project_id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_bid_project_sources_project ON bid_project_source_files(project_id);
+    CREATE INDEX IF NOT EXISTS idx_bid_project_sources_hash ON bid_project_source_files(file_hash, content_hash);
+
+    CREATE TABLE IF NOT EXISTS bid_project_duplicate_results (
+      result_id TEXT PRIMARY KEY,
+      left_project_id TEXT NOT NULL,
+      right_project_id TEXT NOT NULL,
+      sensitivity TEXT NOT NULL DEFAULT 'medium',
+      status TEXT NOT NULL DEFAULT 'success',
+      summary_json TEXT,
+      matches_json TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (left_project_id) REFERENCES bid_projects(project_id) ON DELETE CASCADE,
+      FOREIGN KEY (right_project_id) REFERENCES bid_projects(project_id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_bid_project_duplicate_pair
+      ON bid_project_duplicate_results(left_project_id, right_project_id, updated_at DESC);
+  `);
 }
 
 function addKnowledgeDocumentSortOrder(db) {
@@ -1547,6 +1799,11 @@ const migrations = [
     description: '导出模板新增内置模板初始化状态',
     up: createExportTemplateSeedSchema,
   },
+  {
+    version: 27,
+    description: '新增标书项目目录和项目级查重结果结构',
+    up: createBidProjectSchema,
+  },
 ];
 
 function timestampForFileName() {
@@ -1669,5 +1926,7 @@ function createSqliteDatabase(app, options = {}) {
 
 module.exports = {
   createSqliteDatabase,
+  createTechnicalPlanProjectSchema,
+  getTechnicalPlanProjectTablePrefix,
   schemaVersion,
 };

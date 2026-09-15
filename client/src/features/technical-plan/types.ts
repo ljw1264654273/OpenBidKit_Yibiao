@@ -71,6 +71,7 @@ export interface OutlineSelectionState {
 }
 
 export interface SaveOutlineSelectionRequest {
+  projectId?: string;
   taskId: string;
   items: OutlineSelectionItem[];
   selectedIds: string[];

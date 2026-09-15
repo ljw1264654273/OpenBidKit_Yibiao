@@ -18,6 +18,7 @@ import AdaptiveTwoPaneWorkspace, { type WorkspacePane } from '../components/Adap
 import CompactTaskProgress from '../components/CompactTaskProgress';
 
 interface ContentEditPageProps {
+  projectId?: string;
   workflowKind: TechnicalPlanWorkflowKind;
   outlineWordControlSnapshot?: OutlineWordControlOptions;
   outlineData: OutlineData | null;
@@ -303,6 +304,7 @@ const MarkdownContent = memo(function MarkdownContent({ content, onPreviewImage 
 });
 
 function ContentEditPage({
+  projectId,
   workflowKind,
   outlineWordControlSnapshot,
   outlineData,
@@ -773,7 +775,7 @@ function ContentEditPage({
 
     setPausePending(true);
     try {
-      await window.yibiao?.tasks.pauseContentGeneration();
+      await window.yibiao?.tasks.pauseContentGeneration({ projectId });
       showToast('正在暂停正文生成，当前 AI 请求完成后会停止调度新任务', 'info');
     } catch (error) {
       setPausePending(false);
@@ -787,7 +789,7 @@ function ContentEditPage({
     }
 
     try {
-      await window.yibiao?.tasks.startContentGeneration({ resume: true });
+      await window.yibiao?.tasks.startContentGeneration({ projectId, resume: true });
       showToast('已继续正文生成任务', 'success');
     } catch (error) {
       showToast(error instanceof Error ? error.message : '继续正文生成失败', 'error');
@@ -800,7 +802,7 @@ function ContentEditPage({
     }
 
     try {
-      await window.yibiao?.tasks.startContentGeneration({ retryContentCorrection: true });
+      await window.yibiao?.tasks.startContentGeneration({ projectId, retryContentCorrection: true });
       showToast(`${contentRetryTargetLabel}重试任务已在后台启动`, 'success');
     } catch (error) {
       showToast(error instanceof Error ? error.message : `重试${contentRetryTargetLabel}失败`, 'error');
@@ -811,7 +813,7 @@ function ContentEditPage({
   const retryFailedSections = async () => {
     if (!awaitingContentDecision || !unresolvedCount || taskBlocksGeneration) return;
     try {
-      await window.yibiao?.tasks.startContentGeneration({ retryFailedSections: true });
+      await window.yibiao?.tasks.startContentGeneration({ projectId, retryFailedSections: true });
       trackConfigUsage({ content_generation_action: 'retry_failed_sections' });
       showToast('失败小节重试任务已在后台启动', 'success');
     } catch (error) {
@@ -823,7 +825,7 @@ function ContentEditPage({
   const continuePostProcessing = async () => {
     if (!awaitingContentDecision || taskBlocksGeneration) return;
     try {
-      await window.yibiao?.tasks.startContentGeneration({ continuePostProcessing: true });
+      await window.yibiao?.tasks.startContentGeneration({ projectId, continuePostProcessing: true });
       trackConfigUsage({ content_generation_action: 'continue_with_ignored_sections' });
       setContinuePostProcessingDialogOpen(false);
       showToast('后续处理任务已在后台启动', 'success');
@@ -838,7 +840,7 @@ function ContentEditPage({
     }
 
     try {
-      await window.yibiao?.tasks.startContentGeneration({ rerunIllustrations: true });
+      await window.yibiao?.tasks.startContentGeneration({ projectId, rerunIllustrations: true });
       trackConfigUsage({ content_generation_action: 'rerun_illustrations' });
       showToast('仅重新配图任务已在后台启动', 'success');
     } catch (error) {
@@ -941,11 +943,11 @@ function ContentEditPage({
     setMermaidReviewBusy(true);
     setMermaidReviewError('');
     try {
-      const preview = await window.yibiao?.technicalPlan.previewMermaidReviewItem({ itemId: item.item_id, code });
+      const preview = await window.yibiao?.technicalPlan.previewMermaidReviewItem({ projectId, itemId: item.item_id, code });
       if (!preview?.success) {
         throw new Error('Mermaid 代码预览失败');
       }
-      const patch = await window.yibiao?.technicalPlan.saveMermaidReviewCode({ itemId: item.item_id, code: preview.code });
+      const patch = await window.yibiao?.technicalPlan.saveMermaidReviewCode({ projectId, itemId: item.item_id, code: preview.code });
       applyPlanPatch(patch);
       setMermaidReviewDraftCode(preview.code);
       showToast('Mermaid 预览已更新', 'success');
@@ -979,6 +981,7 @@ function ContentEditPage({
     setMermaidReviewError('');
     try {
       const result = await window.yibiao?.technicalPlan.adjustMermaidReviewCode({
+        projectId,
         itemId: item.item_id,
         code,
         instruction,
@@ -1034,7 +1037,7 @@ function ContentEditPage({
     setMermaidReviewBusy(true);
     setMermaidReviewError('');
     try {
-      const patch = await window.yibiao?.technicalPlan.confirmMermaidReviewItem({ itemId: item.item_id, code });
+      const patch = await window.yibiao?.technicalPlan.confirmMermaidReviewItem({ projectId, itemId: item.item_id, code });
       applyPlanPatch(patch);
       selectNextPendingMermaidReviewItem(item.item_id);
       showToast('此 Mermaid 图已确认，稍后可统一 AI 重绘', 'success');
@@ -1054,7 +1057,7 @@ function ContentEditPage({
     setMermaidReviewBusy(true);
     setMermaidReviewError('');
     try {
-      const patch = await window.yibiao?.technicalPlan.skipMermaidReviewItem({ itemId: item.item_id });
+      const patch = await window.yibiao?.technicalPlan.skipMermaidReviewItem({ projectId, itemId: item.item_id });
       applyPlanPatch(patch);
       selectNextPendingMermaidReviewItem(item.item_id);
       showToast('已跳过此 Mermaid 图', 'success');
@@ -1083,7 +1086,7 @@ function ContentEditPage({
     }
 
     try {
-      await window.yibiao?.tasks.startContentGeneration({ redrawConfirmedMermaidIllustrations: true });
+      await window.yibiao?.tasks.startContentGeneration({ projectId, redrawConfirmedMermaidIllustrations: true });
       showToast(`已启动 ${redrawableMermaidReviewCount} 张 Mermaid 图的 AI 重绘任务`, 'success');
     } catch (error) {
       showToast(error instanceof Error ? error.message : '启动 Mermaid AI 重绘失败', 'error');
@@ -1137,6 +1140,7 @@ function ContentEditPage({
     }
 
     await window.yibiao?.tasks.startContentGeneration({
+      projectId,
       regenerate,
       simulatePartialFailures,
       generationOptions: {
@@ -1207,6 +1211,7 @@ function ContentEditPage({
       const savedGenerationOptions = normalizeGenerationOptions(contentGenerationOptions, nextImageModelAvailable, leaves.length, isExpansionWorkflow);
       setImageModelStatus(nextImageModelStatus);
       await window.yibiao?.tasks.startContentGeneration({
+        projectId,
         regenerate: true,
         targetItemId: requirementItem.id,
         requirement: regenerateRequirement,

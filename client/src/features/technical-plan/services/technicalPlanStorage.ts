@@ -14,8 +14,8 @@ function isTechnicalPlanState(state: TechnicalPlanState | null): state is Techni
 }
 
 export const technicalPlanStorage = {
-  async load(): Promise<TechnicalPlanState | null> {
-    const state = await window.yibiao?.technicalPlan.loadState();
+  async load(projectId?: string): Promise<TechnicalPlanState | null> {
+    const state = await window.yibiao?.technicalPlan.loadState(projectId ? { projectId } : undefined);
 
     if (!isTechnicalPlanState(state || null)) {
       return null;

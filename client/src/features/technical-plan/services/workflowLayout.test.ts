@@ -195,6 +195,17 @@ test('Word 导出核对提示不把表格等普通警告误写成图片提示', 
   assert.doesNotMatch(exportServiceSource, /处图片未能插入/);
 });
 
+test('正文生成把导出 Word 放在上一步后面且不再渲染悬浮工具条', () => {
+  const homeSource = readFileSync(new URL('../pages/TechnicalPlanHome.tsx', import.meta.url), 'utf8');
+  const navigationStart = homeSource.indexOf("const navigationActions = state.step === 'content-edit'");
+  const navigationEnd = homeSource.indexOf('return (', navigationStart);
+  const navigationSource = homeSource.slice(navigationStart, navigationEnd);
+
+  assert.match(navigationSource, /\?\s*\[previousStepAction,\s*exportWordAction\]/);
+  assert.doesNotMatch(homeSource, /<FloatingToolbar/);
+  assert.doesNotMatch(homeSource, /toolbarGroups/);
+});
+
 test('正文生成目录支持拖拽调宽并让长标题最多显示两行', () => {
   const pageSource = readFileSync(new URL('../pages/ContentEditPage.tsx', import.meta.url), 'utf8');
   const workspaceSource = componentSource('AdaptiveTwoPaneWorkspace');
@@ -216,6 +227,19 @@ test('选择标书使用局部紧凑上传样式并保留正文阅读器', () =>
   assert.match(source, /<UploadBoard[^>]*className="technical-document-upload-board"/s);
   assert.match(source, /technical-document-reader-card analysis-markdown-card/);
   assert.match(source, /<MarkdownFullscreenViewer/);
+});
+
+test('选择标书正文阅读器把长内容限制在内部滚动区域', () => {
+  const css = readFileSync(new URL('../../../styles/feature-technical-plan.css', import.meta.url), 'utf8');
+
+  assert.match(
+    css,
+    /\.technical-document-reader-content\s*\{[^}]*display:\s*grid;[^}]*grid-template-rows:\s*minmax\(0,\s*1fr\);[^}]*min-height:\s*0;[^}]*overflow:\s*hidden;/s,
+  );
+  assert.match(
+    css,
+    /\.technical-document-reader-content\s*>\s*\.markdown-fullscreen-frame\s*\{[^}]*height:\s*100%;[^}]*min-height:\s*0;/s,
+  );
 });
 
 test('STEP 01 以解析为主并把快速配置折叠成可展开摘要', () => {
@@ -259,6 +283,20 @@ test('STEP 01 下一步受快速配置完成状态控制', () => {
   assert.match(home, /isQuickConfigComplete/);
   assert.match(home, /state\.step === 'document-analysis' && !quickConfigComplete/);
   assert.match(home, /quickConfigMissingItems/);
+});
+
+test('项目状态栏承载流程导航且不再渲染底部悬浮工具条', () => {
+  const home = readFileSync(new URL('../pages/TechnicalPlanHome.tsx', import.meta.url), 'utf8');
+  const contextBarStart = home.indexOf('<header className="bid-project-context-bar">');
+  const contextBar = home.slice(contextBarStart, home.indexOf('</header>', contextBarStart));
+
+  assert.match(contextBar, /className="bid-project-context-actions"/);
+  assert.match(contextBar, /navigationActions\.map/);
+  assert.match(contextBar, /aria-label=\{action\.label\}/);
+  assert.doesNotMatch(home, /<FloatingToolbar/);
+  assert.doesNotMatch(home, /const toolbarGroups =/);
+  assert.doesNotMatch(home, /technical-plan-reset/);
+  assert.doesNotMatch(home, /id:\s*'home'/);
 });
 
 test('STEP 01 上传招标文件成功后重新展开快速配置', () => {

@@ -7,6 +7,7 @@ import type { BidAnalysisMode, BidAnalysisTaskState, BidSectionMode, ContentGene
 import type { FeasibilityProjectInfo, FeasibilityReportState, FeasibilityReportStep, FeasibilitySaveOutlineRequest, FeasibilitySourceFile } from '../../features/feasibility-report/types';
 import type { ExportFormatConfig, ExportTemplateRecord } from './exportFormat';
 import type { OutlineData, OutlineExpansionMode, OutlineMode, OutlineWordControlOptions } from './outline';
+import type { BidContentDuplicateDecision, BidContentDuplicateResult, BidContentDuplicateRewriteRequest, BidContentDuplicateRewriteResult, BidContentDuplicateTargetSide, BidProject, BidProjectContent, BidProjectCreateOptions, BidProjectDuplicateSummary, BidProjectImportPreview } from '../../features/bid-project/types';
 
 export interface TaskEventTask {
   task_id: string;
@@ -19,6 +20,10 @@ export interface TaskEventTask {
   updated_at: string;
   error?: string;
   stats?: unknown;
+  project_id?: string;
+  projectId?: string;
+  scope_id?: string;
+  queue_position?: number;
 }
 
 export interface TaskEvent<TState = unknown, TRejectionCheckState = unknown, TDuplicateCheckState = unknown> {
@@ -98,6 +103,7 @@ export interface RemoteKnowledgeScope {
   documents: RemoteKnowledgeDocumentScope[];
 }
 export interface StartOutlineGenerationPayload {
+  projectId?: string;
   reference_knowledge_document_ids: string[];
   remote_knowledge_scopes: RemoteKnowledgeScope[];
   outline_mode: string;
@@ -580,7 +586,7 @@ export interface YibiaoBridge {
     onStatus: (callback: (status: WorkspaceDatabaseStatus) => void) => () => void;
   };
   ui: {
-    setCurrentView: (view: { section: string; step?: string | null }) => Promise<{ success: boolean }>;
+    setCurrentView: (view: { section: string; step?: string | null; projectId?: string | null }) => Promise<{ success: boolean }>;
   };
   config: {
     load: () => Promise<ClientConfig>;
@@ -615,6 +621,28 @@ export interface YibiaoBridge {
     getState: () => Promise<AutoConfirmationState>;
     setEnabled: (enabled: boolean) => Promise<ConfigSaveResult & AutoConfirmationState>;
     onChanged: (callback: (state: AutoConfirmationState) => void) => () => void;
+  };
+  bidProject: {
+    list: (filters?: { query?: string; status?: string; type?: string }) => Promise<BidProject[]>;
+    get: (projectId: string) => Promise<BidProject | null>;
+    open: (projectId: string) => Promise<BidProject>;
+    close: (projectId: string) => Promise<void>;
+    create: (options: BidProjectCreateOptions) => Promise<BidProject>;
+    update: (projectId: string, patch: Partial<BidProject>) => Promise<BidProject>;
+    delete: (projectId: string) => Promise<{ success: boolean; message?: string }>;
+    sourceGroup: (projectId: string) => Promise<BidProject[]>;
+    prepareImport: (filePaths?: string[]) => Promise<BidProjectImportPreview>;
+    confirmImport: (token: string, options?: Partial<BidProjectCreateOptions>) => Promise<BidProject>;
+    discardImport: (token: string) => Promise<{ success: boolean }>;
+    readContent: (projectId: string) => Promise<BidProjectContent>;
+    compareContent: (payload: { leftProjectId: string; rightProjectId: string; sensitivity?: 'low' | 'medium' | 'high' }) => Promise<BidContentDuplicateResult>;
+    listRecentDuplicateSummaries: (projectIds?: string[]) => Promise<Record<string, BidProjectDuplicateSummary | null>>;
+    loadDuplicateResult: (resultId: string) => Promise<BidContentDuplicateResult | null>;
+    loadLatestDuplicateResult: (projectId: string) => Promise<BidContentDuplicateResult | null>;
+    updateDuplicateMatchDecision: (payload: { resultId: string; matchId: string; decision: BidContentDuplicateDecision; targetSide: BidContentDuplicateTargetSide; rewriteDraft?: string | null }) => Promise<BidContentDuplicateResult>;
+    rewriteDuplicateMatch: (payload: BidContentDuplicateRewriteRequest) => Promise<BidContentDuplicateRewriteResult>;
+    replaceContent: (projectId: string, payload: { nodeId: string; oldText: string; newText: string }) => Promise<unknown>;
+    exportWord: (projectId: string, options?: { requestId?: string; exportFormat?: ExportFormatConfig }) => Promise<WordExportResult>;
   };
   agent: {
     run: (payload: AgentRunPayload) => Promise<AgentRunResult>;
@@ -666,8 +694,8 @@ export interface YibiaoBridge {
     onEvent: (callback: (event: KnowledgeBaseEvent) => void) => () => void;
   };
   technicalPlan: {
-    loadState: () => Promise<TechnicalPlanState>;
-    importTenderDocument: (filePaths?: string[]) => Promise<{
+    loadState: (payload?: { projectId?: string }) => Promise<TechnicalPlanState>;
+    importTenderDocument: (payload?: { projectId?: string; filePaths?: string[] } | string[]) => Promise<{
       success: boolean;
       message?: string;
       markdown?: string;
@@ -675,40 +703,40 @@ export interface YibiaoBridge {
       parserLabel?: string | null;
       bidSectionDetection?: { hasMultiple: boolean; totalDeclared: number | null };
     }>;
-    removeTenderDocument: (sourceId: string) => Promise<{
+    removeTenderDocument: (payload: { projectId?: string; sourceId: string } | string) => Promise<{
       success: boolean;
       message?: string;
       markdown?: string;
       bidSectionDetection?: { hasMultiple: boolean; totalDeclared: number | null };
     }>;
-    importOriginalPlanDocument: (filePaths?: string[]) => Promise<{
+    importOriginalPlanDocument: (payload?: { projectId?: string; filePaths?: string[] } | string[]) => Promise<{
       success: boolean;
       message?: string;
       markdown?: string;
     }>;
-    checkBidSections: () => Promise<{ hasMultiple: boolean; totalDeclared?: number | null }>;
-    selectBidSection: (selectedSection: DetectedBidSection) => Promise<{ success: boolean; message?: string; markdown: string }>;
-    readTenderMarkdown: () => Promise<string>;
-    readTenderSourceMarkdown: (sourceId: string) => Promise<string>;
-    readOriginalPlanMarkdown: () => Promise<string>;
-    updateStep: (step: TechnicalPlanStep) => Promise<void>;
-    setWorkflowKind: (workflowKind: TechnicalPlanWorkflowKind) => Promise<void>;
-    switchWorkflowKind: (workflowKind: TechnicalPlanWorkflowKind) => Promise<void>;
-    saveBidAnalysisConfig: (payload: { mode: BidAnalysisMode; selectedTaskIds: string[]; bidSectionMode?: BidSectionMode }) => Promise<void>;
-    saveOutlineConfig: (payload: { referenceKnowledgeDocumentIds: string[]; remoteKnowledgeScopes?: RemoteKnowledgeScope[]; outlineMode?: OutlineMode; outlineExpansionMode?: OutlineExpansionMode; wordControlOptions: OutlineWordControlOptions }) => Promise<void>;
+    checkBidSections: (payload?: { projectId?: string }) => Promise<{ hasMultiple: boolean; totalDeclared?: number | null }>;
+    selectBidSection: (payload: { projectId?: string; selectedSection: DetectedBidSection } | DetectedBidSection) => Promise<{ success: boolean; message?: string; markdown: string }>;
+    readTenderMarkdown: (payload?: { projectId?: string }) => Promise<string>;
+    readTenderSourceMarkdown: (payload: { projectId?: string; sourceId: string } | string) => Promise<string>;
+    readOriginalPlanMarkdown: (payload?: { projectId?: string }) => Promise<string>;
+    updateStep: (payload: { projectId?: string; step: TechnicalPlanStep } | TechnicalPlanStep) => Promise<void>;
+    setWorkflowKind: (payload: { projectId?: string; workflowKind: TechnicalPlanWorkflowKind } | TechnicalPlanWorkflowKind) => Promise<void>;
+    switchWorkflowKind: (payload: { projectId?: string; workflowKind: TechnicalPlanWorkflowKind } | TechnicalPlanWorkflowKind) => Promise<void>;
+    saveBidAnalysisConfig: (payload: { projectId?: string; mode: BidAnalysisMode; selectedTaskIds: string[]; bidSectionMode?: BidSectionMode }) => Promise<void>;
+    saveOutlineConfig: (payload: { projectId?: string; referenceKnowledgeDocumentIds: string[]; remoteKnowledgeScopes?: RemoteKnowledgeScope[]; outlineMode?: OutlineMode; outlineExpansionMode?: OutlineExpansionMode; wordControlOptions: OutlineWordControlOptions }) => Promise<void>;
     saveOutlineSelection: (payload: SaveOutlineSelectionRequest) => Promise<{ success: boolean }>;
-    saveOutline: (payload: SaveOutlineRequest) => Promise<Partial<TechnicalPlanState>>;
-    saveGlobalFactsConfig: (payload: { globalFactsMode: GlobalFactsMode }) => Promise<Partial<TechnicalPlanState>>;
-    saveGlobalFacts: (globalFacts: GlobalFactGroupState[]) => Promise<Partial<TechnicalPlanState>>;
-    saveContentGenerationOptions: (options: ContentGenerationOptions) => Promise<Partial<TechnicalPlanState>>;
-    saveChapterContent: (payload: { nodeId: string; content: string }) => Promise<Partial<TechnicalPlanState>>;
-    previewMermaidReviewItem: (payload: { itemId?: string; code: string }) => Promise<{ success: boolean; code: string }>;
-    saveMermaidReviewCode: (payload: { itemId: string; code: string }) => Promise<Partial<TechnicalPlanState>>;
-    adjustMermaidReviewCode: (payload: { itemId: string; code: string; instruction: string }) => Promise<Partial<TechnicalPlanState> & { code: string }>;
-    confirmMermaidReviewItem: (payload: { itemId: string; code: string }) => Promise<Partial<TechnicalPlanState>>;
-    skipMermaidReviewItem: (payload: { itemId: string }) => Promise<Partial<TechnicalPlanState>>;
-    clear: () => Promise<{ success: boolean; message?: string }>;
-    openBidTemplate: () => Promise<{ success: boolean; message?: string }>;
+    saveOutline: (payload: SaveOutlineRequest & { projectId?: string }) => Promise<Partial<TechnicalPlanState>>;
+    saveGlobalFactsConfig: (payload: { projectId?: string; globalFactsMode: GlobalFactsMode }) => Promise<Partial<TechnicalPlanState>>;
+    saveGlobalFacts: (payload: { projectId?: string; globalFacts: GlobalFactGroupState[] } | GlobalFactGroupState[]) => Promise<Partial<TechnicalPlanState>>;
+    saveContentGenerationOptions: (payload: { projectId?: string; options: ContentGenerationOptions } | ContentGenerationOptions) => Promise<Partial<TechnicalPlanState>>;
+    saveChapterContent: (payload: { projectId?: string; nodeId: string; content: string }) => Promise<Partial<TechnicalPlanState>>;
+    previewMermaidReviewItem: (payload: { projectId?: string; itemId?: string; code: string }) => Promise<{ success: boolean; code: string }>;
+    saveMermaidReviewCode: (payload: { projectId?: string; itemId: string; code: string }) => Promise<Partial<TechnicalPlanState>>;
+    adjustMermaidReviewCode: (payload: { projectId?: string; itemId: string; code: string; instruction: string }) => Promise<Partial<TechnicalPlanState> & { code: string }>;
+    confirmMermaidReviewItem: (payload: { projectId?: string; itemId: string; code: string }) => Promise<Partial<TechnicalPlanState>>;
+    skipMermaidReviewItem: (payload: { projectId?: string; itemId: string }) => Promise<Partial<TechnicalPlanState>>;
+    clear: (payload?: { projectId?: string }) => Promise<{ success: boolean; message?: string }>;
+    openBidTemplate: (payload?: { projectId?: string }) => Promise<{ success: boolean; message?: string }>;
   };
   feasibilityReport: {
     loadState: () => Promise<FeasibilityReportState>;
@@ -756,10 +784,10 @@ export interface YibiaoBridge {
     startBidSectionExtraction: (payload?: unknown) => Promise<unknown>;
     startBidAnalysis: (payload: unknown) => Promise<unknown>;
     startOutlineGeneration: (payload: StartOutlineGenerationPayload) => Promise<unknown>;
-    suppressOutlineSelectionAutoConfirmation: (payload: { taskId: string }) => Promise<{ success: boolean }>;
+    suppressOutlineSelectionAutoConfirmation: (payload: { projectId?: string; taskId: string }) => Promise<{ success: boolean }>;
     startGlobalFactsGeneration: (payload: unknown) => Promise<unknown>;
     startContentGeneration: (payload: unknown) => Promise<unknown>;
-    pauseContentGeneration: () => Promise<unknown>;
+    pauseContentGeneration: (payload?: { projectId?: string }) => Promise<unknown>;
     startRejectionItemsExtraction: (payload: unknown) => Promise<unknown>;
     startRejectionCheck: (payload: unknown) => Promise<unknown>;
     startDuplicateAnalysis: (payload: unknown) => Promise<unknown>;
@@ -767,7 +795,7 @@ export interface YibiaoBridge {
     startFeasibilityOutline: (payload?: unknown) => Promise<unknown>;
     startFeasibilityParameters: (payload?: unknown) => Promise<unknown>;
     startFeasibilityContent: (payload?: unknown) => Promise<unknown>;
-    pauseFeasibilityContent: () => Promise<unknown>;
+    pauseFeasibilityContent: (payload?: { projectId?: string }) => Promise<unknown>;
     startFeasibilityHumanWriting: (payload?: unknown) => Promise<unknown>;
     getActiveTasks: () => Promise<TaskEventTask[]>;
     onTaskEvent: <TState = unknown, TRejectionCheckState = unknown, TDuplicateCheckState = unknown>(callback: (event: TaskEvent<TState, TRejectionCheckState, TDuplicateCheckState>) => void) => () => void;

@@ -14,7 +14,64 @@ PRAGMA busy_timeout = 5000;
 
 -- 目标完整结构版本。
 -- 运行时代码应通过 PRAGMA user_version 判断是否需要自动升级。
-PRAGMA user_version = 26;
+PRAGMA user_version = 27;
+
+-- v27 标书项目工作区索引。正文和技术方案状态按项目专属表/目录保存。
+CREATE TABLE IF NOT EXISTS bid_projects (
+  project_id TEXT PRIMARY KEY,
+  project_name TEXT NOT NULL,
+  project_type TEXT NOT NULL DEFAULT 'technical-plan',
+  status TEXT NOT NULL DEFAULT 'incomplete',
+  source_group_id TEXT,
+  source_sequence INTEGER NOT NULL DEFAULT 1,
+  source_file_name TEXT,
+  source_file_hash TEXT,
+  source_content_hash TEXT,
+  source_file_size INTEGER NOT NULL DEFAULT 0,
+  source_file_modified_at TEXT,
+  section_label TEXT,
+  current_step TEXT NOT NULL DEFAULT 'document-analysis',
+  last_task_type TEXT,
+  last_task_status TEXT,
+  last_error TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_bid_projects_updated ON bid_projects(updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_bid_projects_status ON bid_projects(status);
+CREATE INDEX IF NOT EXISTS idx_bid_projects_source_group ON bid_projects(source_group_id, source_sequence);
+
+CREATE TABLE IF NOT EXISTS bid_project_source_files (
+  source_id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  file_name TEXT NOT NULL,
+  source_docx_path TEXT,
+  markdown_path TEXT,
+  file_hash TEXT,
+  content_hash TEXT,
+  file_size INTEGER NOT NULL DEFAULT 0,
+  modified_at TEXT,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (project_id) REFERENCES bid_projects(project_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_bid_project_sources_project ON bid_project_source_files(project_id);
+CREATE INDEX IF NOT EXISTS idx_bid_project_sources_hash ON bid_project_source_files(file_hash, content_hash);
+
+CREATE TABLE IF NOT EXISTS bid_project_duplicate_results (
+  result_id TEXT PRIMARY KEY,
+  left_project_id TEXT NOT NULL,
+  right_project_id TEXT NOT NULL,
+  sensitivity TEXT NOT NULL DEFAULT 'medium',
+  status TEXT NOT NULL DEFAULT 'success',
+  summary_json TEXT,
+  matches_json TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (left_project_id) REFERENCES bid_projects(project_id) ON DELETE CASCADE,
+  FOREIGN KEY (right_project_id) REFERENCES bid_projects(project_id) ON DELETE CASCADE
+);
 
 -- ============================================================================
 -- 技术方案 technical_plan_*（v1 已落地）

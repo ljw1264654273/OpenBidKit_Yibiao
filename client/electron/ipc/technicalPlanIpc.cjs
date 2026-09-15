@@ -57,36 +57,38 @@ async function adjustMermaidReviewCodeForItem({ technicalPlanStore, aiService },
   };
 }
 
-function registerTechnicalPlanIpc({ technicalPlanStore, taskService, remoteKnowledgeService, aiService }) {
-  ipcMain.handle('technical-plan:load-state', () => technicalPlanStore.loadTechnicalPlan());
-  ipcMain.handle('technical-plan:import-tender-document', (_event, filePaths) => taskService.importTenderDocument(filePaths));
-  ipcMain.handle('technical-plan:remove-tender-document', (_event, sourceId) => taskService.removeTenderDocument(sourceId));
-  ipcMain.handle('technical-plan:import-original-plan-document', (_event, filePaths) => taskService.importOriginalPlanDocument(filePaths));
-  ipcMain.handle('technical-plan:check-bid-sections', () => technicalPlanStore.checkBidSections());
-  ipcMain.handle('technical-plan:select-bid-section', (_event, selectedSection) => technicalPlanStore.selectBidSection(selectedSection));
-  ipcMain.handle('technical-plan:read-tender-markdown', () => technicalPlanStore.readTenderMarkdown());
-  ipcMain.handle('technical-plan:read-tender-source-markdown', (_event, sourceId) => technicalPlanStore.readTenderSourceMarkdown(sourceId));
-  ipcMain.handle('technical-plan:read-original-plan-markdown', () => technicalPlanStore.readOriginalPlanMarkdown());
-  ipcMain.handle('technical-plan:update-step', (_event, step) => technicalPlanStore.updateStep(step));
-  ipcMain.handle('technical-plan:set-workflow-kind', (_event, workflowKind) => technicalPlanStore.setWorkflowKind(workflowKind));
-  ipcMain.handle('technical-plan:switch-workflow-kind', (_event, workflowKind) => technicalPlanStore.switchWorkflowKind(workflowKind));
-  ipcMain.handle('technical-plan:save-bid-analysis-config', (_event, payload) => technicalPlanStore.saveBidAnalysisConfig(payload));
-  ipcMain.handle('technical-plan:save-outline-config', (_event, payload) => saveOutlineConfig({ technicalPlanStore, remoteKnowledgeService }, payload));
-  ipcMain.handle('technical-plan:save-outline-selection', (_event, payload) => technicalPlanStore.saveOutlineSelection(payload));
-  ipcMain.handle('technical-plan:save-outline', (_event, outlineData) => technicalPlanStore.saveOutline(outlineData));
-  ipcMain.handle('technical-plan:save-global-facts-config', (_event, payload) => technicalPlanStore.saveGlobalFactsConfig(payload));
-  ipcMain.handle('technical-plan:save-global-facts', (_event, globalFacts) => technicalPlanStore.saveGlobalFacts(globalFacts));
-  ipcMain.handle('technical-plan:save-content-generation-options', (_event, options) => technicalPlanStore.saveContentGenerationOptions(options));
-  ipcMain.handle('technical-plan:save-chapter-content', (_event, payload) => technicalPlanStore.saveChapterContent(payload));
-  ipcMain.handle('technical-plan:preview-mermaid-review-item', (_event, payload) => technicalPlanStore.previewMermaidReviewItem(payload));
-  ipcMain.handle('technical-plan:save-mermaid-review-code', (_event, payload) => technicalPlanStore.saveMermaidReviewCode(payload));
-  ipcMain.handle('technical-plan:adjust-mermaid-review-code', (_event, payload) => adjustMermaidReviewCodeForItem({ technicalPlanStore, aiService }, payload));
-  ipcMain.handle('technical-plan:confirm-mermaid-review-item', (_event, payload) => technicalPlanStore.confirmMermaidReviewItem(payload));
-  ipcMain.handle('technical-plan:skip-mermaid-review-item', (_event, payload) => technicalPlanStore.skipMermaidReviewItem(payload));
-  ipcMain.handle('technical-plan:clear', () => taskService.resetTechnicalPlan());
-  ipcMain.handle('technical-plan:open-bid-template', async () => {
-    const filePath = technicalPlanStore.getBidTemplatePath?.();
-    if (!filePath || !technicalPlanStore.hasBidTemplate?.()) {
+function registerTechnicalPlanIpc({ technicalPlanStore, bidProjectManager, taskService, remoteKnowledgeService, aiService }) {
+  const resolveStore = (payload) => bidProjectManager?.getTechnicalPlanStore(payload?.projectId || payload?.project_id) || technicalPlanStore;
+  ipcMain.handle('technical-plan:load-state', (_event, payload) => resolveStore(payload).loadTechnicalPlan());
+  ipcMain.handle('technical-plan:import-tender-document', (_event, payload) => taskService.importTenderDocument(payload?.filePaths || payload, payload?.projectId));
+  ipcMain.handle('technical-plan:remove-tender-document', (_event, payload) => taskService.removeTenderDocument(payload?.sourceId || payload, payload?.projectId));
+  ipcMain.handle('technical-plan:import-original-plan-document', (_event, payload) => taskService.importOriginalPlanDocument(payload?.filePaths || payload, payload?.projectId));
+  ipcMain.handle('technical-plan:check-bid-sections', (_event, payload) => resolveStore(payload).checkBidSections());
+  ipcMain.handle('technical-plan:select-bid-section', (_event, payload) => resolveStore(payload).selectBidSection(payload?.selectedSection || payload));
+  ipcMain.handle('technical-plan:read-tender-markdown', (_event, payload) => resolveStore(payload).readTenderMarkdown());
+  ipcMain.handle('technical-plan:read-tender-source-markdown', (_event, payload) => resolveStore(payload).readTenderSourceMarkdown(payload?.sourceId || payload));
+  ipcMain.handle('technical-plan:read-original-plan-markdown', (_event, payload) => resolveStore(payload).readOriginalPlanMarkdown());
+  ipcMain.handle('technical-plan:update-step', (_event, payload) => resolveStore(payload).updateStep(payload?.step || payload));
+  ipcMain.handle('technical-plan:set-workflow-kind', (_event, payload) => resolveStore(payload).setWorkflowKind(payload?.workflowKind || payload));
+  ipcMain.handle('technical-plan:switch-workflow-kind', (_event, payload) => resolveStore(payload).switchWorkflowKind(payload?.workflowKind || payload));
+  ipcMain.handle('technical-plan:save-bid-analysis-config', (_event, payload) => resolveStore(payload).saveBidAnalysisConfig(payload));
+  ipcMain.handle('technical-plan:save-outline-config', (_event, payload) => saveOutlineConfig({ technicalPlanStore: resolveStore(payload), remoteKnowledgeService }, payload));
+  ipcMain.handle('technical-plan:save-outline-selection', (_event, payload) => resolveStore(payload).saveOutlineSelection(payload));
+  ipcMain.handle('technical-plan:save-outline', (_event, payload) => resolveStore(payload).saveOutline(payload?.outlineData || payload));
+  ipcMain.handle('technical-plan:save-global-facts-config', (_event, payload) => resolveStore(payload).saveGlobalFactsConfig(payload));
+  ipcMain.handle('technical-plan:save-global-facts', (_event, payload) => resolveStore(payload).saveGlobalFacts(payload?.globalFacts || payload));
+  ipcMain.handle('technical-plan:save-content-generation-options', (_event, payload) => resolveStore(payload).saveContentGenerationOptions(payload?.options || payload));
+  ipcMain.handle('technical-plan:save-chapter-content', (_event, payload) => resolveStore(payload).saveChapterContent(payload));
+  ipcMain.handle('technical-plan:preview-mermaid-review-item', (_event, payload) => resolveStore(payload).previewMermaidReviewItem(payload));
+  ipcMain.handle('technical-plan:save-mermaid-review-code', (_event, payload) => resolveStore(payload).saveMermaidReviewCode(payload));
+  ipcMain.handle('technical-plan:adjust-mermaid-review-code', (_event, payload) => adjustMermaidReviewCodeForItem({ technicalPlanStore: resolveStore(payload), aiService }, payload));
+  ipcMain.handle('technical-plan:confirm-mermaid-review-item', (_event, payload) => resolveStore(payload).confirmMermaidReviewItem(payload));
+  ipcMain.handle('technical-plan:skip-mermaid-review-item', (_event, payload) => resolveStore(payload).skipMermaidReviewItem(payload));
+  ipcMain.handle('technical-plan:clear', (_event, payload) => taskService.resetTechnicalPlan(payload?.projectId || payload));
+  ipcMain.handle('technical-plan:open-bid-template', async (_event, payload) => {
+    const store = resolveStore(payload);
+    const filePath = store.getBidTemplatePath?.();
+    if (!filePath || !store.hasBidTemplate?.()) {
       return { success: false, message: '还没有投标模版，请先确认一级目录' };
     }
     const errorMessage = await shell.openPath(filePath);

@@ -424,6 +424,117 @@ test('默认评分规划按显式分组使用二级且无分组项使用一级',
   );
 });
 
+test('合并单元格评分规划失败时记录原文与规划标题诊断', () => {
+  const hierarchy = deriveTechnicalScoreHierarchy(`## 技术评分项
+
+【评分项编号】：3
+【评分项名称】：项目总体方案
+【直接上级编号】：3
+【直接上级名称】：项目总体方案
+【直接上级类型】：业务分组
+【层级依据类型】：合并单元格
+【层级依据说明】：rowspan=2
+
+【评分项编号】：3
+【评分项名称】：项目总体方案
+【直接上级编号】：3
+【直接上级名称】：项目总体方案
+【直接上级类型】：业务分组
+【层级依据类型】：合并单元格
+【层级依据说明】：rowspan=2`);
+  const roots = [{ id: '1', title: '项目总体方案' }];
+  const plan = {
+    allow_root_changes: false,
+    extra_titles: [],
+    branches: [{
+      branch_id: 'B1',
+      root_id: '1',
+      root_title: '项目总体方案',
+      score_item_level: 2,
+      mappings: [
+        { requirement_id: 'R1', target_title: '对本项目的理解' },
+        { requirement_id: 'R2', target_title: '项目总体方案设计' },
+      ],
+    }],
+  };
+  const diagnostics = [];
+
+  assert.throws(
+    () => assertStandaloneScoreDirectoryPlan(plan, hierarchy, roots, {
+      onDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
+    }),
+    /评分项标题必须逐字对应原文/,
+  );
+  assert.equal(diagnostics.length, 1);
+  assert.deepEqual(diagnostics[0], {
+    hierarchy_item_count: 2,
+    plan_mapping_count: 2,
+    source_root_count: 1,
+    actual_root_count: 1,
+    mismatch_count: 2,
+    mismatches: [
+      {
+        requirement_id: 'R1',
+        source_title: '项目总体方案',
+        planned_title: '对本项目的理解',
+        parent_group: '项目总体方案',
+        hierarchy_evidence_type: 'merged-cell',
+      },
+      {
+        requirement_id: 'R2',
+        source_title: '项目总体方案',
+        planned_title: '项目总体方案设计',
+        parent_group: '项目总体方案',
+        hierarchy_evidence_type: 'merged-cell',
+      },
+    ],
+  });
+});
+
+test('合并单元格评分项使用结构化评分标题校验规划映射', () => {
+  const hierarchy = deriveTechnicalScoreHierarchy(`## 技术评分项
+
+【评分项编号】：3
+【评分项名称】：项目总体方案
+【直接上级编号】：3
+【直接上级名称】：项目总体方案
+【直接上级类型】：业务分组
+【层级依据类型】：合并单元格
+【层级依据说明】：rowspan=2
+
+【评分项编号】：3
+【评分项名称】：项目总体方案
+【直接上级编号】：3
+【直接上级名称】：项目总体方案
+【直接上级类型】：业务分组
+【层级依据类型】：合并单元格
+【层级依据说明】：rowspan=2`);
+  const roots = [{ id: '1', title: '项目总体方案' }];
+  const plan = {
+    allow_root_changes: false,
+    extra_titles: [],
+    branches: [{
+      branch_id: 'B1',
+      root_id: '1',
+      root_title: '项目总体方案',
+      score_item_level: 2,
+      mappings: [
+        { requirement_id: 'R1', target_title: '对本项目的理解' },
+        { requirement_id: 'R2', target_title: '项目总体方案设计' },
+      ],
+    }],
+  };
+  const scorePlan = {
+    version: 2,
+    groups: [
+      { requirement_id: 'R1', target_title: '对本项目的理解' },
+      { requirement_id: 'R2', target_title: '项目总体方案设计' },
+    ],
+  };
+
+  assert.doesNotThrow(() => assertStandaloneScoreDirectoryPlan(plan, hierarchy, roots, { scorePlan }));
+});
+
 test('原文明确的单项业务分组不触发单子节点结构错误', () => {
   const outline = {
     outline: [{
@@ -1561,6 +1672,71 @@ test('非 original-only 真实目录任务按 outline 阶段检索并注入远�
   assert.match(planningPrompt, /技术要求末尾/);
   assert.equal(runs.length, 2);
   assert.ok(runs[1].files.some((file) => file.path === '远程知识参考.md'));
+});
+
+test('独立技术文件评分规划校验将输入摘要写入任务日志', async () => {
+  const root = {
+    id: '1',
+    title: '项目总体方案',
+    description: '项目总体方案目录说明',
+    attr: '技术',
+    content_mode: 'ai-generate',
+  };
+  const technicalRequirements = `## 技术评分项
+
+【评分项编号】：1
+【评分项名称】：项目总体方案
+【直接上级编号】：无
+【直接上级名称】：无
+【直接上级类型】：无
+【层级依据类型】：无
+【层级依据说明】：无`;
+  let latestTaskPatch = null;
+  let runCount = 0;
+  await runOutlineGenerationTaskV2({
+    aiService: {},
+    agentService: {
+      updatePersistentTask() {},
+      runTask: async (input) => {
+        runCount += 1;
+        if (runCount === 1) return { output_content: JSON.stringify({ outline: [root] }) };
+        return completeScoreDrivenAgentRun(input, root);
+      },
+    },
+    ordinaryAgentService: {},
+    workspaceStore: {
+      loadTechnicalPlan: () => ({
+        outlineMode: 'standalone-technical',
+        techRequirements: technicalRequirements,
+        bidAnalysisTasks: { responseFileRequirements: { content: '技术文件目录要求' } },
+      }),
+      hasBidTemplate: () => false,
+    },
+    knowledgeBaseService: {},
+    openXmlHelperService: {},
+    updateTask: (patch) => {
+      latestTaskPatch = patch;
+      return { task_id: 'task-score-plan-log-test', stats: {}, logs: [], ...patch };
+    },
+    checkpointTask: (patch, data) => ({
+      task: {
+        task_id: 'task-score-plan-log-test',
+        stats: data || {},
+        logs: patch.logs || [],
+        ...patch,
+      },
+    }),
+    taskControl: {
+      signal: new AbortController().signal,
+      waitForOutlineSelection: async () => ({ items: [root], selectedIds: ['1'] }),
+    },
+    payload: {},
+  });
+
+  assert.match(
+    latestTaskPatch.logs.find((message) => message.startsWith('评分规划校验输入：')) || '',
+    /原文解析 1 条评分记录，结构化评分组 1 条，规划映射 1 条，原文一级主题 1 个，当前目录一级节点 1 个/,
+  );
 });
 
 test('最终审核首次修复不彻底时自动进入复检修复而不是在88%终止', async () => {

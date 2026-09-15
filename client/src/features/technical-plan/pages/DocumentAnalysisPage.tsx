@@ -58,6 +58,7 @@ function DocumentFilePill({ file, onRemove, removeDisabled = false }: { file: Te
 }
 
 interface DocumentAnalysisPageProps {
+  projectId?: string;
   workflowKind: TechnicalPlanWorkflowKind;
   tenderFile: TechnicalPlanTenderFile | null;
   tenderFiles: TechnicalPlanTenderSourceFile[];
@@ -87,6 +88,7 @@ const tableDensityOptions: Array<{ value: ContentTableRequirement; label: string
 ];
 
 function DocumentAnalysisPage({
+  projectId,
   workflowKind,
   tenderFile,
   tenderFiles,
@@ -183,7 +185,7 @@ function DocumentAnalysisPage({
     const requestVersion = tenderDocumentVersion;
     let active = true;
 
-    window.yibiao?.technicalPlan.checkBidSections().then((detection) => {
+    window.yibiao?.technicalPlan.checkBidSections(projectId ? { projectId } : undefined).then((detection) => {
       if (!active || requestId !== sectionDetectionRequestRef.current || requestVersion !== tenderDocumentVersion) return;
       detectedDocumentVersionRef.current = requestVersion;
       const hasMultiple = Boolean(detection?.hasMultiple);
@@ -221,6 +223,7 @@ function DocumentAnalysisPage({
     tenderDocumentVersion,
     tenderFile?.selectedSectionTitle,
     tenderMarkdown,
+    projectId,
   ]);
 
   useEffect(() => {
@@ -249,7 +252,7 @@ function DocumentAnalysisPage({
     if (!sourceId || tenderSourceMarkdowns[sourceId] !== undefined) return;
     let mounted = true;
     setLoadingTenderSourceId(sourceId);
-    window.yibiao?.technicalPlan.readTenderSourceMarkdown(sourceId).then((markdown) => {
+    window.yibiao?.technicalPlan.readTenderSourceMarkdown({ projectId, sourceId }).then((markdown) => {
       if (mounted) {
         setTenderSourceMarkdowns((prev) => ({ ...prev, [sourceId]: markdown || '' }));
       }
@@ -261,7 +264,7 @@ function DocumentAnalysisPage({
     return () => {
       mounted = false;
     };
-  }, [activeDocumentTab, showToast, tenderSourceMarkdowns]);
+  }, [activeDocumentTab, projectId, showToast, tenderSourceMarkdowns]);
 
   // STEP 01 前置：标段识别成功后自动打开选择弹窗
   useEffect(() => {
@@ -280,7 +283,7 @@ function DocumentAnalysisPage({
     if (contentTaskLocked || sectionExtracting || sectionExtractionRunning) return;
     setSectionExtracting(true);
     try {
-      await window.yibiao?.tasks.startBidSectionExtraction({});
+      await window.yibiao?.tasks.startBidSectionExtraction({ projectId });
       showToast('多标段识别任务已在后台启动', 'success');
     } catch (error) {
       showToast(error instanceof Error ? error.message : '启动多标段识别失败', 'error');
@@ -301,7 +304,7 @@ function DocumentAnalysisPage({
     }
     try {
       setSectionExtracting(true);
-      const result = await window.yibiao?.technicalPlan.selectBidSection(selectedSection);
+      const result = await window.yibiao?.technicalPlan.selectBidSection({ projectId, selectedSection });
       if (!result?.success) {
         showToast(result?.message || '投标范围选择失败', 'error');
         return;
@@ -389,7 +392,7 @@ function DocumentAnalysisPage({
   const importTenderDocument = async (filePaths?: string[]) => {
     try {
       setBusy('tender');
-      const result = await window.yibiao?.technicalPlan.importTenderDocument(filePaths);
+      const result = await window.yibiao?.technicalPlan.importTenderDocument({ projectId, filePaths });
 
       if (!result?.success) {
         const message = result?.message || '未导入文件';
@@ -406,7 +409,7 @@ function DocumentAnalysisPage({
         return;
       }
 
-      const state = await window.yibiao.technicalPlan.loadState();
+      const state = await window.yibiao.technicalPlan.loadState({ projectId });
       onFileImported(state, result.markdown);
       updateQuickConfigExpanded(true);
       setDocumentContentExpanded(true);
@@ -441,12 +444,12 @@ function DocumentAnalysisPage({
   const removeTenderDocument = async (sourceId: string) => {
     try {
       setBusy('tender');
-      const result = await window.yibiao?.technicalPlan.removeTenderDocument(sourceId);
+      const result = await window.yibiao?.technicalPlan.removeTenderDocument({ projectId, sourceId });
       if (!result?.success) {
         showToast(result?.message || '移除招标文件失败', 'error');
         return;
       }
-      const state = await window.yibiao.technicalPlan.loadState();
+      const state = await window.yibiao.technicalPlan.loadState({ projectId });
       onFileImported(state, result.markdown || '');
       detectedDocumentVersionRef.current = state.tenderFile
         ? state.tenderFile.contentHash || state.tenderFile.updatedAt
@@ -472,7 +475,7 @@ function DocumentAnalysisPage({
   const importOriginalPlanDocument = async (filePaths?: string[]) => {
     try {
       setBusy('originalPlan');
-      const result = await window.yibiao?.technicalPlan.importOriginalPlanDocument(filePaths);
+      const result = await window.yibiao?.technicalPlan.importOriginalPlanDocument({ projectId, filePaths });
 
       if (!result?.success) {
         const message = result?.message || '未导入文件';
@@ -489,7 +492,7 @@ function DocumentAnalysisPage({
         return;
       }
 
-      const state = await window.yibiao.technicalPlan.loadState();
+      const state = await window.yibiao.technicalPlan.loadState({ projectId });
       onOriginalPlanImported(state, result.markdown);
       setActiveDocumentTab('originalPlan');
       showToast(result.message || '原方案已导入', 'success');

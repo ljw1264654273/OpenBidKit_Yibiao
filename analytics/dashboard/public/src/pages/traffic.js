@@ -5,7 +5,8 @@ import { state } from '../state.js';
 const pageLabels = {
   'bid-generation': '标书生成',
   'technical-plan': '技术方案',
-  'existing-plan-expansion': '标书生成 - 已有方案扩写',
+  'bid-projects': '我的标书',
+  'existing-plan-expansion': '已有方案扩写',
   'technical-plan/document-analysis': '技术方案 - 上传招标文件',
   'technical-plan/bid-analysis': '技术方案 - 招标文件解析',
   'technical-plan/outline-generation': '技术方案 - 目录生成',

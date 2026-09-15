@@ -1,0 +1,97 @@
+<h2>侧边栏 Logo 尺寸</h2>
+<p class="subtitle">当前展开状态是 36px，收起状态是 32px。请选择更接近 Chrome 图标观感的放大幅度。</p>
+
+<div class="split">
+  <div class="mockup">
+    <div class="mockup-header">方案 A：适度放大（推荐）</div>
+    <div class="mockup-body" style="padding:0;background:#f5f8fc;">
+      <div style="display:flex;min-height:330px;">
+        <div style="width:230px;background:#fff;border-right:1px solid #dfe6ee;padding:22px 18px;color:#102a43;">
+          <div style="display:flex;align-items:center;gap:12px;padding:4px 6px 24px;border-bottom:1px solid #eef2f9;">
+            <div style="width:48px;height:48px;flex:none;overflow:hidden;background:#fff;">
+              <img src="/files/brand-logo.png" alt="Logo" style="display:block;width:100%;height:100%;object-fit:contain;">
+            </div>
+            <div style="line-height:1.2;">
+              <div style="font-size:14px;color:#7c8798;">园测</div>
+              <div style="font-weight:700;font-size:16px;">投标工具箱</div>
+            </div>
+          </div>
+          <div style="height:34px;border-radius:8px;background:#eaf5fb;margin-top:20px;margin-bottom:10px;"></div>
+          <div style="height:34px;border-radius:8px;background:#f4f6f8;margin-bottom:10px;"></div>
+          <div style="height:34px;border-radius:8px;background:#f4f6f8;"></div>
+        </div>
+        <div style="width:72px;background:#fff;border-right:1px solid #dfe6ee;padding:22px 12px;">
+          <div style="width:40px;height:40px;overflow:hidden;background:#fff;margin:4px auto 24px;">
+            <img src="/files/brand-logo.png" alt="Logo" style="display:block;width:100%;height:100%;object-fit:contain;">
+          </div>
+          <div style="height:34px;border-radius:8px;background:#eaf5fb;margin-bottom:10px;"></div>
+          <div style="height:34px;border-radius:8px;background:#f4f6f8;margin-bottom:10px;"></div>
+          <div style="height:34px;border-radius:8px;background:#f4f6f8;"></div>
+        </div>
+        <div style="flex:1;padding:24px;">
+          <div style="height:18px;width:44%;background:#dfe6ee;border-radius:4px;margin-bottom:16px;"></div>
+          <div style="height:120px;background:#fff;border:1px solid #e1e8ef;border-radius:8px;"></div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>48px / 40px</h3>
+      <p>比当前明显放大，品牌更容易识别，仍能保持侧边栏的紧凑感。</p>
+    </div>
+  </div>
+
+  <div class="mockup">
+    <div class="mockup-header">方案 B：明显放大</div>
+    <div class="mockup-body" style="padding:0;background:#f5f8fc;">
+      <div style="display:flex;min-height:330px;">
+        <div style="width:230px;background:#fff;border-right:1px solid #dfe6ee;padding:18px 18px;color:#102a43;">
+          <div style="display:flex;align-items:center;gap:12px;padding:4px 6px 22px;border-bottom:1px solid #eef2f9;">
+            <div style="width:56px;height:56px;flex:none;overflow:hidden;background:#fff;">
+              <img src="/files/brand-logo.png" alt="Logo" style="display:block;width:100%;height:100%;object-fit:contain;">
+            </div>
+            <div style="line-height:1.2;">
+              <div style="font-size:14px;color:#7c8798;">园测</div>
+              <div style="font-weight:700;font-size:16px;">投标工具箱</div>
+            </div>
+          </div>
+          <div style="height:34px;border-radius:8px;background:#eaf5fb;margin-top:20px;margin-bottom:10px;"></div>
+          <div style="height:34px;border-radius:8px;background:#f4f6f8;margin-bottom:10px;"></div>
+          <div style="height:34px;border-radius:8px;background:#f4f6f8;"></div>
+        </div>
+        <div style="width:72px;background:#fff;border-right:1px solid #dfe6ee;padding:18px 12px;">
+          <div style="width:48px;height:48px;overflow:hidden;background:#fff;margin:4px auto 24px;">
+            <img src="/files/brand-logo.png" alt="Logo" style="display:block;width:100%;height:100%;object-fit:contain;">
+          </div>
+          <div style="height:34px;border-radius:8px;background:#eaf5fb;margin-bottom:10px;"></div>
+          <div style="height:34px;border-radius:8px;background:#f4f6f8;margin-bottom:10px;"></div>
+          <div style="height:34px;border-radius:8px;background:#f4f6f8;"></div>
+        </div>
+        <div style="flex:1;padding:24px;">
+          <div style="height:18px;width:44%;background:#dfe6ee;border-radius:4px;margin-bottom:16px;"></div>
+          <div style="height:120px;background:#fff;border:1px solid #e1e8ef;border-radius:8px;"></div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>56px / 48px</h3>
+      <p>更接近桌面应用图标的存在感，但会压缩品牌文字与导航之间的留白。</p>
+    </div>
+  </div>
+</div>
+
+<div class="options" style="margin-top:18px;">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>选择方案 A</h3>
+      <p>展开 48px，收起 40px。</p>
+    </div>
+  </div>
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>选择方案 B</h3>
+      <p>展开 56px，收起 48px。</p>
+    </div>
+  </div>
+</div>

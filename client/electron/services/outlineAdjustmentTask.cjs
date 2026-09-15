@@ -1,4 +1,5 @@
 const { OUTLINE_AGENT_TASK_KEY } = require('./outlineGenerationAgentV2Config.cjs');
+const { getProjectAgentTaskKey } = require('./agentTaskKeys.cjs');
 const {
   OUTLINE_OUTPUT_FILE,
   OUTLINE_WORKING_JSON_SCHEMA,
@@ -132,6 +133,7 @@ ${requirement}
 
 // 复用目录生成的持久 Agent 会话，按用户要求调整已生成的目录。
 async function runOutlineAdjustmentTask({ agentService, workspaceStore, updateTask, checkpointTask, taskControl, payload }) {
+  const outlineAgentTaskKey = getProjectAgentTaskKey(OUTLINE_AGENT_TASK_KEY, payload?.projectId || payload?.project_id);
   const requirement = String(payload?.requirement || '').trim();
   if (!requirement) {
     throw new Error('调整要求不能为空');
@@ -140,7 +142,7 @@ async function runOutlineAdjustmentTask({ agentService, workspaceStore, updateTa
   if (!storedPlan.outlineData?.outline?.length) {
     throw new Error('当前没有可调整的目录，请先完成目录生成');
   }
-  if (!agentService.hasPersistentTaskSession(OUTLINE_AGENT_TASK_KEY)) {
+  if (!agentService.hasPersistentTaskSession(outlineAgentTaskKey)) {
     throw new Error('目录生成的 Agent 工作空间不存在，请重新生成目录后再使用 AI 调整');
   }
 
@@ -162,7 +164,7 @@ async function runOutlineAdjustmentTask({ agentService, workspaceStore, updateTa
   }
 
   // 持久任务的 run_id 与当前业务任务对齐后才能 resume 同一 Session。
-  agentService.updatePersistentTask(OUTLINE_AGENT_TASK_KEY, {
+  agentService.updatePersistentTask(outlineAgentTaskKey, {
     run_id: task.task_id,
     status: 'running',
     phase: 'outline-adjustment',
@@ -192,7 +194,7 @@ async function runOutlineAdjustmentTask({ agentService, workspaceStore, updateTa
     ],
     signal: taskControl.signal,
     persistent_task: {
-      task_key: OUTLINE_AGENT_TASK_KEY,
+      task_key: outlineAgentTaskKey,
       mode: 'resume',
     },
     initial_stage: 'outline-adjustment',
@@ -276,7 +278,7 @@ async function runOutlineAdjustmentTask({ agentService, workspaceStore, updateTa
       contentGenerationRuntime: undefined,
     },
   });
-  agentService.updatePersistentTask(OUTLINE_AGENT_TASK_KEY, {
+  agentService.updatePersistentTask(outlineAgentTaskKey, {
     status: 'success',
     phase: 'completed',
     agent_connection: 'idle',

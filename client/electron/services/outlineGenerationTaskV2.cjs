@@ -7,6 +7,7 @@ const { planRemoteKnowledgeQueries } = require('./remoteKnowledgeQueryPlanner.cj
 const { runTemplateExtractionTask } = require('./templateExtractionTask.cjs');
 const { normalizeOutlineHeadingTitles } = require('./mandatoryBidContentRules.cjs');
 const { attachScoreCoverageAnchors } = require('./outlineSourceAnchorService.cjs');
+const { getProjectAgentTaskKey } = require('./agentTaskKeys.cjs');
 
 const DEFAULT_ESTIMATED_SECTION_WORDS = 1500;
 const OUTLINE_OUTPUT_FILE = 'outline.json';
@@ -1161,7 +1162,11 @@ function assertStandaloneTechnicalRoots(roots, hierarchy) {
   }
 }
 
-function assertStandaloneScoreDirectoryPlan(plan, hierarchy, roots, { hasUserAdjustmentApproval = false } = {}) {
+function assertStandaloneScoreDirectoryPlan(plan, hierarchy, roots, {
+  hasUserAdjustmentApproval = false,
+  scorePlan = null,
+  onDiagnostic = null,
+} = {}) {
   const expectedRoots = hierarchy?.rootTitles || [];
   if (!expectedRoots.length) return;
   const rootTitles = (Array.isArray(roots) ? roots : []).map((root) => normalizeScoreHierarchyTitle(root?.title));
@@ -1185,23 +1190,58 @@ function assertStandaloneScoreDirectoryPlan(plan, hierarchy, roots, { hasUserAdj
       if (mapping?.requirement_id) mappingsByRequirementId.set(mapping.requirement_id, mapping);
     });
   });
+  const scoreGroupsByRequirementId = new Map(
+    (Array.isArray(scorePlan?.groups) ? scorePlan.groups : [])
+      .filter((group) => group?.requirement_id)
+      .map((group) => [group.requirement_id, group]),
+  );
   const targetTitleCounts = new Map();
   mappingsByRequirementId.forEach((mapping) => {
     const key = normalizeScoreHierarchyTitle(mapping?.target_title);
     targetTitleCounts.set(key, (targetTitleCounts.get(key) || 0) + 1);
   });
-  const titlesFollowSource = hierarchy.items.every((item, itemIndex) => {
-    const mapping = mappingsByRequirementId.get(`R${itemIndex + 1}`);
-    if (!mapping) return false;
-    if (normalizeScoreHierarchyTitle(mapping.target_title) === normalizeScoreHierarchyTitle(item.title)) return true;
+  const titleMismatches = hierarchy.items.flatMap((item, itemIndex) => {
+    const requirementId = `R${itemIndex + 1}`;
+    const mapping = mappingsByRequirementId.get(requirementId);
+    const scoreGroup = scoreGroupsByRequirementId.get(requirementId);
+    const expectedTitle = scoreGroup?.target_title || item.title;
+    if (!mapping) {
+      return [{
+        requirement_id: requirementId,
+        source_title: item.title,
+        planned_title: null,
+        parent_group: item.parentGroup,
+        hierarchy_evidence_type: item.hierarchyEvidenceType,
+      }];
+    }
+    if (normalizeScoreHierarchyTitle(mapping.target_title) === normalizeScoreHierarchyTitle(expectedTitle)) return [];
     const approvedSplit = Array.isArray(mapping.additional_titles)
       && mapping.additional_titles.length > 0
       && String(mapping.adjustment_note || '').trim();
     const approvedMerge = (targetTitleCounts.get(normalizeScoreHierarchyTitle(mapping.target_title)) || 0) > 1
       && String(mapping.adjustment_note || '').trim();
-    return Boolean(approvedSplit || approvedMerge);
+    return approvedSplit || approvedMerge
+      ? []
+      : [{
+        requirement_id: requirementId,
+        source_title: item.title,
+        ...(scoreGroup?.target_title ? { score_item_title: scoreGroup.target_title } : {}),
+        planned_title: mapping.target_title,
+        parent_group: item.parentGroup,
+        hierarchy_evidence_type: item.hierarchyEvidenceType,
+      }];
   });
-  if (!titlesFollowSource) {
+  if (titleMismatches.length > 0) {
+    if (typeof onDiagnostic === 'function') {
+      onDiagnostic({
+        hierarchy_item_count: hierarchy.items.length,
+        plan_mapping_count: mappingsByRequirementId.size,
+        source_root_count: expectedRoots.length,
+        actual_root_count: rootTitles.length,
+        mismatch_count: titleMismatches.length,
+        mismatches: titleMismatches.slice(0, 20),
+      });
+    }
     throw new Error('独立技术文件评分项标题必须逐字对应原文；只有明确记录 adjustment_note 的已批准拆分或合并可以改变标题。');
   }
 
@@ -1501,6 +1541,8 @@ function createOutlineReviewCorrectionPrompt({ standaloneTechnical = false, atte
 
 // 运行 V2 目录业务任务；开发者模式下一级目录确认后并行调度目录任务和独立模版提取任务。
 async function runOutlineGenerationTaskV2({ aiService, agentService, ordinaryAgentService, workspaceStore, knowledgeBaseService, knowledgeSession, openXmlHelperService, updateTask, checkpointTask, taskControl, payload }) {
+  const outlineAgentTaskKey = getProjectAgentTaskKey(OUTLINE_AGENT_TASK_KEY, payload?.projectId || payload?.project_id);
+  const templateExtractionAgentTaskKey = getProjectAgentTaskKey(TEMPLATE_EXTRACTION_AGENT_TASK_KEY, payload?.projectId || payload?.project_id);
   const storedPlan = workspaceStore.loadTechnicalPlan() || {};
   const restoringOutlineSelection = payload?.agent_resume?.phase === 'outline-selection';
   const standaloneTechnical = storedPlan.outlineMode === 'standalone-technical';
@@ -1596,7 +1638,7 @@ async function runOutlineGenerationTaskV2({ aiService, agentService, ordinaryAge
         ...(taskPatch.stats || {}),
         agent: {
           ...(task.stats?.agent || {}),
-          task_key: OUTLINE_AGENT_TASK_KEY,
+          task_key: outlineAgentTaskKey,
           run_id: task.task_id,
           resume_payload: {
             reference_knowledge_document_ids: referenceDocumentIds,
@@ -1650,7 +1692,7 @@ async function runOutlineGenerationTaskV2({ aiService, agentService, ordinaryAge
         ...(task.stats || {}),
         template_agent: {
           ...(task.stats?.template_agent || {}),
-          task_key: TEMPLATE_EXTRACTION_AGENT_TASK_KEY,
+          task_key: templateExtractionAgentTaskKey,
           run_id: templateTaskId,
           status: checkpoint.status,
           phase: checkpoint.phase,
@@ -1771,7 +1813,7 @@ async function runOutlineGenerationTaskV2({ aiService, agentService, ordinaryAge
       files: initialFiles,
       signal: taskControl.signal,
       persistent_task: {
-        task_key: OUTLINE_AGENT_TASK_KEY,
+        task_key: outlineAgentTaskKey,
         mode: 'create',
       },
       initial_stage: 'initial-outline',
@@ -1791,7 +1833,7 @@ async function runOutlineGenerationTaskV2({ aiService, agentService, ordinaryAge
     const waitingMessage = '一级目录已生成，等待用户确认';
     if (waitingMessage !== logs[logs.length - 1]) logs = [...logs, waitingMessage];
     currentProgress = Math.max(currentProgress, 30);
-    agentService.updatePersistentTask(OUTLINE_AGENT_TASK_KEY, {
+    agentService.updatePersistentTask(outlineAgentTaskKey, {
       status: 'waiting-outline-selection',
       phase: 'outline-selection',
       agent_connection: 'idle',
@@ -1824,7 +1866,7 @@ async function runOutlineGenerationTaskV2({ aiService, agentService, ordinaryAge
 
   try {
   updateAgentState({ status: 'running', phase: 'score-planning', agent_connection: 'idle' });
-  agentService.updatePersistentTask(OUTLINE_AGENT_TASK_KEY, {
+  agentService.updatePersistentTask(outlineAgentTaskKey, {
     status: 'running',
     phase: 'score-planning',
     agent_connection: 'idle',
@@ -1832,8 +1874,8 @@ async function runOutlineGenerationTaskV2({ aiService, agentService, ordinaryAge
 
   if (extractTemplate && workspaceStore.listTenderSourceDocxRelativePaths().length) {
     await ordinaryAgentService.forkPersistentTask(
-      OUTLINE_AGENT_TASK_KEY,
-      TEMPLATE_EXTRACTION_AGENT_TASK_KEY,
+      outlineAgentTaskKey,
+      templateExtractionAgentTaskKey,
       {
         run_id: templateTaskId,
         title: '投标模版提取',
@@ -1883,7 +1925,7 @@ async function runOutlineGenerationTaskV2({ aiService, agentService, ordinaryAge
     ],
     signal: parallelSignal,
     persistent_task: {
-      task_key: OUTLINE_AGENT_TASK_KEY,
+      task_key: outlineAgentTaskKey,
       mode: 'resume',
     },
     initial_stage: 'score-planning',
@@ -1996,6 +2038,24 @@ async function runOutlineGenerationTaskV2({ aiService, agentService, ordinaryAge
           readJson(await meta.readFile(SCORE_DIRECTORY_PLAN_FILE), SCORE_DIRECTORY_PLAN_FILE),
         );
         if (standaloneTechnical) {
+          const plannedMappingCount = scoreDirectoryPlan.branches.reduce(
+            (total, branch) => total + (Array.isArray(branch?.mappings) ? branch.mappings.length : 0),
+            0,
+          );
+          const scoreGroupCount = Array.isArray(scorePlan?.groups) ? scorePlan.groups.length : 0;
+          publish(
+            `评分规划校验输入：原文解析 ${technicalScoreHierarchy.items.length} 条评分记录，结构化评分组 ${scoreGroupCount} 条，规划映射 ${plannedMappingCount} 条，原文一级主题 ${technicalScoreHierarchy.rootTitles.length} 个，当前目录一级节点 ${lockedRoots.length} 个`,
+            Math.max(currentProgress, 35),
+            {
+              score_plan_validation_input: {
+                hierarchy_item_count: technicalScoreHierarchy.items.length,
+                score_group_count: scoreGroupCount,
+                plan_mapping_count: plannedMappingCount,
+                source_root_count: technicalScoreHierarchy.rootTitles.length,
+                actual_root_count: lockedRoots.length,
+              },
+            },
+          );
           const scorePlanningAnswer = [...meta.user_question_answers]
             .reverse()
             .find((item) => item.workflow_stage === 'score-planning');
@@ -2003,6 +2063,18 @@ async function runOutlineGenerationTaskV2({ aiService, agentService, ordinaryAge
             || scorePlanningAnswer?.is_custom === true;
           assertStandaloneScoreDirectoryPlan(scoreDirectoryPlan, technicalScoreHierarchy, lockedRoots, {
             hasUserAdjustmentApproval,
+            scorePlan,
+            onDiagnostic: (diagnostic) => {
+              const firstMismatch = diagnostic.mismatches?.[0];
+              const mismatchText = firstMismatch
+                ? `；首个不一致 ${firstMismatch.requirement_id}：解析标题“${firstMismatch.source_title}”${firstMismatch.score_item_title ? `，结构化评分项标题“${firstMismatch.score_item_title}”` : ''}，规划标题“${firstMismatch.planned_title || '缺失'}”`
+                : '';
+              publish(
+                `评分规划标题校验诊断：共发现 ${diagnostic.mismatch_count} 项不一致${mismatchText}`,
+                Math.max(currentProgress, 35),
+                { score_plan_validation: diagnostic },
+              );
+            },
           });
         }
         await meta.writeFiles([{
@@ -2200,7 +2272,7 @@ async function runOutlineGenerationTaskV2({ aiService, agentService, ordinaryAge
       ...(extractTemplate ? {
         template_agent: {
           ...(task.stats?.template_agent || {}),
-          task_key: TEMPLATE_EXTRACTION_AGENT_TASK_KEY,
+          task_key: templateExtractionAgentTaskKey,
           run_id: templateTaskId,
           status: templateResult.status,
           phase: templateResult.status === 'skipped' ? 'skipped' : 'completed',
@@ -2222,7 +2294,7 @@ async function runOutlineGenerationTaskV2({ aiService, agentService, ordinaryAge
     contentIllustrationPlan: undefined,
   });
   task = finalCheckpoint.task;
-  agentService.updatePersistentTask(OUTLINE_AGENT_TASK_KEY, {
+  agentService.updatePersistentTask(outlineAgentTaskKey, {
     status: 'success',
     phase: 'completed',
     agent_connection: 'idle',
@@ -2242,7 +2314,7 @@ async function runOutlineGenerationTaskV2({ aiService, agentService, ordinaryAge
       });
     } catch {}
     try {
-      agentService.updatePersistentTask(OUTLINE_AGENT_TASK_KEY, {
+      agentService.updatePersistentTask(outlineAgentTaskKey, {
         status,
         agent_connection: 'idle',
         error: message,

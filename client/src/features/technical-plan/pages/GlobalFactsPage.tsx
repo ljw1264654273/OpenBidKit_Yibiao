@@ -7,6 +7,7 @@ import CompactTaskProgress from '../components/CompactTaskProgress';
 import type { BackgroundTaskState, GlobalFactGroupState, GlobalFactsMode } from '../types';
 
 interface GlobalFactsPageProps {
+  projectId?: string;
   outlineData: OutlineData | null;
   globalFacts: GlobalFactGroupState[];
   globalFactsMode: GlobalFactsMode;
@@ -65,6 +66,7 @@ function getProgress(task: BackgroundTaskState | undefined, hasFacts: boolean) {
 }
 
 function GlobalFactsPage({
+  projectId,
   outlineData,
   globalFacts,
   globalFactsMode,
@@ -144,7 +146,7 @@ function GlobalFactsPage({
       setStarting(true);
       const nextMode = await saveConfig(false);
       setSettingsOpen(false);
-      await window.yibiao?.tasks.startGlobalFactsGeneration({ globalFactsMode: nextMode });
+      await window.yibiao?.tasks.startGlobalFactsGeneration({ projectId, globalFactsMode: nextMode });
       showToast('全局事实设定任务已在后台启动', 'success');
     } catch (error) {
       showToast(error instanceof Error ? error.message : '启动全局事实设定失败', 'error');

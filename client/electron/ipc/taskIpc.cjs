@@ -29,9 +29,9 @@ function registerTaskIpc({ taskService }) {
     taskService.subscribe(event.sender);
     return taskService.startContentGeneration(payload);
   });
-  ipcMain.handle('tasks:pause-content-generation', (event) => {
+  ipcMain.handle('tasks:pause-content-generation', (event, payload) => {
     taskService.subscribe(event.sender);
-    return taskService.pauseContentGeneration();
+    return taskService.pauseContentGeneration(payload);
   });
   ipcMain.handle('tasks:start-rejection-items-extraction', (event, payload) => {
     taskService.subscribe(event.sender);
@@ -61,9 +61,9 @@ function registerTaskIpc({ taskService }) {
     taskService.subscribe(event.sender);
     return taskService.startFeasibilityContent(payload);
   });
-  ipcMain.handle('tasks:pause-feasibility-content', (event) => {
+  ipcMain.handle('tasks:pause-feasibility-content', (event, payload) => {
     taskService.subscribe(event.sender);
-    return taskService.pauseFeasibilityContent();
+    return taskService.pauseFeasibilityContent(payload);
   });
   ipcMain.handle('tasks:start-feasibility-human-writing', (event, payload) => {
     taskService.subscribe(event.sender);

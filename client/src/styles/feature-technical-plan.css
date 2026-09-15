@@ -444,8 +444,17 @@
 }
 
 .technical-document-reader-content {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  min-height: 0;
   min-width: 0;
+  overflow: hidden;
   border-top: 1px solid var(--yb-border-soft);
+}
+
+.technical-document-reader-content > .markdown-fullscreen-frame {
+  height: 100%;
+  min-height: 0;
 }
 
 .analysis-actions,

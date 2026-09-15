@@ -41,7 +41,7 @@ const initialState: TechnicalPlanState = {
   outlineData: null,
 };
 
-export function useTechnicalPlanWorkflow() {
+export function useTechnicalPlanWorkflow(projectId?: string) {
   const [state, setState] = useState<TechnicalPlanState>(initialState);
   const [hydrated, setHydrated] = useState(false);
 
@@ -50,7 +50,7 @@ export function useTechnicalPlanWorkflow() {
 
     const loadCache = async () => {
       try {
-        const cachedState = await technicalPlanStorage.load();
+        const cachedState = await technicalPlanStorage.load(projectId);
         if (mounted && cachedState) {
           setState({ ...initialState, ...cachedState, outlineExpansionMode: cachedState.outlineExpansionMode || 'ai-complement', globalFactsMode: cachedState.globalFactsMode || 'fabricate' });
         }
@@ -68,7 +68,7 @@ export function useTechnicalPlanWorkflow() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [projectId]);
 
   return {
     hydrated,

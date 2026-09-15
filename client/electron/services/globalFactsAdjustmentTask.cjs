@@ -9,6 +9,7 @@ const {
   normalizeGlobalFactsResponse,
   validateGlobalFactsResponse,
 } = require('./globalFactsTask.cjs');
+const { getProjectAgentTaskKey } = require('./agentTaskKeys.cjs');
 
 function buildAgentFactsInput(groups) {
   return {
@@ -36,6 +37,7 @@ ${requirement}
 
 // 复用全局事实生成的持久 Agent 会话，按用户要求调整已生成的结果。
 async function runGlobalFactsAdjustmentTask({ agentService, workspaceStore, updateTask, checkpointTask, taskControl, payload }) {
+  const globalFactsAgentTaskKey = getProjectAgentTaskKey(GLOBAL_FACTS_AGENT_TASK_KEY, payload?.projectId || payload?.project_id);
   const requirement = String(payload?.requirement || '').trim();
   if (!requirement) {
     throw new Error('调整要求不能为空');
@@ -44,7 +46,7 @@ async function runGlobalFactsAdjustmentTask({ agentService, workspaceStore, upda
   if (!Array.isArray(storedPlan.globalFacts) || !storedPlan.globalFacts.length) {
     throw new Error('当前没有可调整的全局事实，请先完成全局事实设定');
   }
-  if (!agentService.hasPersistentTaskSession(GLOBAL_FACTS_AGENT_TASK_KEY)) {
+  if (!agentService.hasPersistentTaskSession(globalFactsAgentTaskKey)) {
     throw new Error('全局事实设定的 Agent 工作空间不存在，请重新生成后再使用 AI 调整');
   }
 
@@ -66,7 +68,7 @@ async function runGlobalFactsAdjustmentTask({ agentService, workspaceStore, upda
   }
 
   // 持久任务的 run_id 与当前业务任务对齐后才能 resume 同一 Session。
-  agentService.updatePersistentTask(GLOBAL_FACTS_AGENT_TASK_KEY, {
+  agentService.updatePersistentTask(globalFactsAgentTaskKey, {
     run_id: task.task_id,
     status: 'running',
     phase: 'global-facts-adjustment',
@@ -85,7 +87,7 @@ async function runGlobalFactsAdjustmentTask({ agentService, workspaceStore, upda
     }],
     signal: taskControl.signal,
     persistent_task: {
-      task_key: GLOBAL_FACTS_AGENT_TASK_KEY,
+      task_key: globalFactsAgentTaskKey,
       mode: 'resume',
     },
     initial_stage: 'global-facts-adjustment',
@@ -118,7 +120,7 @@ async function runGlobalFactsAdjustmentTask({ agentService, workspaceStore, upda
     contentIllustrationPlan: undefined,
     contentGenerationRuntime: undefined,
   });
-  agentService.updatePersistentTask(GLOBAL_FACTS_AGENT_TASK_KEY, {
+  agentService.updatePersistentTask(globalFactsAgentTaskKey, {
     status: 'success',
     phase: 'completed',
     agent_connection: 'idle',

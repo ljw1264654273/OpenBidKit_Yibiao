@@ -2,13 +2,14 @@ const crypto = require('node:crypto');
 const { OUTLINE_AGENT_TASK_KEY } = require('./outlineGenerationAgentV2Config.cjs');
 const { GLOBAL_FACTS_AGENT_TASK_KEY } = require('./globalFactsAgentV2Config.cjs');
 const { FEASIBILITY_OUTLINE_AGENT_TASK_KEY } = require('./feasibilityOutlineAgentConfig.cjs');
+const { getProjectAgentTaskKey } = require('./agentTaskKeys.cjs');
 
 function now() {
   return new Date().toISOString();
 }
 
 function isActiveTaskStatus(status) {
-  return status === 'running' || status === 'pausing';
+  return status === 'running' || status === 'pausing' || status === 'queued';
 }
 
 function countGeneratedLeaves(items) {
@@ -30,15 +31,17 @@ function normalizeCurrentView(view = {}) {
   const section = String(view.section || '').trim();
   const rawStep = view.step;
   const step = rawStep == null || rawStep === '' ? '' : String(rawStep).trim();
-  return { section, step };
+  const projectId = String(view.projectId || view.project_id || '').trim();
+  return { section, step, projectId };
 }
 
 function getMappedWorkspaceId(view) {
+  const projectId = view?.projectId || '';
   if (view?.section === 'feasibility-report' && view.step === 'outline') {
-    return FEASIBILITY_OUTLINE_AGENT_TASK_KEY;
+    return getProjectAgentTaskKey(FEASIBILITY_OUTLINE_AGENT_TASK_KEY, projectId);
   }
   if (!TECHNICAL_PLAN_SECTIONS.has(view?.section)) return null;
-  return STEP_WORKSPACE_IDS[view.step] || null;
+  return getProjectAgentTaskKey(STEP_WORKSPACE_IDS[view.step] || '', projectId) || null;
 }
 
 /**
@@ -46,13 +49,13 @@ function getMappedWorkspaceId(view) {
  * 当前内置目录生成与全局事实设定工作空间；后续其他持久 Agent 任务可按同样的
  * provider 形态（descriptor + sendMessage）注册接入。
  */
-function createAgentWorkspaceService({ agentService, taskService, technicalPlanStore, feasibilityReportStore }) {
+function createAgentWorkspaceService({ agentService, taskService, technicalPlanStore, feasibilityReportStore, bidProjectManager }) {
   const chatSubscribers = new Set();
   const primaryChatSubscribers = new Set();
   const workspaceChangeSubscribers = new Set();
   const primaryWorkspaceChangeSubscribers = new Set();
   // 当前可见页；未上报前无生效工作空间。不写库。
-  let currentView = { section: '', step: '' };
+  let currentView = { section: '', step: '', projectId: '' };
   // workspaceId -> { messages, pending, pending_task_id }
   const chatStates = new Map();
 
@@ -125,21 +128,38 @@ function createAgentWorkspaceService({ agentService, taskService, technicalPlanS
     'feasibility-human-writing': '自然化审校',
   };
 
+  function getProjectId() {
+    return currentView.projectId || '';
+  }
+
+  function getTechnicalPlanStoreForProject(projectId = getProjectId()) {
+    return bidProjectManager?.getTechnicalPlanStore(projectId) || technicalPlanStore;
+  }
+
+  function getWorkspaceId(baseId, projectId = getProjectId()) {
+    return getProjectAgentTaskKey(baseId, projectId);
+  }
+
+  function getTaskForProject(task, projectId = getProjectId()) {
+    return !projectId || String(task?.project_id || task?.projectId || task?.scope_id || '') === projectId;
+  }
+
   // 目录生成工作空间 provider。
   const outlineWorkspaceProvider = {
     id: OUTLINE_AGENT_TASK_KEY,
-    buildDescriptor() {
-      const plan = technicalPlanStore.loadTechnicalPlan() || {};
+    buildDescriptor(projectId = getProjectId()) {
+      const plan = getTechnicalPlanStoreForProject(projectId).loadTechnicalPlan() || {};
       const activeTasks = taskService.getActiveTasks();
-      const busyTask = activeTasks.find((task) => task.group === 'technical-plan' && isActiveTaskStatus(task.status));
+      const busyTask = activeTasks.find((task) => task.group === 'technical-plan' && isActiveTaskStatus(task.status) && getTaskForProject(task, projectId));
       const hasOutline = Boolean(plan.outlineData?.outline?.length);
-      const hasSession = agentService.hasPersistentTaskSession(OUTLINE_AGENT_TASK_KEY);
+      const workspaceId = getWorkspaceId(this.id, projectId);
+      const hasSession = agentService.hasPersistentTaskSession(workspaceId);
 
       if (!hasOutline || !hasSession) {
         // 目录生成运行中也视为"正处于该 Agent 工作空间"，只是暂不可发送。
         if (busyTask?.type === 'outline-generation') {
           return {
-            id: this.id,
+            id: workspaceId,
             title: '目录生成',
             status: 'busy',
             busy_reason: '目录生成任务执行中，完成后即可发送调整要求',
@@ -158,7 +178,7 @@ function createAgentWorkspaceService({ agentService, taskService, technicalPlanS
           : '';
       const hasGeneratedContent = countGeneratedLeaves(plan.outlineData.outline) > 0;
       return {
-        id: this.id,
+        id: workspaceId,
         title: '目录生成',
         status: busyReason ? 'busy' : 'ready',
         busy_reason: busyReason,
@@ -169,24 +189,25 @@ function createAgentWorkspaceService({ agentService, taskService, technicalPlanS
           : {}),
       };
     },
-    sendMessage(message) {
-      return taskService.startOutlineAdjustment({ requirement: message });
+    sendMessage(message, projectId = getProjectId()) {
+      return taskService.startOutlineAdjustment({ requirement: message, projectId });
     },
   };
 
   const globalFactsWorkspaceProvider = {
     id: GLOBAL_FACTS_AGENT_TASK_KEY,
-    buildDescriptor() {
-      const plan = technicalPlanStore.loadTechnicalPlan() || {};
+    buildDescriptor(projectId = getProjectId()) {
+      const plan = getTechnicalPlanStoreForProject(projectId).loadTechnicalPlan() || {};
       const activeTasks = taskService.getActiveTasks();
-      const busyTask = activeTasks.find((task) => task.group === 'technical-plan' && isActiveTaskStatus(task.status));
+      const busyTask = activeTasks.find((task) => task.group === 'technical-plan' && isActiveTaskStatus(task.status) && getTaskForProject(task, projectId));
       const hasFacts = Array.isArray(plan.globalFacts) && plan.globalFacts.length > 0;
-      const hasSession = agentService.hasPersistentTaskSession(GLOBAL_FACTS_AGENT_TASK_KEY);
+      const workspaceId = getWorkspaceId(this.id, projectId);
+      const hasSession = agentService.hasPersistentTaskSession(workspaceId);
 
       if (!hasFacts || !hasSession) {
         if (busyTask?.type === 'global-facts-generation') {
           return {
-            id: this.id,
+            id: workspaceId,
             title: '全局事实设定',
             status: 'busy',
             busy_reason: '全局事实设定任务执行中，完成后即可发送调整要求',
@@ -205,7 +226,7 @@ function createAgentWorkspaceService({ agentService, taskService, technicalPlanS
           : '';
       const hasGeneratedContent = countGeneratedLeaves(plan.outlineData?.outline) > 0;
       return {
-        id: this.id,
+        id: workspaceId,
         title: '全局事实设定',
         status: busyReason ? 'busy' : 'ready',
         busy_reason: busyReason,
@@ -216,14 +237,14 @@ function createAgentWorkspaceService({ agentService, taskService, technicalPlanS
           : {}),
       };
     },
-    sendMessage(message) {
-      return taskService.startGlobalFactsAdjustment({ requirement: message });
+    sendMessage(message, projectId = getProjectId()) {
+      return taskService.startGlobalFactsAdjustment({ requirement: message, projectId });
     },
   };
 
   const feasibilityOutlineWorkspaceProvider = {
     id: FEASIBILITY_OUTLINE_AGENT_TASK_KEY,
-    buildDescriptor() {
+    buildDescriptor(projectId = '') {
       const report = feasibilityReportStore?.loadFeasibilityReport?.() || {};
       const activeTasks = taskService.getActiveTasks();
       const busyTask = activeTasks.find((task) => task.group === 'feasibility-report' && isActiveTaskStatus(task.status));
@@ -271,10 +292,10 @@ function createAgentWorkspaceService({ agentService, taskService, technicalPlanS
   const providers = [outlineWorkspaceProvider, globalFactsWorkspaceProvider, feasibilityOutlineWorkspaceProvider];
 
   function buildWorkspaceEntry(provider) {
-    const descriptor = provider.buildDescriptor();
+    const descriptor = provider.buildDescriptor(getProjectId());
     if (!descriptor) return null;
     const mappedId = getMappedWorkspaceId(currentView);
-    const state = getChatState(provider.id);
+    const state = getChatState(descriptor.id);
     return {
       ...descriptor,
       active: descriptor.id === mappedId,
@@ -296,14 +317,15 @@ function createAgentWorkspaceService({ agentService, taskService, technicalPlanS
 
   function getPrimaryWorkspaceId() {
     const taskKey = String(agentService.getPrimarySession()?.task_key || '');
-    return providers.some((provider) => provider.id === taskKey) ? taskKey : null;
+    return providers.some((provider) => taskKey === provider.id || taskKey.startsWith(`${provider.id}:`)) ? taskKey : null;
   }
 
   function listPrimaryAgentWorkspaces() {
     const workspaceId = getPrimaryWorkspaceId();
     if (!workspaceId) return [];
-    const provider = providers.find((item) => item.id === workspaceId);
-    const descriptor = provider?.buildDescriptor();
+    const provider = providers.find((item) => workspaceId === item.id || workspaceId.startsWith(`${item.id}:`));
+    const projectId = workspaceId.startsWith(`${provider?.id || ''}:`) ? workspaceId.slice(`${provider.id}:`.length) : '';
+    const descriptor = provider?.buildDescriptor(projectId);
     if (!descriptor) return [];
     const state = getChatState(workspaceId);
     return [{
@@ -350,9 +372,11 @@ function createAgentWorkspaceService({ agentService, taskService, technicalPlanS
   }
 
   function sendAgentWorkspaceMessage(payload = {}, options = {}) {
-    const workspaceId = String(payload.workspaceId || payload.workspace_id || '');
+    const requestedWorkspaceId = String(payload.workspaceId || payload.workspace_id || '');
+    const projectId = getProjectId();
+    const provider = providers.find((item) => requestedWorkspaceId === getWorkspaceId(item.id, projectId));
+    const workspaceId = provider ? requestedWorkspaceId : '';
     const message = String(payload.message || '').trim();
-    const provider = providers.find((item) => item.id === workspaceId);
     if (!provider) {
       throw new Error('当前没有可执行任务');
     }
@@ -363,7 +387,7 @@ function createAgentWorkspaceService({ agentService, taskService, technicalPlanS
     if (!activeWorkspaceId || workspaceId !== activeWorkspaceId) {
       throw new Error(options.primaryOnly ? '当前没有可对话的主 Session' : '当前步骤没有可对话的工作空间');
     }
-    const descriptor = provider.buildDescriptor();
+    const descriptor = provider.buildDescriptor(projectId);
     if (!descriptor) {
       throw new Error('当前没有可执行任务');
     }
@@ -378,7 +402,7 @@ function createAgentWorkspaceService({ agentService, taskService, technicalPlanS
     appendMessage(workspaceId, 'user', message);
     state.pending = true;
     try {
-      const task = provider.sendMessage(message);
+      const task = provider.sendMessage(message, projectId);
       state.pending_task_id = task?.task_id || null;
       emitChatEvent(workspaceId);
     } catch (error) {
@@ -425,16 +449,18 @@ function createAgentWorkspaceService({ agentService, taskService, technicalPlanS
   taskService.subscribeCallback((event) => {
     const task = event?.task;
     if (task?.type === 'outline-generation') {
+      const workspaceId = getWorkspaceId(OUTLINE_AGENT_TASK_KEY, task.project_id || task.projectId || task.scope_id);
       if (task.task_id && task.task_id !== lastOutlineGenerationTaskId) {
         lastOutlineGenerationTaskId = task.task_id;
-        resetChatState(OUTLINE_AGENT_TASK_KEY);
+        resetChatState(workspaceId);
       }
       return;
     }
     if (task?.type === 'global-facts-generation') {
+      const workspaceId = getWorkspaceId(GLOBAL_FACTS_AGENT_TASK_KEY, task.project_id || task.projectId || task.scope_id);
       if (task.task_id && task.task_id !== lastGlobalFactsGenerationTaskId) {
         lastGlobalFactsGenerationTaskId = task.task_id;
-        resetChatState(GLOBAL_FACTS_AGENT_TASK_KEY);
+        resetChatState(workspaceId);
       }
       return;
     }
@@ -446,18 +472,19 @@ function createAgentWorkspaceService({ agentService, taskService, technicalPlanS
       return;
     }
     if (task?.type === 'outline-adjustment') {
-      const state = getChatState(OUTLINE_AGENT_TASK_KEY);
+      const workspaceId = getWorkspaceId(OUTLINE_AGENT_TASK_KEY, task.project_id || task.projectId || task.scope_id);
+      const state = getChatState(workspaceId);
       if (!state.pending || task.task_id !== state.pending_task_id) return;
       if (task.status === 'success') {
         state.pending = false;
         state.pending_task_id = null;
-        appendMessage(OUTLINE_AGENT_TASK_KEY, 'agent', task.stats?.adjustment?.summary || '目录已按要求调整完成。');
-        emitChatEvent(OUTLINE_AGENT_TASK_KEY);
+        appendMessage(workspaceId, 'agent', task.stats?.adjustment?.summary || '目录已按要求调整完成。');
+        emitChatEvent(workspaceId);
       } else if (task.status === 'error') {
         state.pending = false;
         state.pending_task_id = null;
-        appendMessage(OUTLINE_AGENT_TASK_KEY, 'error', task.error || '目录 AI 调整失败');
-        emitChatEvent(OUTLINE_AGENT_TASK_KEY);
+        appendMessage(workspaceId, 'error', task.error || '目录 AI 调整失败');
+        emitChatEvent(workspaceId);
       }
       return;
     }
@@ -478,18 +505,19 @@ function createAgentWorkspaceService({ agentService, taskService, technicalPlanS
       return;
     }
     if (task?.type !== 'global-facts-adjustment') return;
-    const state = getChatState(GLOBAL_FACTS_AGENT_TASK_KEY);
+    const workspaceId = getWorkspaceId(GLOBAL_FACTS_AGENT_TASK_KEY, task.project_id || task.projectId || task.scope_id);
+    const state = getChatState(workspaceId);
     if (!state.pending || task.task_id !== state.pending_task_id) return;
     if (task.status === 'success') {
       state.pending = false;
       state.pending_task_id = null;
-      appendMessage(GLOBAL_FACTS_AGENT_TASK_KEY, 'agent', task.stats?.adjustment?.summary || '全局事实已按要求调整完成。');
-      emitChatEvent(GLOBAL_FACTS_AGENT_TASK_KEY);
+      appendMessage(workspaceId, 'agent', task.stats?.adjustment?.summary || '全局事实已按要求调整完成。');
+      emitChatEvent(workspaceId);
     } else if (task.status === 'error') {
       state.pending = false;
       state.pending_task_id = null;
-      appendMessage(GLOBAL_FACTS_AGENT_TASK_KEY, 'error', task.error || '全局事实 AI 调整失败');
-      emitChatEvent(GLOBAL_FACTS_AGENT_TASK_KEY);
+      appendMessage(workspaceId, 'error', task.error || '全局事实 AI 调整失败');
+      emitChatEvent(workspaceId);
     }
   });
 

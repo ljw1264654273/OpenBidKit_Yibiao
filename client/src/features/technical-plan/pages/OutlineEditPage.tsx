@@ -19,6 +19,7 @@ import { canAddOutlineChild } from '../services/outlineDepth';
 import { collectOutlineSourceRecords } from '../services/outlineSourceMatcher';
 
 interface OutlineEditPageProps {
+  projectId?: string;
   workflowKind: TechnicalPlanWorkflowKind;
   projectOverview: string;
   outlineMode: OutlineMode;
@@ -367,6 +368,7 @@ function includesKeyword(value: string, keyword: string) {
 }
 
 function OutlineEditPage({
+  projectId,
   workflowKind,
   projectOverview,
   outlineMode,
@@ -835,6 +837,7 @@ function OutlineEditPage({
       });
       setGenerationDialogOpen(false);
       await window.yibiao?.tasks.startOutlineGeneration({
+        projectId,
         reference_knowledge_document_ids: draftKnowledgeDocumentIds,
         remote_knowledge_scopes: draftRemoteKnowledgeScopes,
         outline_mode: nextOutlineMode,
@@ -874,7 +877,7 @@ function OutlineEditPage({
   // 用户修改一级目录选择时停止当前弹窗的自动确认计时。
   const suppressOutlineSelectionAutoConfirmation = () => {
     if (!task?.task_id) return;
-    void window.yibiao.tasks.suppressOutlineSelectionAutoConfirmation({ taskId: task.task_id }).catch(() => undefined);
+    void window.yibiao.tasks.suppressOutlineSelectionAutoConfirmation({ projectId, taskId: task.task_id }).catch(() => undefined);
   };
 
   const toggleDraftKnowledgeDocument = (document: KnowledgeDocument) => {

@@ -1,5 +1,6 @@
 const { buildBidSectionContextHint } = require('../utils/bidSectionContext.cjs');
 const { GLOBAL_FACTS_AGENT_TASK_KEY } = require('./globalFactsAgentV2Config.cjs');
+const { getProjectAgentTaskKey } = require('./agentTaskKeys.cjs');
 const { planRemoteKnowledgeQueries } = require('./remoteKnowledgeQueryPlanner.cjs');
 const {
   formatBidAnalysisFactsForPrompt,
@@ -318,6 +319,7 @@ async function runGlobalFactsTaskV2({
   taskControl,
   payload,
 }) {
+  const globalFactsAgentTaskKey = getProjectAgentTaskKey(GLOBAL_FACTS_AGENT_TASK_KEY, payload?.projectId || payload?.project_id);
   let logs = ['开始生成全局事实变量。'];
   let currentProgress = 5;
   let task = checkpointTask({ status: 'running', progress: currentProgress, logs }, { globalFacts: [] }).task;
@@ -340,7 +342,7 @@ async function runGlobalFactsTaskV2({
         ...(task.stats || {}),
         agent: {
           ...(task.stats?.agent || {}),
-          task_key: GLOBAL_FACTS_AGENT_TASK_KEY,
+          task_key: globalFactsAgentTaskKey,
           run_id: task.task_id,
           resume_payload: {
             globalFactsMode: payload?.globalFactsMode || payload?.global_facts_mode,
@@ -513,7 +515,7 @@ async function runGlobalFactsTaskV2({
     files,
     signal: taskControl.signal,
     persistent_task: {
-      task_key: GLOBAL_FACTS_AGENT_TASK_KEY,
+      task_key: globalFactsAgentTaskKey,
       mode: 'create',
     },
     initial_stage: 'global-facts',
@@ -540,7 +542,7 @@ async function runGlobalFactsTaskV2({
     { globalFacts: normalized.groups },
   );
   task = finalCheckpoint.task;
-  agentService.updatePersistentTask(GLOBAL_FACTS_AGENT_TASK_KEY, {
+  agentService.updatePersistentTask(globalFactsAgentTaskKey, {
     status: 'success',
     phase: 'completed',
     agent_connection: 'idle',

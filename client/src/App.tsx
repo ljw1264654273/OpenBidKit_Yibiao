@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import AppRouter from './app/AppRouter';
 import GpuHardwareAccelerationPrompt from './app/GpuHardwareAccelerationPrompt';
 import PluginUpdateNotifier from './app/PluginUpdateNotifier';
@@ -17,7 +17,8 @@ function isManagedWorkbenchSection(section: SectionId) {
 }
 
 function App() {
-  const [activeSection, setActiveSection] = useState<SectionId>('bid-generation');
+  const [activeSection, setActiveSection] = useState<SectionId>('bid-projects');
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [developerMode, setDeveloperMode] = useState(false);
   const leaveGuardRef = useRef<((nextSection?: string) => Promise<boolean>) | null>(null);
 
@@ -32,8 +33,6 @@ function App() {
       .catch((error) => console.warn('读取开发者模式失败', error));
   }, []);
 
-  useEffect(() => onAppNavigation(({ section }) => { void requestSectionChange(section); }), []);
-
   useEffect(() => {
     trackPageView(activeSection);
     if (isManagedWorkbenchSection(activeSection)) return;
@@ -42,19 +41,25 @@ function App() {
 
   useEffect(() => {
     if (!developerMode && isDeveloperSection(activeSection)) {
-      setActiveSection('bid-generation');
+      setActiveSection('bid-projects');
     }
   }, [activeSection, developerMode]);
 
-  const requestSectionChange = async (section: SectionId) => {
+  const requestSectionChange = useCallback(async (section: SectionId) => {
     if (section === activeSection) {
       return;
     }
     const allowed = await (leaveGuardRef.current?.(section) ?? Promise.resolve(true));
     if (allowed) {
+      if (activeProjectId && !isManagedWorkbenchSection(section)) {
+        await window.yibiao?.bidProject.close(activeProjectId).catch(() => undefined);
+        setActiveProjectId(null);
+      }
       setActiveSection(section);
     }
-  };
+  }, [activeProjectId, activeSection]);
+
+  useEffect(() => onAppNavigation(({ section }) => { void requestSectionChange(section); }), [requestSectionChange]);
 
   return (
     <>
@@ -68,9 +73,11 @@ function App() {
       >
         <AppRouter
           activeSection={activeSection}
+          activeProjectId={activeProjectId}
           developerMode={developerMode}
           onDeveloperModeChange={setDeveloperMode}
           onSectionChange={(section) => { void requestSectionChange(section); }}
+          onProjectChange={setActiveProjectId}
           registerLeaveGuard={(guard) => {
             leaveGuardRef.current = guard;
           }}

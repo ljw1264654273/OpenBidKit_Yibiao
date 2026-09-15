@@ -1,5 +1,6 @@
 export type SectionId =
   | 'bid-generation'
+  | 'bid-projects'
   | 'technical-plan'
   | 'existing-plan-expansion'
   | 'feasibility-report'

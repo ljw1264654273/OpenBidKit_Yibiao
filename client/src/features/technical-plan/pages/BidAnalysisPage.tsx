@@ -9,6 +9,7 @@ import type { BackgroundTaskState, BackgroundTaskStatus, BidAnalysisMode, BidAna
 import { isQuickConfigLocked } from '../services/quickConfig';
 
 interface BidAnalysisPageProps {
+  projectId?: string;
   hasTenderFile: boolean;
   mode: BidAnalysisMode;
   selectedTaskIds: string[];
@@ -198,6 +199,7 @@ function JsonResultTable({ content }: { content: string }) {
 }
 
 function BidAnalysisPage({
+  projectId,
   hasTenderFile,
   mode,
   selectedTaskIds,
@@ -315,8 +317,8 @@ function BidAnalysisPage({
   const saveConfig = async (nextTaskIds = draftSelectedTaskIds, closeDialog = true) => {
     const normalizedTaskIds = normalizeSelectedTaskIds(nextTaskIds);
     const nextMode = getModeForSelection(normalizedTaskIds);
-    await window.yibiao?.technicalPlan.saveBidAnalysisConfig({ mode: nextMode, selectedTaskIds: normalizedTaskIds, bidSectionMode });
-    const saved = await window.yibiao?.technicalPlan.loadState();
+    await window.yibiao?.technicalPlan.saveBidAnalysisConfig({ projectId, mode: nextMode, selectedTaskIds: normalizedTaskIds, bidSectionMode });
+    const saved = await window.yibiao?.technicalPlan.loadState({ projectId });
     if (saved) onConfigSaved(saved);
     syncProgressForSelection(normalizedTaskIds);
     if (closeDialog) {
@@ -347,6 +349,7 @@ function BidAnalysisPage({
       const configState = await saveConfig(normalizedTaskIds, false);
       const config = await window.yibiao?.config.load();
       await window.yibiao?.tasks.startBidAnalysis({
+        projectId,
         mode: configState.mode,
         selected_task_ids: configState.selectedTaskIds,
         task_ids: taskIds,

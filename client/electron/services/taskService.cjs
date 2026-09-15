@@ -31,7 +31,7 @@ const taskDefinitions = {
     group: 'technical-plan',
     groupLabel: '技术方案',
     step: 2,
-    lockPolicy: 'group-exclusive',
+    lockPolicy: 'scope-exclusive',
     stateKey: 'technicalPlan',
     field: 'bidSectionExtractionTask',
   },
@@ -40,7 +40,7 @@ const taskDefinitions = {
     group: 'technical-plan',
     groupLabel: '技术方案',
     step: 2,
-    lockPolicy: 'group-exclusive',
+    lockPolicy: 'scope-exclusive',
     stateKey: 'technicalPlan',
     field: 'bidAnalysisTask',
   },
@@ -49,7 +49,7 @@ const taskDefinitions = {
     group: 'technical-plan',
     groupLabel: '技术方案',
     step: 3,
-    lockPolicy: 'group-exclusive',
+    lockPolicy: 'scope-exclusive',
     stateKey: 'technicalPlan',
     field: 'outlineGenerationTask',
   },
@@ -58,7 +58,7 @@ const taskDefinitions = {
     group: 'technical-plan',
     groupLabel: '技术方案',
     step: 3,
-    lockPolicy: 'group-exclusive',
+    lockPolicy: 'scope-exclusive',
     stateKey: 'technicalPlan',
     field: 'outlineAdjustmentTask',
   },
@@ -67,7 +67,7 @@ const taskDefinitions = {
     group: 'technical-plan',
     groupLabel: '技术方案',
     step: 4,
-    lockPolicy: 'group-exclusive',
+    lockPolicy: 'scope-exclusive',
     stateKey: 'technicalPlan',
     field: 'globalFactsTask',
   },
@@ -76,7 +76,7 @@ const taskDefinitions = {
     group: 'technical-plan',
     groupLabel: '技术方案',
     step: 4,
-    lockPolicy: 'group-exclusive',
+    lockPolicy: 'scope-exclusive',
     stateKey: 'technicalPlan',
     field: 'globalFactsAdjustmentTask',
   },
@@ -85,7 +85,7 @@ const taskDefinitions = {
     group: 'technical-plan',
     groupLabel: '技术方案',
     step: 5,
-    lockPolicy: 'group-exclusive',
+    lockPolicy: 'scope-exclusive',
     stateKey: 'technicalPlan',
     field: 'contentGenerationTask',
   },
@@ -181,7 +181,7 @@ function getTaskDefinition(type) {
 }
 
 function getScopeId(payload) {
-  const scopeId = payload?.scopeId ?? payload?.scope_id;
+  const scopeId = payload?.projectId ?? payload?.project_id ?? payload?.scopeId ?? payload?.scope_id;
   return scopeId === undefined || scopeId === null ? '' : String(scopeId);
 }
 
@@ -201,7 +201,25 @@ function getPayloadSignature(type, payload) {
 }
 
 function isActiveTaskStatus(status) {
-  return status === 'running' || status === 'pausing';
+  return status === 'running' || status === 'pausing' || status === 'queued';
+}
+
+const technicalPlanStepByTaskType = Object.freeze({
+  'bid-section-extraction': 'bid-analysis',
+  'bid-analysis': 'bid-analysis',
+  'outline-generation': 'outline-generation',
+  'outline-adjustment': 'outline-generation',
+  'global-facts-generation': 'global-facts',
+  'global-facts-adjustment': 'global-facts',
+  'content-generation': 'content-edit',
+});
+
+function getBidProjectStatusForTask(task, statusOverride) {
+  if (statusOverride) return statusOverride;
+  if (['queued', 'running', 'pausing', 'paused'].includes(task?.status)) return 'generating';
+  if (task?.status === 'error' || task?.status === 'interrupted') return 'failed';
+  if (task?.status === 'success' && task?.type === 'content-generation') return 'completed';
+  return 'incomplete';
 }
 
 function hasOwn(value, field) {
@@ -305,6 +323,8 @@ function createTask(type, payload) {
     step: definition.step,
     lock_policy: definition.lockPolicy,
     scope_id: scopeId || undefined,
+    project_id: scopeId || undefined,
+    projectId: scopeId || undefined,
     payload_signature: payloadSignature,
     status: 'running',
     progress: 0,
@@ -321,14 +341,39 @@ function cloneRemoteScopes(scopes) {
   }));
 }
 
-function createTaskService({ aiService, agentService, autoConfirmationService, technicalPlanStore, rejectionCheckStore, duplicateCheckStore, feasibilityReportStore, knowledgeBaseService, knowledgeReferenceService, remoteKnowledgeDecisionService, duplicateCheckService, openXmlHelperService, taskRunners = {} }) {
+function createTaskService({ aiService, agentService, autoConfirmationService, technicalPlanStore, bidProjectManager, rejectionCheckStore, duplicateCheckStore, feasibilityReportStore, knowledgeBaseService, knowledgeReferenceService, remoteKnowledgeDecisionService, duplicateCheckService, openXmlHelperService, taskRunners = {} }) {
   const subscribers = new Set();
   const callbackSubscribers = new Set();
   const activeTasks = new Map();
   const activeTaskControls = new Map();
+  const technicalPlanConcurrency = 2;
+  let technicalPlanRunning = 0;
+  const technicalPlanQueue = [];
+
+  function getTechnicalPlanStore(projectId) {
+    return bidProjectManager?.getTechnicalPlanStore(projectId || bidProjectManager?.getCurrentProjectId?.()) || technicalPlanStore;
+  }
+
+  function getProjectId(payloadOrTask) {
+    return getScopeId(payloadOrTask) || String(bidProjectManager?.getCurrentProjectId?.() || '').trim();
+  }
+
+  function getTaskKey(type, payloadOrTask) {
+    const projectId = getProjectId(payloadOrTask);
+    return projectId ? `${type}:${projectId}` : type;
+  }
+
+  function getAgentTaskKey(baseKey, payloadOrTask) {
+    const projectId = getProjectId(payloadOrTask);
+    return projectId ? `${baseKey}:${projectId}` : baseKey;
+  }
+
+  function hasActiveTask(type, projectId) {
+    return activeTasks.has(getTaskKey(type, { projectId, project_id: projectId, scopeId: projectId }));
+  }
 
   function snapshotTask(task) {
-    const control = activeTaskControls.get(task?.type);
+    const control = activeTaskControls.get(getTaskKey(task?.type, task));
     const decision = control?.remoteKnowledgeDecision;
     return {
       ...task,
@@ -350,10 +395,10 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
   }
 
   remoteKnowledgeDecisionService?.onDecision?.((decision) => {
-    for (const [type, control] of activeTaskControls.entries()) {
+    for (const [taskKey, control] of activeTaskControls.entries()) {
       if (control.knowledgeSession?.taskId !== decision?.taskId) continue;
       control.remoteKnowledgeDecision = decision;
-      const task = activeTasks.get(type);
+      const task = activeTasks.get(taskKey);
       if (task) emit(task, getSnapshotForTask(task));
       break;
     }
@@ -537,7 +582,7 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
   function getSnapshotForTask(task) {
     const definition = getTaskDefinition(task.type);
     if (definition.stateKey === 'technicalPlan') {
-      return buildSnapshot(definition, technicalPlanStore.loadTechnicalPlan(), task);
+      return buildSnapshot(definition, getTechnicalPlanStore(getProjectId(task)).loadTechnicalPlan(), task);
     }
     if (definition.stateKey === 'rejectionCheck') {
       return { rejectionCheck: rejectionCheckStore.loadRejectionCheck() };
@@ -582,7 +627,7 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
       return null;
     }
 
-    const nextScopeId = getScopeId(payload);
+    const nextScopeId = getProjectId(payload);
     for (const task of activeTasks.values()) {
       if (!isActiveTaskStatus(task.status) || task.type === type) {
         continue;
@@ -594,6 +639,9 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
       }
 
       if (definition.lockPolicy === 'group-exclusive' || activeDefinition.lockPolicy === 'group-exclusive') {
+        if (definition.group === 'technical-plan' && activeDefinition.group === 'technical-plan' && nextScopeId && task.scope_id !== nextScopeId) {
+          continue;
+        }
         return { task, definition: activeDefinition };
       }
 
@@ -610,7 +658,7 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
     if (!conflict) {
       const definition = getTaskDefinition(type);
       if (definition.group === 'technical-plan') {
-        const technicalPlan = technicalPlanStore.loadTechnicalPlan() || {};
+        const technicalPlan = getTechnicalPlanStore(getProjectId(payload)).loadTechnicalPlan() || {};
         const pausedContentTask = technicalPlan.contentGenerationTask;
         if (pausedContentTask?.status === 'paused') {
           if (type === 'content-generation' && payload?.resume) {
@@ -635,9 +683,9 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
     throw new Error(`当前${definition.groupLabel || '任务组'}正在执行“${conflict.definition.label || conflict.task.type}”，请完成后再启动“${definition.label || type}”。`);
   }
 
-  function updateWorkspaceStateWithoutReload(definition, partial) {
+  function updateWorkspaceStateWithoutReload(definition, partial, workspaceStore) {
     if (definition.stateKey === 'technicalPlan') {
-      technicalPlanStore.updateTechnicalPlanWithoutReload(partial);
+      (workspaceStore || technicalPlanStore).updateTechnicalPlanWithoutReload(partial);
       return;
     }
     if (definition.stateKey === 'rejectionCheck') {
@@ -655,9 +703,9 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
     technicalPlanStore.updateTechnicalPlanWithoutReload(partial);
   }
 
-  function loadWorkspaceState(definition) {
+  function loadWorkspaceState(definition, projectId) {
     if (definition.stateKey === 'technicalPlan') {
-      return technicalPlanStore.loadTechnicalPlan();
+      return getTechnicalPlanStore(projectId).loadTechnicalPlan();
     }
     if (definition.stateKey === 'rejectionCheck') {
       return rejectionCheckStore.loadRejectionCheck();
@@ -673,7 +721,7 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
 
   // 在 Agent 失败时采集父任务及其前置步骤的用户参数快照。
   function createAgentUserTaskContext(type, definition, payload, currentTask) {
-    const workspaceState = loadWorkspaceState(definition) || {};
+    const workspaceState = loadWorkspaceState(definition, getProjectId(payload)) || {};
     return {
       managed_task: {
         type,
@@ -691,8 +739,42 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
     };
   }
 
+  function updateBidProjectTaskStatus(task, statusOverride) {
+    const projectId = getProjectId(task);
+    if (!projectId || !bidProjectManager?.updateProject) return;
+    const nextStatus = getBidProjectStatusForTask(task, statusOverride);
+    try {
+      bidProjectManager.updateProject(projectId, {
+        status: nextStatus,
+        lastTaskType: task.type,
+        lastTaskStatus: task.status,
+        lastError: task.error || null,
+        currentStep: technicalPlanStepByTaskType[task.type],
+      });
+    } catch (error) {
+      console.warn('[task-service] 更新标书项目状态失败', error);
+    }
+  }
+
+  function drainTechnicalPlanQueue() {
+    while (technicalPlanRunning < technicalPlanConcurrency && technicalPlanQueue.length) {
+      const entry = technicalPlanQueue.shift();
+      const task = activeTasks.get(entry.taskKey);
+      const control = activeTaskControls.get(entry.taskKey);
+      if (!task || !control || control.cancelled) continue;
+      technicalPlanRunning += 1;
+      entry.resolve();
+    }
+  }
+
   function startManagedTask(type, payload, runner, initialPartial = {}, startOptions = {}) {
-    const existingTask = activeTasks.get(type);
+    const projectId = getProjectId(payload);
+    const scopedPayload = payload && typeof payload === 'object' && !Array.isArray(payload)
+      ? { ...payload, ...(projectId ? { projectId, project_id: projectId, scopeId: projectId, scope_id: projectId } : {}) }
+      : payload;
+    const taskKey = getTaskKey(type, scopedPayload);
+    const workspaceStore = getTechnicalPlanStore(projectId);
+    const existingTask = activeTasks.get(taskKey);
     if (existingTask && isActiveTaskStatus(existingTask.status)) {
       const nextPayloadSignature = getPayloadSignature(type, payload);
       if (existingTask.payload_signature && nextPayloadSignature && existingTask.payload_signature !== nextPayloadSignature) {
@@ -707,9 +789,25 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
     startOptions.beforeStart?.();
 
     const definition = getTaskDefinition(type);
-    const task = startOptions.existingTask || createTask(type, payload);
+    const task = startOptions.existingTask || createTask(type, scopedPayload);
+    if (projectId) {
+      task.scope_id = projectId;
+      task.project_id = projectId;
+      task.projectId = projectId;
+    }
+    const shouldQueue = definition.group === 'technical-plan'
+      && technicalPlanRunning >= technicalPlanConcurrency
+      && !startOptions.existingTask;
+    if (shouldQueue) {
+      task.status = 'queued';
+      task.queue_position = technicalPlanQueue.length + 1;
+    }
+    if (definition.group === 'technical-plan' && !shouldQueue) {
+      technicalPlanRunning += 1;
+    }
     const queueScopeId = `${type}:${task.task_id}`;
-    activeTasks.set(type, task);
+    activeTasks.set(taskKey, task);
+    updateBidProjectTaskStatus(task, 'generating');
     const taskField = getTaskField(type);
     let currentTask = task;
     const abortController = new AbortController();
@@ -724,6 +822,8 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
       remoteKnowledgeDecision: null,
       remoteKnowledgeDecisionWaiters: 0,
       pauseRequested: false,
+      queued: shouldQueue,
+      cancelled: false,
       outlineSelectionWaiter: null,
       outlineSelectionResult: null,
       outlineSelectionAutoConfirmationId: null,
@@ -737,7 +837,7 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
         this.remoteKnowledgeDecisionWaiters = Math.max(0, this.remoteKnowledgeDecisionWaiters - 1);
         if (this.remoteKnowledgeDecisionWaiters || !this.remoteKnowledgeDecision) return;
         this.remoteKnowledgeDecision = null;
-        const activeTask = activeTasks.get(type);
+        const activeTask = activeTasks.get(taskKey);
         if (activeTask) emit(activeTask, getSnapshotForTask(activeTask));
       },
       requestPause() {
@@ -774,7 +874,17 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
         this.outlineSelectionWaiter = null;
         autoConfirmationService.unregister(this.outlineSelectionAutoConfirmationId);
         this.outlineSelectionAutoConfirmationId = null;
+        this.cancelled = true;
         if (!abortController.signal.aborted) abortController.abort(error);
+        if (this.queued) {
+          const queueIndex = technicalPlanQueue.findIndex((entry) => entry.taskKey === taskKey);
+          if (queueIndex >= 0) technicalPlanQueue.splice(queueIndex, 1);
+          this.dispose();
+          activeTasks.delete(taskKey);
+          activeTaskControls.delete(taskKey);
+          resolveSettled();
+          drainTechnicalPlanQueue();
+        }
       },
       waitForSettlement() {
         return settledPromise;
@@ -788,7 +898,7 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
         this.outlineSelectionAutoConfirmationId = null;
       },
     };
-    activeTaskControls.set(type, taskControl);
+    activeTaskControls.set(taskKey, taskControl);
 
     const applyTaskPatch = (partial) => {
       const nextStatus = currentTask.status === 'pausing' && partial.status === 'running'
@@ -802,7 +912,7 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
         logs: partial.logs ? normalizeLogs(partial.logs) : currentTask.logs,
         updated_at: now(),
       };
-      activeTasks.set(type, currentTask);
+      activeTasks.set(taskKey, currentTask);
       return currentTask;
     };
 
@@ -826,7 +936,7 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
         ...(workspacePartial || {}),
         [taskField]: persistedTask,
       };
-      updateWorkspaceStateWithoutReload(definition, persistedPatch);
+      updateWorkspaceStateWithoutReload(definition, persistedPatch, workspaceStore);
       emit(nextTask, buildSnapshot(definition, persistedPatch, nextTask, eventPatch));
       return { task: nextTask };
     };
@@ -899,8 +1009,8 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
       return { success: true };
     };
 
-    const previousState = loadWorkspaceState(definition) || {};
-    if (knowledgeReferenceService && ['outline-generation', 'global-facts-generation', 'content-generation'].includes(type)) {
+    const previousState = loadWorkspaceState(definition, projectId) || {};
+    if (!shouldQueue && knowledgeReferenceService && ['outline-generation', 'global-facts-generation', 'content-generation'].includes(type)) {
       const session = knowledgeReferenceService.createTaskSession({
         taskId: currentTask.task_id,
         workflow: previousState.workflowKind || 'technical-plan',
@@ -914,63 +1024,92 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
       ? previousState
       : { ...initialPartial, [taskField]: currentTask };
     if (!startOptions.skipInitialStateUpdate) {
-      updateWorkspaceStateWithoutReload(definition, initialState);
+      updateWorkspaceStateWithoutReload(definition, initialState, workspaceStore);
     }
     emit(currentTask, buildSnapshot(definition, initialState, currentTask));
-    if (startOptions.restoreOutlineSelectionWaiter) {
+    if (!shouldQueue && startOptions.restoreOutlineSelectionWaiter) {
       taskControl.waitForOutlineSelection();
     }
 
     const runnerWorkspaceStore = definition.stateKey === 'technicalPlan'
-      ? technicalPlanStore
+      ? workspaceStore
       : definition.stateKey === 'rejectionCheck'
         ? rejectionCheckStore
         : definition.stateKey === 'feasibilityReport'
           ? feasibilityReportStore
           : duplicateCheckStore;
-    const runnerAiService = aiService?.withQueueScope ? aiService.withQueueScope(queueScopeId, taskControl.signal) : aiService;
-    const agentTaskContextProvider = () => createAgentUserTaskContext(type, definition, payload, currentTask);
-    const runnerAgentService = agentService.bindTaskContext(
-      agentTaskContextProvider,
-      {
-        queueScopeId,
-        signal: taskControl.signal,
-        primary_session: startOptions.primarySession === true,
-      },
-    );
-    const runnerOrdinaryAgentService = agentService.bindTaskContext(
-      agentTaskContextProvider,
-      {
-        queueScopeId,
-        signal: taskControl.signal,
-      },
-    );
-    runner({ aiService: runnerAiService, agentService: runnerAgentService, ordinaryAgentService: runnerOrdinaryAgentService, workspaceStore: runnerWorkspaceStore, knowledgeBaseService, knowledgeReferenceService, knowledgeSession: taskControl.knowledgeSession, openXmlHelperService, updateTask, checkpointTask, payload, taskControl, previousState }).catch((error) => {
+    const runGate = shouldQueue
+      ? new Promise((resolve) => technicalPlanQueue.push({ taskKey, resolve }))
+      : Promise.resolve();
+    runGate.then(() => {
+      if (taskControl.cancelled) return;
+      taskControl.queued = false;
+      currentTask = applyTaskPatch({ status: 'running', queue_position: undefined });
+      updateWorkspaceStateWithoutReload(definition, { [taskField]: currentTask }, workspaceStore);
+      emit(currentTask, buildSnapshot(definition, { [taskField]: currentTask }, currentTask));
+      if (knowledgeReferenceService && ['outline-generation', 'global-facts-generation', 'content-generation'].includes(type) && !taskControl.knowledgeSession) {
+        const session = knowledgeReferenceService.createTaskSession({
+          taskId: currentTask.task_id,
+          workflow: previousState.workflowKind || 'technical-plan',
+          localDocumentIds: Array.isArray(previousState.referenceKnowledgeDocumentIds) ? [...previousState.referenceKnowledgeDocumentIds] : [],
+          remoteScopes: cloneRemoteScopes(previousState.remoteKnowledgeScopes),
+          taskControl,
+        });
+        taskControl.knowledgeSession = session;
+      }
+      if (startOptions.restoreOutlineSelectionWaiter && !taskControl.outlineSelectionWaiter) {
+        taskControl.waitForOutlineSelection();
+      }
+      const runnerAiService = aiService?.withQueueScope ? aiService.withQueueScope(queueScopeId, taskControl.signal) : aiService;
+      const agentTaskContextProvider = () => createAgentUserTaskContext(type, definition, scopedPayload, currentTask);
+      const runnerAgentService = agentService.bindTaskContext(
+        agentTaskContextProvider,
+        {
+          queueScopeId,
+          signal: taskControl.signal,
+          primary_session: startOptions.primarySession === true,
+        },
+      );
+      const runnerOrdinaryAgentService = agentService.bindTaskContext(
+        agentTaskContextProvider,
+        {
+          queueScopeId,
+          signal: taskControl.signal,
+        },
+      );
+      return runner({ aiService: runnerAiService, agentService: runnerAgentService, ordinaryAgentService: runnerOrdinaryAgentService, workspaceStore: runnerWorkspaceStore, knowledgeBaseService, knowledgeReferenceService, knowledgeSession: taskControl.knowledgeSession, openXmlHelperService, updateTask, checkpointTask, payload: scopedPayload, taskControl, previousState });
+    }).catch((error) => {
       if (!taskControl.signal.aborted) {
         checkpointTask({ status: 'error', error: error.message || '任务执行失败' });
       }
     }).finally(() => {
+      if (definition.group === 'technical-plan' && !taskControl.queued) {
+        technicalPlanRunning = Math.max(0, technicalPlanRunning - 1);
+      }
       taskControl.dispose();
       if (aiService?.resumeQueueScope) {
         aiService.resumeQueueScope(queueScopeId);
       }
-      activeTasks.delete(type);
-      activeTaskControls.delete(type);
+      updateBidProjectTaskStatus(currentTask);
+      activeTasks.delete(taskKey);
+      activeTaskControls.delete(taskKey);
       resolveSettled();
+      drainTechnicalPlanQueue();
     });
 
     return snapshotTask(currentTask);
   }
 
   // 取消技术方案任务并等待退出，避免清空下游后旧任务继续提交 checkpoint。
-  async function cancelTechnicalPlanTasks(reason, taskTypes) {
+  async function cancelTechnicalPlanTasks(reason, taskTypes, projectId) {
     const typeFilter = Array.isArray(taskTypes) && taskTypes.length ? new Set(taskTypes) : null;
     const controls = [];
-    for (const [type, task] of activeTasks.entries()) {
-      const definition = getTaskDefinition(type);
-      const control = activeTaskControls.get(type);
+    for (const [taskKey, task] of activeTasks.entries()) {
+      const definition = getTaskDefinition(task.type);
+      const control = activeTaskControls.get(taskKey);
       if (definition.group !== 'technical-plan' || !isActiveTaskStatus(task.status) || !control?.cancel) continue;
-      if (typeFilter && !typeFilter.has(type)) continue;
+      if (typeFilter && !typeFilter.has(task.type)) continue;
+      if (projectId && getProjectId(task) !== String(projectId)) continue;
       controls.push(control);
       control.cancel(reason);
     }
@@ -981,11 +1120,11 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
   async function cancelRejectionCheckTasks(reason, taskTypes) {
     const typeFilter = Array.isArray(taskTypes) && taskTypes.length ? new Set(taskTypes) : null;
     const controls = [];
-    for (const [type, task] of activeTasks.entries()) {
-      const definition = getTaskDefinition(type);
-      const control = activeTaskControls.get(type);
+    for (const [taskKey, task] of activeTasks.entries()) {
+      const definition = getTaskDefinition(task.type);
+      const control = activeTaskControls.get(taskKey);
       if (definition.group !== 'rejection-check' || !isActiveTaskStatus(task.status) || !control?.cancel) continue;
-      if (typeFilter && !typeFilter.has(type)) continue;
+      if (typeFilter && !typeFilter.has(task.type)) continue;
       controls.push(control);
       control.cancel(reason);
     }
@@ -995,19 +1134,19 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
   async function cancelFeasibilityReportTasks(reason, taskTypes) {
     const typeFilter = Array.isArray(taskTypes) && taskTypes.length ? new Set(taskTypes) : null;
     const controls = [];
-    for (const [type, task] of activeTasks.entries()) {
-      const definition = getTaskDefinition(type);
-      const control = activeTaskControls.get(type);
+    for (const [taskKey, task] of activeTasks.entries()) {
+      const definition = getTaskDefinition(task.type);
+      const control = activeTaskControls.get(taskKey);
       if (definition.group !== 'feasibility-report' || !isActiveTaskStatus(task.status) || !control?.cancel) continue;
-      if (typeFilter && !typeFilter.has(type)) continue;
+      if (typeFilter && !typeFilter.has(task.type)) continue;
       controls.push(control);
       control.cancel(reason);
     }
     await Promise.all(controls.map((control) => control.waitForSettlement()));
   }
 
-  function recoverInterruptedContentGenerationTask(technicalPlan) {
-    if (activeTasks.has('content-generation')) {
+  function recoverInterruptedContentGenerationTask(technicalPlan, projectId, workspaceStore = technicalPlanStore) {
+    if (hasActiveTask('content-generation', projectId)) {
       return;
     }
 
@@ -1050,12 +1189,12 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
         updated_at: now(),
       },
     };
-    technicalPlanStore.updateTechnicalPlanWithoutReload(partial);
+    workspaceStore.updateTechnicalPlanWithoutReload(partial);
     emit(pausedTask, buildSnapshot(getTaskDefinition('content-generation'), partial, pausedTask));
   }
 
-  function recoverInterruptedOutlineGenerationTask(technicalPlan) {
-    if (activeTasks.has('outline-generation')) {
+  function recoverInterruptedOutlineGenerationTask(technicalPlan, projectId, workspaceStore = technicalPlanStore) {
+    if (hasActiveTask('outline-generation', projectId)) {
       return;
     }
 
@@ -1068,21 +1207,22 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
     let persistentTask = null;
     let templatePersistentTask = null;
     try {
-      persistentTask = agentService.loadPersistentTask(OUTLINE_AGENT_TASK_KEY);
+      persistentTask = agentService.loadPersistentTask(getAgentTaskKey(OUTLINE_AGENT_TASK_KEY, { projectId }));
     } catch {}
     try {
-      templatePersistentTask = agentService.loadPersistentTask(TEMPLATE_EXTRACTION_AGENT_TASK_KEY);
+      templatePersistentTask = agentService.loadPersistentTask(getAgentTaskKey(TEMPLATE_EXTRACTION_AGENT_TASK_KEY, { projectId }));
     } catch {}
     const recoverableWaiting = persistentTask?.state?.run_id === outlineTask.task_id
       && persistentTask.state.status === 'waiting-outline-selection'
       && persistentTask.state.phase === 'outline-selection'
       && persistentTask.state.agent_connection === 'idle'
       && Boolean(persistentTask.state.session_file)
-      && agentService.hasPersistentTaskSession(OUTLINE_AGENT_TASK_KEY)
+      && agentService.hasPersistentTaskSession(getAgentTaskKey(OUTLINE_AGENT_TASK_KEY, { projectId }))
       && Boolean(outlineTask.stats?.outline_selection?.items?.length)
       && outlineTask.stats.outline_selection.confirmed !== true;
     if (recoverableWaiting) {
       startManagedTask('outline-generation', {
+        projectId,
         ...(agentState.resume_payload || {}),
         agent_resume: {
           phase: 'outline-selection',
@@ -1091,7 +1231,7 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
         existingTask: outlineTask,
         skipInitialStateUpdate: true,
         restoreOutlineSelectionWaiter: true,
-        primarySession: agentService.isPrimarySession({ task_key: OUTLINE_AGENT_TASK_KEY }),
+        primarySession: agentService.isPrimarySession({ task_key: getAgentTaskKey(OUTLINE_AGENT_TASK_KEY, { projectId }) }),
       });
       return;
     }
@@ -1099,7 +1239,7 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
     const message = '上次目录生成未完成，请重新生成目录。';
     if (persistentTask) {
       try {
-        agentService.updatePersistentTask(OUTLINE_AGENT_TASK_KEY, {
+        agentService.updatePersistentTask(getAgentTaskKey(OUTLINE_AGENT_TASK_KEY, { projectId }), {
           status: 'interrupted',
           agent_connection: 'idle',
           error: message,
@@ -1108,14 +1248,14 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
     }
     if (templatePersistentTask) {
       try {
-        agentService.updatePersistentTask(TEMPLATE_EXTRACTION_AGENT_TASK_KEY, {
+        agentService.updatePersistentTask(getAgentTaskKey(TEMPLATE_EXTRACTION_AGENT_TASK_KEY, { projectId }), {
           status: 'interrupted',
           agent_connection: 'idle',
           error: message,
         });
       } catch {}
     }
-    try { technicalPlanStore.clearBidTemplate(); } catch {}
+    try { workspaceStore.clearBidTemplate(); } catch {}
     const recoveredStats = { ...(outlineTask.stats || {}) };
     delete recoveredStats.outline_selection;
     if (recoveredStats.agent) {
@@ -1143,12 +1283,12 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
       updated_at: now(),
     };
     const partial = { outlineGenerationTask: recoveredTask };
-    technicalPlanStore.updateTechnicalPlanWithoutReload(partial);
+    workspaceStore.updateTechnicalPlanWithoutReload(partial);
     emit(recoveredTask, buildSnapshot(getTaskDefinition('outline-generation'), partial, recoveredTask));
   }
 
-  function recoverInterruptedOutlineAdjustmentTask(technicalPlan) {
-    if (activeTasks.has('outline-adjustment')) {
+  function recoverInterruptedOutlineAdjustmentTask(technicalPlan, projectId, workspaceStore = technicalPlanStore) {
+    if (hasActiveTask('outline-adjustment', projectId)) {
       return;
     }
 
@@ -1168,12 +1308,12 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
       updated_at: now(),
     };
     const partial = { outlineAdjustmentTask: recoveredTask };
-    technicalPlanStore.updateTechnicalPlanWithoutReload(partial);
+    workspaceStore.updateTechnicalPlanWithoutReload(partial);
     emit(recoveredTask, buildSnapshot(getTaskDefinition('outline-adjustment'), partial, recoveredTask));
   }
 
-  function recoverInterruptedGlobalFactsAdjustmentTask(technicalPlan) {
-    if (activeTasks.has('global-facts-adjustment')) {
+  function recoverInterruptedGlobalFactsAdjustmentTask(technicalPlan, projectId, workspaceStore = technicalPlanStore) {
+    if (hasActiveTask('global-facts-adjustment', projectId)) {
       return;
     }
 
@@ -1193,12 +1333,12 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
       updated_at: now(),
     };
     const partial = { globalFactsAdjustmentTask: recoveredTask };
-    technicalPlanStore.updateTechnicalPlanWithoutReload(partial);
+    workspaceStore.updateTechnicalPlanWithoutReload(partial);
     emit(recoveredTask, buildSnapshot(getTaskDefinition('global-facts-adjustment'), partial, recoveredTask));
   }
 
-  function recoverInterruptedBidAnalysisTask(technicalPlan) {
-    if (activeTasks.has('bid-analysis')) {
+  function recoverInterruptedBidAnalysisTask(technicalPlan, projectId, workspaceStore = technicalPlanStore) {
+    if (hasActiveTask('bid-analysis', projectId)) {
       return;
     }
 
@@ -1232,12 +1372,12 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
     const partial = Object.keys(interruptedBidAnalysisTasks).length
       ? { bidAnalysisTask: recoveredTask, bidAnalysisTasks: interruptedBidAnalysisTasks }
       : { bidAnalysisTask: recoveredTask };
-    technicalPlanStore.updateTechnicalPlanWithoutReload(partial);
+    workspaceStore.updateTechnicalPlanWithoutReload(partial);
     emit(recoveredTask, buildSnapshot(getTaskDefinition('bid-analysis'), partial, recoveredTask));
   }
 
-  function recoverInterruptedBidSectionExtractionTask(technicalPlan) {
-    if (activeTasks.has('bid-section-extraction')) {
+  function recoverInterruptedBidSectionExtractionTask(technicalPlan, projectId, workspaceStore = technicalPlanStore) {
+    if (hasActiveTask('bid-section-extraction', projectId)) {
       return;
     }
 
@@ -1261,12 +1401,12 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
       bidSectionExtractionStatus: 'error',
       bidSectionExtractionError: message,
     };
-    technicalPlanStore.updateTechnicalPlanWithoutReload(partial);
+    workspaceStore.updateTechnicalPlanWithoutReload(partial);
     emit(recoveredTask, buildSnapshot(getTaskDefinition('bid-section-extraction'), partial, recoveredTask));
   }
 
-  function recoverInterruptedGlobalFactsTask(technicalPlan) {
-    if (activeTasks.has('global-facts-generation')) {
+  function recoverInterruptedGlobalFactsTask(technicalPlan, projectId, workspaceStore = technicalPlanStore) {
+    if (hasActiveTask('global-facts-generation', projectId)) {
       return;
     }
 
@@ -1285,7 +1425,7 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
       updated_at: now(),
     };
     const partial = { globalFactsTask: recoveredTask };
-    technicalPlanStore.updateTechnicalPlanWithoutReload(partial);
+    workspaceStore.updateTechnicalPlanWithoutReload(partial);
     emit(recoveredTask, buildSnapshot(getTaskDefinition('global-facts-generation'), partial, recoveredTask));
   }
 
@@ -1411,17 +1551,26 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
     if (recovered) emit(recovered, { feasibilityReportPatch: partial });
   }
 
-  const technicalPlanRecoveryState = technicalPlanStore.loadTechnicalPlan() || {};
   const rejectionCheckRecoveryState = rejectionCheckStore.loadRejectionCheck() || {};
   const duplicateCheckRecoveryState = duplicateCheckStore.loadDuplicateCheck() || {};
   const feasibilityReportRecoveryState = feasibilityReportStore?.loadFeasibilityReport?.() || {};
-  recoverInterruptedBidSectionExtractionTask(technicalPlanRecoveryState);
-  recoverInterruptedBidAnalysisTask(technicalPlanRecoveryState);
-  recoverInterruptedOutlineGenerationTask(technicalPlanRecoveryState);
-  recoverInterruptedOutlineAdjustmentTask(technicalPlanRecoveryState);
-  recoverInterruptedContentGenerationTask(technicalPlanRecoveryState);
-  recoverInterruptedGlobalFactsTask(technicalPlanRecoveryState);
-  recoverInterruptedGlobalFactsAdjustmentTask(technicalPlanRecoveryState);
+  const projectRecoveryEntries = bidProjectManager?.listProjects?.() || [];
+  const technicalPlanRecoveryEntries = projectRecoveryEntries.length
+    ? projectRecoveryEntries.map((project) => ({
+      projectId: project.projectId,
+      store: getTechnicalPlanStore(project.projectId),
+      state: getTechnicalPlanStore(project.projectId).loadTechnicalPlan() || {},
+    }))
+    : [{ projectId: '', store: technicalPlanStore, state: technicalPlanStore.loadTechnicalPlan() || {} }];
+  technicalPlanRecoveryEntries.forEach(({ projectId, store, state }) => {
+    recoverInterruptedBidSectionExtractionTask(state, projectId, store);
+    recoverInterruptedBidAnalysisTask(state, projectId, store);
+    recoverInterruptedOutlineGenerationTask(state, projectId, store);
+    recoverInterruptedOutlineAdjustmentTask(state, projectId, store);
+    recoverInterruptedContentGenerationTask(state, projectId, store);
+    recoverInterruptedGlobalFactsTask(state, projectId, store);
+    recoverInterruptedGlobalFactsAdjustmentTask(state, projectId, store);
+  });
   recoverInterruptedRejectionCheckTasks(rejectionCheckRecoveryState);
   recoverInterruptedDuplicateCheckTask(duplicateCheckRecoveryState);
   recoverInterruptedFeasibilityTasks(feasibilityReportRecoveryState);
@@ -1486,15 +1635,15 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
       }, {
         primarySession: true,
         beforeStart: () => {
-          agentService.deletePersistentTask(OUTLINE_AGENT_TASK_KEY);
-          agentService.deletePersistentTask(TEMPLATE_EXTRACTION_AGENT_TASK_KEY);
-          technicalPlanStore.clearBidTemplate();
+          agentService.deletePersistentTask(getAgentTaskKey(OUTLINE_AGENT_TASK_KEY, taskPayload));
+          agentService.deletePersistentTask(getAgentTaskKey(TEMPLATE_EXTRACTION_AGENT_TASK_KEY, taskPayload));
+          getTechnicalPlanStore(getProjectId(taskPayload)).clearBidTemplate();
         },
       });
     },
     startOutlineAdjustment(payload) {
       return startManagedTask('outline-adjustment', payload, runOutlineAdjustmentTask, {}, {
-        primarySession: agentService.isPrimarySession({ task_key: OUTLINE_AGENT_TASK_KEY }),
+        primarySession: agentService.isPrimarySession({ task_key: getAgentTaskKey(OUTLINE_AGENT_TASK_KEY, payload) }),
       });
     },
     startGlobalFactsGeneration(payload) {
@@ -1509,24 +1658,25 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
         contentGenerationRuntime: undefined,
       }, {
         primarySession: true,
-        beforeStart: () => agentService.deletePersistentTask(GLOBAL_FACTS_AGENT_TASK_KEY),
+        beforeStart: () => agentService.deletePersistentTask(getAgentTaskKey(GLOBAL_FACTS_AGENT_TASK_KEY, payload)),
       });
     },
     startGlobalFactsAdjustment(payload) {
       return startManagedTask('global-facts-adjustment', payload, runGlobalFactsAdjustmentTask, {}, {
-        primarySession: agentService.isPrimarySession({ task_key: GLOBAL_FACTS_AGENT_TASK_KEY }),
+        primarySession: agentService.isPrimarySession({ task_key: getAgentTaskKey(GLOBAL_FACTS_AGENT_TASK_KEY, payload) }),
       });
     },
     startContentGeneration(payload) {
-      const technicalPlan = technicalPlanStore.loadTechnicalPlan();
+      const technicalPlan = getTechnicalPlanStore(getProjectId(payload)).loadTechnicalPlan();
       if (!technicalPlan.outlineWordControlSnapshot) {
         throw new Error('当前目录没有字数控制生效快照，请重新生成目录');
       }
       return startManagedTask('content-generation', payload, runContentGenerationTask);
     },
-    pauseContentGeneration() {
-      const task = activeTasks.get('content-generation');
-      const control = activeTaskControls.get('content-generation');
+    pauseContentGeneration(payload = {}) {
+      const taskKey = getTaskKey('content-generation', payload);
+      const task = activeTasks.get(taskKey);
+      const control = activeTaskControls.get(taskKey);
       if (task && isActiveTaskStatus(task.status) && control?.requestPause) {
         if (control.queueScopeId && aiService?.pauseQueueScope) {
           aiService.pauseQueueScope(control.queueScopeId);
@@ -1534,7 +1684,7 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
         return control.requestPause();
       }
 
-      const technicalPlan = technicalPlanStore.loadTechnicalPlan() || {};
+      const technicalPlan = getTechnicalPlanStore(getProjectId(payload)).loadTechnicalPlan() || {};
       const contentTask = technicalPlan.contentGenerationTask;
       if (contentTask?.status === 'paused' || contentTask?.status === 'pausing') {
         return contentTask;
@@ -1542,9 +1692,10 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
 
       throw new Error('当前没有正在生成的正文任务。');
     },
-    pauseFeasibilityContent() {
-      const task = activeTasks.get('feasibility-content');
-      const control = activeTaskControls.get('feasibility-content');
+    pauseFeasibilityContent(payload = {}) {
+      const taskKey = getTaskKey('feasibility-content', payload);
+      const task = activeTasks.get(taskKey);
+      const control = activeTaskControls.get(taskKey);
       if (task && isActiveTaskStatus(task.status) && control?.requestPause) {
         if (control.queueScopeId && aiService?.pauseQueueScope) {
           aiService.pauseQueueScope(control.queueScopeId);
@@ -1629,40 +1780,45 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
       return startManagedTask('feasibility-human-writing', payload, runFeasibilityHumanWritingTask);
     },
     confirmOutlineSelection(payload) {
-      const control = activeTaskControls.get('outline-generation');
+      const control = activeTaskControls.get(getTaskKey('outline-generation', payload));
       if (!control?.confirmOutlineSelection) throw new Error('当前没有等待确认的一级目录任务');
       return control.confirmOutlineSelection(payload);
     },
     suppressOutlineSelectionAutoConfirmation(payload) {
-      const control = activeTaskControls.get('outline-generation');
+      const control = activeTaskControls.get(getTaskKey('outline-generation', payload));
       if (!control?.suppressOutlineSelectionAutoConfirmation) return { success: true };
       return control.suppressOutlineSelectionAutoConfirmation(payload);
     },
-    async resetTechnicalPlan() {
-      await cancelTechnicalPlanTasks('技术方案已重置，后台任务已取消');
+    async resetTechnicalPlan(projectId) {
+      await cancelTechnicalPlanTasks('技术方案已重置，后台任务已取消', undefined, projectId);
       // 空闲常驻的 openxml 助手不在任务取消范围内,重置前显式关掉,确保没有进程握着招标原件
       await openXmlHelperService.close?.();
-      return technicalPlanStore.clearTechnicalPlan();
+      return getTechnicalPlanStore(projectId).clearTechnicalPlan();
     },
-    importTenderDocument(filePaths) {
-      return technicalPlanStore.importTenderDocument(filePaths, {
+    cancelProjectTasks(projectId) {
+      return cancelTechnicalPlanTasks('标书项目已删除，后台任务已取消', undefined, projectId);
+    },
+    importTenderDocument(filePaths, projectId) {
+      const store = getTechnicalPlanStore(projectId);
+      return store.importTenderDocument(filePaths, {
         beforeCommit: async () => {
-          await cancelTechnicalPlanTasks('招标文件已更新，后台任务已取消');
+          await cancelTechnicalPlanTasks('招标文件已更新，后台任务已取消', undefined, projectId);
           await openXmlHelperService.close?.();
         },
       });
     },
-    removeTenderDocument(sourceId) {
-      return technicalPlanStore.removeTenderDocument(sourceId, {
+    removeTenderDocument(sourceId, projectId) {
+      const store = getTechnicalPlanStore(projectId);
+      return store.removeTenderDocument(sourceId, {
         beforeCommit: async () => {
-          await cancelTechnicalPlanTasks('招标文件已更新，后台任务已取消');
+          await cancelTechnicalPlanTasks('招标文件已更新，后台任务已取消', undefined, projectId);
           await openXmlHelperService.close?.();
         },
       });
     },
-    importOriginalPlanDocument(filePaths) {
-      return technicalPlanStore.importOriginalPlanDocument(filePaths, {
-        beforeCommit: () => cancelTechnicalPlanTasks('原方案已更新，后台任务已取消', originalPlanDownstreamTaskTypes),
+    importOriginalPlanDocument(filePaths, projectId) {
+      return getTechnicalPlanStore(projectId).importOriginalPlanDocument(filePaths, {
+        beforeCommit: () => cancelTechnicalPlanTasks('原方案已更新，后台任务已取消', originalPlanDownstreamTaskTypes, projectId),
       });
     },
     async resetRejectionCheck() {

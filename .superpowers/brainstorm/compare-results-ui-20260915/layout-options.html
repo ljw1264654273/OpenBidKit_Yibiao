@@ -1,0 +1,313 @@
+<style>
+  :root {
+    --ink: #1e2b3d;
+    --muted: #718096;
+    --line: #e4eaf1;
+    --blue: #216eea;
+    --soft-blue: #eef5ff;
+    --panel: #ffffff;
+    --bg: #f5f8fc;
+    --amber: #fff6df;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px;
+    color: var(--ink);
+    background: var(--bg);
+    font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+  }
+  h2, h3, p { margin: 0; }
+  .intro {
+    max-width: 1180px;
+    margin: 0 auto 18px;
+  }
+  .intro h2 { font-size: 24px; margin-bottom: 8px; }
+  .intro p { color: var(--muted); line-height: 1.6; }
+  .options {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 18px;
+    max-width: 1180px;
+    margin: 0 auto;
+  }
+  .option {
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel);
+    cursor: pointer;
+    transition: border-color .16s ease, box-shadow .16s ease;
+  }
+  .option:hover { border-color: #9fc2f7; box-shadow: 0 10px 24px rgba(32, 75, 130, .1); }
+  .option.selected { border: 2px solid var(--blue); }
+  .option-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--line);
+  }
+  .option-head strong { font-size: 16px; }
+  .option-head span {
+    padding: 4px 8px;
+    border-radius: 999px;
+    color: #fff;
+    background: var(--blue);
+    font-size: 11px;
+    font-weight: 700;
+  }
+  .mock {
+    min-height: 600px;
+    padding: 14px;
+    background: #f7f9fc;
+  }
+  .list-page {
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: #fff;
+  }
+  .list-title { padding: 13px 14px; border-bottom: 1px solid var(--line); }
+  .list-title h3 { font-size: 17px; }
+  .list-title p { margin-top: 4px; color: var(--muted); font-size: 11px; }
+  .row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 12px;
+    align-items: center;
+    padding: 14px;
+    border-top: 1px solid #edf1f5;
+  }
+  .row:first-of-type { border-top: 0; }
+  .row-main strong {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 13px;
+  }
+  .row-main small { display: block; margin-top: 5px; color: var(--muted); font-size: 10px; }
+  .row-actions { display: flex; gap: 7px; align-items: center; }
+  button {
+    border: 1px solid #cbd9eb;
+    border-radius: 5px;
+    padding: 7px 9px;
+    color: #53647a;
+    background: #fff;
+    font: inherit;
+    font-size: 11px;
+  }
+  button.primary { border-color: var(--blue); color: #fff; background: var(--blue); }
+  button.result { border-color: #a9c9f8; color: var(--blue); background: var(--soft-blue); font-weight: 700; }
+  .result-note {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 8px 14px;
+    color: #53708f;
+    background: #f5f8fc;
+    font-size: 10px;
+  }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: #169b62; }
+
+  .dialog-stage {
+    position: relative;
+    height: 480px;
+    margin-top: 12px;
+    overflow: hidden;
+    border-radius: 6px;
+    background: rgba(15, 23, 42, .2);
+  }
+  .dialog {
+    position: absolute;
+    inset: 12px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #fff;
+    box-shadow: 0 18px 40px rgba(15, 23, 42, .18);
+  }
+  .dialog-head {
+    flex: 0 0 auto;
+    padding: 14px 16px 11px;
+    border-bottom: 1px solid var(--line);
+  }
+  .kicker { color: var(--blue); font-size: 10px; font-weight: 800; }
+  .dialog-head h3 { margin-top: 5px; font-size: 16px; line-height: 1.4; }
+  .dialog-head p { margin-top: 5px; color: var(--muted); font-size: 10px; }
+  .dialog-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 0 0 auto;
+    padding: 9px 16px;
+    background: #fafcff;
+    border-bottom: 1px solid var(--line);
+    font-size: 10px;
+  }
+  .select { padding: 5px 8px; border: 1px solid #cbd9eb; border-radius: 4px; background: #fff; font-size: 10px; }
+  .summary { padding: 9px 16px; color: #53647a; background: #f5f8fc; font-size: 10px; }
+  .matches {
+    min-height: 0;
+    flex: 1 1 auto;
+    overflow: auto;
+    padding: 10px 16px;
+  }
+  .match {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    padding: 10px 0;
+    border-bottom: 1px solid #edf1f5;
+  }
+  .side {
+    min-height: 92px;
+    padding: 9px;
+    border-left: 3px solid var(--blue);
+    background: var(--soft-blue);
+  }
+  .side strong { display: block; margin-bottom: 5px; color: var(--blue); font-size: 10px; }
+  .side p { color: #43536a; font-size: 10px; line-height: 1.65; }
+  .rewrite {
+    grid-column: 1 / -1;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    padding-top: 2px;
+  }
+  .rewrite span { flex: 1; color: var(--muted); font-size: 9px; line-height: 1.4; }
+  .fake-input { flex: 1; padding: 7px 8px; color: #9ba7b6; border: 1px solid #d7e1ec; border-radius: 4px; font-size: 10px; }
+  .dialog-actions { display: flex; justify-content: flex-end; padding: 9px 16px; border-top: 1px solid var(--line); }
+
+  .page-preview {
+    min-height: 480px;
+    padding: 16px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: #fff;
+  }
+  .page-preview-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+  .page-preview-head h3 { font-size: 16px; }
+  .page-preview-head p { margin-top: 4px; color: var(--muted); font-size: 10px; }
+  .page-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 12px 0; }
+  .stat { padding: 10px; border: 1px solid var(--line); border-radius: 5px; background: #fafcff; }
+  .stat small { display: block; color: var(--muted); font-size: 9px; }
+  .stat strong { display: block; margin-top: 5px; color: var(--blue); font-size: 17px; }
+  .page-match { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+  .page-match .side { min-height: 103px; }
+  .page-footer { display: flex; justify-content: flex-end; margin-top: 12px; }
+  @media (max-width: 900px) {
+    body { padding: 14px; }
+    .options { grid-template-columns: 1fr; }
+    .mock { min-height: 0; }
+  }
+</style>
+
+<div class="intro">
+  <h2>“查看查重结果”入口与结果展示方案</h2>
+  <p>列表页不再自动弹出查重窗口。每个项目行显示最近一次同源对比结果；点击按钮后查看已保存结果，必要时再重新查重。</p>
+</div>
+
+<div class="options" data-multiselect>
+  <div class="option" data-choice="large-dialog" onclick="toggleSelect(this)">
+    <div class="option-head">
+      <strong>A. 宽屏结果弹窗</strong>
+      <span>推荐</span>
+    </div>
+    <div class="mock">
+      <div class="list-page">
+        <div class="list-title">
+          <h3>我的标书</h3>
+          <p>项目行直接查看最近一次查重结果</p>
+        </div>
+        <div class="row">
+          <div class="row-main">
+            <strong>（定稿）盐政采分（2026）A006号海盐县农村土地承包经营权数据库更新服务采购项目</strong>
+            <small>技术方案 · 同源第 1 份 · 最近更新 09-15 10:20</small>
+          </div>
+          <div class="row-actions">
+            <button class="result">查看查重结果</button>
+            <button>重命名</button>
+          </div>
+        </div>
+        <div class="result-note"><i class="dot"></i>最近一次对比：173 / 447 个段落，发现 1 组近似重复 · 09-15 10:26</div>
+      </div>
+      <div class="dialog-stage">
+        <div class="dialog">
+          <div class="dialog-head">
+            <div class="kicker">同源正文对比查重</div>
+            <h3>标书 A / 标书 B</h3>
+            <p>展示已保存的最近一次对比结果；长标题自动换行。</p>
+          </div>
+          <div class="dialog-controls"><span>灵敏度</span><span class="select">中（默认）</span><span style="margin-left:auto;color:#718096">结果时间：09-15 10:26</span></div>
+          <div class="summary">共比较 173 / 447 个段落，发现 1 组近似重复。</div>
+          <div class="matches">
+            <div class="match">
+              <div class="side"><strong>左侧 · 相似度 85%</strong><p>9. 测绘成果质量合格报告出具，按相关质量评价实施细则汇交数据库成果。</p></div>
+              <div class="side"><strong>右侧</strong><p>9. 质量合格报告按相关质量评价实施细则汇交数据库成果。</p></div>
+              <div class="rewrite"><span>保留业务目标，重新组织实施对象、责任边界和量化指标。</span><div class="fake-input">输入确认后的改写内容</div><button class="primary">确认替换</button></div>
+            </div>
+            <div class="match">
+              <div class="side"><strong>左侧 · 相似度 76%</strong><p>项目团队建立全过程质量控制机制，形成可追溯的检查记录。</p></div>
+              <div class="side"><strong>右侧</strong><p>建立项目质量控制机制并形成检查记录。</p></div>
+            </div>
+          </div>
+          <div class="dialog-actions"><button>关闭</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="dedicated-page" onclick="toggleSelect(this)">
+    <div class="option-head">
+      <strong>B. 独立结果页</strong>
+      <span style="background:#718096">备选</span>
+    </div>
+    <div class="mock">
+      <div class="list-page">
+        <div class="list-title">
+          <h3>我的标书</h3>
+          <p>项目行点击后进入查重结果页面</p>
+        </div>
+        <div class="row">
+          <div class="row-main">
+            <strong>（定稿）盐政采分（2026）A006号海盐县农村土地承包经营权数据库更新服务采购项目</strong>
+            <small>技术方案 · 同源第 1 份 · 最近更新 09-15 10:20</small>
+          </div>
+          <div class="row-actions">
+            <button class="result">查看查重结果</button>
+            <button>重命名</button>
+          </div>
+        </div>
+        <div class="result-note"><i class="dot"></i>最近一次对比：173 / 447 个段落，发现 1 组近似重复 · 09-15 10:26</div>
+      </div>
+      <div class="page-preview">
+        <div class="page-preview-head">
+          <div>
+            <h3>正文查重结果</h3>
+            <p>标书 A 与标书 B · 最近一次结果 09-15 10:26</p>
+          </div>
+          <button>返回列表</button>
+        </div>
+        <div class="page-summary">
+          <div class="stat"><small>左侧段落</small><strong>173</strong></div>
+          <div class="stat"><small>右侧段落</small><strong>447</strong></div>
+          <div class="stat"><small>近似重复</small><strong>1 组</strong></div>
+        </div>
+        <div class="page-match">
+          <div class="side"><strong>左侧 · 相似度 85%</strong><p>9. 测绘成果质量合格报告出具，按相关质量评价实施细则汇交数据库成果。</p></div>
+          <div class="side"><strong>右侧</strong><p>9. 质量合格报告按相关质量评价实施细则汇交数据库成果。</p></div>
+        </div>
+        <div class="page-match">
+          <div class="side"><strong>左侧 · 相似度 76%</strong><p>项目团队建立全过程质量控制机制，形成可追溯的检查记录。</p></div>
+          <div class="side"><strong>右侧</strong><p>建立项目质量控制机制并形成检查记录。</p></div>
+        </div>
+        <div class="page-footer"><button class="primary">重新查重</button></div>
+      </div>
+    </div>
+  </div>
+</div>

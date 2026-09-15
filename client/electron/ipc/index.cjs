@@ -13,6 +13,7 @@ const { registerRejectionCheckIpc } = require('./rejectionCheckIpc.cjs');
 const { registerRemoteKnowledgeIpc } = require('./remoteKnowledgeIpc.cjs');
 const { registerTaskIpc } = require('./taskIpc.cjs');
 const { registerTechnicalPlanIpc } = require('./technicalPlanIpc.cjs');
+const { registerBidProjectIpc } = require('./bidProjectIpc.cjs');
 const { registerFeasibilityReportIpc } = require('./feasibilityReportIpc.cjs');
 const { registerTemplateIpc } = require('./templateIpc.cjs');
 const { registerSystemFontIpc } = require('./systemFontIpc.cjs');
@@ -42,6 +43,8 @@ const { createTaskService } = require('../services/taskService.cjs');
 const { createAgentWorkspaceService } = require('../services/agentWorkspaceService.cjs');
 const { createTaskLogStore } = require('../services/taskLogStore.cjs');
 const { createTechnicalPlanStore } = require('../services/technicalPlanStore.cjs');
+const { createBidProjectManager } = require('../services/bidProjectManager.cjs');
+const { createBidProjectImportService } = require('../services/bidProjectImportService.cjs');
 const { createFeasibilityReportStore } = require('../services/feasibilityReportStore.cjs');
 const { createTemplateStore } = require('../services/templateStore.cjs');
 const { createTemplateFileService } = require('../services/templateFileService.cjs');
@@ -119,6 +122,20 @@ function sendToWebContents(webContents, channel, payload) {
 }
 
 const workspaceDatabaseChannels = [
+  'bid-project:list',
+  'bid-project:get',
+  'bid-project:open',
+  'bid-project:close',
+  'bid-project:create',
+  'bid-project:update',
+  'bid-project:delete',
+  'bid-project:source-group',
+  'bid-project:prepare-import',
+  'bid-project:confirm-import',
+  'bid-project:discard-import',
+  'bid-project:read-content',
+  'bid-project:replace-content',
+  'bid-project:export-word',
   'technical-plan:load-state',
   'technical-plan:import-tender-document',
   'technical-plan:remove-tender-document',
@@ -262,7 +279,7 @@ function registerWorkspaceDatabaseStatusIpc({ mainWindow }) {
   };
 }
 
-function registerWorkspaceDatabaseServices({ app, configStore, aiService, agentService, autoConfirmationService, fileService, openXmlHelperService, remoteKnowledgeService, remoteKnowledgeDecisionService, updateStatus }) {
+function registerWorkspaceDatabaseServices({ app, configStore, aiService, agentService, autoConfirmationService, fileService, openXmlHelperService, exportService, remoteKnowledgeService, remoteKnowledgeDecisionService, updateStatus }) {
   const sqliteDatabase = createSqliteDatabase(app, { onStatus: updateStatus });
   runHistoricalStorageCleanup({ app, db: sqliteDatabase.db, configStore, onStatus: updateStatus });
   clearStalePiTaskArchives(app);
@@ -270,6 +287,15 @@ function registerWorkspaceDatabaseServices({ app, configStore, aiService, agentS
   cleanupTrashDirSync(getWorkspaceTrashDir(app));
   clearOrphanedGeneratedImages(app, sqliteDatabase.db);
   const taskLogStore = createTaskLogStore({ db: sqliteDatabase.db });
+  const bidProjectManager = createBidProjectManager({
+    app,
+    db: sqliteDatabase.db,
+    fileService,
+    agentService,
+    taskLogStore,
+    configStore,
+  });
+  const bidProjectImportService = createBidProjectImportService({ app, fileService, bidProjectManager });
   const knowledgeBaseStore = createKnowledgeBaseStore({ app, db: sqliteDatabase.db });
   const knowledgeBaseService = createKnowledgeBaseService({ app, aiService, configStore, knowledgeBaseStore });
   const knowledgeReferenceService = createKnowledgeReferenceService({ knowledgeBaseService, remoteKnowledgeService, remoteKnowledgeDecisionService });
@@ -287,8 +313,8 @@ function registerWorkspaceDatabaseServices({ app, configStore, aiService, agentS
     rejectionCheckStore,
     duplicateCheckStore,
   });
-  const taskService = createTaskService({ aiService, agentService, autoConfirmationService, technicalPlanStore, rejectionCheckStore, duplicateCheckStore, feasibilityReportStore, knowledgeBaseService, knowledgeReferenceService, remoteKnowledgeDecisionService, duplicateCheckService, openXmlHelperService });
-  const agentWorkspaceService = createAgentWorkspaceService({ agentService, taskService, technicalPlanStore, feasibilityReportStore });
+  const taskService = createTaskService({ aiService, agentService, autoConfirmationService, technicalPlanStore, bidProjectManager, rejectionCheckStore, duplicateCheckStore, feasibilityReportStore, knowledgeBaseService, knowledgeReferenceService, remoteKnowledgeDecisionService, duplicateCheckService, openXmlHelperService });
+  const agentWorkspaceService = createAgentWorkspaceService({ agentService, taskService, technicalPlanStore, feasibilityReportStore, bidProjectManager });
   agentWorkspaceServiceRef = agentWorkspaceService;
   technicalPlanStore.setAgentWorkspaceChangeListener(() => agentWorkspaceService.emitWorkspacesChanged());
   feasibilityReportStore.setAgentWorkspaceChangeListener(() => agentWorkspaceService.emitWorkspacesChanged());
@@ -298,7 +324,8 @@ function registerWorkspaceDatabaseServices({ app, configStore, aiService, agentS
 
   clearWorkspaceDatabaseIpc();
   registerKnowledgeBaseIpc({ knowledgeBaseService });
-  registerTechnicalPlanIpc({ technicalPlanStore, taskService, remoteKnowledgeService, aiService });
+  registerTechnicalPlanIpc({ technicalPlanStore, bidProjectManager, taskService, remoteKnowledgeService, aiService });
+  registerBidProjectIpc({ bidProjectManager, bidProjectImportService, technicalPlanStore, taskService, exportService });
   registerFeasibilityReportIpc({ feasibilityReportStore, taskService });
   registerDuplicateCheckIpc({ duplicateCheckStore, checkResultExportService });
   registerRejectionCheckIpc({ rejectionCheckStore, taskService, checkResultExportService });
@@ -460,7 +487,7 @@ function registerIpcHandlers({ app, mainWindow, checkAndDownloadUpdate, triggerU
     databaseStatus.updateStatus({ phase: 'checking', ready: false, message: '正在检查本地数据库' });
     setTimeout(() => {
       try {
-        registerWorkspaceDatabaseServices({ app, configStore, aiService, agentService, autoConfirmationService, fileService, openXmlHelperService, remoteKnowledgeService, remoteKnowledgeDecisionService, updateStatus: databaseStatus.updateStatus });
+        registerWorkspaceDatabaseServices({ app, configStore, aiService, agentService, autoConfirmationService, fileService, openXmlHelperService, exportService, remoteKnowledgeService, remoteKnowledgeDecisionService, updateStatus: databaseStatus.updateStatus });
         setTimeout(() => {
           void agentService.warmup?.().catch((error) => {
             console.warn('[agent] warmup failed', error?.message || String(error));
