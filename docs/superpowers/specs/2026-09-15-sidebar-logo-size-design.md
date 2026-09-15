@@ -25,7 +25,7 @@
 
 ## 影响范围
 
-- 仅影响主窗口侧边栏的品牌 Logo 展示，以及为收起状态容纳 Logo 所需的 `2px` 水平内边距调整。
+- 仅影响主窗口侧边栏的品牌 Logo 展示，以及为收起状态容纳 Logo 所需的水平内边距调整（左右各减少 `3px`，总计减少 `6px`）。
 - 不涉及 Electron Main、preload、IPC、Analytics、数据库或持久化。
 - 既有用户的侧边栏展开/收起偏好继续通过现有 `localStorage` 读取。
 - 不修改 `Sidebar.tsx`、Logo 资源或其他页面样式。
