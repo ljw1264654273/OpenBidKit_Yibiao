@@ -1008,6 +1008,29 @@ function normalizeOutlineScoreMetadataTitles(items) {
   });
 }
 
+// 独立技术文件的一级目录边界由招标文件评分层级确定，不能让模型按标题标点自行拆分。
+function reconcileStandaloneTechnicalRoots(roots, hierarchy) {
+  const normalizedRoots = normalizeOutlineScoreMetadataTitles(roots);
+  const expectedTitles = Array.isArray(hierarchy?.rootTitles) ? hierarchy.rootTitles : [];
+  if (!expectedTitles.length) return normalizedRoots;
+
+  const remainingRoots = [...normalizedRoots];
+  return expectedTitles.map((sourceTitle, index) => {
+    const normalizedSourceTitle = normalizeScoreHierarchyTitle(sourceTitle);
+    const matchedIndex = remainingRoots.findIndex(
+      (root) => normalizeScoreHierarchyTitle(root?.title) === normalizedSourceTitle,
+    );
+    const matchedRoot = matchedIndex >= 0 ? remainingRoots.splice(matchedIndex, 1)[0] : null;
+    return {
+      id: String(index + 1),
+      title: cleanScoreHierarchyTitle(sourceTitle),
+      description: String(matchedRoot?.description || '依据招标文件技术评分层级设置的一级目录').trim(),
+      attr: '技术',
+      content_mode: AI_CONTENT_MODE,
+    };
+  });
+}
+
 function normalizeScoreDirectoryPlanTitles(plan) {
   return {
     ...plan,
@@ -1158,7 +1181,8 @@ function assertStandaloneTechnicalRoots(roots, hierarchy) {
   const matches = actual.length === expected.length
     && actual.every((title, index) => title === normalizeScoreHierarchyTitle(expected[index]));
   if (!matches) {
-    throw new Error(`独立技术文件一级目录必须严格对应原有评分层级并保持顺序：期望 ${expected.length} 个（${expected.join('、')}），实际 ${actual.length} 个（${actual.join('、')}）。不得推断、合并、遗漏或重排评分项。`);
+    const formatTitles = (titles) => titles.map((title) => `“${title}”`).join('，');
+    throw new Error(`独立技术文件一级目录必须严格对应原有评分层级并保持顺序：期望 ${expected.length} 个（${formatTitles(expected)}），实际 ${actual.length} 个（${formatTitles(actual)}）。不得推断、合并、遗漏或重排评分项。`);
   }
 }
 
@@ -1195,23 +1219,63 @@ function assertStandaloneScoreDirectoryPlan(plan, hierarchy, roots, {
       .filter((group) => group?.requirement_id)
       .map((group) => [group.requirement_id, group]),
   );
+  // score-directory-plan maps score groups, while hierarchy.items contains every
+  // source scoring row. Keep the old item-level fallback for legacy callers that
+  // do not provide structured score groups.
+  const scoreGroupEntries = scoreGroupsByRequirementId.size > 0
+    ? [...scoreGroupsByRequirementId.values()].map((group, groupIndex) => ({
+      group,
+      requirementId: group.requirement_id,
+      rootIndex: (() => {
+        const candidateTitles = [
+          Array.isArray(group.expected_path) ? group.expected_path[0] : '',
+          group.parent_name,
+          group.parent_type === 'none' ? group.source_title : '',
+          group.parent_type === 'none' ? group.target_title : '',
+        ].map((title) => normalizeScoreHierarchyTitle(title)).filter(Boolean);
+        const matchedIndex = expectedRoots.findIndex((rootTitle) => (
+          candidateTitles.includes(normalizeScoreHierarchyTitle(rootTitle))
+        ));
+        if (matchedIndex >= 0) return matchedIndex;
+        const sourceItem = hierarchy.items.find((item) => (
+          normalizeScoreHierarchyTitle(item.title) === normalizeScoreHierarchyTitle(group.source_title)
+        ));
+        if (sourceItem) return sourceItem.rootIndex;
+        if (expectedRoots.length === 1) return 0;
+        return expectedRoots.length === scoreGroupsByRequirementId.size && groupIndex < expectedRoots.length
+          ? groupIndex
+          : -1;
+      })(),
+    }))
+    : hierarchy.items.map((item, itemIndex) => ({
+      group: {
+        requirement_id: `R${itemIndex + 1}`,
+        source_title: item.title,
+        target_title: item.title,
+        parent_name: item.parentGroup,
+        parent_type: item.parentGroup ? 'business-group' : 'none',
+        hierarchy_evidence_type: item.hierarchyEvidenceType,
+      },
+      requirementId: `R${itemIndex + 1}`,
+      rootIndex: item.rootIndex,
+    }));
   const targetTitleCounts = new Map();
   mappingsByRequirementId.forEach((mapping) => {
     const key = normalizeScoreHierarchyTitle(mapping?.target_title);
     targetTitleCounts.set(key, (targetTitleCounts.get(key) || 0) + 1);
   });
-  const titleMismatches = hierarchy.items.flatMap((item, itemIndex) => {
-    const requirementId = `R${itemIndex + 1}`;
+  const titleMismatches = scoreGroupEntries.flatMap(({ group, requirementId, rootIndex }) => {
     const mapping = mappingsByRequirementId.get(requirementId);
-    const scoreGroup = scoreGroupsByRequirementId.get(requirementId);
-    const expectedTitle = scoreGroup?.target_title || item.title;
+    const expectedTitle = group.target_title || group.source_title;
     if (!mapping) {
       return [{
         requirement_id: requirementId,
-        source_title: item.title,
+        source_title: group.source_title,
+        ...(group.target_title ? { score_item_title: group.target_title } : {}),
         planned_title: null,
-        parent_group: item.parentGroup,
-        hierarchy_evidence_type: item.hierarchyEvidenceType,
+        parent_group: group.parent_name || null,
+        hierarchy_evidence_type: group.hierarchy_evidence_type || 'none',
+        root_index: rootIndex,
       }];
     }
     if (normalizeScoreHierarchyTitle(mapping.target_title) === normalizeScoreHierarchyTitle(expectedTitle)) return [];
@@ -1224,25 +1288,44 @@ function assertStandaloneScoreDirectoryPlan(plan, hierarchy, roots, {
       ? []
       : [{
         requirement_id: requirementId,
-        source_title: item.title,
-        ...(scoreGroup?.target_title ? { score_item_title: scoreGroup.target_title } : {}),
+        source_title: group.source_title,
+        ...(group.target_title ? { score_item_title: group.target_title } : {}),
         planned_title: mapping.target_title,
-        parent_group: item.parentGroup,
-        hierarchy_evidence_type: item.hierarchyEvidenceType,
+        parent_group: group.parent_name || null,
+        hierarchy_evidence_type: group.hierarchy_evidence_type || 'none',
+        root_index: rootIndex,
       }];
   });
+  const expectedRequirementIds = new Set(scoreGroupEntries.map((entry) => entry.requirementId));
+  const unexpectedMappingIds = [...mappingsByRequirementId.keys()]
+    .filter((requirementId) => !expectedRequirementIds.has(requirementId));
   if (titleMismatches.length > 0) {
     if (typeof onDiagnostic === 'function') {
       onDiagnostic({
         hierarchy_item_count: hierarchy.items.length,
+        score_group_count: scoreGroupEntries.length,
         plan_mapping_count: mappingsByRequirementId.size,
         source_root_count: expectedRoots.length,
         actual_root_count: rootTitles.length,
         mismatch_count: titleMismatches.length,
+        unexpected_mapping_ids: unexpectedMappingIds,
         mismatches: titleMismatches.slice(0, 20),
       });
     }
     throw new Error('独立技术文件评分项标题必须逐字对应原文；只有明确记录 adjustment_note 的已批准拆分或合并可以改变标题。');
+  }
+
+  if (unexpectedMappingIds.length > 0 && typeof onDiagnostic === 'function') {
+    onDiagnostic({
+      hierarchy_item_count: hierarchy.items.length,
+      score_group_count: scoreGroupEntries.length,
+      plan_mapping_count: mappingsByRequirementId.size,
+      source_root_count: expectedRoots.length,
+      actual_root_count: rootTitles.length,
+      mismatch_count: 0,
+      unexpected_mapping_ids: unexpectedMappingIds,
+      mismatches: [],
+    });
   }
 
   if (requestsAdjustment) return;
@@ -1250,21 +1333,27 @@ function assertStandaloneScoreDirectoryPlan(plan, hierarchy, roots, {
   const valid = branches.length === expectedRoots.length && expectedRoots.every((rootTitle, rootIndex) => {
     const root = roots[rootIndex];
     const branch = branches[rootIndex];
-    const expectedItems = hierarchy.items
-      .map((item, itemIndex) => ({ ...item, requirementId: `R${itemIndex + 1}` }))
-      .filter((item) => item.rootIndex === rootIndex);
-    const expectedLevel = expectedItems.some((item) => item.parentGroup) ? 2 : 1;
+    const expectedGroups = scoreGroupEntries.filter((entry) => entry.rootIndex === rootIndex);
+    const singleGroupIsRoot = expectedGroups.length === 1
+      && normalizeScoreHierarchyTitle(expectedGroups[0].group.target_title || expectedGroups[0].group.source_title)
+        === normalizeScoreHierarchyTitle(rootTitle);
+    const expectedLevel = singleGroupIsRoot
+      ? 1
+      : expectedGroups.some((entry) => entry.group.parent_type === 'business-group')
+        || hierarchy.items.some((item) => item.rootIndex === rootIndex && item.parentGroup)
+        ? 2
+        : 1;
     const mappings = Array.isArray(branch?.mappings) ? branch.mappings : [];
     const targetTitles = mappings.map((mapping) => normalizeScoreHierarchyTitle(mapping?.target_title));
     return branch?.root_id === root?.id
       && normalizeScoreHierarchyTitle(branch?.root_title) === normalizeScoreHierarchyTitle(rootTitle)
       && branch?.score_item_level === expectedLevel
-      && mappings.length === expectedItems.length
-      && mappings.every((mapping, mappingIndex) => mapping?.requirement_id === expectedItems[mappingIndex].requirementId)
+      && mappings.length === expectedGroups.length
+      && mappings.every((mapping, mappingIndex) => mapping?.requirement_id === expectedGroups[mappingIndex]?.requirementId)
       && new Set(targetTitles).size === targetTitles.length;
   });
   if (!valid) {
-    throw new Error('独立技术文件评分规划必须保持招标文件原有评分层级：明确分组下的评分项使用二级，无明确分组的评分项使用一级；不得自行合并、遗漏或重排。');
+    throw new Error('独立技术文件评分规划必须保持招标文件原有评分层级：评分大项本身对应一级目录时使用一级；明确业务分组下的不同名评分大项使用二级；不得自行合并、遗漏或重排。');
   }
 }
 
@@ -1302,7 +1391,7 @@ function createInitialPrompt(taskInstruction, { standaloneTechnical = false, has
     : '我们的目标是为编写响应文件/投标文件准备一级目录。';
   const modeRequirements = standaloneTechnical
     ? `6. 本模式只生成技术文件独立分册，attr 必须为“技术”，content_mode 必须为 ai-generate；不得加入商务、资信、投标函、授权委托书等非技术章节。
-7. 一级目录只服从技术评分信息.md 的结构化层级字段：直接上级类型为“业务分组”，层级依据类型为“合并单元格”“编号层级”或“独立父级行”，且层级依据说明可核验时，以直接上级名称作为一级目录；直接上级类型为“评分维度/汇总容器”“无”、缺少类型或缺少有效层级依据类型时，每个技术评分项分别作为一级目录。不得根据父级标题字样、语义、相邻关系或所谓共同主题推断、合并、遗漏或重排评分项。${expectedRootTitles.length ? ` 本次一级目录必须依次且完整使用：${expectedRootTitles.join('、')}。` : ''}
+7. 一级目录只服从技术评分信息.md 的结构化层级字段：直接上级类型为“业务分组”，层级依据类型为“合并单元格”“编号层级”或“独立父级行”，且层级依据说明可核验时，以直接上级名称作为一级目录；直接上级类型为“评分维度/汇总容器”“无”、缺少类型或缺少有效层级依据类型时，每个技术评分项分别作为一级目录。不得根据父级标题字样、语义、相邻关系或所谓共同主题推断、合并、遗漏或重排评分项。${expectedRootTitles.length ? ` 本次一级目录必须逐项依次且完整使用以下 JSON 数组，数组元素边界就是一级目录边界：${JSON.stringify(expectedRootTitles)}。标题中的“、”“与”“及”等标点或连接词属于标题原文，不得据此拆成多个目录。` : ''}
 8. 一级目录 title 必须逐字使用上述评分分组或评分项名称，但标题末尾仅表示评分方式的“（客观分）”“（主观分）”必须去掉；除此之外不得同义替换、删词、缩写或进行措辞优化。“项目实施方案”不得缩写为“实施方案”。仅后续生成的评分项下级目录可以进行专业化标题整理。
 9. 完整结构示例：{"outline":[{"id":"1","title":"组织实施方案","description":"招标文件原有业务分组","attr":"技术","content_mode":"ai-generate"},{"id":"2","title":"质量保证方案","description":"无上级业务分组的独立评分项","attr":"技术","content_mode":"ai-generate"}]}。示例只说明字段格式，实际标题、数量和顺序必须服从技术评分信息.md。`
     : `6. 每个一级目录当前都是叶子节点，必须根据它后续应采用的内容处理方式填写 content_mode：技术方案正文使用 ai-generate；需要从招标文件提取并套用表格或格式的商务、资信材料使用 template-fill；需要在全部正文完成并确定 Word 页码后回填的点对点应答表使用 point-to-point；无法归类的特殊内容使用 other，并在 content_mode_note 说明原因。
@@ -1349,7 +1438,7 @@ function createScorePlanningPrompt({ standaloneTechnical = false, hasRemoteKnowl
     ? `将每个评分大项、每条独立评分行和每个明确响应内容写入 ${TECHNICAL_SCORE_GROUPS_FILE}。固定版本为 version=2；评分大项使用 R1，评分行使用 R1-C1，响应点使用 R1-C1-P1，受控补充使用 R1-C1-S1，并分别填写 source_order 和 expected_path。每个 group 还必须填写 source_number、parent_number、parent_name、parent_type、hierarchy_evidence_type 和 hierarchy_evidence，完整结构片段为 {"version":2,"groups":[{"requirement_id":"R1","source_title":"项目理解","target_title":"项目理解","source_order":1,"expected_path":["项目总体方案","项目理解"],"source_number":"2.1","parent_number":"2","parent_name":"项目总体方案","parent_type":"business-group","hierarchy_evidence_type":"merged-cell","hierarchy_evidence":"rowspan=3","criteria":[]}]}。source_title、source_number、parent_number、parent_name、parent_type、hierarchy_evidence_type 和 hierarchy_evidence 必须逐项复制或转换技术评分信息.md 中对应的结构化字段；source_title 和 parent_name 末尾仅表示评分方式的“（客观分）”“（主观分）”必须去掉。parent_type 只使用 score-container、business-group、none，hierarchy_evidence_type 只使用 merged-cell、numbering、parent-row、subtotal-row、none。除此之外不得同义替换、删词、缩写或进行措辞优化，“项目实施方案”不得改写为“实施方案”。不得根据标题字样、语义或相邻关系反向推断父级类型或层级依据类型。target_title 必须逐字使用对应 group.title 所代表的评分项原文标题；criteria、response_points、evaluation_dimensions、supplements 没有内容时使用空数组，不得省略。评分标准中的明确响应内容写入 criteria/response_points；不承载正文内容的评价等级不得写入 detail_points 或 response_points。若评分项同时要求“项目实施过程中的重点、难点问题分析及解决措施”，应按问题类别组织为“重点问题分析及解决措施”“难点问题分析及解决措施”，并在材料支持时补充“其他具体问题分析与应对”“合理化建议”；不要机械拆成“问题分析”和“解决措施与对策”。`
     : `将每个评分大项、每条独立评分行和每个明确响应内容写入 ${TECHNICAL_SCORE_GROUPS_FILE}。固定版本为 version=2；评分大项使用 R1，评分行使用 R1-C1，响应点使用 R1-C1-P1，受控补充使用 R1-C1-S1，并分别填写 source_order 和 expected_path。source_number、parent_number、parent_name、hierarchy_evidence 可填 null，parent_type 和 hierarchy_evidence_type 填 none；criteria、response_points、evaluation_dimensions、supplements 没有内容时使用空数组，不得省略。`;
   const placementInstruction = standaloneTechnical
-    ? `6. 当前采用“技术文件独立成册”：${OUTLINE_OUTPUT_FILE} 的一级根节点已经按招标文件原有评分层级确认。仅当多个评分条目在原文中具有同一个明确业务分组时，才映射到该分组对应的同一个 branch 并使用 score_item_level=2；原文没有明确业务分组时，每个评分条目各自对应一个一级根节点、一个 branch，并使用 score_item_level=1。不得根据语义或相邻关系推断分组，不得自行合并、拆分、遗漏或重排，也不得再创建“技术方案”“项目管理方案”“监理大纲”“监理大纲（暗标）”“施工组织设计”“技术标”等外层分支。
+    ? `6. 当前采用“技术文件独立成册”：${OUTLINE_OUTPUT_FILE} 的一级根节点已经按招标文件原有评分层级确认。评分大项的 target_title 与所属一级根节点标题相同时，该评分大项本身就是一级目录并使用 score_item_level=1，不得再生成同名二级节点。仅当多个不同名评分大项在原文中具有同一个明确业务分组时，才映射到该分组对应的同一个 branch 并使用 score_item_level=2；原文没有明确业务分组时，每个评分大项各自对应一个一级根节点、一个 branch，并使用 score_item_level=1。不得根据语义或相邻关系推断分组，不得自行合并、拆分、遗漏或重排，也不得再创建“技术方案”“项目管理方案”“监理大纲”“监理大纲（暗标）”“施工组织设计”“技术标”等外层分支。
 7. mapping 的 target_title 必须逐字使用对应 group.title 所代表的 target_title；未经用户批准拆分时不得填写 additional_titles。评分行和 response_points 用于后续生成评分项以下的目录。`
     : `6. 判断技术方案位于哪些目录分支，以及每个分支内评分大项对应节点应统一处于哪个层级。不同分支可以使用不同层级，范围为一级至七级。优先选择 attr=技术且 content_mode=ai-generate 的一级目录；template-fill、point-to-point 和 other 是特殊处理叶子，不得作为普通技术方案分支展开，除非先向用户说明并取得调整批准。
 7. 默认每个评分大项对应一个独立同层级节点；每条独立评分行和 response_points 用于生成更下级目录。`;
@@ -1825,7 +1914,7 @@ async function runOutlineGenerationTaskV2({ aiService, agentService, ordinaryAge
     });
     const generated = readJson(initialResult.output_content, OUTLINE_OUTPUT_FILE);
     const items = standaloneTechnical
-      ? normalizeOutlineScoreMetadataTitles(generated.outline || [])
+      ? reconcileStandaloneTechnicalRoots(generated.outline || [], technicalScoreHierarchy)
       : generated.outline || [];
     if (standaloneTechnical) assertStandaloneTechnicalRoots(items, technicalScoreHierarchy);
     const defaultSelectedIds = items.filter((item) => item.attr === '技术').map((item) => item.id);
@@ -2354,6 +2443,7 @@ module.exports = {
   mergeReviewedScoreDirectoryPlan,
   deriveTechnicalScoreHierarchy,
   normalizeOutlineScoreMetadataTitles,
+  reconcileStandaloneTechnicalRoots,
   normalizeScoreDirectoryPlanTitles,
   assertStandaloneTechnicalRoots,
   assertStandaloneScoreDirectoryPlan,

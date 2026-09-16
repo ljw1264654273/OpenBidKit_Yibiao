@@ -83,10 +83,12 @@ const tasks = [
 
 重点识别“技术评分”“评标方法”“评分标准”“技术参数”“技术要求”“技术方案”“技术部分”“评审要素”相关章节，不要提取商务、价格、资质等无关条目。
 
+评分归属边界：如果原文评分表存在明确的一级评分大类，以原文一级评分大类作为评分归属的权威边界。只提取明确归属于“技术”“技术方案”“技术部分”等技术类评分大类的条目；“综合实力”、商务、资信、价格、资格等非技术评分大类下的条目不得提取为技术评分项，即使其证明材料需要编入技术文件。只有原文没有明确评分大类时，才根据条目是否要求展开具体技术方案内容进行语义判断。
+
 分类原则：
-1. 技术评分项：指投标人需要在技术方案中一一响应、展开编写，并可对应形成技术方案章节的具体评分内容，例如方案类、措施类、团队类、实施类、服务类、保障类、运维类、应急类、检查类等评分内容。
+1. 技术评分项：指在原文明确评分大类中归属于技术类，且投标人需要在技术方案中一一响应、展开编写，并可对应形成技术方案章节的具体评分内容，例如方案类、措施类、团队方案类、实施类、服务方案类、保障类、运维类、应急类、检查类等评分内容。
 2. 技术评分要求：指用于约束评分、解释评分、定义扣分或判定规则的通用规则或说明，例如符合性要求、偏离扣分规则、判定口径、适用范围说明、表后说明、通用评审规则等。
-3. 判断依据是该内容是否要求投标人在技术方案中展开具体方案内容；如果不是具体方案内容，即使带有分值或扣分规则，也归入技术评分要求。
+3. 原文没有明确评分大类时，判断依据才是该内容是否要求投标人在技术方案中展开具体方案内容；如果不是具体方案内容，即使带有分值或扣分规则，也归入技术评分要求。
 4. 表格左侧合并单元格表示的评分大项、右侧每条独立评分行、评分标准正文、分值和来源位置必须分别保留，并保持原始顺序和来源，不得提前合并意思相近或不相关的条款。
 5. 对每个技术评分项，逐项记录原文编号、直接上级编号、直接上级名称、直接上级类型、层级依据类型和层级依据说明。直接上级类型只能填写“评分维度/汇总容器”“业务分组”或“无”：仅分类、汇总分值且本身不要求投标人展开响应内容的父级是“评分维度/汇总容器”；通过合并单元格、rowspan、连续编号中的中间层级或独立父级行明确统领具体评分项的业务标题是“业务分组”；不能由原文结构可靠证明时填写“无”。
 6. 层级依据类型只能填写“合并单元格”“编号层级”“独立父级行”“汇总行”或“无”，层级依据说明记录可核验的 rowspan 数值、父子编号或对应行位置；不得把内容语义、相邻关系或共同主题写成结构依据，不得根据父级名称中的字样判断类型。
@@ -100,6 +102,8 @@ const tasks = [
 
 【评分项编号】：<原文编号；没有则写“无”>
 【评分项名称】：<逐字复制评分表中对应的评审因素名称>
+【所属评分大类名称】：<逐字复制原文一级评分大类名称；没有明确评分大类则写“无”>
+【所属评分大类属性】：<技术、非技术或无明确分类>
 【直接上级编号】：<原文直接上级编号；没有则写“无”>
 【直接上级名称】：<原文直接上级名称；没有则写“无”>
 【直接上级类型】：<评分维度/汇总容器、业务分组或无>
@@ -210,6 +214,64 @@ function buildTaskPrompt(task) {
 
 function isMissingMarkdownResult(task, content) {
   return task.output === 'markdown' && String(content || '').trim() === MARKDOWN_MISSING_RESULT;
+}
+
+function readTechScoreField(block, fieldName) {
+  const match = String(block || '').match(new RegExp(`^【${fieldName}】[：:]\\s*(.+)$`, 'm'));
+  return String(match?.[1] || '').trim();
+}
+
+function normalizeScoreCategoryName(value) {
+  return String(value || '')
+    .replace(/[（(]\s*\d+(?:\.\d+)?\s*分\s*[)）]\s*$/u, '')
+    .replace(/\s+/g, '')
+    .trim();
+}
+
+function isKnownNonTechnicalScoreCategory(value) {
+  const categoryName = normalizeScoreCategoryName(value);
+  if (!categoryName || categoryName === '无') return false;
+  return /(?:综合实力|商务|资信|价格|报价|资格|业绩|荣誉|信用|财务)(?:评分|部分|得分)?$/u.test(categoryName);
+}
+
+function shouldExcludeTechScoreBlock(block) {
+  const categoryName = readTechScoreField(block, '所属评分大类名称');
+  const categoryType = readTechScoreField(block, '所属评分大类属性');
+  if (isKnownNonTechnicalScoreCategory(categoryName)) return true;
+  if (categoryType === '非技术') return true;
+  if (categoryType === '技术') return false;
+
+  const parentType = readTechScoreField(block, '直接上级类型');
+  const parentName = readTechScoreField(block, '直接上级名称');
+  return parentType === '评分维度/汇总容器' && isKnownNonTechnicalScoreCategory(parentName);
+}
+
+function normalizeTechRequirementsContent(content) {
+  const text = String(content || '').trim();
+  const itemHeadingMatch = /^##\s+技术评分项\s*$/mu.exec(text);
+  if (!itemHeadingMatch) return text;
+  const itemBodyStart = itemHeadingMatch.index + itemHeadingMatch[0].length;
+  const afterItemHeading = text.slice(itemBodyStart);
+  const requirementHeadingMatch = /^##\s+技术评分要求\s*$/mu.exec(afterItemHeading);
+  if (!requirementHeadingMatch) return text;
+  const itemBodyEnd = itemBodyStart + requirementHeadingMatch.index;
+  const itemBody = text.slice(itemBodyStart, itemBodyEnd);
+  const segments = itemBody.split(/(?=^【评分项编号】[：:])/mu);
+  if (segments.length <= 1) return text;
+
+  const leadingText = String(segments.shift() || '').trim();
+  const keptBlocks = segments
+    .map((segment) => segment.trim())
+    .filter(Boolean)
+    .filter((block) => !shouldExcludeTechScoreBlock(block));
+  const itemParts = [];
+  if (leadingText && !/^没有提及[。.]?$/u.test(leadingText)) itemParts.push(leadingText);
+  itemParts.push(...keptBlocks);
+  if (!itemParts.length) itemParts.push('没有提及。');
+
+  const prefix = text.slice(0, itemBodyStart).trimEnd();
+  const suffix = text.slice(itemBodyEnd).trimStart();
+  return `${prefix}\n\n${itemParts.join('\n\n')}\n\n${suffix}`.trim();
 }
 
 function buildTenderContextMessages(fileContent, sectionHint) {
@@ -407,7 +469,10 @@ async function runBidAnalysisTask({ aiService, workspaceStore, updateTask, check
       task,
       sectionHint,
     });
-    const trimmedContent = String(content || '').trim();
+    const rawContent = String(content || '').trim();
+    const trimmedContent = task.id === 'techRequirements'
+      ? normalizeTechRequirementsContent(rawContent)
+      : rawContent;
     if (!trimmedContent) {
       throw new Error(`${task.label}解析结果为空，请重新解析`);
     }
