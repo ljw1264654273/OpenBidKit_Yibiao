@@ -490,8 +490,12 @@ function createBidProjectStore({ app, db }) {
       FROM bid_project_duplicate_results r
       LEFT JOIN bid_projects lp ON lp.project_id = r.left_project_id
       LEFT JOIN bid_projects rp ON rp.project_id = r.right_project_id
-      WHERE r.left_project_id IN (${placeholders})
-         OR r.right_project_id IN (${placeholders})
+      WHERE (
+          r.left_project_id IN (${placeholders})
+          OR r.right_project_id IN (${placeholders})
+        )
+        AND lp.source_group_id IS NOT NULL
+        AND lp.source_group_id = rp.source_group_id
       ORDER BY r.updated_at DESC, r.created_at DESC, r.rowid DESC
     `).all(params);
     const summaries = Object.fromEntries(ids.map((id) => [id, null]));
@@ -530,10 +534,17 @@ function createBidProjectStore({ app, db }) {
 
   function loadLatestDuplicateResult(projectId) {
     const row = db.prepare(`
-      SELECT result_id
+      SELECT r.result_id
       FROM bid_project_duplicate_results
-      WHERE left_project_id = ? OR right_project_id = ?
-      ORDER BY updated_at DESC, created_at DESC, rowid DESC
+      AS r
+      INNER JOIN bid_projects lp ON lp.project_id = r.left_project_id
+      INNER JOIN bid_projects rp ON rp.project_id = r.right_project_id
+      WHERE (
+          r.left_project_id = ? OR r.right_project_id = ?
+        )
+        AND lp.source_group_id IS NOT NULL
+        AND lp.source_group_id = rp.source_group_id
+      ORDER BY r.updated_at DESC, r.created_at DESC, r.rowid DESC
       LIMIT 1
     `).get(String(projectId || ''), String(projectId || ''));
     return row ? loadDuplicateResult(row.result_id) : null;

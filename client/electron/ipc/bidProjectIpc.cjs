@@ -1,28 +1,39 @@
-const { ipcMain } = require('electron');
 const { compareBidContents, normalizeParagraph } = require('../services/bidContentDuplicateService.cjs');
 
-function registerBidProjectIpc({ bidProjectManager, bidProjectImportService, technicalPlanStore, taskService, exportService }) {
+function registerBidProjectIpc({
+  ipcMain: ipc = require('electron').ipcMain,
+  bidProjectManager,
+  bidProjectImportService,
+  technicalPlanStore,
+  taskService,
+  exportService,
+  duplicateRewriteService,
+}) {
   const projectStore = bidProjectManager.getProjectStore();
-  ipcMain.handle('bid-project:list', (_event, filters) => projectStore.listProjects(filters));
-  ipcMain.handle('bid-project:get', (_event, projectId) => projectStore.getProject(projectId));
-  ipcMain.handle('bid-project:open', (_event, projectId) => bidProjectManager.openProject(projectId));
-  ipcMain.handle('bid-project:close', (_event, projectId) => bidProjectManager.closeProject(projectId));
-  ipcMain.handle('bid-project:create', (_event, options) => bidProjectManager.createProject(options));
-  ipcMain.handle('bid-project:update', (_event, projectId, patch) => bidProjectManager.updateProject(projectId, patch));
-  ipcMain.handle('bid-project:delete', async (_event, projectId) => {
+  ipc.handle('bid-project:list', (_event, filters) => projectStore.listProjects(filters));
+  ipc.handle('bid-project:get', (_event, projectId) => projectStore.getProject(projectId));
+  ipc.handle('bid-project:open', (_event, projectId) => bidProjectManager.openProject(projectId));
+  ipc.handle('bid-project:close', (_event, projectId) => bidProjectManager.closeProject(projectId));
+  ipc.handle('bid-project:create', (_event, options) => bidProjectManager.createProject(options));
+  ipc.handle('bid-project:update', (_event, projectId, patch) => bidProjectManager.updateProject(projectId, patch));
+  ipc.handle('bid-project:delete', async (_event, projectId) => {
     await taskService?.cancelProjectTasks?.(projectId);
     return bidProjectManager.deleteProject(projectId);
   });
-  ipcMain.handle('bid-project:source-group', (_event, projectId) => projectStore.listSourceGroupProjects(projectId));
-  ipcMain.handle('bid-project:prepare-import', (_event, filePaths) => bidProjectImportService.prepareImport(filePaths));
-  ipcMain.handle('bid-project:confirm-import', (_event, token, options) => bidProjectImportService.confirmImport(token, options));
-  ipcMain.handle('bid-project:discard-import', (_event, token) => bidProjectImportService.discardImport(token));
-  ipcMain.handle('bid-project:read-content', (_event, projectId) => {
+  ipc.handle('bid-project:source-group', (_event, projectId) => projectStore.listSourceGroupProjects(projectId));
+  ipc.handle('bid-project:prepare-import', (_event, filePaths) => bidProjectImportService.prepareImport(filePaths));
+  ipc.handle('bid-project:confirm-import', (_event, token, options) => bidProjectImportService.confirmImport(token, options));
+  ipc.handle('bid-project:discard-import', (_event, token) => bidProjectImportService.discardImport(token));
+  ipc.handle('bid-project:read-content', (_event, projectId) => {
     const store = bidProjectManager.getTechnicalPlanStore(projectId) || technicalPlanStore;
     const state = store.loadTechnicalPlan();
     return { projectId, ...readProjectParagraphs(state) };
   });
-  ipcMain.handle('bid-project:compare-content', async (_event, payload) => {
+  ipc.handle('bid-project:recent-duplicate-summaries', (_event, projectIds) => projectStore.listRecentDuplicateSummaries(projectIds));
+  ipc.handle('bid-project:load-duplicate-result', (_event, resultId) => projectStore.loadDuplicateResult(resultId));
+  ipc.handle('bid-project:load-latest-duplicate-result', (_event, projectId) => projectStore.loadLatestDuplicateResult(projectId));
+  ipc.handle('bid-project:update-duplicate-match-decision', (_event, payload) => projectStore.updateDuplicateMatchDecision(payload));
+  ipc.handle('bid-project:compare-content', async (_event, payload) => {
     const left = bidProjectManager.getTechnicalPlanStore(payload?.leftProjectId);
     const right = bidProjectManager.getTechnicalPlanStore(payload?.rightProjectId);
     if (!left || !right) throw new Error('请选择两份有效的标书项目');
@@ -49,15 +60,37 @@ function registerBidProjectIpc({ bidProjectManager, bidProjectImportService, tec
       rightProjectId: payload.rightProjectId,
       sensitivity: payload?.sensitivity || 'medium',
       summary: result.summary,
+      threshold: result.threshold,
       matches,
     });
-    return {
-      resultId: savedResultId,
-      ...result,
-      matches,
-    };
+    return projectStore.loadDuplicateResult(savedResultId);
   });
-  ipcMain.handle('bid-project:export-word', async (event, projectId, options = {}) => {
+  ipc.handle('bid-project:rewrite-duplicate-match', async (_event, payload) => {
+    const result = projectStore.loadDuplicateResult(payload?.resultId);
+    if (!result) throw new Error('未找到查重结果');
+    const match = result.matches.find((item) => item.id === payload?.matchId);
+    if (!match) throw new Error('未找到查重重复组');
+    const targetSide = payload?.targetSide === 'left' ? 'left' : 'right';
+    const targetProjectId = targetSide === 'left' ? result.leftProjectId : result.rightProjectId;
+    const referenceProjectId = targetSide === 'left' ? result.rightProjectId : result.leftProjectId;
+    if (payload?.leftProjectId !== result.leftProjectId || payload?.rightProjectId !== result.rightProjectId) {
+      throw new Error('查重结果对应的项目已变化，请重新打开结果');
+    }
+    const targetProject = targetSide === 'left' ? result.leftProject : result.rightProject;
+    const referenceProject = targetSide === 'left' ? result.rightProject : result.leftProject;
+    return duplicateRewriteService.rewriteMatch({
+      leftProjectName: result.leftProject?.projectName || '左侧标书',
+      rightProjectName: result.rightProject?.projectName || '右侧标书',
+      leftText: match.leftParagraph.text,
+      rightText: match.rightParagraph.text,
+      targetSide,
+      targetProjectId,
+      referenceProjectId,
+      targetProjectName: targetProject?.projectName || '',
+      referenceProjectName: referenceProject?.projectName || '',
+    });
+  });
+  ipc.handle('bid-project:export-word', async (event, projectId, options = {}) => {
     const project = bidProjectManager.getProject(projectId);
     const store = bidProjectManager.getTechnicalPlanStore(projectId);
     if (!project || !store) throw new Error('未找到标书项目');
@@ -78,7 +111,7 @@ function registerBidProjectIpc({ bidProjectManager, bidProjectImportService, tec
       throw error;
     }
   });
-  ipcMain.handle('bid-project:replace-content', (_event, projectId, payload) => {
+  ipc.handle('bid-project:replace-content', (_event, projectId, payload) => {
     const store = bidProjectManager.getTechnicalPlanStore(projectId) || technicalPlanStore;
     const state = store.loadTechnicalPlan();
     const node = (function find(items) {

@@ -141,6 +141,56 @@ test('lists the latest duplicate summary once for every requested project', () =
   }
 });
 
+test('ignores cross-source duplicate results when listing or opening the latest same-source result', () => {
+  const { root, db, store } = createTestStore();
+  try {
+    const sourceFile = createSourceFile();
+    const left = store.createProject({ projectName: '同源左侧', sourceFile });
+    const right = store.createProject({ projectName: '同源右侧', sourceFile });
+    const other = store.createProject({
+      projectName: '另一来源',
+      sourceFile: {
+        ...sourceFile,
+        fileName: '另一份招标文件.docx',
+        fileHash: 'other-file-hash',
+        contentHash: 'other-content-hash',
+      },
+    });
+    const sameSourceResultId = store.saveDuplicateResult({
+      resultId: 'same-source-result',
+      leftProjectId: left.projectId,
+      rightProjectId: right.projectId,
+      summary: { duplicateParagraphCount: 1, maxSimilarity: 0.8 },
+      matches: [makeMatch('same-source-match', '同源段落', '同源段落')],
+    });
+    db.prepare(`
+      INSERT INTO bid_project_duplicate_results (
+        result_id, left_project_id, right_project_id, sensitivity, status,
+        summary_json, matches_json, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      'cross-source-result',
+      left.projectId,
+      other.projectId,
+      'high',
+      'success',
+      JSON.stringify({ duplicateParagraphCount: 9, maxSimilarity: 0.99, threshold: 0.76 }),
+      JSON.stringify([makeMatch('cross-source-match', '跨来源段落', '跨来源段落')]),
+      '2026-09-15T00:00:00.000Z',
+      '2026-09-16T00:00:00.000Z',
+    );
+
+    const summaries = store.listRecentDuplicateSummaries([left.projectId, right.projectId, other.projectId]);
+    assert.equal(summaries[left.projectId].resultId, sameSourceResultId);
+    assert.equal(summaries[left.projectId].otherProjectId, right.projectId);
+    assert.equal(summaries[other.projectId], null);
+    assert.equal(store.loadLatestDuplicateResult(left.projectId).resultId, sameSourceResultId);
+  } finally {
+    db.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('loads complete duplicate results and persists one match decision without changing comparison time', () => {
   const { root, db, store } = createTestStore();
   try {

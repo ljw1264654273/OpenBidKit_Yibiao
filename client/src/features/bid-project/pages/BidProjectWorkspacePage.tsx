@@ -2,7 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppDialog, EmptyState, useToast } from '../../../shared/ui';
 import type { SectionId } from '../../../shared/types/navigation';
 import { bidProjectStorage } from '../services/bidProjectStorage';
-import type { BidContentDuplicateResult, BidProject, BidProjectStatus } from '../types';
+import type { BidContentDuplicateResult, BidProject, BidProjectDuplicateSummary, BidProjectStatus } from '../types';
+import BidProjectCompareBar from '../components/BidProjectCompareBar';
+import BidProjectDuplicateResultDialog from '../components/BidProjectDuplicateResultDialog';
 import BidProjectRow from '../components/BidProjectRow';
 
 interface BidProjectWorkspacePageProps {
@@ -20,15 +22,13 @@ function BidProjectWorkspacePage({ onSectionChange, onProjectChange }: BidProjec
   const [renameTarget, setRenameTarget] = useState<BidProject | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<BidProject | null>(null);
   const [renameValue, setRenameValue] = useState('');
+  const [compareSelection, setCompareSelection] = useState<string[]>([]);
+  const [compareSensitivity, setCompareSensitivity] = useState<'low' | 'medium' | 'high'>('medium');
   const [comparePair, setComparePair] = useState<[BidProject, BidProject] | null>(null);
   const [compareResult, setCompareResult] = useState<BidContentDuplicateResult | null>(null);
-  const [compareSensitivity, setCompareSensitivity] = useState<'low' | 'medium' | 'high'>('medium');
   const [compareLoading, setCompareLoading] = useState(false);
-  const [compareSelection, setCompareSelection] = useState<string[]>([]);
-  const [activeMatchId, setActiveMatchId] = useState<string | null>(null);
-  const [rewriteDrafts, setRewriteDrafts] = useState<Record<string, string>>({});
-  const matchRefs = useRef<Record<string, HTMLElement | null>>({});
-  const autoComparedGroups = useRef(new Set<string>());
+  const [recentDuplicateSummaries, setRecentDuplicateSummaries] = useState<Record<string, BidProjectDuplicateSummary | null>>({});
+  const compareRequestRef = useRef(0);
 
   const loadProjects = useCallback(async () => {
     setLoading(true);
@@ -41,9 +41,25 @@ function BidProjectWorkspacePage({ onSectionChange, onProjectChange }: BidProjec
     }
   }, [query, showToast, status, type]);
 
+  const loadRecentDuplicateSummaries = useCallback(async (items: BidProject[]) => {
+    if (!items.length) {
+      setRecentDuplicateSummaries({});
+      return;
+    }
+    try {
+      setRecentDuplicateSummaries(await bidProjectStorage.listRecentDuplicateSummaries(items.map((project) => project.projectId)));
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '读取最近查重结果失败', 'error');
+    }
+  }, [showToast]);
+
   useEffect(() => {
     void loadProjects();
   }, [loadProjects]);
+
+  useEffect(() => {
+    void loadRecentDuplicateSummaries(projects);
+  }, [loadRecentDuplicateSummaries, projects]);
 
   const counts = useMemo(() => ({
     all: projects.length,
@@ -51,6 +67,13 @@ function BidProjectWorkspacePage({ onSectionChange, onProjectChange }: BidProjec
     incomplete: projects.filter((project) => project.status === 'incomplete').length,
     completed: projects.filter((project) => project.status === 'completed').length,
   }), [projects]);
+
+  const selectedProjects = useMemo(
+    () => compareSelection
+      .map((projectId) => projects.find((project) => project.projectId === projectId))
+      .filter(Boolean) as BidProject[],
+    [compareSelection, projects],
+  );
 
   const openProject = async (project: BidProject) => {
     try {
@@ -87,61 +110,76 @@ function BidProjectWorkspacePage({ onSectionChange, onProjectChange }: BidProjec
   };
 
   const runCompare = async (pair: [BidProject, BidProject], sensitivity = compareSensitivity) => {
+    const requestId = compareRequestRef.current + 1;
+    compareRequestRef.current = requestId;
     setComparePair(pair);
     setCompareResult(null);
     setCompareLoading(true);
     try {
-      const result = await window.yibiao!.bidProject.compareContent({
+      const result = await bidProjectStorage.compareContent({
         leftProjectId: pair[0].projectId,
         rightProjectId: pair[1].projectId,
         sensitivity,
       });
+      if (requestId !== compareRequestRef.current) return;
       setCompareResult(result);
-      setActiveMatchId(result.matches[0]?.id || null);
-      setRewriteDrafts({});
+      await loadRecentDuplicateSummaries(projects);
     } catch (error) {
+      if (requestId !== compareRequestRef.current) return;
       showToast(error instanceof Error ? error.message : '正文查重失败', 'error');
     } finally {
-      setCompareLoading(false);
+      if (requestId === compareRequestRef.current) setCompareLoading(false);
     }
   };
 
   const chooseCompare = (project: BidProject) => {
-    const next = compareSelection.includes(project.projectId)
-      ? compareSelection.filter((projectId) => projectId !== project.projectId)
-      : [...compareSelection, project.projectId].slice(-2);
-    if (next.length === 1) {
-      setCompareSelection(next);
-      showToast('已选择 1 份标书，请再选择另一份', 'info');
-      return;
+    if (!compareSelection.includes(project.projectId) && compareSelection.length === 1) {
+      const selectedProject = projects.find((item) => item.projectId === compareSelection[0]);
+      if (!selectedProject || !selectedProject.sourceGroupId || selectedProject.sourceGroupId !== project.sourceGroupId) {
+        showToast('正文查重请选择同一招标文件生成的两份标书', 'info');
+        return;
+      }
     }
-    if (next.length === 2) {
-      setCompareSelection([]);
-      const pair = next.map((projectId) => projects.find((item) => item.projectId === projectId)).filter(Boolean) as BidProject[];
-      if (pair.length === 2) void runCompare([pair[0], pair[1]]);
-      return;
-    }
-    setCompareSelection(next);
-  };
-
-  const focusMatch = (matchId: string) => {
-    setActiveMatchId(matchId);
-    matchRefs.current[matchId]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  };
-
-  useEffect(() => {
-    const grouped = new Map<string, BidProject[]>();
-    projects.forEach((project) => {
-      if (!project.sourceGroupId) return;
-      const group = grouped.get(project.sourceGroupId) || [];
-      group.push(project);
-      grouped.set(project.sourceGroupId, group);
+    setCompareSelection((previous) => {
+      if (previous.includes(project.projectId)) return previous.filter((projectId) => projectId !== project.projectId);
+      return [...previous, project.projectId].slice(-2);
     });
-    const candidate = [...grouped.entries()].find(([groupId, group]) => group.length >= 2 && !autoComparedGroups.current.has(groupId));
-    if (!candidate) return;
-    autoComparedGroups.current.add(candidate[0]);
-    void runCompare([candidate[1][0], candidate[1][1]]);
-  }, [projects]);
+  };
+
+  const selectedPair = selectedProjects.length === 2 ? [selectedProjects[0], selectedProjects[1]] as [BidProject, BidProject] : null;
+  const clearCompareSelection = () => setCompareSelection([]);
+  const swapCompareSelection = () => setCompareSelection((previous) => [previous[1], previous[0]].filter(Boolean));
+
+  const openLatestDuplicateResult = async (project: BidProject) => {
+    if (compareLoading) {
+      showToast('当前正在对比正文，请等待本次对比完成', 'info');
+      return;
+    }
+    try {
+      const result = await bidProjectStorage.loadLatestDuplicateResult(project.projectId);
+      if (!result) {
+        showToast('暂无查重结果', 'info');
+        return;
+      }
+      const leftProject = result.leftProject || projects.find((item) => item.projectId === result.leftProjectId);
+      const rightProject = result.rightProject || projects.find((item) => item.projectId === result.rightProjectId);
+      if (!leftProject || !rightProject) throw new Error('查重结果对应的项目已不存在');
+      if (result.sensitivity === 'low' || result.sensitivity === 'medium' || result.sensitivity === 'high') {
+        setCompareSensitivity(result.sensitivity);
+      }
+      setComparePair([leftProject, rightProject]);
+      setCompareResult(result);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '读取查重结果失败', 'error');
+    }
+  };
+
+  const closeCompareResult = () => {
+    if (compareLoading) return;
+    compareRequestRef.current += 1;
+    setComparePair(null);
+    setCompareResult(null);
+  };
 
   const confirmRename = async () => {
     if (!renameTarget || !renameValue.trim()) return;
@@ -161,6 +199,13 @@ function BidProjectWorkspacePage({ onSectionChange, onProjectChange }: BidProjec
       const result = await bidProjectStorage.remove(deleteTarget.projectId);
       if (!result.success) throw new Error(result.message || '删除失败');
       setDeleteTarget(null);
+      setCompareSelection((previous) => previous.filter((projectId) => projectId !== deleteTarget.projectId));
+      if (comparePair?.some((project) => project.projectId === deleteTarget.projectId)) {
+        compareRequestRef.current += 1;
+        setCompareLoading(false);
+        setComparePair(null);
+        setCompareResult(null);
+      }
       await loadProjects();
       showToast('标书项目已删除', 'success');
     } catch (error) {
@@ -213,6 +258,16 @@ function BidProjectWorkspacePage({ onSectionChange, onProjectChange }: BidProjec
         </button>
       </div>
 
+      <BidProjectCompareBar
+        selectedProjects={selectedProjects}
+        sensitivity={compareSensitivity}
+        loading={compareLoading}
+        onSensitivityChange={setCompareSensitivity}
+        onSwap={swapCompareSelection}
+        onClear={clearCompareSelection}
+        onStart={() => { if (selectedPair) void runCompare(selectedPair, compareSensitivity); }}
+      />
+
       <section className="bid-project-list-panel">
         <div className="bid-project-toolbar">
           <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索标书名称、来源文件或标段" />
@@ -232,10 +287,7 @@ function BidProjectWorkspacePage({ onSectionChange, onProjectChange }: BidProjec
         <div className="bid-project-list-head"><span>标书</span><span>类型</span><span>状态</span><span>更新时间</span><span>操作</span></div>
         {loading ? <div className="bid-project-loading">正在读取本机标书项目...</div> : null}
         {!loading && projects.length === 0 ? (
-          <EmptyState
-            title="还没有标书项目"
-            hint="新建一份标书后，目录、正文和生成进度都会独立保存。"
-          >
+          <EmptyState title="还没有标书项目" hint="新建一份标书后，目录、正文和生成进度都会独立保存。">
             <button type="button" className="primary-action" onClick={() => { void createProject(); }}>新建第一份标书</button>
           </EmptyState>
         ) : null}
@@ -249,6 +301,8 @@ function BidProjectWorkspacePage({ onSectionChange, onProjectChange }: BidProjec
             onExport={(target) => { void exportProject(target); }}
             onCompare={chooseCompare}
             compareSelected={compareSelection.includes(project.projectId)}
+            duplicateSummary={recentDuplicateSummaries[project.projectId]}
+            onViewDuplicateResult={(target) => { void openLatestDuplicateResult(target); }}
           />
         ))}
       </section>
@@ -283,74 +337,17 @@ function BidProjectWorkspacePage({ onSectionChange, onProjectChange }: BidProjec
         )}
       />
 
-      <AppDialog
-        open={Boolean(comparePair && comparePair[0].projectId !== comparePair[1].projectId)}
-        onOpenChange={(open) => { if (!open) { setComparePair(null); setCompareResult(null); } }}
-        kicker="同源正文对比查重"
-        title={comparePair ? `${comparePair[0].projectName} / ${comparePair[1].projectName}` : '正文对比查重'}
-        description="只比较本机标书正文。重复段落左右联动展示，改写建议需要你确认后再替换。"
-        actions={<button type="button" className="secondary-action" onClick={() => { setComparePair(null); setCompareResult(null); }}>关闭</button>}
-      >
-        <div className="bid-project-duplicate-dialog">
-          <div className="bid-project-duplicate-controls">
-            <span>灵敏度</span>
-            <select value={compareSensitivity} onChange={(event) => {
-              const next = event.target.value as 'low' | 'medium' | 'high';
-              setCompareSensitivity(next);
-              if (comparePair) void runCompare(comparePair, next);
-            }}>
-              <option value="low">低</option>
-              <option value="medium">中（默认）</option>
-              <option value="high">高</option>
-            </select>
-          </div>
-          {compareLoading ? <div className="bid-project-loading">正在对比正文段落...</div> : null}
-          {compareResult ? (
-            <>
-              <div className="bid-project-duplicate-summary">共比较 {compareResult.summary.leftParagraphCount} / {compareResult.summary.rightParagraphCount} 个段落，发现 {compareResult.summary.duplicateParagraphCount} 组近似重复。</div>
-              <div className="bid-project-match-list">
-                {compareResult.matches.map((match) => (
-                  <article
-                    className={`bid-project-match ${activeMatchId === match.id ? 'is-active' : ''}`}
-                    key={match.id}
-                    ref={(element) => { matchRefs.current[match.id] = element; }}
-                  >
-                    <button type="button" className="bid-project-match-side" onClick={() => focusMatch(match.id)} aria-pressed={activeMatchId === match.id}>
-                      <strong>左侧：{comparePair?.[0].projectName} · 相似度 {Math.round(match.similarity * 100)}%</strong>
-                      <p>{match.leftParagraph.text}</p>
-                    </button>
-                    <button type="button" className="bid-project-match-side" onClick={() => focusMatch(match.id)} aria-pressed={activeMatchId === match.id}>
-                      <strong>右侧：{comparePair?.[1].projectName}</strong>
-                      <p>{match.rightParagraph.text}</p>
-                    </button>
-                    <div className="bid-project-match-actions">
-                      <span>{match.suggestion.instruction}</span>
-                      <input
-                        value={rewriteDrafts[match.id] || ''}
-                        onChange={(event) => setRewriteDrafts((prev) => ({ ...prev, [match.id]: event.target.value }))}
-                        placeholder="输入确认后的改写内容"
-                      />
-                      <button type="button" className="primary-action" disabled={!rewriteDrafts[match.id]?.trim() || !match.rightNodeId} onClick={async () => {
-                        try {
-                          await window.yibiao!.bidProject.replaceContent(comparePair![1].projectId, {
-                            nodeId: match.rightNodeId!,
-                            oldText: match.rightParagraph.text,
-                            newText: rewriteDrafts[match.id].trim(),
-                          });
-                          showToast('已按你的确认替换右侧正文', 'success');
-                          await runCompare(comparePair!, compareSensitivity);
-                        } catch (error) {
-                          showToast(error instanceof Error ? error.message : '替换正文失败', 'error');
-                        }
-                      }}>确认替换右侧</button>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            </>
-          ) : null}
-        </div>
-      </AppDialog>
+      <BidProjectDuplicateResultDialog
+        open={Boolean(compareResult)}
+        result={compareResult}
+        leftProject={comparePair?.[0] || null}
+        rightProject={comparePair?.[1] || null}
+        onOpenChange={(open) => { if (!open) closeCompareResult(); }}
+        onResultChange={setCompareResult}
+        onRecompare={async () => {
+          if (comparePair) await runCompare(comparePair, compareSensitivity);
+        }}
+      />
     </div>
   );
 }

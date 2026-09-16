@@ -45,6 +45,7 @@ const { createTaskLogStore } = require('../services/taskLogStore.cjs');
 const { createTechnicalPlanStore } = require('../services/technicalPlanStore.cjs');
 const { createBidProjectManager } = require('../services/bidProjectManager.cjs');
 const { createBidProjectImportService } = require('../services/bidProjectImportService.cjs');
+const { createBidProjectDuplicateRewriteService } = require('../services/bidProjectDuplicateRewriteService.cjs');
 const { createFeasibilityReportStore } = require('../services/feasibilityReportStore.cjs');
 const { createTemplateStore } = require('../services/templateStore.cjs');
 const { createTemplateFileService } = require('../services/templateFileService.cjs');
@@ -134,6 +135,12 @@ const workspaceDatabaseChannels = [
   'bid-project:confirm-import',
   'bid-project:discard-import',
   'bid-project:read-content',
+  'bid-project:compare-content',
+  'bid-project:recent-duplicate-summaries',
+  'bid-project:load-duplicate-result',
+  'bid-project:load-latest-duplicate-result',
+  'bid-project:update-duplicate-match-decision',
+  'bid-project:rewrite-duplicate-match',
   'bid-project:replace-content',
   'bid-project:export-word',
   'technical-plan:load-state',
@@ -296,6 +303,7 @@ function registerWorkspaceDatabaseServices({ app, configStore, aiService, agentS
     configStore,
   });
   const bidProjectImportService = createBidProjectImportService({ app, fileService, bidProjectManager });
+  const bidProjectDuplicateRewriteService = createBidProjectDuplicateRewriteService({ aiService });
   const knowledgeBaseStore = createKnowledgeBaseStore({ app, db: sqliteDatabase.db });
   const knowledgeBaseService = createKnowledgeBaseService({ app, aiService, configStore, knowledgeBaseStore });
   const knowledgeReferenceService = createKnowledgeReferenceService({ knowledgeBaseService, remoteKnowledgeService, remoteKnowledgeDecisionService });
@@ -325,7 +333,15 @@ function registerWorkspaceDatabaseServices({ app, configStore, aiService, agentS
   clearWorkspaceDatabaseIpc();
   registerKnowledgeBaseIpc({ knowledgeBaseService });
   registerTechnicalPlanIpc({ technicalPlanStore, bidProjectManager, taskService, remoteKnowledgeService, aiService });
-  registerBidProjectIpc({ bidProjectManager, bidProjectImportService, technicalPlanStore, taskService, exportService });
+  registerBidProjectIpc({
+    ipcMain,
+    bidProjectManager,
+    bidProjectImportService,
+    technicalPlanStore,
+    taskService,
+    exportService,
+    duplicateRewriteService: bidProjectDuplicateRewriteService,
+  });
   registerFeasibilityReportIpc({ feasibilityReportStore, taskService });
   registerDuplicateCheckIpc({ duplicateCheckStore, checkResultExportService });
   registerRejectionCheckIpc({ rejectionCheckStore, taskService, checkResultExportService });
