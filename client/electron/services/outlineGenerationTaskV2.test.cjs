@@ -24,6 +24,7 @@ const {
   mergeReviewedScoreDirectoryPlan,
   deriveTechnicalScoreHierarchy,
   normalizeOutlineScoreMetadataTitles,
+  reconcileStandaloneTechnicalRoots,
   normalizeScoreDirectoryPlanTitles,
   assertStandaloneTechnicalRoots,
   assertStandaloneScoreDirectoryPlan,
@@ -468,27 +469,120 @@ test('合并单元格评分规划失败时记录原文与规划标题诊断', ()
   assert.equal(diagnostics.length, 1);
   assert.deepEqual(diagnostics[0], {
     hierarchy_item_count: 2,
+    score_group_count: 2,
     plan_mapping_count: 2,
     source_root_count: 1,
     actual_root_count: 1,
     mismatch_count: 2,
+    unexpected_mapping_ids: [],
     mismatches: [
       {
         requirement_id: 'R1',
         source_title: '项目总体方案',
+        score_item_title: '项目总体方案',
         planned_title: '对本项目的理解',
         parent_group: '项目总体方案',
         hierarchy_evidence_type: 'merged-cell',
+        root_index: 0,
       },
       {
         requirement_id: 'R2',
         source_title: '项目总体方案',
+        score_item_title: '项目总体方案',
         planned_title: '项目总体方案设计',
         parent_group: '项目总体方案',
         hierarchy_evidence_type: 'merged-cell',
+        root_index: 0,
       },
     ],
   });
+});
+
+test('评分规划按评分大项校验且同名业务分组不重复生成二级节点', () => {
+  const hierarchy = deriveTechnicalScoreHierarchy(`## 技术评分项
+
+【评分项名称】：项目总体方案
+【直接上级名称】：项目总体方案
+【直接上级类型】：业务分组
+【层级依据类型】：合并单元格
+【层级依据说明】：rowspan=2
+
+【评分项名称】：项目总体方案
+【直接上级名称】：项目总体方案
+【直接上级类型】：业务分组
+【层级依据类型】：合并单元格
+【层级依据说明】：rowspan=2
+
+【评分项名称】：组织实施方案
+【直接上级名称】：组织实施方案
+【直接上级类型】：业务分组
+【层级依据类型】：合并单元格
+【层级依据说明】：rowspan=2
+
+【评分项名称】：组织实施方案
+【直接上级名称】：组织实施方案
+【直接上级类型】：业务分组
+【层级依据类型】：合并单元格
+【层级依据说明】：rowspan=2
+
+【评分项名称】：设施设备配备情况
+【直接上级名称】：无
+【直接上级类型】：无
+【层级依据类型】：无
+【层级依据说明】：无`);
+  assert.equal(hierarchy.items.length, 5);
+  assert.deepEqual(hierarchy.rootTitles, ['项目总体方案', '组织实施方案', '设施设备配备情况']);
+  const roots = [
+    { id: '1', title: '项目总体方案' },
+    { id: '2', title: '组织实施方案' },
+    { id: '3', title: '设施设备配备情况' },
+  ];
+  const scorePlan = {
+    version: 2,
+    groups: [
+      {
+        requirement_id: 'R1', source_title: '项目总体方案', target_title: '项目总体方案',
+        expected_path: ['项目总体方案'], parent_name: '项目总体方案', parent_type: 'business-group',
+        hierarchy_evidence_type: 'merged-cell',
+      },
+      {
+        requirement_id: 'R2', source_title: '组织实施方案', target_title: '组织实施方案',
+        expected_path: ['组织实施方案'], parent_name: '组织实施方案', parent_type: 'business-group',
+        hierarchy_evidence_type: 'merged-cell',
+      },
+      {
+        requirement_id: 'R3', source_title: '设施设备配备情况', target_title: '设施设备配备情况',
+        expected_path: ['设施设备配备情况'], parent_name: null, parent_type: 'none',
+        hierarchy_evidence_type: 'none',
+      },
+    ],
+  };
+  const plan = {
+    allow_root_changes: false,
+    extra_titles: [],
+    branches: [
+      {
+        branch_id: 'B1', root_id: '1', root_title: '项目总体方案', score_item_level: 1,
+        mappings: [{ requirement_id: 'R1', target_title: '项目总体方案' }],
+      },
+      {
+        branch_id: 'B2', root_id: '2', root_title: '组织实施方案', score_item_level: 1,
+        mappings: [{ requirement_id: 'R2', target_title: '组织实施方案' }],
+      },
+      {
+        branch_id: 'B3', root_id: '3', root_title: '设施设备配备情况', score_item_level: 1,
+        mappings: [{ requirement_id: 'R3', target_title: '设施设备配备情况' }],
+      },
+    ],
+  };
+
+  assert.doesNotThrow(() => assertStandaloneScoreDirectoryPlan(plan, hierarchy, roots, { scorePlan }));
+  const redundantLevel = structuredClone(plan);
+  redundantLevel.branches[0].score_item_level = 2;
+  assert.throws(
+    () => assertStandaloneScoreDirectoryPlan(redundantLevel, hierarchy, roots, { scorePlan }),
+    /评分大项本身对应一级目录时使用一级/,
+  );
 });
 
 test('合并单元格评分项使用结构化评分标题校验规划映射', () => {
@@ -1256,16 +1350,41 @@ test('独立成册模式只按招标文件原有评分层级生成一级目录',
   assert.match(prompt, /层级依据类型.*每个技术评分项分别作为一级目录/);
   assert.match(prompt, /不得根据父级标题字样/);
   assert.match(prompt, /父级标题字样、语义、相邻关系或所谓共同主题推断、合并/);
-  assert.match(prompt, /本次一级目录必须依次且完整使用：项目理解、质量保证方案/);
+  assert.match(prompt, /数组元素边界就是一级目录边界：\["项目理解","质量保证方案"\]/);
+  assert.match(prompt, /标题中的“、”“与”“及”等标点或连接词属于标题原文/);
   assert.match(prompt, /一级目录 title 必须逐字使用上述评分分组或评分项名称/);
   assert.match(prompt, /“项目实施方案”不得缩写为“实施方案”/);
   assert.doesNotMatch(prompt, /title 使用简洁的名词性短语/);
   assert.match(prompt, /不得加入商务、资信、投标函、授权委托书/);
 });
 
+test('独立成册一级目录不会把评分项标题中的顿号拆成两个根节点', () => {
+  const hierarchy = {
+    rootTitles: [
+      '项目审核公示方案',
+      '项目数据标准化、建库方案',
+      '质量保证方案',
+    ],
+  };
+  const generated = [
+    { id: '1', title: '项目审核公示方案', description: '审核公示', attr: '技术', content_mode: 'ai-generate' },
+    { id: '2', title: '项目数据标准化', description: '数据标准化', attr: '技术', content_mode: 'ai-generate' },
+    { id: '3', title: '建库方案', description: '建库', attr: '技术', content_mode: 'ai-generate' },
+    { id: '4', title: '质量保证方案', description: '质量保证', attr: '技术', content_mode: 'ai-generate' },
+  ];
+
+  const reconciled = reconcileStandaloneTechnicalRoots(generated, hierarchy);
+
+  assert.deepEqual(reconciled.map((item) => item.title), hierarchy.rootTitles);
+  assert.deepEqual(reconciled.map((item) => item.id), ['1', '2', '3']);
+  assert.ok(reconciled.every((item) => item.attr === '技术' && item.content_mode === 'ai-generate'));
+  assert.doesNotThrow(() => assertStandaloneTechnicalRoots(reconciled, hierarchy));
+});
+
 test('独立成册评分规划严格区分原文分组项和无分组项', () => {
   const prompt = createScorePlanningPrompt({ standaloneTechnical: true });
 
+  assert.match(prompt, /target_title 与所属一级根节点标题相同.*score_item_level=1/);
   assert.match(prompt, /原文中具有同一个明确业务分组.*score_item_level=2/);
   assert.match(prompt, /原文没有明确业务分组.*score_item_level=1/);
   assert.match(prompt, /不得根据语义或相邻关系推断分组/);
