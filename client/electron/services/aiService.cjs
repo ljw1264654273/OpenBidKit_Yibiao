@@ -84,6 +84,7 @@ function isResponseFormatUnsupported(message) {
     'does not support',
     'not support',
     'unsupported',
+    'unavailable',
     'unknown parameter',
     'invalid parameter',
     'must be',

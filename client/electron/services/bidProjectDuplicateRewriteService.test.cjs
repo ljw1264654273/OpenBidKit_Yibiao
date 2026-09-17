@@ -22,10 +22,7 @@ test('builds a structured rewrite request with target, reference, facts, and ant
 
   assert.equal(request.progressLabel, '标书重复内容 AI 改写');
   assert.equal(request.failureMessage, 'AI 改写失败，请检查模型配置后重试');
-  assert.deepEqual(request.response_format, {
-    type: 'json_schema',
-    json_schema: BID_PROJECT_DUPLICATE_REWRITE_RESPONSE_SCHEMA,
-  });
+  assert.deepEqual(request.response_format, { type: 'json_object' });
   assert.equal(request.signal, rewriteInput.signal);
 
   const systemMessage = request.messages.find((message) => message.role === 'system').content;

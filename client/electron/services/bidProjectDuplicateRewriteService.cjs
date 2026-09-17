@@ -31,7 +31,7 @@ const REWRITE_SYSTEM_PROMPT = `你是投标文件重复内容改写助手。
 2. 保留事实：保留目标文本中的数字、专有名词、项目范围、责任边界、工期和承诺，不得凭空新增或删除实质信息。
 3. 不得照搬参考侧的句式、连续表达、措辞组合或段落结构；不得只做同义词替换后继续沿用参考侧表达。
 4. 应重新组织目标文本自己的叙述逻辑和表达方式，但不能改变原意，也不能把参考文本的事实混入目标文本。
-5. 只返回符合 JSON Schema 的 JSON，不要输出 Markdown、代码围栏、解释或额外文字。
+5. 只返回包含 rewrittenText、reason、riskNote 的 JSON，不要输出 Markdown、代码围栏、解释或额外文字。
 
 返回 rewrittenText、reason、riskNote 三个字段。`;
 
@@ -93,8 +93,7 @@ RIGHT_TEXT>>>`,
       },
     ],
     response_format: {
-      type: 'json_schema',
-      json_schema: BID_PROJECT_DUPLICATE_REWRITE_RESPONSE_SCHEMA,
+      type: 'json_object',
     },
     progressLabel: '标书重复内容 AI 改写',
     failureMessage: 'AI 改写失败，请检查模型配置后重试',
