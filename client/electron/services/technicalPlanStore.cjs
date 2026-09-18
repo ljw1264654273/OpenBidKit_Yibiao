@@ -1856,6 +1856,14 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     return { plan, item };
   }
 
+  function findIllustrationReviewPlanItem(itemId) {
+    const plan = loadContentIllustrationPlan();
+    const id = String(itemId || '').trim();
+    const item = plan?.items?.find((entry) => entry.item_id === id);
+    if (!item) throw new Error('未找到图片审核项');
+    return { plan, item };
+  }
+
   function saveMermaidReviewItemGeneration(item, generationPatch) {
     const nextGeneration = {
       ...(item.generation || {}),
@@ -1898,6 +1906,51 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     return { success: true, code: normalizeMermaidReviewCode(code) };
   }
 
+  function getIllustrationReviewItem({ itemId }) {
+    const { item } = findIllustrationReviewPlanItem(itemId);
+    return { item };
+  }
+
+  function previewIllustrationReviewItem({ itemId, code }) {
+    const { item } = findIllustrationReviewPlanItem(itemId);
+    if (item.kind === 'mermaid') {
+      return { success: true, code: normalizeMermaidReviewCode(code) };
+    }
+    return { success: true };
+  }
+
+  function saveIllustrationReviewItem({ itemId, code }) {
+    const { item } = findIllustrationReviewPlanItem(itemId);
+    if (item.kind === 'mermaid') {
+      const normalizedCode = normalizeMermaidReviewCode(code);
+      return saveMermaidReviewItemGeneration(item, {
+        status: 'reviewing',
+        code: normalizedCode,
+        review_status: 'pending',
+        review_error: undefined,
+        asset_url: undefined,
+        source_path: undefined,
+        redraw_status: undefined,
+        redraw_asset_url: undefined,
+        redraw_source_path: undefined,
+        redraw_error: undefined,
+        redraw_attempts: undefined,
+        redraw_updated_at: undefined,
+        error: undefined,
+      });
+    }
+    return saveMermaidReviewItemGeneration(item, {
+      review_status: 'pending',
+      review_error: undefined,
+      redraw_status: undefined,
+      redraw_asset_url: undefined,
+      redraw_source_path: undefined,
+      redraw_error: undefined,
+      redraw_attempts: undefined,
+      redraw_updated_at: undefined,
+    });
+  }
+
   function confirmMermaidReviewItem({ itemId, code }) {
     const { item } = findMermaidReviewPlanItem(itemId);
     const normalizedCode = normalizeMermaidReviewCode(code);
@@ -1920,6 +1973,35 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     });
   }
 
+  function confirmIllustrationReviewItem({ itemId, code }) {
+    const { item } = findIllustrationReviewPlanItem(itemId);
+    if (item.kind === 'mermaid') {
+      const normalizedCode = normalizeMermaidReviewCode(code);
+      return saveMermaidReviewItemGeneration(item, {
+        status: 'pending',
+        code: normalizedCode,
+        review_status: 'confirmed',
+        review_error: undefined,
+        reviewed_at: now(),
+        asset_url: undefined,
+        source_path: undefined,
+        redraw_status: undefined,
+        redraw_asset_url: undefined,
+        redraw_source_path: undefined,
+        redraw_error: undefined,
+        redraw_attempts: undefined,
+        redraw_updated_at: undefined,
+        error: undefined,
+        attempts: undefined,
+      });
+    }
+    return saveMermaidReviewItemGeneration(item, {
+      review_status: 'confirmed',
+      review_error: undefined,
+      reviewed_at: now(),
+    });
+  }
+
   function skipMermaidReviewItem({ itemId }) {
     const { item } = findMermaidReviewPlanItem(itemId);
     return saveMermaidReviewItemGeneration(item, {
@@ -1937,6 +2019,22 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       redraw_updated_at: undefined,
       error: undefined,
       attempts: undefined,
+    });
+  }
+
+  function skipIllustrationReviewItem({ itemId }) {
+    const { item } = findIllustrationReviewPlanItem(itemId);
+    return saveMermaidReviewItemGeneration(item, {
+      status: item.generation?.status || 'success',
+      review_status: 'skipped',
+      review_error: undefined,
+      reviewed_at: now(),
+      redraw_status: undefined,
+      redraw_asset_url: undefined,
+      redraw_source_path: undefined,
+      redraw_error: undefined,
+      redraw_attempts: undefined,
+      redraw_updated_at: undefined,
     });
   }
 
@@ -3179,6 +3277,11 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     saveIllustrationPng,
     saveContentGenerationOptions,
     saveChapterContent,
+    getIllustrationReviewItem,
+    previewIllustrationReviewItem,
+    saveIllustrationReviewItem,
+    confirmIllustrationReviewItem,
+    skipIllustrationReviewItem,
     previewMermaidReviewItem,
     saveMermaidReviewCode,
     confirmMermaidReviewItem,

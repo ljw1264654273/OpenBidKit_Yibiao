@@ -730,6 +730,11 @@ export interface YibiaoBridge {
     saveGlobalFacts: (payload: { projectId?: string; globalFacts: GlobalFactGroupState[] } | GlobalFactGroupState[]) => Promise<Partial<TechnicalPlanState>>;
     saveContentGenerationOptions: (payload: { projectId?: string; options: ContentGenerationOptions } | ContentGenerationOptions) => Promise<Partial<TechnicalPlanState>>;
     saveChapterContent: (payload: { projectId?: string; nodeId: string; content: string }) => Promise<Partial<TechnicalPlanState>>;
+    previewIllustrationReviewItem: (payload: { projectId?: string; itemId: string; code?: string }) => Promise<{ success: boolean; code?: string }>;
+    saveIllustrationReviewItem: (payload: { projectId?: string; itemId: string; code?: string }) => Promise<Partial<TechnicalPlanState>>;
+    adjustIllustrationReviewItem: (payload: { projectId?: string; itemId: string; code?: string; instruction: string; referenceImages?: Array<{ path?: string; dataUrl?: string }>; referenceImagePath?: string; referenceImageDataUrl?: string }) => Promise<Partial<TechnicalPlanState> & { code?: string; instruction?: string }>;
+    confirmIllustrationReviewItem: (payload: { projectId?: string; itemId: string; code?: string }) => Promise<Partial<TechnicalPlanState>>;
+    skipIllustrationReviewItem: (payload: { projectId?: string; itemId: string }) => Promise<Partial<TechnicalPlanState>>;
     previewMermaidReviewItem: (payload: { projectId?: string; itemId?: string; code: string }) => Promise<{ success: boolean; code: string }>;
     saveMermaidReviewCode: (payload: { projectId?: string; itemId: string; code: string }) => Promise<Partial<TechnicalPlanState>>;
     adjustMermaidReviewCode: (payload: { projectId?: string; itemId: string; code: string; instruction: string; referenceImages?: Array<{ path?: string; dataUrl?: string }>; referenceImagePath?: string; referenceImageDataUrl?: string }) => Promise<Partial<TechnicalPlanState> & { code: string }>;
