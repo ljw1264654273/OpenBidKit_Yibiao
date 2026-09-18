@@ -78,6 +78,10 @@ function shouldCheckpointIllustrationGeneration(status) {
   return DURABLE_ILLUSTRATION_GENERATION_STATUSES.has(status);
 }
 
+function shouldGenerateMermaidReviewDraft(planItem, redrawConfirmedMermaidIllustrations) {
+  return planItem?.kind === 'mermaid' && !redrawConfirmedMermaidIllustrations;
+}
+
 function isContentGenerationPausedError(error) {
   return error?.code === CONTENT_GENERATION_PAUSED;
 }
@@ -3278,7 +3282,6 @@ async function runContentGenerationTask({ aiService, agentService, workspaceStor
   const imageConcurrency = normalizeImageConcurrency(aiConfig.image_model?.concurrency_limit);
   const developerModeEnabled = isDeveloperModeEnabled(aiService);
   const tableRequirement = normalizeTableRequirement(generationOptions.tableRequirement ?? generationOptions.table_requirement);
-  const useAiRedesignForMermaid = Boolean(generationOptions.useAiRedesignForMermaid ?? generationOptions.use_ai_redesign_for_mermaid ?? false);
   let maxTables = maxTablesForRequirement(tableRequirement, leaves.length);
   const referenceKnowledgeDocumentIds = normalizeReferenceDocumentIds(storedPlan);
   const enableConsistencyAudit = Boolean(generationOptions.enableConsistencyAudit ?? generationOptions.enable_consistency_audit ?? true);
@@ -6680,7 +6683,8 @@ async function runContentGenerationTask({ aiService, agentService, workspaceStor
     async function runExecution(execution) {
       const { planItem } = execution;
       if (['success', 'error', 'reviewing', 'skipped'].includes(planItem.generation?.status)) return;
-      const mermaidAiRedesign = planItem.kind === 'mermaid' && (useAiRedesignForMermaid || redrawConfirmedMermaidIllustrations);
+      const mermaidReviewDraft = shouldGenerateMermaidReviewDraft(planItem, redrawConfirmedMermaidIllustrations);
+      const mermaidAiRedesign = planItem.kind === 'mermaid' && !mermaidReviewDraft;
       persistIllustrationGeneration(
         planItem.item_id,
         { status: 'running', error: undefined },
@@ -6694,19 +6698,12 @@ async function runContentGenerationTask({ aiService, agentService, workspaceStor
           result = await generateAiIllustration(aiService, execution);
           logs = [...logs, `AI 配图完成：${planItem.section_ids[0]} ${planItem.title}`];
         } else if (planItem.kind === 'mermaid') {
-          if (mermaidAiRedesign) {
-            if (redrawConfirmedMermaidIllustrations) {
-              result = await generateMermaidAiIllustrationFromCode(aiService, execution, planItem.generation?.code || '', isPauseLikeError, Number(planItem.generation?.attempts || 0) + 1);
-              logs = [...logs, `Mermaid 审核后 AI 图片重绘完成：${planItem.section_ids[0]} ${planItem.title}`];
-            } else {
-              result = await generateMermaidReviewDraft(aiService, execution, isPauseLikeError);
-              logs = [...logs, `Mermaid 待确认草稿已生成：${planItem.section_ids[0]} ${planItem.title}${result.attempts ? `（含 Mermaid 修复 ${result.attempts} 轮）` : ''}`];
-            }
+          if (mermaidReviewDraft) {
+            result = await generateMermaidReviewDraft(aiService, execution, isPauseLikeError);
+            logs = [...logs, `Mermaid 待确认草稿已生成：${planItem.section_ids[0]} ${planItem.title}${result.attempts ? `（含 Mermaid 修复 ${result.attempts} 轮）` : ''}`];
           } else {
-            result = await generateMermaidIllustration(aiService, execution, isPauseLikeError);
-            logs = [...logs, result.attempts
-              ? `Mermaid 代码渲染已修复并完成：${planItem.section_ids[0]} ${planItem.title}（修复 ${result.attempts} 轮）`
-              : `Mermaid 代码渲染完成：${planItem.section_ids[0]} ${planItem.title}`];
+            result = await generateMermaidAiIllustrationFromCode(aiService, execution, planItem.generation?.code || '', isPauseLikeError, Number(planItem.generation?.attempts || 0) + 1);
+            logs = [...logs, `Mermaid 审核后 AI 图片重绘完成：${planItem.section_ids[0]} ${planItem.title}`];
           }
         } else {
           result = await generateHtmlIllustration({
@@ -7102,5 +7099,6 @@ module.exports = {
   renderAgentTechnicalPlanOutline,
   __developerContentExpansionPatchRuntime,
   __mandatoryBidContentRulesTestRuntime,
+  shouldGenerateMermaidReviewDraft,
   shouldCheckpointIllustrationGeneration,
 };

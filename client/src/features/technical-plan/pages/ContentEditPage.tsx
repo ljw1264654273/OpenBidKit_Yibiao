@@ -93,6 +93,10 @@ const mermaidReviewStatusLabels: Record<'pending' | 'confirmed' | 'skipped', str
   skipped: '已跳过',
 };
 
+const getMermaidReviewStatus = (item: ContentIllustrationPlanItem): 'pending' | 'confirmed' | 'skipped' => (
+  item.generation?.review_status || 'pending'
+);
+
 const MERMAID_PREVIEW_ZOOM_MIN = 0.6;
 const MERMAID_PREVIEW_ZOOM_MAX = 5;
 const MERMAID_PREVIEW_ZOOM_STEP = 0.25;
@@ -383,7 +387,7 @@ function ContentEditPage({
   const illustrationSuccessTotal = illustrationKinds.reduce((sum, kind) => sum + illustrationStats[kind].success, 0);
   const showIllustrationStats = developerMode && Boolean(contentIllustrationPlan);
   const mermaidReviewItems = useMemo(() => (contentIllustrationPlan?.items || [])
-    .filter((item) => item.kind === 'mermaid' && item.generation?.review_status), [contentIllustrationPlan]);
+    .filter((item) => item.kind === 'mermaid'), [contentIllustrationPlan]);
   const selectedMermaidReviewItem = useMemo(
     () => mermaidReviewItems.find((item) => item.item_id === selectedMermaidReviewItemId) || mermaidReviewItems[0] || null,
     [mermaidReviewItems, selectedMermaidReviewItemId],
@@ -394,9 +398,9 @@ function ContentEditPage({
     '--content-mermaid-preview-pan-x': `${mermaidPreviewPan.x}px`,
     '--content-mermaid-preview-pan-y': `${mermaidPreviewPan.y}px`,
   } as CSSProperties), [mermaidPreviewPan.x, mermaidPreviewPan.y, mermaidPreviewZoom]);
-  const pendingMermaidReviewCount = mermaidReviewItems.filter((item) => item.generation?.review_status === 'pending').length;
-  const confirmedMermaidReviewCount = mermaidReviewItems.filter((item) => item.generation?.review_status === 'confirmed' && !item.generation?.asset_url).length;
-  const redrawableMermaidReviewCount = mermaidReviewItems.filter((item) => item.generation?.review_status === 'confirmed'
+  const pendingMermaidReviewCount = mermaidReviewItems.filter((item) => getMermaidReviewStatus(item) === 'pending').length;
+  const confirmedMermaidReviewCount = mermaidReviewItems.filter((item) => getMermaidReviewStatus(item) === 'confirmed' && !item.generation?.asset_url).length;
+  const redrawableMermaidReviewCount = mermaidReviewItems.filter((item) => getMermaidReviewStatus(item) === 'confirmed'
     && item.generation?.status !== 'success'
     && !item.generation?.asset_url).length;
   const planning = phaseVisible && contentStats?.phase === 'planning';
@@ -1005,7 +1009,7 @@ function ContentEditPage({
 
   const selectNextPendingMermaidReviewItem = (currentItemId: string) => {
     const currentIndex = mermaidReviewItems.findIndex((item) => item.item_id === currentItemId);
-    const isNextPending = (item: ContentIllustrationPlanItem) => item.item_id !== currentItemId && item.generation?.review_status === 'pending';
+    const isNextPending = (item: ContentIllustrationPlanItem) => item.item_id !== currentItemId && getMermaidReviewStatus(item) === 'pending';
     const nextItem = currentIndex >= 0
       ? mermaidReviewItems.slice(currentIndex + 1).find(isNextPending) || mermaidReviewItems.slice(0, currentIndex).find(isNextPending)
       : mermaidReviewItems.find(isNextPending);
@@ -1016,8 +1020,8 @@ function ContentEditPage({
 
   const openMermaidReviewForSection = (sectionId: string) => {
     const sectionReviewItems = getMermaidReviewItemsForSection(sectionId);
-    const targetItem = sectionReviewItems.find((item) => item.generation?.review_status === 'pending')
-      || sectionReviewItems.find((item) => item.generation?.review_status === 'confirmed')
+    const targetItem = sectionReviewItems.find((item) => getMermaidReviewStatus(item) === 'pending')
+      || sectionReviewItems.find((item) => getMermaidReviewStatus(item) === 'confirmed')
       || sectionReviewItems[0];
     if (!targetItem) return;
     setSelectedMermaidReviewItemId(targetItem.item_id);
@@ -1595,7 +1599,7 @@ function ContentEditPage({
             <div className="content-mermaid-review-grid">
               <aside className="content-mermaid-review-list" aria-label="Mermaid 图列表">
                 {mermaidReviewItems.map((item) => {
-                  const status = item.generation?.review_status || 'pending';
+                  const status = getMermaidReviewStatus(item);
                   return (
                     <button
                       type="button"
@@ -1620,8 +1624,8 @@ function ContentEditPage({
                       {selectedMermaidReviewItem?.section_ids.length ? ` · ${selectedMermaidReviewItem.section_ids.join('、')}` : ''}
                     </span>
                   </div>
-                  <span className={`content-mermaid-review-status is-${selectedMermaidReviewItem?.generation?.review_status || 'pending'}`}>
-                    {mermaidReviewStatusLabels[selectedMermaidReviewItem?.generation?.review_status || 'pending']}
+                  <span className={`content-mermaid-review-status is-${selectedMermaidReviewItem ? getMermaidReviewStatus(selectedMermaidReviewItem) : 'pending'}`}>
+                    {mermaidReviewStatusLabels[selectedMermaidReviewItem ? getMermaidReviewStatus(selectedMermaidReviewItem) : 'pending']}
                   </span>
                 </div>
 
@@ -1924,14 +1928,9 @@ ${mermaidReviewDraftCode.trim()}
                   <>
                     <div className="content-generation-config-row">
                       <span>
-                        <strong>Mermaid 改用 AI 图片重绘</strong>
-                        <small>{imageModelAvailable ? '开启后仅影响后续新生成的 Mermaid 图片。' : '请先配置并测试图片模型。'}</small>
+                        <strong>Mermaid 流程图先审核</strong>
+                        <small>生成后会在第五步目录中提供审核入口，确认后可统一转为 AI 图片。</small>
                       </span>
-                      <AppSwitch
-                        checked={draftGenerationOptions.useAiRedesignForMermaid}
-                        disabled={generationStrategyLocked || !imageModelAvailable}
-                        onCheckedChange={(checked) => setDraftGenerationOptions((prev) => ({ ...prev, useAiRedesignForMermaid: checked }))}
-                        aria-label="是否将 Mermaid 改用 AI 图片重绘" />
                     </div>
                     <label className="content-generation-config-row">
                       <span><strong>Mermaid 生图上限</strong></span>

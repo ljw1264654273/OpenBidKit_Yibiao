@@ -1,6 +1,8 @@
 const { compareBidContents, normalizeParagraph } = require('../services/bidContentDuplicateService.cjs');
+const { getBidProjectTechnicalPlanDir } = require('../utils/paths.cjs');
 
 function registerBidProjectIpc({
+  app,
   ipcMain: ipc = require('electron').ipcMain,
   bidProjectManager,
   bidProjectImportService,
@@ -104,6 +106,7 @@ function registerBidProjectIpc({
         requestId,
         project_name: project.projectName || state.outlineData?.project_name,
         outline,
+        project_technical_plan_dir: app ? getBidProjectTechnicalPlanDir(app, projectId) : undefined,
         export_format: options.exportFormat || undefined,
         workflow_analytics: {
           projectId: project.projectId,

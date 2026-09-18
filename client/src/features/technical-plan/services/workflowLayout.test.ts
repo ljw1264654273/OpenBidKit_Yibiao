@@ -142,6 +142,17 @@ test('Mermaid 审核入口跟随对应章节状态按钮并按章节定位', () 
   assert.doesNotMatch(pageSource, /<button type="button" className="primary-action" onClick=\{\(\) => setMermaidReviewOpen\(true\)\}>\s*审核 Mermaid 图/);
 });
 
+test('第五步所有 Mermaid 图片都保留审核入口并兼容历史缺少 review_status 的图片项', () => {
+  const pageSource = readFileSync(new URL('../pages/ContentEditPage.tsx', import.meta.url), 'utf8');
+
+  assert.match(pageSource, /\.filter\(\(item\) => item\.kind === 'mermaid'\)/);
+  assert.match(pageSource, /const getMermaidReviewStatus = \(item: ContentIllustrationPlanItem\)/);
+  assert.match(pageSource, /getMermaidReviewStatus\(item\) === 'pending'/);
+  assert.match(pageSource, /Mermaid 流程图先审核/);
+  assert.doesNotMatch(pageSource, /是否将 Mermaid 改用 AI 图片重绘/);
+  assert.doesNotMatch(pageSource, /\.filter\(\(item\) => item\.kind === 'mermaid' && item\.generation\?\.review_status\)/);
+});
+
 test('Mermaid 审核弹窗把更多可用高度分配给流程图预览', () => {
   const pageSource = readFileSync(new URL('../pages/ContentEditPage.tsx', import.meta.url), 'utf8');
   const css = readFileSync(new URL('../../../styles/feature-technical-plan.css', import.meta.url), 'utf8');

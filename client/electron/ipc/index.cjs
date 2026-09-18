@@ -335,6 +335,7 @@ function registerWorkspaceDatabaseServices({ app, configStore, aiService, agentS
   registerKnowledgeBaseIpc({ knowledgeBaseService });
   registerTechnicalPlanIpc({ technicalPlanStore, bidProjectManager, taskService, remoteKnowledgeService, aiService });
   registerBidProjectIpc({
+    app,
     ipcMain,
     bidProjectManager,
     bidProjectImportService,

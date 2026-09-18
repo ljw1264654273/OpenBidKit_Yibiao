@@ -64,15 +64,36 @@ function collectGeneratedImageReferences(db) {
     }
   };
 
-  db.prepare(`
-    SELECT generation_asset_url AS value
-    FROM technical_plan_illustration_items
-    WHERE generation_asset_url IS NOT NULL AND generation_asset_url <> ''
-    UNION ALL
-    SELECT content AS value
-    FROM technical_plan_outline_nodes
-    WHERE content LIKE '%yibiao-asset://generated-images/%'
-  `).all().forEach((row) => collect(row.value));
+  const tableNames = db.prepare(`
+    SELECT name
+    FROM sqlite_master
+    WHERE type = 'table'
+      AND (
+        name IN ('technical_plan_illustration_items', 'technical_plan_outline_nodes')
+        OR name GLOB 'technical_plan_project_*_illustration_items'
+        OR name GLOB 'technical_plan_project_*_outline_nodes'
+      )
+  `).all().map((row) => String(row.name || '')).filter(Boolean);
+  const quoteIdentifier = (name) => `"${name.replace(/"/g, '""')}"`;
+  const queries = [];
+  for (const tableName of tableNames) {
+    if (tableName.endsWith('_illustration_items')) {
+      queries.push(`
+        SELECT generation_asset_url AS value
+        FROM ${quoteIdentifier(tableName)}
+        WHERE generation_asset_url IS NOT NULL AND generation_asset_url <> ''
+      `);
+    } else if (tableName.endsWith('_outline_nodes')) {
+      queries.push(`
+        SELECT content AS value
+        FROM ${quoteIdentifier(tableName)}
+        WHERE content LIKE '%yibiao-asset://generated-images/%'
+      `);
+    }
+  }
+  if (queries.length) {
+    db.prepare(queries.join(' UNION ALL ')).all().forEach((row) => collect(row.value));
+  }
   return references;
 }
 
@@ -138,5 +159,6 @@ module.exports = {
   STORAGE_CLEANUP_VERSION,
   clearOrphanedGeneratedImages,
   clearStalePiTaskArchives,
+  collectGeneratedImageReferences,
   runHistoricalStorageCleanup,
 };

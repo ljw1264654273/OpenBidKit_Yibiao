@@ -639,7 +639,7 @@ function stripGeneratedIllustrationsFromDocument(outlineData, sections) {
   };
 }
 
-// 按最终计划顺序把成功图片一次性插入权威正文。
+// 按最终计划顺序把已生成图片或 Mermaid 审核草稿一次性插入权威正文。
 function applyGeneratedIllustrationsToDocument(plan, outlineData, sections) {
   const nextSections = { ...(sections || {}) };
   const contentById = new Map();
@@ -650,7 +650,11 @@ function applyGeneratedIllustrationsToDocument(plan, outlineData, sections) {
   }
 
   for (const planItem of plan?.items || []) {
-    if (planItem.generation?.status !== 'success') continue;
+    const generation = planItem.generation || {};
+    const isMermaidReviewDraft = planItem.kind === 'mermaid'
+      && generation.status === 'reviewing'
+      && Boolean(generation.code);
+    if (generation.status !== 'success' && !isMermaidReviewDraft) continue;
     const block = buildGeneratedIllustrationMarkdown(planItem);
     if (!block) continue;
     const targetId = planItem.kind === 'html' && planItem.placement === 'before'

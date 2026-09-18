@@ -1606,6 +1606,7 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
   function deleteGeneratedIllustrationAssets(assetUrls) {
     const generatedImagesDir = path.resolve(getGeneratedImagesDir(app));
     const prefix = 'yibiao-asset://generated-images/';
+    const projectIllustrationPrefix = 'technical-plan/illustrations/';
     for (const assetUrl of new Set(assetUrls || [])) {
       const originalSource = String(assetUrl || '');
       const retainedByPlan = db.prepare('SELECT 1 FROM technical_plan_illustration_items WHERE generation_asset_url = ? LIMIT 1').get(originalSource);
@@ -1619,8 +1620,14 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       } catch {
         continue;
       }
-      const filePath = path.resolve(generatedImagesDir, relativePath);
-      if (filePath === generatedImagesDir || !filePath.startsWith(`${generatedImagesDir}${path.sep}`)) continue;
+      const rootDir = projectScoped && relativePath.startsWith(projectIllustrationPrefix)
+        ? path.resolve(generatedIllustrationsDir)
+        : generatedImagesDir;
+      const rootRelativePath = projectScoped && relativePath.startsWith(projectIllustrationPrefix)
+        ? relativePath.slice(projectIllustrationPrefix.length)
+        : relativePath;
+      const filePath = path.resolve(rootDir, rootRelativePath);
+      if (filePath === rootDir || !filePath.startsWith(`${rootDir}${path.sep}`)) continue;
       fs.rmSync(filePath, { force: true });
     }
   }

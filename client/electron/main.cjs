@@ -4,7 +4,14 @@ const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { registerIpcHandlers } = require('./ipc/index.cjs');
 const { setupAutoUpdate, checkAndDownloadUpdate, triggerUpdateDownload, quitAndInstall, getLatestVersion, getUpdateDownloadUrl } = require('./services/updateService.cjs');
-const { getConfigFilePath, getGeneratedImagesDir, getGpuStartupProbePath, getImportedImagesDir } = require('./utils/paths.cjs');
+const {
+  getBidProjectsDir,
+  getConfigFilePath,
+  getGeneratedImagesDir,
+  getGpuStartupProbePath,
+  getImportedImagesDir,
+} = require('./utils/paths.cjs');
+const { resolveYibiaoAssetPath } = require('./utils/assetPathResolver.cjs');
 
 const rendererUrl = process.env.ELECTRON_RENDERER_URL;
 const iconPath = path.join(__dirname, '../assets/icon.ico');
@@ -259,31 +266,23 @@ protocol.registerSchemesAsPrivileged([{
 function registerAssetProtocol() {
   protocol.handle('yibiao-asset', (request) => {
     try {
-      const url = new URL(request.url);
-      const assetRoots = {
-        'generated-images': getGeneratedImagesDir(app),
-        'imported-images': getImportedImagesDir(app),
-      };
-      const rootDir = assetRoots[url.hostname];
-      if (!rootDir) {
+      const projectTechnicalPlanDirs = [];
+      const projectsDir = getBidProjectsDir(app);
+      if (fs.existsSync(projectsDir)) {
+        for (const entry of fs.readdirSync(projectsDir, { withFileTypes: true })) {
+          if (entry.isDirectory()) {
+            projectTechnicalPlanDirs.push(path.join(projectsDir, entry.name, 'technical-plan'));
+          }
+        }
+      }
+      const filePath = resolveYibiaoAssetPath(request.url, {
+        generatedImagesDir: getGeneratedImagesDir(app),
+        importedImagesDir: getImportedImagesDir(app),
+        projectTechnicalPlanDirs,
+      });
+      if (!filePath) {
         return new Response('Not found', { status: 404 });
       }
-
-      const relativePath = decodeURIComponent(url.pathname.replace(/^\/+/, ''));
-      if (!relativePath) {
-        return new Response('Not found', { status: 404 });
-      }
-
-      const baseDir = path.resolve(rootDir);
-      const filePath = path.resolve(baseDir, relativePath);
-      if (filePath !== baseDir && !filePath.startsWith(`${baseDir}${path.sep}`)) {
-        return new Response('Forbidden', { status: 403 });
-      }
-
-      if (!fs.existsSync(filePath)) {
-        return new Response('Not found', { status: 404 });
-      }
-
       return net.fetch(pathToFileURL(filePath).toString());
     } catch {
       return new Response('Invalid asset url', { status: 400 });

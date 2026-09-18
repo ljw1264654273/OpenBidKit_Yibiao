@@ -148,6 +148,31 @@ test('Mermaid AI asset_url result takes priority over retained Mermaid code', ()
   assert.doesNotMatch(result.sections['1.1'].content, /```mermaid/);
 });
 
+test('Mermaid 审核草稿在审核期间仍保留代码图到正文', () => {
+  const result = applyGeneratedIllustrationsToDocument({
+    items: [{
+      item_id: 'mermaid-1',
+      kind: 'mermaid',
+      title: 'Implementation flow',
+      section_ids: ['1.1'],
+      placement: 'after',
+      generation: {
+        status: 'reviewing',
+        code: 'flowchart TD\n  A["Start"] --> B["Done"]',
+        review_status: 'pending',
+      },
+    }],
+  }, {
+    outline: [{ id: '1.1', title: 'Implementation flow', content: 'Existing text.' }],
+  }, {
+    '1.1': { id: '1.1', status: 'success', content: 'Existing text.' },
+  });
+
+  assert.match(result.sections['1.1'].content, /```mermaid\s+flowchart TD/);
+  assert.match(result.sections['1.1'].content, /A\["Start"\] --> B\["Done"\]/);
+  assert.match(result.outlineData.outline[0].content, /<!-- yibiao-illustration:start id="mermaid-1" -->/);
+});
+
 test('Mermaid review draft returns validated code without calling image generation', async () => {
   const renderService = createRenderService();
   let imageCalled = false;

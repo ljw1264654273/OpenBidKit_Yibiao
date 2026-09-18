@@ -7,6 +7,7 @@ const { imageSize } = require('image-size');
 const { compactLogError, createDeveloperLogger, textMetrics } = require('../utils/developerLog.cjs');
 const { getMermaidCacheEntry, saveMermaidCacheImage } = require('../utils/mermaidCache.cjs');
 const { getGeneratedImagesDir, getImportedImagesDir } = require('../utils/paths.cjs');
+const { resolveYibiaoAssetPath } = require('../utils/assetPathResolver.cjs');
 const { REMOTE_IMAGE_RETRY_ATTEMPTS, REMOTE_IMAGE_RETRY_DELAY_MS } = require('../utils/remoteImageRetry.cjs');
 const { renderMarkdownHtml } = require('../utils/renderMarkdownHtml.cjs');
 const { getLocalImageRenderService } = require('./localImageRenderService.cjs');
@@ -1215,27 +1216,12 @@ function normalizeImageForDocx(loaded) {
   return { buffer: image.toPNG(), type: 'png' };
 }
 
-function resolveAssetImagePath(url) {
-  if (!app?.getPath) return null;
-
-  const assetUrl = new URL(url);
-  const assetRoots = {
-    'generated-images': getGeneratedImagesDir(app),
-    'imported-images': getImportedImagesDir(app),
-  };
-  const rootDir = assetRoots[assetUrl.hostname];
-  if (!rootDir) return null;
-
-  const relativePath = decodeURIComponent(assetUrl.pathname.replace(/^\/+/, ''));
-  if (!relativePath) return null;
-
-  const baseDir = path.resolve(rootDir);
-  const resolvedPath = path.resolve(baseDir, relativePath);
-  if (resolvedPath !== baseDir && !resolvedPath.startsWith(`${baseDir}${path.sep}`)) {
-    return null;
-  }
-
-  return resolvedPath;
+function resolveAssetImagePath(url, context = {}) {
+  return resolveYibiaoAssetPath(url, {
+    generatedImagesDir: app?.getPath ? getGeneratedImagesDir(app) : null,
+    importedImagesDir: app?.getPath ? getImportedImagesDir(app) : null,
+    projectTechnicalPlanDir: context.projectTechnicalPlanDir,
+  });
 }
 
 async function loadImage(source, context = {}) {
@@ -1251,7 +1237,7 @@ async function loadImage(source, context = {}) {
   }
 
   if (/^yibiao-asset:\/\//i.test(url)) {
-    const assetPath = resolveAssetImagePath(url);
+    const assetPath = resolveAssetImagePath(url, context);
     if (!assetPath || !fs.existsSync(assetPath)) {
       return null;
     }
@@ -2519,6 +2505,7 @@ async function buildDocxResult(payload, options = {}) {
   const stats = countOutlineStats(payload.outline || []);
   const context = {
     baseDir: payload.base_dir || payload.baseDir,
+    projectTechnicalPlanDir: payload.project_technical_plan_dir || payload.projectTechnicalPlanDir,
     onProgress: options.onProgress,
     warnings: options.warnings || [],
     stats,

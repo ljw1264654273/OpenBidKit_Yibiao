@@ -1,7 +1,16 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 
-const { runContentGenerationTask } = require('./contentGenerationTask.cjs');
+const {
+  runContentGenerationTask,
+  shouldGenerateMermaidReviewDraft,
+} = require('./contentGenerationTask.cjs');
+
+test('Mermaid 初次生成始终先进入审核草稿，不受 AI 重绘配置影响', () => {
+  assert.equal(shouldGenerateMermaidReviewDraft({ kind: 'mermaid' }, false), true);
+  assert.equal(shouldGenerateMermaidReviewDraft({ kind: 'mermaid' }, true), false);
+  assert.equal(shouldGenerateMermaidReviewDraft({ kind: 'ai' }, false), false);
+});
 
 test('专项 Mermaid AI 重绘批量处理已确认项并强制使用生图模型', async () => {
   const generatedImages = [];
