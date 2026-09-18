@@ -46,6 +46,9 @@ async function adjustMermaidReviewCodeForItem({ technicalPlanStore, aiService },
     execution,
     currentCode: payload?.code,
     adjustment: payload?.instruction,
+    referenceImages: payload?.referenceImages,
+    referenceImagePath: payload?.referenceImagePath,
+    referenceImageDataUrl: payload?.referenceImageDataUrl,
   });
   const patch = technicalPlanStore.saveMermaidReviewCode({
     itemId,

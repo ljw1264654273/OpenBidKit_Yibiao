@@ -221,6 +221,87 @@ test('Mermaid review AI adjustment returns updated code without image generation
   assert.match(requests[0].messages[1].content, /正文事实：先审核资料，再反馈结果。/);
 });
 
+test('Mermaid AI 调整可同时携带参考图片和文字要求', async () => {
+  const requests = [];
+  const result = await adjustMermaidReviewCode({
+    collectJsonResponse: async (request) => {
+      requests.push(request);
+      return { code: 'flowchart TD\n  A["资料"] --> B["审核"]' };
+    },
+  }, {
+    execution: createExecution(),
+    currentCode: 'flowchart TD\n  A["资料"] --> B["结果"]',
+    adjustment: '参考图片布局，把审核节点放到中间',
+    referenceImagePath: 'C:\\\\temp\\\\mermaid-reference.png',
+  });
+
+  assert.equal(result.code, 'flowchart TD\n  A["资料"] --> B["审核"]');
+  assert.equal(Array.isArray(requests[0].messages[1].content), true);
+  assert.match(requests[0].messages[1].content.find((part) => part.type === 'text').text, /参考图片布局/);
+  assert.deepEqual(
+    requests[0].messages[1].content.find((part) => part.type === 'local_image'),
+    { type: 'local_image', path: 'C:\\\\temp\\\\mermaid-reference.png', detail: 'high' },
+  );
+});
+
+test('Mermaid AI 调整可使用无本地路径的剪贴板图片 Data URL', async () => {
+  const requests = [];
+  await adjustMermaidReviewCode({
+    collectJsonResponse: async (request) => {
+      requests.push(request);
+      return { code: 'flowchart TD\n  A["资料"] --> B["审核"]' };
+    },
+  }, {
+    execution: createExecution(),
+    currentCode: 'flowchart TD\n  A["资料"] --> B["结果"]',
+    adjustment: '参考这张图片的布局',
+    referenceImageDataUrl: 'data:image/png;base64,AAAA',
+  });
+
+  assert.deepEqual(
+    requests[0].messages[1].content.find((part) => part.type === 'image_url'),
+    {
+      type: 'image_url',
+      image_url: {
+        url: 'data:image/png;base64,AAAA',
+        detail: 'high',
+      },
+    },
+  );
+});
+
+test('Mermaid AI 调整可同时携带多张参考图片并保持图片顺序', async () => {
+  const requests = [];
+  await adjustMermaidReviewCode({
+    collectJsonResponse: async (request) => {
+      requests.push(request);
+      return { code: 'flowchart TD\n  A["资料"] --> B["审核"]' };
+    },
+  }, {
+    execution: createExecution(),
+    currentCode: 'flowchart TD\n  A["资料"] --> B["结果"]',
+    adjustment: '参考这些图片的布局',
+    referenceImages: [
+      { referenceImagePath: 'C:\\\\temp\\\\first.png' },
+      { referenceImageDataUrl: 'data:image/png;base64,SECOND' },
+    ],
+  });
+
+  assert.deepEqual(
+    requests[0].messages[1].content.filter((part) => part.type !== 'text'),
+    [
+      { type: 'local_image', path: 'C:\\\\temp\\\\first.png', detail: 'high' },
+      {
+        type: 'image_url',
+        image_url: {
+          url: 'data:image/png;base64,SECOND',
+          detail: 'high',
+        },
+      },
+    ],
+  );
+});
+
 test('Mermaid AI 重绘确认代码时不重新生成 Mermaid code', async () => {
   const imageRequests = [];
   let textGenerationCalled = false;

@@ -169,10 +169,62 @@ ${buildIllustrationScheduleRule()}`,
   ];
 }
 
-function buildMermaidAdjustmentMessages({ execution, currentCode, adjustment }) {
+function buildMermaidAdjustmentMessages({
+  execution,
+  currentCode,
+  adjustment,
+  referenceImages,
+  referenceImagePath,
+  referenceImageDataUrl,
+}) {
   const type = assertSupportedMermaidDiagramType(execution.planItem.image_type);
   const typeLabel = getMermaidDiagramTypeLabel(type);
   const title = getPlannedTitle(execution);
+  const userText = `最终图题：${title}
+图表类型：${typeLabel}
+
+用户调整要求：
+${adjustment}
+
+当前 Mermaid 代码：
+${currentCode}
+
+参考正文：
+${execution.reference}
+
+请返回：
+{
+  "code": "调整后的 Mermaid 代码"
+  }`;
+  const normalizedReferenceImages = (Array.isArray(referenceImages) ? referenceImages : [])
+    .map((image) => ({
+      path: String(image?.path || image?.referenceImagePath || '').trim(),
+      dataUrl: String(image?.dataUrl || image?.referenceImageDataUrl || '').trim(),
+    }))
+    .filter((image) => image.path || image.dataUrl);
+  if (!normalizedReferenceImages.length) {
+    const legacyPath = String(referenceImagePath || '').trim();
+    const legacyDataUrl = String(referenceImageDataUrl || '').trim();
+    if (legacyPath || legacyDataUrl) {
+      normalizedReferenceImages.push({ path: legacyPath, dataUrl: legacyDataUrl });
+    }
+  }
+  const imageParts = normalizedReferenceImages.map((image) => image.path
+    ? {
+      type: 'local_image',
+      path: image.path,
+      detail: 'high',
+    }
+    : {
+      type: 'image_url',
+      image_url: {
+        url: image.dataUrl,
+        detail: 'high',
+      },
+    });
+  const userContent = imageParts.length
+    ? [{ type: 'text', text: userText }, ...imageParts]
+    : userText;
   return [
     {
       role: 'system',
@@ -192,22 +244,7 @@ ${buildIllustrationScheduleRule()}`,
     },
     {
       role: 'user',
-      content: `最终图题：${title}
-图表类型：${typeLabel}
-
-用户调整要求：
-${adjustment}
-
-当前 Mermaid 代码：
-${currentCode}
-
-参考正文：
-${execution.reference}
-
-请返回：
-{
-  "code": "调整后的 Mermaid 代码"
-}`,
+      content: userContent,
     },
   ];
 }
@@ -289,7 +326,14 @@ function validateMermaidAdjustmentResult(result) {
   assertMermaidPreviewCompatible(result.code);
 }
 
-async function adjustMermaidReviewCode(aiService, { execution, currentCode, adjustment }) {
+async function adjustMermaidReviewCode(aiService, {
+  execution,
+  currentCode,
+  adjustment,
+  referenceImages,
+  referenceImagePath,
+  referenceImageDataUrl,
+}) {
   const normalizedCurrentCode = normalizeMermaidCode(currentCode);
   const normalizedAdjustment = singleLine(adjustment);
   if (!normalizedCurrentCode) throw new Error('Mermaid 代码不能为空');
@@ -300,6 +344,9 @@ async function adjustMermaidReviewCode(aiService, { execution, currentCode, adju
       execution,
       currentCode: normalizedCurrentCode,
       adjustment: normalizedAdjustment,
+      referenceImages,
+      referenceImagePath,
+      referenceImageDataUrl,
     }),
     normalizer: normalizeMermaidAdjustmentResult,
     validator: validateMermaidAdjustmentResult,

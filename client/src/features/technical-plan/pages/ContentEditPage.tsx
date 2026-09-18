@@ -1,6 +1,5 @@
 import * as Dialog from '@radix-ui/react-dialog';
-import * as Popover from '@radix-ui/react-popover';
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode, type WheelEvent } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type CSSProperties, type PointerEvent, type ReactNode, type WheelEvent } from 'react';
 import { trackConfigUsage } from '../../../shared/analytics/analytics';
 import { AppSwitch, MarkdownEditor, MarkdownFullscreenViewer, MarkdownRenderer, useToast } from '../../../shared/ui';
 import { OUTLINE_CONTENT_MODE_LABELS } from '../../../shared/types';
@@ -29,6 +28,12 @@ interface ContentEditPageProps {
   onContentGenerationOptionsChange: (options: ContentGenerationOptions) => Promise<void> | void;
   onContentSaved: (item: OutlineItem, content: string) => Promise<void> | void;
   onPlanPatched?: (patch: Partial<TechnicalPlanState>) => void;
+}
+
+interface MermaidReferenceImage {
+  path: string;
+  previewUrl: string;
+  dataUrl?: string;
 }
 
 type TreeStatus = ContentGenerationSectionStatus | 'partial' | 'planning' | 'pending';
@@ -328,7 +333,6 @@ function ContentEditPage({
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [draftContent, setDraftContent] = useState('');
-  const [confirmRegenerateItem, setConfirmRegenerateItem] = useState<OutlineItem | null>(null);
   const [requirementItem, setRequirementItem] = useState<OutlineItem | null>(null);
   const [regenerateRequirement, setRegenerateRequirement] = useState('');
   const [workspacePane, setWorkspacePane] = useState<WorkspacePane>('navigation');
@@ -346,6 +350,7 @@ function ContentEditPage({
   const [selectedMermaidReviewItemId, setSelectedMermaidReviewItemId] = useState('');
   const [mermaidReviewDraftCode, setMermaidReviewDraftCode] = useState('');
   const [mermaidAiInstruction, setMermaidAiInstruction] = useState('');
+  const [mermaidReferenceImages, setMermaidReferenceImages] = useState<MermaidReferenceImage[]>([]);
   const [mermaidReviewError, setMermaidReviewError] = useState('');
   const [mermaidReviewBusy, setMermaidReviewBusy] = useState(false);
   const [mermaidAiBusy, setMermaidAiBusy] = useState(false);
@@ -353,6 +358,29 @@ function ContentEditPage({
   const [mermaidPreviewPan, setMermaidPreviewPan] = useState({ x: 0, y: 0 });
   const [mermaidPreviewDragging, setMermaidPreviewDragging] = useState(false);
   const mermaidPreviewDragRef = useRef<{ pointerId: number; startX: number; startY: number; originX: number; originY: number } | null>(null);
+  const mermaidReferenceImagesRef = useRef<MermaidReferenceImage[]>([]);
+  const revokeMermaidReferenceImage = (image: MermaidReferenceImage) => {
+    URL.revokeObjectURL(image.previewUrl);
+  };
+  const clearMermaidReferenceImages = () => {
+    const previousImages = mermaidReferenceImagesRef.current;
+    mermaidReferenceImagesRef.current = [];
+    setMermaidReferenceImages([]);
+    previousImages.forEach(revokeMermaidReferenceImage);
+  };
+  const removeMermaidReferenceImage = (index: number) => {
+    const image = mermaidReferenceImagesRef.current[index];
+    if (!image) return;
+    const nextImages = mermaidReferenceImagesRef.current.filter((_, imageIndex) => imageIndex !== index);
+    mermaidReferenceImagesRef.current = nextImages;
+    setMermaidReferenceImages(nextImages);
+    revokeMermaidReferenceImage(image);
+  };
+  const appendMermaidReferenceImages = (images: MermaidReferenceImage[]) => {
+    const nextImages = [...mermaidReferenceImagesRef.current, ...images];
+    mermaidReferenceImagesRef.current = nextImages;
+    setMermaidReferenceImages(nextImages);
+  };
   const firstLeafId = allLeaves[0]?.id || '';
   const selectedItem = outlineData?.outline && selectedItemId ? findItem(outlineData.outline, selectedItemId) : null;
   const selectedIsLeaf = Boolean(selectedItem && !selectedItem.children?.length);
@@ -673,18 +701,24 @@ function ContentEditPage({
     if (!selectedMermaidReviewItem) {
       setMermaidReviewDraftCode('');
       setMermaidAiInstruction('');
+      clearMermaidReferenceImages();
       setMermaidReviewError('');
       return;
     }
 
     setMermaidReviewDraftCode(selectedMermaidReviewItem.generation?.code || selectedMermaidReviewItem.generation?.draft_code || '');
     setMermaidAiInstruction('');
+    clearMermaidReferenceImages();
     setMermaidReviewError(selectedMermaidReviewItem.generation?.review_error || selectedMermaidReviewItem.generation?.error || '');
     setMermaidPreviewZoom(1);
     setMermaidPreviewPan({ x: 0, y: 0 });
     setMermaidPreviewDragging(false);
     mermaidPreviewDragRef.current = null;
   }, [selectedMermaidReviewItem]);
+
+  useEffect(() => () => {
+    mermaidReferenceImagesRef.current.forEach(revokeMermaidReferenceImage);
+  }, []);
 
   useEffect(() => {
     window.yibiao?.config.load()
@@ -989,6 +1023,10 @@ function ContentEditPage({
         itemId: item.item_id,
         code,
         instruction,
+        referenceImages: mermaidReferenceImages.map((image) => ({
+          path: image.path || undefined,
+          dataUrl: image.dataUrl,
+        })),
       });
       if (!result?.code) {
         throw new Error('AI 未返回有效 Mermaid 代码');
@@ -1004,6 +1042,46 @@ function ContentEditPage({
     } finally {
       setMermaidAiBusy(false);
       setMermaidReviewBusy(false);
+    }
+  };
+
+  const handleMermaidAiInstructionPaste = async (event: ClipboardEvent<HTMLTextAreaElement>) => {
+    const imageFiles = Array.from(event.clipboardData.files || []).filter((file) => file.type.startsWith('image/'));
+    if (!imageFiles.length) return;
+
+    event.preventDefault();
+    try {
+      const images = await Promise.all(imageFiles.map(async (imageFile) => {
+        let path = '';
+        try {
+          path = window.yibiao?.file.getPathForFile(imageFile) || '';
+        } catch {
+          path = '';
+        }
+        const dataUrl = path
+          ? undefined
+          : await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+              const value = typeof reader.result === 'string' ? reader.result : '';
+              if (value) resolve(value);
+              else reject(new Error('无法读取剪贴板图片'));
+            };
+            reader.onerror = () => reject(new Error('无法读取剪贴板图片'));
+            reader.readAsDataURL(imageFile);
+          });
+        return {
+          path,
+          previewUrl: URL.createObjectURL(imageFile),
+          dataUrl,
+        };
+      }));
+      appendMermaidReferenceImages(images);
+      showToast(`已添加 ${images.length} 张参考图片，提交调整时会一并发送给文本模型`, 'success');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '添加参考图片失败';
+      setMermaidReviewError(message);
+      showToast(message, 'error');
     }
   };
 
@@ -1336,39 +1414,19 @@ function ContentEditPage({
               <small>{isLeaf ? `${modeLabel || '未标记'} · ${statusLabels[status]} · ${words} 字` : `${statusLabels[status]} · ${leafCount} 个小节 · ${words} 字`}</small>
             </span>
             {isLeaf && item.content_mode === 'ai-generate' && (status === 'success' || status === 'error') ? (
-              <Popover.Root
-                open={confirmRegenerateItem?.id === item.id}
-                onOpenChange={(open) => setConfirmRegenerateItem(open ? item : null)}
+              <em
+                className={`is-clickable${status === 'success' ? ' is-rewriteable' : ''}`}
+                aria-label={status === 'success' ? 'AI改写' : statusLabels[status]}
+                title={status === 'success' ? 'AI改写' : statusLabels[status]}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setRequirementItem(item);
+                  setRegenerateRequirement('');
+                }}
               >
-                <Popover.Trigger asChild>
-                  <em
-                    className="is-clickable"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                    }}
-                  >{statusLabels[status]}</em>
-                </Popover.Trigger>
-                <Popover.Portal>
-                  <Popover.Content className="content-regenerate-popover" side="top" align="end" sideOffset={8}>
-                    <strong>重新生成此小节？</strong>
-                    <span>{status === 'error' ? '将重新尝试生成失败的小节。' : '将覆盖当前正文内容。'}</span>
-                    <div>
-                      <button
-                        type="button"
-                        className="primary-action"
-                        disabled={taskBlocksGeneration}
-                        onClick={() => {
-                          setRequirementItem(item);
-                          setRegenerateRequirement('');
-                          setConfirmRegenerateItem(null);
-                        }}
-                      >是</button>
-                      <Popover.Close className="secondary-action" type="button">否</Popover.Close>
-                    </div>
-                    <Popover.Arrow className="content-regenerate-popover-arrow" />
-                  </Popover.Content>
-                </Popover.Portal>
-              </Popover.Root>
+                <span className="content-outline-status-label">{statusLabels[status]}</span>
+                {status === 'success' && <span className="content-outline-rewrite-label" aria-hidden="true">AI改写</span>}
+              </em>
             ) : (
               <em>{statusLabels[status]}</em>
             )}
@@ -1602,7 +1660,13 @@ function ContentEditPage({
         )}
       />
 
-      <Dialog.Root open={mermaidReviewOpen} onOpenChange={setMermaidReviewOpen}>
+      <Dialog.Root
+        open={mermaidReviewOpen}
+        onOpenChange={(open) => {
+          setMermaidReviewOpen(open);
+          if (!open) clearMermaidReferenceImages();
+        }}
+      >
         <Dialog.Portal>
           <Dialog.Overlay className="content-regenerate-modal" />
           <Dialog.Content className="content-mermaid-review-card" aria-describedby={undefined}>
@@ -1662,9 +1726,28 @@ function ContentEditPage({
                     <div className="content-mermaid-ai-inline-bar" aria-label="AI 调整流程图">
                       <label className="content-mermaid-ai-input">
                         <span>AI 调整流程图</span>
+                        {mermaidReferenceImages.length > 0 && (
+                          <div className="content-mermaid-ai-reference" aria-label={`已添加 ${mermaidReferenceImages.length} 张流程图参考图片`}>
+                            {mermaidReferenceImages.map((image, index) => (
+                              <div className="content-mermaid-ai-reference-item" key={image.previewUrl}>
+                                <img src={image.previewUrl} alt={`流程图参考图片 ${index + 1}`} />
+                                <button
+                                  type="button"
+                                  onClick={() => removeMermaidReferenceImage(index)}
+                                  disabled={mermaidReviewBusy}
+                                  aria-label={`移除第 ${index + 1} 张流程图参考图片`}
+                                  title={`移除第 ${index + 1} 张参考图片`}
+                                >
+                                  ×
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                         <textarea
                           value={mermaidAiInstruction}
                           onChange={(event) => setMermaidAiInstruction(event.target.value)}
+                          onPaste={handleMermaidAiInstructionPaste}
                           disabled={mermaidReviewBusy}
                           placeholder="描述希望 AI 修改的地方，例如：在资料收集和成果验收之间增加问题整改节点"
                         />
