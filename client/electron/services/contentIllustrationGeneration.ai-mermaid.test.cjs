@@ -4,9 +4,12 @@ const test = require('node:test');
 const {
   applyGeneratedIllustrationsToDocument,
   adjustMermaidReviewCode,
+  generateAiRedrawCandidate,
+  generateHtmlRedrawCandidate,
   generateMermaidIllustration,
   generateMermaidAiIllustration,
   generateMermaidAiIllustrationFromCode,
+  generateMermaidRedrawCandidateFromCode,
   generateMermaidReviewDraft,
 } = require('./contentIllustrationGeneration.cjs');
 
@@ -22,6 +25,44 @@ function createExecution() {
       generation: {},
     },
     reference: '正文事实：先审核资料，再反馈结果。',
+  };
+}
+
+function createAiExecution() {
+  return {
+    planItem: {
+      item_id: 'ai-1',
+      kind: 'ai',
+      image_type: 'engineering',
+      title: '设备部署示意',
+      section_ids: ['1.2'],
+      placement: 'after',
+      generation: {
+        status: 'success',
+        asset_url: 'yibiao-asset://generated-images/original-ai.png',
+      },
+    },
+    reference: '正文事实：设备部署在中心机房和泵站。',
+  };
+}
+
+function createHtmlExecution(generation = {}) {
+  return {
+    planItem: {
+      item_id: 'html-1',
+      kind: 'html',
+      image_type: 'architecture',
+      title: '系统架构 PPT 图',
+      section_ids: ['1.3'],
+      placement: 'before',
+      generation: {
+        status: 'success',
+        asset_url: 'yibiao-asset://generated-images/original-html.png',
+        source_path: 'illustrations/test/html/html-1.html',
+        ...generation,
+      },
+    },
+    reference: '正文事实：平台由采集层、传输层、应用层组成。',
   };
 }
 
@@ -321,4 +362,136 @@ test('Mermaid AI 重绘确认代码时不重新生成 Mermaid code', async () =>
   assert.equal(textGenerationCalled, false);
   assert.match(imageRequests[0].prompt, /A\["用户确认"\]/);
   assert.doesNotMatch(imageRequests[0].prompt, /X\["错误"\]/);
+});
+
+test('AI 配图重绘返回独立候选图片且不覆盖当前 asset_url', async () => {
+  const imageRequests = [];
+  const result = await generateAiRedrawCandidate({
+    generateImage: async (request) => {
+      imageRequests.push(request);
+      return { asset_url: 'yibiao-asset://generated-images/redraw-ai.png' };
+    },
+  }, createAiExecution(), { instruction: '更突出泵站部署关系' });
+
+  assert.equal(result.redraw_status, 'success');
+  assert.equal(result.redraw_asset_url, 'yibiao-asset://generated-images/redraw-ai.png');
+  assert.equal(result.asset_url, undefined);
+  assert.equal(result.redraw_attempts, 1);
+  assert.match(imageRequests[0].prompt, /更突出泵站部署关系/);
+  assert.match(imageRequests[0].prompt, /原图地址：yibiao-asset:\/\/generated-images\/original-ai\.png/);
+});
+
+test('流程图使用已确认 Mermaid code 生成独立候选图片', async () => {
+  const imageRequests = [];
+  const result = await generateMermaidRedrawCandidateFromCode({
+    generateImage: async (request) => {
+      imageRequests.push(request);
+      return { asset_url: 'yibiao-asset://generated-images/redraw-mermaid.png' };
+    },
+  }, createExecution(), 'flowchart TD\n  A["确认代码"] --> B["候选图"]', undefined, 3);
+
+  assert.equal(result.redraw_status, 'success');
+  assert.equal(result.redraw_asset_url, 'yibiao-asset://generated-images/redraw-mermaid.png');
+  assert.equal(result.asset_url, undefined);
+  assert.equal(result.redraw_attempts, 3);
+  assert.match(imageRequests[0].prompt, /A\["确认代码"\]/);
+});
+
+test('PPT 图重绘读取原 HTML 并保存独立候选源文件和候选图片', async () => {
+  const savedHtml = [];
+  const savedPng = [];
+  const png = Buffer.from('89504e470d0a1a0a0000', 'hex');
+  const result = await generateHtmlRedrawCandidate({
+    aiService: {
+      chat: async ({ messages }) => {
+        assert.match(messages[0].content, /当前 HTML/);
+        assert.match(messages[0].content, /调整要求：改成左右分栏/);
+        return '<html><body><section>redraw html</section></body></html>';
+      },
+    },
+    execution: createHtmlExecution(),
+    plan: { revision: 'test' },
+    workspaceStore: {
+      readIllustrationHtml: (sourcePath) => {
+        assert.equal(sourcePath, 'illustrations/test/html/html-1.html');
+        return '<html><body><section>original html</section></body></html>';
+      },
+      saveIllustrationHtml: ({ itemId, content }) => {
+        savedHtml.push({ itemId, content });
+        return { relativePath: `illustrations/test/html/${itemId}.html` };
+      },
+      saveIllustrationPng: ({ itemId, buffer }) => {
+        savedPng.push({ itemId, buffer });
+        return { assetUrl: `yibiao-asset://generated-images/${itemId}.png` };
+      },
+    },
+    localImageRenderService: {
+      probeHtmlLayoutOnly: async () => ({ width: 1200, height: 800, layout_issues: [] }),
+      renderHtmlToPng: async () => ({ buffer: png, width: 1200, height: 800, layout_issues: [] }),
+    },
+    instruction: '改成左右分栏',
+  });
+
+  assert.equal(result.redraw_status, 'success');
+  assert.equal(result.redraw_source_path, 'illustrations/test/html/html-1-redraw.html');
+  assert.equal(result.redraw_asset_url, 'yibiao-asset://generated-images/html-1-redraw.png?pixel-density=2');
+  assert.equal(result.asset_url, undefined);
+  assert.deepEqual(savedHtml.map((entry) => entry.itemId), ['html-1-redraw']);
+  assert.deepEqual(savedPng.map((entry) => entry.itemId), ['html-1-redraw']);
+});
+
+test('PPT 图重绘缺少原 HTML 源文件时进入候选错误', async () => {
+  await assert.rejects(
+    () => generateHtmlRedrawCandidate({
+      aiService: { chat: async () => '<html><body></body></html>' },
+      execution: createHtmlExecution({ source_path: '' }),
+      plan: { revision: 'test' },
+      workspaceStore: { readIllustrationHtml: () => '' },
+      localImageRenderService: {
+        probeHtmlLayoutOnly: async () => ({ width: 1200, height: 800, layout_issues: [] }),
+        renderHtmlToPng: async () => ({ buffer: Buffer.from('89504e470d0a1a0a0000', 'hex'), width: 1200, height: 800, layout_issues: [] }),
+      },
+    }),
+    /缺少原 HTML 源文件/,
+  );
+});
+
+test('应用图片计划时忽略跳过项且不会插入候选图片', () => {
+  const result = applyGeneratedIllustrationsToDocument({
+    items: [
+      {
+        item_id: 'skipped-ai',
+        kind: 'ai',
+        title: '跳过图片',
+        section_ids: ['1.1'],
+        placement: 'after',
+        generation: {
+          status: 'success',
+          review_status: 'skipped',
+          asset_url: 'yibiao-asset://generated-images/skipped.png',
+        },
+      },
+      {
+        item_id: 'candidate-ai',
+        kind: 'ai',
+        title: '候选图片',
+        section_ids: ['1.1'],
+        placement: 'after',
+        generation: {
+          status: 'success',
+          asset_url: 'yibiao-asset://generated-images/current.png',
+          redraw_status: 'success',
+          redraw_asset_url: 'yibiao-asset://generated-images/candidate.png',
+        },
+      },
+    ],
+  }, {
+    outline: [{ id: '1.1', title: '正文', content: 'Existing text.' }],
+  }, {
+    '1.1': { id: '1.1', status: 'success', content: 'Existing text.' },
+  });
+
+  assert.doesNotMatch(result.sections['1.1'].content, /skipped\.png/);
+  assert.doesNotMatch(result.sections['1.1'].content, /candidate\.png/);
+  assert.match(result.sections['1.1'].content, /current\.png/);
 });

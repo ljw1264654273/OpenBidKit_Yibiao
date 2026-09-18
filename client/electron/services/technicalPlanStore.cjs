@@ -29,6 +29,7 @@ const {
 const { GLOBAL_FACTS_AGENT_TASK_KEY } = require('./globalFactsAgentV2Config.cjs');
 const { normalizeOutlineHeadingTitles } = require('./mandatoryBidContentRules.cjs');
 const { getProjectAgentTaskKey } = require('./agentTaskKeys.cjs');
+const { buildIllustrationBlock, replaceIllustrationBlock } = require('./contentIllustrationReview.cjs');
 
 const tenderMarkdownRelativePath = path.join('technical-plan', 'tender.md').replace(/\\/g, '/');
 const tenderOriginalMarkdownRelativePath = path.join('technical-plan', 'tender-original.md').replace(/\\/g, '/');
@@ -2038,6 +2039,65 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     });
   }
 
+  function adoptIllustrationReviewItem({ itemId }) {
+    const { item } = findIllustrationReviewPlanItem(itemId);
+    const candidateAssetUrl = String(item.generation?.redraw_asset_url || '').trim();
+    if (!candidateAssetUrl || item.generation?.redraw_status !== 'success') {
+      throw new Error('当前图片没有可采用的 AI 重绘候选');
+    }
+    const targetNodeId = item.kind === 'html' && item.placement === 'before'
+      ? item.section_ids?.[0]
+      : item.section_ids?.[item.section_ids.length - 1];
+    if (!targetNodeId) throw new Error('图片没有关联正文小节');
+
+    const transaction = db.transaction(() => {
+      const node = db.prepare('SELECT node_id, content FROM technical_plan_outline_nodes WHERE node_id = ?').get(targetNodeId);
+      if (!node) throw new Error('当前目录中未找到图片所属章节');
+      const replacement = buildIllustrationBlock(item);
+      const nextContent = replaceIllustrationBlock(node.content || '', item.item_id, replacement);
+      const timestamp = now();
+      db.prepare('UPDATE technical_plan_outline_nodes SET content = ?, updated_at = ? WHERE node_id = ?')
+        .run(nextContent, timestamp, targetNodeId);
+      db.prepare(`
+        INSERT INTO technical_plan_content_sections (node_id, status, error, updated_at)
+        VALUES (?, 'success', NULL, ?)
+        ON CONFLICT(node_id) DO UPDATE SET status = 'success', error = NULL, updated_at = excluded.updated_at
+      `).run(targetNodeId, timestamp);
+
+      const nextGeneration = {
+        ...(item.generation || {}),
+        status: 'success',
+        review_status: 'confirmed',
+        asset_url: candidateAssetUrl,
+        source_path: item.generation?.redraw_source_path || item.generation?.source_path,
+        redraw_status: undefined,
+        redraw_asset_url: undefined,
+        redraw_source_path: undefined,
+        redraw_error: undefined,
+        redraw_attempts: undefined,
+        redraw_updated_at: undefined,
+        error: undefined,
+        updated_at: timestamp,
+      };
+      Object.keys(nextGeneration).forEach((key) => {
+        if (nextGeneration[key] === undefined) delete nextGeneration[key];
+      });
+      saveContentIllustrationItem({
+        ...item,
+        generation: nextGeneration,
+        updated_at: timestamp,
+      });
+    });
+    transaction();
+
+    const state = loadTechnicalPlan();
+    return {
+      outlineData: state.outlineData,
+      contentGenerationSections: state.contentGenerationSections,
+      contentIllustrationPlan: state.contentIllustrationPlan,
+    };
+  }
+
   function normalizeGlobalFactGroups(groups) {
     const seen = new Set();
     return (Array.isArray(groups) ? groups : []).map((group, index) => {
@@ -3282,6 +3342,7 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     saveIllustrationReviewItem,
     confirmIllustrationReviewItem,
     skipIllustrationReviewItem,
+    adoptIllustrationReviewItem,
     previewMermaidReviewItem,
     saveMermaidReviewCode,
     confirmMermaidReviewItem,

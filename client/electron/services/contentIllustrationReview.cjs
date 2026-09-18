@@ -9,6 +9,31 @@ const illustrationKindLabels = {
   html: 'PPT 图',
 };
 
+function singleLine(value) {
+  return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function buildIllustrationBlock(item) {
+  const itemId = String(item?.item_id || '').trim();
+  const caption = singleLine(item?.title);
+  const assetUrl = String(item?.generation?.redraw_asset_url || '').trim();
+  if (!itemId || !caption || !assetUrl) {
+    throw new Error('图片重绘候选缺少有效资源');
+  }
+  return `<!-- yibiao-illustration:start id="${itemId}" -->\n![${caption}](${assetUrl})\n\n*<!-- yibiao-figure-caption -->${caption}*\n<!-- yibiao-illustration:end -->`;
+}
+
+function replaceIllustrationBlock(content, itemId, replacement) {
+  const id = String(itemId || '').trim();
+  if (!id) throw new Error('图片审核项 ID 不能为空');
+  const escapedId = id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(`<!-- yibiao-illustration:start\\s+id="${escapedId}"\\s*-->[\\s\\S]*?<!-- yibiao-illustration:end\\s*-->`, 'i');
+  if (!pattern.test(String(content || ''))) {
+    throw new Error(`未找到正文图片块：${id}`);
+  }
+  return String(content || '').replace(pattern, String(replacement || '').trim());
+}
+
 function getIllustrationKindLabel(kind) {
   return illustrationKindLabels[kind] || '图片';
 }
@@ -55,6 +80,10 @@ function skipIllustrationReviewItem({ technicalPlanStore }, payload) {
   return technicalPlanStore.skipIllustrationReviewItem(payload);
 }
 
+function adoptIllustrationReviewItem({ technicalPlanStore }, payload) {
+  return technicalPlanStore.adoptIllustrationReviewItem(payload);
+}
+
 async function adjustIllustrationReviewItem({ technicalPlanStore, aiService }, payload) {
   const { state, item } = getIllustrationReviewContext(technicalPlanStore, payload);
   if (item.kind !== 'mermaid') {
@@ -86,11 +115,14 @@ async function adjustIllustrationReviewItem({ technicalPlanStore, aiService }, p
 
 module.exports = {
   adjustIllustrationReviewItem,
+  adoptIllustrationReviewItem,
+  buildIllustrationBlock,
   collectLeafContexts,
   confirmIllustrationReviewItem,
   getIllustrationKindLabel,
   getIllustrationReviewContext,
   previewIllustrationReviewItem,
+  replaceIllustrationBlock,
   saveIllustrationReviewItem,
   skipIllustrationReviewItem,
 };

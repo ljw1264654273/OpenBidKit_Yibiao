@@ -165,6 +165,7 @@ const workspaceDatabaseChannels = [
   'technical-plan:adjust-illustration-review-item',
   'technical-plan:confirm-illustration-review-item',
   'technical-plan:skip-illustration-review-item',
+  'technical-plan:adopt-illustration-review-item',
   'technical-plan:preview-mermaid-review-item',
   'technical-plan:save-mermaid-review-code',
   'technical-plan:adjust-mermaid-review-code',

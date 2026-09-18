@@ -311,6 +311,59 @@ async function runMermaidReviewActionAssertions() {
   }
 }
 
+async function runIllustrationAdoptAssertions() {
+  const userDataPath = fs.mkdtempSync(path.join(os.tmpdir(), 'yibiao-illustration-adopt-'));
+  let database;
+  try {
+    const app = createApp(userDataPath);
+    database = createSqliteDatabase(app);
+    const store = createStore(app, database.db);
+    const currentBlock = '<!-- yibiao-illustration:start id="ai-adopt-1" -->\n![设备图](yibiao-asset://generated-images/original.png)\n\n*<!-- yibiao-figure-caption -->设备图*\n<!-- yibiao-illustration:end -->';
+    const outlineContent = `正文前置。\n\n${currentBlock}\n\n正文后置。`;
+    store.saveOutline({
+      outlineData: {
+        project_overview: '候选采用测试',
+        outline: [{ id: '1.1', title: '设备部署', content: outlineContent }],
+      },
+      reason: 'replace',
+    });
+    store.updateTechnicalPlan({
+      contentGenerationSections: {
+        '1.1': { id: '1.1', title: '设备部署', status: 'success', content: outlineContent },
+      },
+      contentIllustrationPlan: {
+        plan_version: 1,
+        revision: 'adopt',
+        items: [{
+          item_id: 'ai-adopt-1',
+          kind: 'ai',
+          image_type: 'engineering',
+          title: '设备图',
+          section_ids: ['1.1'],
+          placement: 'after',
+          generation: {
+            status: 'success',
+            review_status: 'confirmed',
+            asset_url: 'yibiao-asset://generated-images/original.png',
+            redraw_status: 'success',
+            redraw_asset_url: 'yibiao-asset://generated-images/candidate.png',
+          },
+        }],
+      },
+    });
+
+    const result = store.adoptIllustrationReviewItem({ itemId: 'ai-adopt-1' });
+    assert.match(result.outlineData.outline[0].content, /candidate\.png/);
+    assert.doesNotMatch(result.outlineData.outline[0].content, /original\.png/);
+    assert.equal(result.contentGenerationSections['1.1'].content, result.outlineData.outline[0].content);
+    assert.equal(result.contentIllustrationPlan.items[0].generation.asset_url, 'yibiao-asset://generated-images/candidate.png');
+    assert.equal(result.contentIllustrationPlan.items[0].generation.redraw_asset_url, undefined);
+  } finally {
+    database?.close();
+    fs.rmSync(userDataPath, { recursive: true, force: true });
+  }
+}
+
 if (process.argv.includes('--electron-native')) {
   const run = process.argv.includes('--mermaid-review')
     ? runMermaidReviewPersistenceAssertions
@@ -320,6 +373,8 @@ if (process.argv.includes('--electron-native')) {
       ? runIllustrationRedrawCandidatePersistenceAssertions
     : process.argv.includes('--project-redraw-migration')
       ? runProjectIllustrationRedrawMigrationAssertions
+    : process.argv.includes('--adopt-candidate')
+      ? runIllustrationAdoptAssertions
     : runPersistenceAssertions;
   run()
     .catch((error) => {
@@ -362,6 +417,14 @@ if (process.argv.includes('--electron-native')) {
 
   test('existing project illustration item tables receive redraw candidate columns', () => {
     const result = spawnSync(require('electron'), ['--runAsNode', __filename, '--electron-native', '--project-redraw-migration'], {
+      encoding: 'utf8',
+      timeout: 30000,
+    });
+    assert.equal(result.status, 0, `${result.stderr || result.stdout || 'Electron native persistence test timed out'}`);
+  });
+
+  test('adopting an illustration redraw candidate updates the authoritative正文 atomically', () => {
+    const result = spawnSync(require('electron'), ['--runAsNode', __filename, '--electron-native', '--adopt-candidate'], {
       encoding: 'utf8',
       timeout: 30000,
     });

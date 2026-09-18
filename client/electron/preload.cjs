@@ -196,6 +196,7 @@ const bridge = {
     adjustIllustrationReviewItem: (payload) => ipcRenderer.invoke('technical-plan:adjust-illustration-review-item', payload),
     confirmIllustrationReviewItem: (payload) => ipcRenderer.invoke('technical-plan:confirm-illustration-review-item', payload),
     skipIllustrationReviewItem: (payload) => ipcRenderer.invoke('technical-plan:skip-illustration-review-item', payload),
+    adoptIllustrationReviewItem: (payload) => ipcRenderer.invoke('technical-plan:adopt-illustration-review-item', payload),
     previewMermaidReviewItem: (payload) => ipcRenderer.invoke('technical-plan:preview-mermaid-review-item', payload),
     saveMermaidReviewCode: (payload) => ipcRenderer.invoke('technical-plan:save-mermaid-review-code', payload),
     adjustMermaidReviewCode: (payload) => ipcRenderer.invoke('technical-plan:adjust-mermaid-review-code', payload),

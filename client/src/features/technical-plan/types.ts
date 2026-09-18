@@ -297,6 +297,12 @@ export interface ContentIllustrationPlanItem {
     reviewed_at?: string;
     source_path?: string;
     asset_url?: string;
+    redraw_status?: 'pending' | 'running' | 'success' | 'error';
+    redraw_asset_url?: string;
+    redraw_source_path?: string;
+    redraw_error?: string;
+    redraw_attempts?: number;
+    redraw_updated_at?: string;
     attempts?: number;
     error?: string;
     updated_at?: string;
@@ -323,6 +329,10 @@ export interface ContentGenerationRuntimeState {
   word_adjustment_round_start_words?: number;
   target_item_id?: string;
   regenerate_requirement?: string;
+  illustration_redraw_mode?: 'batch' | 'single' | '';
+  illustration_redraw_item_ids?: string[];
+  illustration_redraw_processed_item_ids?: string[];
+  illustration_redraw_phase?: string;
   awaiting_content_decision?: boolean;
   remoteKnowledgeReferencesBySection?: Record<string, ContentGenerationRemoteReference[]>;
   updated_at?: string;

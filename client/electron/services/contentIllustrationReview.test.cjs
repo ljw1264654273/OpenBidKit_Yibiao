@@ -3,9 +3,11 @@ const test = require('node:test');
 
 const {
   confirmIllustrationReviewItem,
+  buildIllustrationBlock,
   getIllustrationKindLabel,
   getIllustrationReviewContext,
   previewIllustrationReviewItem,
+  replaceIllustrationBlock,
   skipIllustrationReviewItem,
 } = require('./contentIllustrationReview.cjs');
 
@@ -50,4 +52,33 @@ test('通用图片审核服务将预览、确认和跳过转给 Store', () => {
   assert.equal(confirmIllustrationReviewItem({ technicalPlanStore: store }, { itemId: 'html-1' }).contentIllustrationPlan.items[0].generation.review_status, 'confirmed');
   assert.equal(skipIllustrationReviewItem({ technicalPlanStore: store }, { itemId: 'html-1' }).contentIllustrationPlan.items[0].generation.review_status, 'skipped');
   assert.deepEqual(store.calls.map((entry) => entry[0]), ['preview', 'confirm', 'skip']);
+});
+
+test('候选图片正文块替换只替换指定图片并保留正文其他内容', () => {
+  const block = buildIllustrationBlock({
+    item_id: 'ai-1',
+    title: '设备部署图',
+    generation: { redraw_asset_url: 'yibiao-asset://generated-images/redraw.png' },
+  });
+  const content = [
+    '前置正文。',
+    '<!-- yibiao-illustration:start id="ai-1" -->',
+    '![设备部署图](yibiao-asset://generated-images/original.png)',
+    '*<!-- yibiao-figure-caption -->设备部署图*',
+    '<!-- yibiao-illustration:end -->',
+    '后置正文。',
+  ].join('\n');
+
+  const result = replaceIllustrationBlock(content, 'ai-1', block);
+  assert.match(result, /前置正文/);
+  assert.match(result, /redraw\.png/);
+  assert.doesNotMatch(result, /original\.png/);
+  assert.match(result, /后置正文/);
+});
+
+test('候选图片正文块不存在时拒绝静默追加', () => {
+  assert.throws(
+    () => replaceIllustrationBlock('只有正文。', 'ai-1', 'candidate'),
+    /未找到正文图片块/,
+  );
 });

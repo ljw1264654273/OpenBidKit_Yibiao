@@ -1,6 +1,7 @@
 const { ipcMain, shell } = require('electron');
 const {
   adjustIllustrationReviewItem,
+  adoptIllustrationReviewItem,
   confirmIllustrationReviewItem,
   previewIllustrationReviewItem,
   saveIllustrationReviewItem,
@@ -52,6 +53,7 @@ function registerTechnicalPlanIpc({ technicalPlanStore, bidProjectManager, taskS
   ipcMain.handle('technical-plan:adjust-illustration-review-item', (_event, payload) => adjustIllustrationReviewItem({ technicalPlanStore: resolveStore(payload), aiService }, payload));
   ipcMain.handle('technical-plan:confirm-illustration-review-item', (_event, payload) => confirmIllustrationReviewItem({ technicalPlanStore: resolveStore(payload) }, payload));
   ipcMain.handle('technical-plan:skip-illustration-review-item', (_event, payload) => skipIllustrationReviewItem({ technicalPlanStore: resolveStore(payload) }, payload));
+  ipcMain.handle('technical-plan:adopt-illustration-review-item', (_event, payload) => adoptIllustrationReviewItem({ technicalPlanStore: resolveStore(payload) }, payload));
   ipcMain.handle('technical-plan:preview-mermaid-review-item', (_event, payload) => resolveStore(payload).previewMermaidReviewItem(payload));
   ipcMain.handle('technical-plan:save-mermaid-review-code', (_event, payload) => resolveStore(payload).saveMermaidReviewCode(payload));
   ipcMain.handle('technical-plan:adjust-mermaid-review-code', (_event, payload) => adjustMermaidReviewCodeForItem({ technicalPlanStore: resolveStore(payload), aiService }, payload));

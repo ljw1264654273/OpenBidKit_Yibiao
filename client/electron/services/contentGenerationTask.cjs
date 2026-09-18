@@ -12,9 +12,12 @@ const {
   applyGeneratedIllustrationsToDocument,
   buildIllustrationExecutionContexts,
   generateAiIllustration,
+  generateAiRedrawCandidate,
   generateHtmlIllustration,
+  generateHtmlRedrawCandidate,
   generateMermaidAiIllustration,
   generateMermaidAiIllustrationFromCode,
+  generateMermaidRedrawCandidateFromCode,
   generateMermaidIllustration,
   generateMermaidReviewDraft,
   stripGeneratedIllustrationsFromDocument,
@@ -2803,6 +2806,14 @@ function normalizeStringArray(value) {
   return Array.isArray(value) ? [...new Set(value.map((item) => String(item || '').trim()).filter(Boolean))] : [];
 }
 
+function normalizeIllustrationItemIdsFromPayload(payload) {
+  const direct = payload?.illustrationItemIds ?? payload?.illustration_item_ids;
+  const single = payload?.illustrationItemId ?? payload?.illustration_item_id;
+  if (Array.isArray(direct)) return normalizeStringArray(direct);
+  if (typeof direct === 'string') return normalizeStringArray(direct.split(/[,\s]+/));
+  return normalizeStringArray(single ? [single] : []);
+}
+
 function namespaceRemoteKnowledgeItem(item) {
   const knowledgeBaseId = String(item?.knowledgeBaseId || item?.knowledge_base_id || '').trim();
   const knowledgeId = String(item?.knowledgeId || item?.knowledge_id || '').trim();
@@ -2857,6 +2868,10 @@ function normalizeContentGenerationRuntime(value) {
     word_adjustment_round_start_words: Math.max(0, Math.round(Number(source.word_adjustment_round_start_words) || 0)),
     target_item_id: String(source.target_item_id || '').trim(),
     regenerate_requirement: String(source.regenerate_requirement || '').trim(),
+    illustration_redraw_mode: ['batch', 'single'].includes(source.illustration_redraw_mode) ? source.illustration_redraw_mode : '',
+    illustration_redraw_item_ids: normalizeStringArray(source.illustration_redraw_item_ids),
+    illustration_redraw_processed_item_ids: normalizeStringArray(source.illustration_redraw_processed_item_ids),
+    illustration_redraw_phase: String(source.illustration_redraw_phase || '').trim(),
     awaiting_content_decision: Boolean(source.awaiting_content_decision),
     remoteKnowledgeReferencesBySection: normalizeRemoteKnowledgeReferencesBySection(source.remoteKnowledgeReferencesBySection),
     updated_at: source.updated_at || now(),
@@ -3245,19 +3260,24 @@ async function runContentGenerationTask({ aiService, agentService, workspaceStor
   const retryContentCorrection = !resume && Boolean(payload.retryContentCorrection ?? payload.retry_content_correction);
   const rerunIllustrations = !resume && Boolean(payload.rerunIllustrations ?? payload.rerun_illustrations);
   const redrawConfirmedMermaidIllustrations = !resume && Boolean(payload.redrawConfirmedMermaidIllustrations ?? payload.redraw_confirmed_mermaid_illustrations);
+  const redrawConfirmedIllustrations = !resume && Boolean(payload.redrawConfirmedIllustrations ?? payload.redraw_confirmed_illustrations);
+  const requestedIllustrationRedrawItemIds = !resume ? normalizeIllustrationItemIdsFromPayload(payload) : [];
   const retryFailedSections = !resume && Boolean(payload.retryFailedSections ?? payload.retry_failed_sections);
   const continuePostProcessing = !resume && Boolean(payload.continuePostProcessing ?? payload.continue_post_processing);
-  let contentRuntime = normalizeContentGenerationRuntime(resume || retryContentCorrection || retryFailedSections || continuePostProcessing
+  let contentRuntime = normalizeContentGenerationRuntime(resume || retryContentCorrection || retryFailedSections || continuePostProcessing || redrawConfirmedIllustrations
     ? (storedPlan.contentGenerationRuntime || previousState?.contentGenerationRuntime)
     : {});
   const runOnlyIllustrationPlanning = rerunIllustrations
     || (resume && contentRuntime.phase === 'illustration-planning')
     || (retryContentCorrection && previousState?.contentGenerationTask?.stats?.content?.phase === 'illustration-planning');
   const runOnlyIllustrationGeneration = redrawConfirmedMermaidIllustrations
+    || redrawConfirmedIllustrations
     || (resume && contentRuntime.phase === 'illustration-generating')
+    || (resume && contentRuntime.phase === 'illustration-redrawing')
     || (retryContentCorrection && previousState?.contentGenerationTask?.stats?.content?.phase === 'illustration-generating');
   const runOnlyIllustrationStage = runOnlyIllustrationPlanning || runOnlyIllustrationGeneration;
-  const regenerate = !resume && !retryContentCorrection && !rerunIllustrations && !redrawConfirmedMermaidIllustrations && !retryFailedSections && !continuePostProcessing && Boolean(payload.regenerate);
+  const runOnlyIllustrationRedraw = redrawConfirmedIllustrations || (resume && contentRuntime.phase === 'illustration-redrawing');
+  const regenerate = !resume && !retryContentCorrection && !rerunIllustrations && !redrawConfirmedMermaidIllustrations && !redrawConfirmedIllustrations && !retryFailedSections && !continuePostProcessing && Boolean(payload.regenerate);
   const targetItemId = resume ? contentRuntime.target_item_id : String(payload.targetItemId || '').trim();
   if (retryContentCorrection && targetItemId) {
     throw new Error('单小节重新生成不支持重试内容矫正');
@@ -3414,6 +3434,7 @@ async function runContentGenerationTask({ aiService, agentService, workspaceStor
     && !retryContentCorrection
     && !rerunIllustrations
     && !redrawConfirmedMermaidIllustrations
+    && !redrawConfirmedIllustrations
     && !retryFailedSections
     && !continuePostProcessing
     && developerModeEnabled
@@ -6609,7 +6630,198 @@ async function runContentGenerationTask({ aiService, agentService, workspaceStor
     return resolved.plan;
   }
 
+  async function runIllustrationRedrawCandidates(initialPlan) {
+    let illustrationPlan = initialPlan;
+    if (Number(illustrationPlan?.plan_version) !== ILLUSTRATION_PLAN_VERSION) {
+      throw new Error('图片计划版本无效');
+    }
+    if (!illustrationPlan?.items?.length) {
+      throw new Error('当前没有可重绘的图片');
+    }
+
+    const allReviewSettled = illustrationPlan.items.every((item) => ['confirmed', 'skipped'].includes(item.generation?.review_status));
+    const explicitTargetIds = requestedIllustrationRedrawItemIds.length
+      ? requestedIllustrationRedrawItemIds
+      : contentRuntime.illustration_redraw_item_ids;
+    if (!explicitTargetIds.length && !allReviewSettled) {
+      throw new Error('请先确认或跳过全部图片后，再批量重绘');
+    }
+    const targetIds = explicitTargetIds.length
+      ? explicitTargetIds
+      : illustrationPlan.items
+        .filter((item) => item.generation?.review_status === 'confirmed')
+        .map((item) => item.item_id);
+    if (!targetIds.length) throw new Error('没有可重绘的已确认图片');
+
+    const targetIdSet = new Set(targetIds);
+    const processedIds = new Set(contentRuntime.illustration_redraw_processed_item_ids);
+    const allExecutions = buildIllustrationExecutionContexts(illustrationPlan, leaves, sections);
+    const targetExecutions = allExecutions.filter(({ planItem }) => targetIdSet.has(planItem.item_id));
+    if (targetExecutions.length !== targetIds.length) {
+      const found = new Set(targetExecutions.map(({ planItem }) => planItem.item_id));
+      const missing = targetIds.filter((id) => !found.has(id));
+      throw new Error(`未找到要重绘的图片：${missing.join('、')}`);
+    }
+    for (const { planItem } of targetExecutions) {
+      if (planItem.generation?.review_status !== 'confirmed') {
+        throw new Error('只能重绘已确认的图片');
+      }
+    }
+
+    const redrawMode = targetIds.length === 1 ? 'single' : 'batch';
+    contentStats.phase = 'illustration-redrawing';
+    contentStats.illustration_generation_total = targetIds.length;
+    contentStats.illustration_generation_completed = processedIds.size;
+    logs = [...logs, `开始生成图片重绘候选：${targetIds.length} 项。`];
+    let runtime = syncRuntime({
+      phase: 'illustration-redrawing',
+      illustration_redraw_mode: redrawMode,
+      illustration_redraw_item_ids: targetIds,
+      illustration_redraw_processed_item_ids: Array.from(processedIds),
+      illustration_redraw_phase: 'running',
+    });
+    checkpointTask({ status: 'running', progress: progressFor(leaves, sections), logs, stats: statsSnapshot() }, {
+      contentGenerationRuntime: runtime,
+    }, {
+      contentRuntime: runtime,
+      technicalPlanPatch: { contentIllustrationPlan: illustrationPlan, contentGenerationRuntime: runtime },
+    });
+
+    function refreshRedrawStats(label) {
+      contentStats.illustration_generation_total = targetIds.length;
+      contentStats.illustration_generation_completed = processedIds.size;
+      contentStats.illustration_generation_step_label = label || contentStats.illustration_generation_step_label;
+    }
+
+    function persistIllustrationRedraw(itemId, generationPatch, label, terminal = false) {
+      illustrationPlan = {
+        ...illustrationPlan,
+        items: illustrationPlan.items.map((item) => item.item_id === itemId
+          ? {
+            ...item,
+            generation: {
+              ...(item.generation || {}),
+              ...generationPatch,
+              redraw_updated_at: now(),
+              updated_at: now(),
+            },
+            updated_at: now(),
+          }
+          : item),
+        updated_at: now(),
+      };
+      if (terminal) processedIds.add(itemId);
+      refreshRedrawStats(label);
+      runtime = syncRuntime({
+        phase: 'illustration-redrawing',
+        illustration_redraw_mode: redrawMode,
+        illustration_redraw_item_ids: targetIds,
+        illustration_redraw_processed_item_ids: Array.from(processedIds),
+        illustration_redraw_phase: terminal ? 'checkpoint' : 'running',
+      });
+      const changedItem = illustrationPlan.items.find((item) => item.item_id === itemId);
+      const taskPatch = { status: 'running', progress: progressFor(leaves, sections), logs, stats: statsSnapshot() };
+      const eventPatch = {
+        contentRuntime: runtime,
+        technicalPlanPatch: { contentIllustrationPlan: illustrationPlan, contentGenerationRuntime: runtime },
+      };
+      if (terminal && changedItem) {
+        checkpointTask(taskPatch, {
+          contentIllustrationItem: changedItem,
+          contentGenerationRuntime: runtime,
+        }, eventPatch);
+      } else {
+        publishTaskUpdate(taskPatch, eventPatch);
+      }
+    }
+
+    async function runRedrawExecution(execution) {
+      const { planItem } = execution;
+      if (processedIds.has(planItem.item_id)) return;
+      persistIllustrationRedraw(planItem.item_id, { redraw_status: 'running', redraw_error: undefined }, `正在重绘图片：${planItem.title}`);
+      try {
+        let result;
+        if (planItem.kind === 'ai') {
+          result = await generateAiRedrawCandidate(aiService, execution);
+        } else if (planItem.kind === 'mermaid') {
+          result = await generateMermaidRedrawCandidateFromCode(
+            aiService,
+            execution,
+            planItem.generation?.code || '',
+            isPauseLikeError,
+            Number(planItem.generation?.redraw_attempts || planItem.generation?.attempts || 0) + 1,
+          );
+        } else {
+          result = await generateHtmlRedrawCandidate({
+            aiService,
+            execution,
+            plan: illustrationPlan,
+            workspaceStore,
+            onSourceSaved: (source) => persistIllustrationRedraw(
+              planItem.item_id,
+              source,
+              'PPT 图候选源文件已保存，正在转换图片',
+            ),
+            onRenderRetry: (attempt, error) => writeDeveloperLog('illustration.html.redraw.render.retry', {
+              item_id: planItem.item_id,
+              attempt,
+              error: compactError(error?.message || error),
+            }),
+            isPauseRequested,
+            createPauseError: createContentGenerationPausedError,
+          });
+        }
+        logs = [...logs, `图片重绘候选完成：${planItem.section_ids[0]} ${planItem.title}`];
+        persistIllustrationRedraw(planItem.item_id, result, '正在汇总重绘候选', true);
+      } catch (error) {
+        if (isPauseLikeError(error) || isPauseRequested()) throw error;
+        const partial = error?.illustrationGeneration || {};
+        logs = [...logs, `图片重绘候选失败：${planItem.section_ids[0]} ${planItem.title}，${error.message || '生成失败'}。`];
+        persistIllustrationRedraw(planItem.item_id, {
+          ...partial,
+          redraw_status: 'error',
+          redraw_error: compactError(error?.message || error),
+          redraw_attempts: Number(planItem.generation?.redraw_attempts || 0) + 1,
+        }, '正在继续生成其他重绘候选', true);
+      }
+    }
+
+    for (const execution of targetExecutions) {
+      pauseIfRequested('正文生成已在图片重绘候选阶段暂停，可导出当前已完成内容，稍后继续。');
+      await runRedrawExecution(execution);
+    }
+    pauseIfRequested('正文生成已在图片重绘候选阶段暂停，可导出当前已完成内容，稍后继续。');
+
+    const finalTargets = illustrationPlan.items.filter((item) => targetIdSet.has(item.item_id));
+    const failed = finalTargets.filter((item) => item.generation?.redraw_status === 'error');
+    const finalStatus = failed.length ? 'error' : 'success';
+    logs = [...logs, failed.length
+      ? `图片重绘候选完成，${failed.length} 项失败。`
+      : '图片重绘候选完成。'];
+    const finalRuntime = finalStatus === 'success'
+      ? undefined
+      : syncRuntime({
+        phase: 'illustration-redrawing',
+        illustration_redraw_mode: redrawMode,
+        illustration_redraw_item_ids: targetIds,
+        illustration_redraw_processed_item_ids: Array.from(processedIds),
+        illustration_redraw_phase: 'done',
+      });
+    checkpointTask({ status: finalStatus, progress: finalStatus === 'success' ? 100 : progressFor(leaves, sections), logs, stats: statsSnapshot(), pause_requested: false }, {
+      contentIllustrationPlan: illustrationPlan,
+      contentGenerationRuntime: finalRuntime,
+    }, {
+      contentRuntime: finalRuntime,
+      technicalPlanPatch: { contentIllustrationPlan: illustrationPlan, contentGenerationRuntime: finalRuntime },
+    });
+    return illustrationPlan;
+  }
+
   async function runIllustrationGeneration(initialPlan) {
+    if (runOnlyIllustrationRedraw) {
+      return runIllustrationRedrawCandidates(initialPlan);
+    }
+
     let illustrationPlan = initialPlan;
     if (Number(illustrationPlan?.plan_version) !== ILLUSTRATION_PLAN_VERSION) {
       throw new Error('图片计划版本无效');
@@ -6975,6 +7187,7 @@ async function runContentGenerationTask({ aiService, agentService, workspaceStor
       }
       pauseIfRequested('正文生成已在图片生成前暂停，可导出当前已完成内容，稍后继续。');
       await runIllustrationGeneration(illustrationPlan);
+      if (runOnlyIllustrationRedraw) return;
     }
     pauseIfRequested('正文生成已在完成前暂停，可导出当前已完成内容，稍后继续。');
 

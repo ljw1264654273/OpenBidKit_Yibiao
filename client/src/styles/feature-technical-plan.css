@@ -1868,6 +1868,112 @@
   height: 100%;
 }
 
+.content-illustration-review-current,
+.content-illustration-review-candidate {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: #ffffff;
+  border: 1px solid var(--yb-border);
+}
+
+.content-illustration-review-current {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.content-illustration-review-pane-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--yb-border-soft);
+}
+
+.content-illustration-review-pane-head strong,
+.content-illustration-review-pane-head span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.content-illustration-review-pane-head strong {
+  color: var(--yb-text);
+  font-size: 13px;
+}
+
+.content-illustration-review-pane-head span {
+  color: var(--yb-text-muted);
+  font-size: 12px;
+}
+
+.content-illustration-review-media,
+.content-illustration-review-candidate-media {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  overflow: auto;
+  background:
+    linear-gradient(45deg, rgba(103, 116, 142, 0.06) 25%, transparent 25%) 0 0 / 16px 16px,
+    linear-gradient(-45deg, rgba(103, 116, 142, 0.06) 25%, transparent 25%) 0 8px / 16px 16px,
+    linear-gradient(45deg, transparent 75%, rgba(103, 116, 142, 0.06) 75%) 8px -8px / 16px 16px,
+    linear-gradient(-45deg, transparent 75%, rgba(103, 116, 142, 0.06) 75%) -8px 0 / 16px 16px,
+    #ffffff;
+}
+
+.content-illustration-review-media img,
+.content-illustration-review-candidate-media img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.content-illustration-review-media > p,
+.content-illustration-review-candidate-media > p {
+  max-width: 280px;
+  margin: 0;
+  color: var(--yb-text-muted);
+  font-size: 13px;
+  line-height: 1.6;
+  text-align: center;
+}
+
+.content-illustration-review-adjust-copy {
+  display: grid;
+  align-content: center;
+  min-width: 0;
+  gap: 6px;
+  padding: 8px;
+}
+
+.content-illustration-review-adjust-copy strong {
+  color: var(--yb-text);
+  font-size: 13px;
+}
+
+.content-illustration-review-adjust-copy p {
+  margin: 0;
+  color: var(--yb-text-muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.content-illustration-review-candidate {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.content-illustration-adopt-action {
+  margin: 10px;
+}
+
 .content-mermaid-ai-inline-bar {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

@@ -92,6 +92,19 @@ ${buildIllustrationScheduleRule()}
 ${execution.reference}`;
 }
 
+function buildAiRedrawPrompt(execution, instruction) {
+  const basePrompt = buildAiImagePrompt(execution);
+  const currentAssetUrl = String(execution.planItem.generation?.asset_url || '').trim();
+  const adjustment = singleLine(instruction);
+  return `${basePrompt}
+
+这是一次 AI 配图重绘，请在保留正文事实和图题主题的前提下优化画面。
+${currentAssetUrl ? `原图地址：${currentAssetUrl}` : '原图地址：无'}
+${adjustment ? `用户调整要求：${adjustment}` : '用户调整要求：保持当前语义，提升专业度和可读性。'}
+
+只输出新的候选图片，不要修改或覆盖原图。`;
+}
+
 function buildMermaidAiImagePrompt(execution, code) {
   const title = getPlannedTitle(execution);
   const imageType = String(execution.planItem.image_type || '').trim();
@@ -121,6 +134,30 @@ ${buildIllustrationScheduleRule()}
 参考内容如下：
 
 ${execution.reference}`;
+}
+
+function buildHtmlRedrawPrompt(execution, html, instruction) {
+  const title = getPlannedTitle(execution);
+  const adjustment = singleLine(instruction);
+  return `请基于已有 HTML 图片重新绘制一张用于投标技术方案的 PPT 图。
+最终图题：${title}
+图片类型：${execution.planItem.image_type}
+调整要求：${adjustment || '保持原有事实和结构，提升商务信息图观感。'}
+
+要求：
+1. 必须保留参考正文和当前 HTML 中已有的事实，不得新增正文没有的对象、日期、数量、承诺或流程。
+2. 输出完整 HTML 文档，包含 html、head、body，不依赖网络、本地文件、在线字体或外部资源。
+3. 宽度固定 ${HTML_DESIGN_WIDTH}px，高度自适应且原则上不超过 ${HTML_MAX_DESIGN_HEIGHT}px。
+4. 正文和节点文字不得小于 24px，优先控制在 12 个主要信息节点以内；不得文字重叠、遮挡、裁切、旋转、倒置、镜像或缩放变形。
+5. 不要返回解释、Markdown 或代码围栏，只返回 HTML。
+
+${buildIllustrationScheduleRule()}
+
+参考正文：
+${execution.reference}
+
+当前 HTML：
+${String(html || '').slice(0, 60000)}`;
 }
 
 function buildHtmlAgentPrompt(execution) {
@@ -402,6 +439,23 @@ async function generateAiIllustration(aiService, execution) {
   return { asset_url: generated.asset_url, attempts: 1 };
 }
 
+async function generateAiRedrawCandidate(aiService, execution, options = {}) {
+  const title = getPlannedTitle(execution);
+  const generated = await aiService.generateImage({
+    title,
+    logTitle: `AI配图候选重绘-${execution.planItem.item_id}-${title}`,
+    prompt: buildAiRedrawPrompt(execution, options.instruction),
+    style: execution.planItem.image_type,
+  });
+  if (!generated?.asset_url) throw new Error('AI 配图重绘失败：生图模型未返回本地图片地址');
+  return {
+    redraw_status: 'success',
+    redraw_asset_url: generated.asset_url,
+    redraw_attempts: 1,
+    redraw_error: undefined,
+  };
+}
+
 // 使用文本模型基于最终正文生成并校验 Mermaid。
 async function generateMermaidCode(aiService, execution, isPauseLikeError, localImageRenderService = getLocalImageRenderService()) {
   const generated = await aiService.collectJsonResponse({
@@ -455,6 +509,16 @@ async function generateMermaidAiIllustrationFromCode(aiService, execution, code,
   }
   if (!generated?.asset_url) throw new Error('Mermaid AI 图片重绘失败：生图模型未返回本地图片地址');
   return { asset_url: generated.asset_url, attempts };
+}
+
+async function generateMermaidRedrawCandidateFromCode(aiService, execution, code, isPauseLikeError, attempts = 1) {
+  const result = await generateMermaidAiIllustrationFromCode(aiService, execution, code, isPauseLikeError, attempts);
+  return {
+    redraw_status: 'success',
+    redraw_asset_url: result.asset_url,
+    redraw_attempts: result.attempts,
+    redraw_error: undefined,
+  };
 }
 
 async function generateMermaidReviewDraft(aiService, execution, isPauseLikeError, localImageRenderService) {
@@ -645,6 +709,79 @@ async function generateHtmlIllustration(options) {
   return generateHtmlIllustrationInternal(options);
 }
 
+async function generateHtmlRedrawCandidate({
+  aiService,
+  execution,
+  plan,
+  workspaceStore,
+  localImageRenderService = getLocalImageRenderService(),
+  instruction,
+  onSourceSaved,
+  onRenderRetry,
+  isPauseRequested,
+  createPauseError,
+}) {
+  const sourcePath = String(execution.planItem.generation?.source_path || '').trim();
+  if (!sourcePath) throw new Error('PPT 图重绘缺少原 HTML 源文件');
+  const originalHtml = workspaceStore.readIllustrationHtml(sourcePath);
+  if (!String(originalHtml || '').trim()) throw new Error('PPT 图重绘缺少原 HTML 源文件');
+
+  const response = await aiService.chat({
+    messages: [{ role: 'user', content: buildHtmlRedrawPrompt(execution, originalHtml, instruction) }],
+    logTitle: `PPT图候选重绘-${execution.planItem.item_id}-${getPlannedTitle(execution)}`,
+  });
+  let html = validateHtmlCode(response);
+  const redrawItemId = `${execution.planItem.item_id}-redraw`;
+  let savedHtml;
+  let layoutRepairAttempts = 0;
+
+  while (true) {
+    savedHtml = workspaceStore.saveIllustrationHtml({ revision: plan.revision, itemId: redrawItemId, content: html });
+    onSourceSaved?.({ redraw_status: 'running', redraw_source_path: savedHtml.relativePath });
+    if (layoutRepairAttempts >= HTML_LAYOUT_REPAIR_ATTEMPTS) break;
+
+    let probeResult;
+    try {
+      probeResult = await localImageRenderService.probeHtmlLayoutOnly(html, {
+        isPauseRequested,
+        createPauseError,
+      });
+    } catch (error) {
+      error.illustrationGeneration = { redraw_source_path: savedHtml.relativePath };
+      throw error;
+    }
+
+    const issues = getHtmlLayoutIssues(probeResult);
+    if (!issues.length) break;
+    layoutRepairAttempts += 1;
+    html = await repairHtmlLayout({
+      aiService,
+      execution,
+      html,
+      issues,
+      attempt: layoutRepairAttempts,
+      mode: 'normal',
+    });
+  }
+
+  let screenshot;
+  try {
+    screenshot = await requestHtmlScreenshot(html, onRenderRetry, { isPauseRequested, createPauseError }, localImageRenderService);
+  } catch (error) {
+    error.illustrationGeneration = { redraw_source_path: savedHtml.relativePath };
+    throw error;
+  }
+
+  const savedPng = workspaceStore.saveIllustrationPng({ revision: plan.revision, itemId: redrawItemId, buffer: screenshot.buffer });
+  return {
+    redraw_status: 'success',
+    redraw_source_path: savedHtml.relativePath,
+    redraw_asset_url: `${savedPng.assetUrl}?pixel-density=${HTML_CAPTURE_SCALE}`,
+    redraw_attempts: screenshot.attempts + layoutRepairAttempts,
+    redraw_error: undefined,
+  };
+}
+
 function stripGeneratedIllustrations(content) {
   return String(content || '').replace(GENERATED_ILLUSTRATION_PATTERN, '\n').replace(/\n{3,}/g, '\n\n').trim();
 }
@@ -698,6 +835,7 @@ function applyGeneratedIllustrationsToDocument(plan, outlineData, sections) {
 
   for (const planItem of plan?.items || []) {
     const generation = planItem.generation || {};
+    if (generation.review_status === 'skipped') continue;
     const isMermaidReviewDraft = planItem.kind === 'mermaid'
       && generation.status === 'reviewing'
       && Boolean(generation.code);
@@ -741,11 +879,14 @@ module.exports = {
   buildHtmlImagePrompt,
   buildIllustrationExecutionContexts,
   generateAiIllustration,
+  generateAiRedrawCandidate,
   generateHtmlIllustration,
+  generateHtmlRedrawCandidate,
   generateMermaidCode,
   generateMermaidIllustration,
   generateMermaidAiIllustration,
   generateMermaidAiIllustrationFromCode,
+  generateMermaidRedrawCandidateFromCode,
   generateMermaidReviewDraft,
   normalizeHtmlCode,
   prepareRenderableMermaid,
