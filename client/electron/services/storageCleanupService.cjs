@@ -82,6 +82,18 @@ function collectGeneratedImageReferences(db) {
         SELECT generation_asset_url AS value
         FROM ${quoteIdentifier(tableName)}
         WHERE generation_asset_url IS NOT NULL AND generation_asset_url <> ''
+        UNION ALL
+        SELECT generation_redraw_asset_url AS value
+        FROM ${quoteIdentifier(tableName)}
+        WHERE generation_redraw_asset_url IS NOT NULL AND generation_redraw_asset_url <> ''
+        UNION ALL
+        SELECT generation_source_path AS value
+        FROM ${quoteIdentifier(tableName)}
+        WHERE generation_source_path IS NOT NULL AND generation_source_path <> ''
+        UNION ALL
+        SELECT generation_redraw_source_path AS value
+        FROM ${quoteIdentifier(tableName)}
+        WHERE generation_redraw_source_path IS NOT NULL AND generation_redraw_source_path <> ''
       `);
     } else if (tableName.endsWith('_outline_nodes')) {
       queries.push(`

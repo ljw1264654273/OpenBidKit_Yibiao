@@ -1597,10 +1597,14 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
 
   function loadGeneratedIllustrationAssetUrls() {
     return db.prepare(`
-      SELECT generation_asset_url
+      SELECT generation_asset_url AS asset_url
       FROM technical_plan_illustration_items
       WHERE generation_asset_url IS NOT NULL AND generation_asset_url <> ''
-    `).all().map((row) => row.generation_asset_url);
+      UNION ALL
+      SELECT generation_redraw_asset_url AS asset_url
+      FROM technical_plan_illustration_items
+      WHERE generation_redraw_asset_url IS NOT NULL AND generation_redraw_asset_url <> ''
+    `).all().map((row) => row.asset_url);
   }
 
   function deleteGeneratedIllustrationAssets(assetUrls) {
@@ -1609,7 +1613,12 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     const projectIllustrationPrefix = 'technical-plan/illustrations/';
     for (const assetUrl of new Set(assetUrls || [])) {
       const originalSource = String(assetUrl || '');
-      const retainedByPlan = db.prepare('SELECT 1 FROM technical_plan_illustration_items WHERE generation_asset_url = ? LIMIT 1').get(originalSource);
+      const retainedByPlan = db.prepare(`
+        SELECT 1
+        FROM technical_plan_illustration_items
+        WHERE generation_asset_url = ? OR generation_redraw_asset_url = ?
+        LIMIT 1
+      `).get(originalSource, originalSource);
       const stillReferenced = db.prepare('SELECT 1 FROM technical_plan_outline_nodes WHERE instr(content, ?) > 0 LIMIT 1').get(originalSource);
       if (retainedByPlan || stillReferenced) continue;
       const source = originalSource.split('?')[0];
@@ -1689,6 +1698,12 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       generation_reviewed_at: generation?.reviewed_at ? String(generation.reviewed_at) : null,
       generation_source_path: generation?.source_path ? String(generation.source_path) : null,
       generation_asset_url: generation?.asset_url ? String(generation.asset_url) : null,
+      generation_redraw_status: generation?.redraw_status ? String(generation.redraw_status) : null,
+      generation_redraw_asset_url: generation?.redraw_asset_url ? String(generation.redraw_asset_url) : null,
+      generation_redraw_source_path: generation?.redraw_source_path ? String(generation.redraw_source_path) : null,
+      generation_redraw_error: generation?.redraw_error ? String(generation.redraw_error) : null,
+      generation_redraw_attempts: generation?.redraw_attempts === undefined ? null : Number(generation.redraw_attempts || 0),
+      generation_redraw_updated_at: generation?.redraw_updated_at || null,
       generation_attempts: generation?.attempts === undefined ? null : Number(generation.attempts || 0),
       generation_error: generation?.error ? String(generation.error) : null,
       generation_updated_at: generation?.updated_at || null,
@@ -1702,13 +1717,17 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       item_id, kind, image_type, title, section_ids_json, placement, priority,
       generation_status, generation_mode, generation_code, generation_draft_code,
       generation_review_status, generation_review_error, generation_reviewed_at, generation_source_path,
-      generation_asset_url, generation_attempts, generation_error, generation_updated_at,
+      generation_asset_url, generation_redraw_status, generation_redraw_asset_url, generation_redraw_source_path,
+      generation_redraw_error, generation_redraw_attempts, generation_redraw_updated_at,
+      generation_attempts, generation_error, generation_updated_at,
       sort_order, updated_at
     ) VALUES (
       @item_id, @kind, @image_type, @title, @section_ids_json, @placement, @priority,
       @generation_status, @generation_mode, @generation_code, @generation_draft_code,
       @generation_review_status, @generation_review_error, @generation_reviewed_at, @generation_source_path,
-      @generation_asset_url, @generation_attempts, @generation_error, @generation_updated_at,
+      @generation_asset_url, @generation_redraw_status, @generation_redraw_asset_url, @generation_redraw_source_path,
+      @generation_redraw_error, @generation_redraw_attempts, @generation_redraw_updated_at,
+      @generation_attempts, @generation_error, @generation_updated_at,
       @sort_order, @updated_at
     ) ON CONFLICT(item_id) DO UPDATE SET
       kind = excluded.kind,
@@ -1726,6 +1745,12 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       generation_reviewed_at = excluded.generation_reviewed_at,
       generation_source_path = excluded.generation_source_path,
       generation_asset_url = excluded.generation_asset_url,
+      generation_redraw_status = excluded.generation_redraw_status,
+      generation_redraw_asset_url = excluded.generation_redraw_asset_url,
+      generation_redraw_source_path = excluded.generation_redraw_source_path,
+      generation_redraw_error = excluded.generation_redraw_error,
+      generation_redraw_attempts = excluded.generation_redraw_attempts,
+      generation_redraw_updated_at = excluded.generation_redraw_updated_at,
       generation_attempts = excluded.generation_attempts,
       generation_error = excluded.generation_error,
       generation_updated_at = excluded.generation_updated_at,
@@ -1754,12 +1779,18 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
 
   function saveContentIllustrationItem(item) {
     if (!item?.item_id) return;
-    const existing = db.prepare('SELECT sort_order, generation_asset_url FROM technical_plan_illustration_items WHERE item_id = ?').get(item.item_id);
+    const existing = db.prepare('SELECT sort_order, generation_asset_url, generation_redraw_asset_url FROM technical_plan_illustration_items WHERE item_id = ?').get(item.item_id);
     upsertIllustrationItem.run(illustrationItemValues(item, existing?.sort_order || 0, now()));
     const nextAssetUrl = item?.generation?.asset_url ? String(item.generation.asset_url) : '';
+    const nextRedrawAssetUrl = item?.generation?.redraw_asset_url ? String(item.generation.redraw_asset_url) : '';
+    const staleAssetUrls = [];
     if (existing?.generation_asset_url && existing.generation_asset_url !== nextAssetUrl) {
-      scheduleGeneratedAssetCleanup([existing.generation_asset_url]);
+      staleAssetUrls.push(existing.generation_asset_url);
     }
+    if (existing?.generation_redraw_asset_url && existing.generation_redraw_asset_url !== nextRedrawAssetUrl) {
+      staleAssetUrls.push(existing.generation_redraw_asset_url);
+    }
+    scheduleGeneratedAssetCleanup(staleAssetUrls);
   }
 
   function loadContentIllustrationPlan() {
@@ -1776,6 +1807,12 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
         ...(row.generation_reviewed_at ? { reviewed_at: row.generation_reviewed_at } : {}),
         ...(row.generation_source_path ? { source_path: row.generation_source_path } : {}),
         ...(row.generation_asset_url ? { asset_url: row.generation_asset_url } : {}),
+        ...(row.generation_redraw_status ? { redraw_status: row.generation_redraw_status } : {}),
+        ...(row.generation_redraw_asset_url ? { redraw_asset_url: row.generation_redraw_asset_url } : {}),
+        ...(row.generation_redraw_source_path ? { redraw_source_path: row.generation_redraw_source_path } : {}),
+        ...(row.generation_redraw_error ? { redraw_error: row.generation_redraw_error } : {}),
+        ...(row.generation_redraw_attempts === null ? {} : { redraw_attempts: Number(row.generation_redraw_attempts || 0) }),
+        ...(row.generation_redraw_updated_at ? { redraw_updated_at: row.generation_redraw_updated_at } : {}),
         ...(row.generation_attempts === null ? {} : { attempts: Number(row.generation_attempts || 0) }),
         ...(row.generation_error ? { error: row.generation_error } : {}),
         ...(row.generation_updated_at ? { updated_at: row.generation_updated_at } : {}),
@@ -1847,6 +1884,12 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       review_error: undefined,
       asset_url: undefined,
       source_path: undefined,
+      redraw_status: undefined,
+      redraw_asset_url: undefined,
+      redraw_source_path: undefined,
+      redraw_error: undefined,
+      redraw_attempts: undefined,
+      redraw_updated_at: undefined,
       error: undefined,
     });
   }
@@ -1866,6 +1909,12 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       reviewed_at: now(),
       asset_url: undefined,
       source_path: undefined,
+      redraw_status: undefined,
+      redraw_asset_url: undefined,
+      redraw_source_path: undefined,
+      redraw_error: undefined,
+      redraw_attempts: undefined,
+      redraw_updated_at: undefined,
       error: undefined,
       attempts: undefined,
     });
@@ -1880,6 +1929,12 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       reviewed_at: now(),
       asset_url: undefined,
       source_path: undefined,
+      redraw_status: undefined,
+      redraw_asset_url: undefined,
+      redraw_source_path: undefined,
+      redraw_error: undefined,
+      redraw_attempts: undefined,
+      redraw_updated_at: undefined,
       error: undefined,
       attempts: undefined,
     });

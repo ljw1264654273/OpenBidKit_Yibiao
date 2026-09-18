@@ -149,6 +149,104 @@ async function runMermaidReviewPersistenceAssertions() {
   }
 }
 
+async function runIllustrationRedrawCandidatePersistenceAssertions() {
+  const userDataPath = fs.mkdtempSync(path.join(os.tmpdir(), 'yibiao-illustration-redraw-candidate-'));
+  let database;
+  let restartedDatabase;
+  try {
+    const app = createApp(userDataPath);
+    database = createSqliteDatabase(app);
+    const store = createStore(app, database.db);
+    const generation = {
+      status: 'success',
+      asset_url: 'yibiao-asset://generated-images/original.png',
+      source_path: 'technical-plan/illustrations/original.html',
+      redraw_status: 'success',
+      redraw_asset_url: 'yibiao-asset://generated-images/candidate.png',
+      redraw_source_path: 'technical-plan/illustrations/candidate.html',
+      redraw_error: '候选错误',
+      redraw_attempts: 2,
+      redraw_updated_at: '2026-09-18T00:00:00.000Z',
+    };
+
+    store.updateTechnicalPlan({
+      contentIllustrationPlan: {
+        plan_version: 1,
+        revision: 'redraw-candidate',
+        items: [{
+          item_id: 'html-redraw-1',
+          kind: 'html',
+          image_type: 'gantt',
+          title: '候选 PPT 图',
+          section_ids: ['1.1'],
+          placement: 'after',
+          generation,
+        }],
+      },
+    });
+
+    database.close();
+    database = null;
+    restartedDatabase = createSqliteDatabase(app);
+    const restarted = createStore(app, restartedDatabase.db).loadTechnicalPlan();
+    assert.deepEqual(restarted.contentIllustrationPlan.items[0].generation, generation);
+  } finally {
+    database?.close();
+    restartedDatabase?.close();
+    fs.rmSync(userDataPath, { recursive: true, force: true });
+  }
+}
+
+async function runProjectIllustrationRedrawMigrationAssertions() {
+  const userDataPath = fs.mkdtempSync(path.join(os.tmpdir(), 'yibiao-project-illustration-redraw-migration-'));
+  let database;
+  try {
+    const app = createApp(userDataPath);
+    database = createSqliteDatabase(app);
+    database.db.exec(`
+      CREATE TABLE IF NOT EXISTS technical_plan_project_legacy_illustration_items (
+        item_id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL,
+        image_type TEXT NOT NULL,
+        title TEXT NOT NULL,
+        section_ids_json TEXT NOT NULL,
+        placement TEXT NOT NULL,
+        priority INTEGER NOT NULL DEFAULT 0,
+        generation_status TEXT,
+        generation_asset_url TEXT,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL
+      );
+      INSERT INTO technical_plan_project_legacy_illustration_items (
+        item_id, kind, image_type, title, section_ids_json, placement, priority, generation_status, generation_asset_url, sort_order, updated_at
+      ) VALUES (
+        'legacy-item', 'mermaid', 'process', '旧项目表', '[]', 'after', 0, 'success', 'yibiao-asset://generated-images/legacy.png', 0, '2026-09-18T00:00:00.000Z'
+      );
+      PRAGMA user_version = 24;
+    `);
+    database.close();
+    database = null;
+
+    database = createSqliteDatabase(app);
+    const columns = database.db.prepare('PRAGMA table_info(technical_plan_project_legacy_illustration_items)').all().map((row) => row.name);
+    for (const column of [
+      'generation_redraw_status',
+      'generation_redraw_asset_url',
+      'generation_redraw_source_path',
+      'generation_redraw_error',
+      'generation_redraw_attempts',
+      'generation_redraw_updated_at',
+    ]) {
+      assert.equal(columns.includes(column), true, `${column} should be added to existing project illustration table`);
+    }
+    const row = database.db.prepare('SELECT item_id, generation_asset_url FROM technical_plan_project_legacy_illustration_items WHERE item_id = ?').get('legacy-item');
+    assert.equal(row.generation_asset_url, 'yibiao-asset://generated-images/legacy.png');
+  } finally {
+    database?.close();
+    fs.rmSync(userDataPath, { recursive: true, force: true });
+  }
+}
+
 async function runMermaidReviewActionAssertions() {
   const userDataPath = fs.mkdtempSync(path.join(os.tmpdir(), 'yibiao-mermaid-review-actions-'));
   let database;
@@ -218,6 +316,10 @@ if (process.argv.includes('--electron-native')) {
     ? runMermaidReviewPersistenceAssertions
     : process.argv.includes('--mermaid-review-actions')
       ? runMermaidReviewActionAssertions
+    : process.argv.includes('--redraw-candidate')
+      ? runIllustrationRedrawCandidatePersistenceAssertions
+    : process.argv.includes('--project-redraw-migration')
+      ? runProjectIllustrationRedrawMigrationAssertions
     : runPersistenceAssertions;
   run()
     .catch((error) => {
@@ -244,6 +346,22 @@ if (process.argv.includes('--electron-native')) {
 
   test('Mermaid review actions update generation state and clear stale redraw output', () => {
     const result = spawnSync(require('electron'), ['--runAsNode', __filename, '--electron-native', '--mermaid-review-actions'], {
+      encoding: 'utf8',
+      timeout: 30000,
+    });
+    assert.equal(result.status, 0, `${result.stderr || result.stdout || 'Electron native persistence test timed out'}`);
+  });
+
+  test('illustration redraw candidate fields persist across restart', () => {
+    const result = spawnSync(require('electron'), ['--runAsNode', __filename, '--electron-native', '--redraw-candidate'], {
+      encoding: 'utf8',
+      timeout: 30000,
+    });
+    assert.equal(result.status, 0, `${result.stderr || result.stdout || 'Electron native persistence test timed out'}`);
+  });
+
+  test('existing project illustration item tables receive redraw candidate columns', () => {
+    const result = spawnSync(require('electron'), ['--runAsNode', __filename, '--electron-native', '--project-redraw-migration'], {
       encoding: 'utf8',
       timeout: 30000,
     });

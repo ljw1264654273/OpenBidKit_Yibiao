@@ -3,7 +3,7 @@ const path = require('node:path');
 const Database = require('better-sqlite3');
 const { getWorkspaceDatabasePath } = require('../utils/paths.cjs');
 
-const schemaVersion = 27;
+const schemaVersion = 28;
 
 function safeProjectTablePart(projectId) {
   return String(projectId || '')
@@ -187,6 +187,12 @@ function createTechnicalPlanProjectSchema(db, projectId) {
       generation_reviewed_at TEXT,
       generation_source_path TEXT,
       generation_asset_url TEXT,
+      generation_redraw_status TEXT,
+      generation_redraw_asset_url TEXT,
+      generation_redraw_source_path TEXT,
+      generation_redraw_error TEXT,
+      generation_redraw_attempts INTEGER,
+      generation_redraw_updated_at TEXT,
       generation_attempts INTEGER,
       generation_error TEXT,
       generation_updated_at TEXT,
@@ -578,6 +584,12 @@ function createTaskLogsAndIllustrationItemsSchema(db) {
       generation_reviewed_at TEXT,
       generation_source_path TEXT,
       generation_asset_url TEXT,
+      generation_redraw_status TEXT,
+      generation_redraw_asset_url TEXT,
+      generation_redraw_source_path TEXT,
+      generation_redraw_error TEXT,
+      generation_redraw_attempts INTEGER,
+      generation_redraw_updated_at TEXT,
       generation_attempts INTEGER,
       generation_error TEXT,
       generation_updated_at TEXT,
@@ -602,6 +614,32 @@ function addTechnicalPlanMermaidReviewState(db) {
   addColumnIfMissing(db, 'technical_plan_illustration_items', 'generation_review_status', 'TEXT');
   addColumnIfMissing(db, 'technical_plan_illustration_items', 'generation_review_error', 'TEXT');
   addColumnIfMissing(db, 'technical_plan_illustration_items', 'generation_reviewed_at', 'TEXT');
+}
+
+const technicalPlanIllustrationRedrawColumns = {
+  generation_redraw_status: 'TEXT',
+  generation_redraw_asset_url: 'TEXT',
+  generation_redraw_source_path: 'TEXT',
+  generation_redraw_error: 'TEXT',
+  generation_redraw_attempts: 'INTEGER',
+  generation_redraw_updated_at: 'TEXT',
+};
+
+function addTechnicalPlanIllustrationRedrawState(db) {
+  const tables = db.prepare(`
+    SELECT name
+    FROM sqlite_master
+    WHERE type = 'table'
+      AND (
+        name = 'technical_plan_illustration_items'
+        OR name GLOB 'technical_plan_project_*_illustration_items'
+      )
+  `).all().map((row) => String(row.name || '')).filter(Boolean);
+  for (const tableName of tables) {
+    for (const [columnName, columnType] of Object.entries(technicalPlanIllustrationRedrawColumns)) {
+      addColumnIfMissing(db, tableName, columnName, columnType);
+    }
+  }
 }
 
 function createBidProjectSchema(db) {
@@ -1605,6 +1643,11 @@ const schemaHealthColumnGroups = [
       content_mode_note: 'TEXT',
     },
   },
+  {
+    version: 28,
+    table: 'technical_plan_illustration_items',
+    columns: technicalPlanIllustrationRedrawColumns,
+  },
 ];
 
 function quoteIdentifier(value) {
@@ -1665,6 +1708,9 @@ function ensureWorkspaceSchemaHealth(db, targetVersion = schemaVersion, onStatus
   }
   if (targetVersion >= 17 && existingTables.has('technical_plan_content_plans')) {
     removeLegacyTechnicalPlanIllustrationType(db);
+  }
+  if (targetVersion >= 28) {
+    addTechnicalPlanIllustrationRedrawState(db);
   }
 }
 
@@ -1803,6 +1849,11 @@ const migrations = [
     version: 27,
     description: '新增标书项目目录和项目级查重结果结构',
     up: createBidProjectSchema,
+  },
+  {
+    version: 28,
+    description: '技术方案图片审核新增 AI 重绘候选状态',
+    up: addTechnicalPlanIllustrationRedrawState,
   },
 ];
 
