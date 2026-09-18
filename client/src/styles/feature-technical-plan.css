@@ -1679,7 +1679,15 @@
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
+  align-items: center;
   gap: 6px;
+}
+
+.content-mermaid-review-all-action {
+  min-height: 30px;
+  padding: 6px 12px;
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .content-mermaid-review-summary span {

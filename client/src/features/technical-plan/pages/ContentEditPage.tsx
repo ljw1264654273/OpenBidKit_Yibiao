@@ -1028,6 +1028,15 @@ function ContentEditPage({
     setMermaidReviewOpen(true);
   };
 
+  const openAllMermaidReview = () => {
+    const targetItem = mermaidReviewItems.find((item) => getMermaidReviewStatus(item) === 'pending')
+      || mermaidReviewItems.find((item) => getMermaidReviewStatus(item) === 'confirmed')
+      || mermaidReviewItems[0];
+    if (!targetItem) return;
+    setSelectedMermaidReviewItemId(targetItem.item_id);
+    setMermaidReviewOpen(true);
+  };
+
   const confirmMermaidReviewItem = async () => {
     const item = requireSelectedMermaidReviewItem();
     if (!item) return;
@@ -1487,6 +1496,15 @@ function ContentEditPage({
             <p>先核对 Mermaid 代码和 Markdown 效果图，确认后再统一改用 AI 图片重绘。</p>
           </div>
           <div className="content-mermaid-review-summary">
+            <button
+              type="button"
+              className="primary-action content-mermaid-review-all-action"
+              onClick={openAllMermaidReview}
+              aria-label={`审核全部 ${mermaidReviewItems.length} 张 Mermaid 图`}
+              title="打开全部 Mermaid 图审核"
+            >
+              审核全部（{mermaidReviewItems.length}）
+            </button>
             <span>全部 {mermaidReviewItems.length}</span>
             <span>已确认 {confirmedMermaidReviewCount}</span>
             <span>可重绘 {redrawableMermaidReviewCount}</span>

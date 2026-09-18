@@ -153,6 +153,16 @@ test('第五步所有 Mermaid 图片都保留审核入口并兼容历史缺少 r
   assert.doesNotMatch(pageSource, /\.filter\(\(item\) => item\.kind === 'mermaid' && item\.generation\?\.review_status\)/);
 });
 
+test('Mermaid 汇总条提供审核全部总入口并优先打开待确认图', () => {
+  const pageSource = readFileSync(new URL('../pages/ContentEditPage.tsx', import.meta.url), 'utf8');
+
+  assert.match(pageSource, /const openAllMermaidReview = \(\) =>/);
+  assert.match(pageSource, /openAllMermaidReview/);
+  assert.match(pageSource, /className="primary-action content-mermaid-review-all-action"/);
+  assert.match(pageSource, /审核全部（\{mermaidReviewItems\.length\}）/);
+  assert.match(pageSource, /sectionReviewItems\.find\(\(item\) => getMermaidReviewStatus\(item\) === 'pending'\)/);
+});
+
 test('Mermaid 审核弹窗把更多可用高度分配给流程图预览', () => {
   const pageSource = readFileSync(new URL('../pages/ContentEditPage.tsx', import.meta.url), 'utf8');
   const css = readFileSync(new URL('../../../styles/feature-technical-plan.css', import.meta.url), 'utf8');
