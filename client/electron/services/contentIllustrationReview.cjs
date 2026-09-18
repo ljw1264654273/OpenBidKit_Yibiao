@@ -1,6 +1,9 @@
 const {
   adjustMermaidReviewCode,
   buildIllustrationExecutionContexts,
+  generateAiRedrawCandidate,
+  generateHtmlRedrawCandidate,
+  generateMermaidRedrawCandidateFromCode,
 } = require('./contentIllustrationGeneration.cjs');
 
 const illustrationKindLabels = {
@@ -84,33 +87,132 @@ function adoptIllustrationReviewItem({ technicalPlanStore }, payload) {
   return technicalPlanStore.adoptIllustrationReviewItem(payload);
 }
 
-async function adjustIllustrationReviewItem({ technicalPlanStore, aiService }, payload) {
+async function convertMermaidIllustrationReviewItem({ technicalPlanStore, aiService }, payload) {
   const { state, item } = getIllustrationReviewContext(technicalPlanStore, payload);
   if (item.kind !== 'mermaid') {
-    return {
-      ...technicalPlanStore.saveIllustrationReviewItem({ itemId: item.item_id }),
-      instruction: String(payload?.instruction || ''),
-    };
+    throw new Error('当前图片项不是流程图');
+  }
+  if (item.generation?.review_status !== 'confirmed') {
+    throw new Error('请先确认流程图结构');
+  }
+
+  const code = String(item.generation?.code || item.generation?.draft_code || '').trim();
+  if (!code) {
+    throw new Error('当前流程图没有可图片化的 Mermaid 代码');
   }
 
   const leafContexts = collectLeafContexts(state.outlineData?.outline || []);
   const execution = buildIllustrationExecutionContexts({ items: [item] }, leafContexts, state.contentGenerationSections || {})[0];
-  const adjustmentResult = await adjustMermaidReviewCode(aiService, {
-    execution,
-    currentCode: payload?.code,
-    adjustment: payload?.instruction,
-    referenceImages: payload?.referenceImages,
-    referenceImagePath: payload?.referenceImagePath,
-    referenceImageDataUrl: payload?.referenceImageDataUrl,
-  });
-  const patch = technicalPlanStore.saveIllustrationReviewItem({
+  if (!execution) {
+    throw new Error('未找到图片对应的正文上下文');
+  }
+
+  const instruction = singleLine(payload?.instruction);
+  const attempts = Number(item.generation?.redraw_attempts || 0) + 1;
+  const saveCandidate = (generation) => technicalPlanStore.saveIllustrationRedrawCandidate({
     itemId: item.item_id,
-    code: adjustmentResult.code,
+    generation,
   });
-  return {
-    ...patch,
-    code: adjustmentResult.code,
-  };
+
+  saveCandidate({
+    redraw_status: 'running',
+    redraw_asset_url: undefined,
+    redraw_source_path: undefined,
+    redraw_error: undefined,
+    redraw_attempts: attempts,
+  });
+
+  try {
+    const result = await generateMermaidRedrawCandidateFromCode(
+      aiService,
+      execution,
+      code,
+      undefined,
+      attempts,
+      instruction,
+    );
+    return saveCandidate(result);
+  } catch (error) {
+    saveCandidate({
+      redraw_status: 'error',
+      redraw_error: singleLine(error?.message || error || 'AI 图片生成失败'),
+      redraw_attempts: attempts,
+    });
+    throw error;
+  }
+}
+
+async function adjustIllustrationReviewItem({ technicalPlanStore, aiService }, payload) {
+  const { state, item } = getIllustrationReviewContext(technicalPlanStore, payload);
+  const instruction = singleLine(payload?.instruction);
+  if (!instruction) {
+    throw new Error('请输入 AI 重绘要求');
+  }
+
+  if (!payload?.legacyCodeOnly && item.kind === 'mermaid') {
+    return convertMermaidIllustrationReviewItem({ technicalPlanStore, aiService }, payload);
+  }
+
+  const leafContexts = collectLeafContexts(state.outlineData?.outline || []);
+  const execution = buildIllustrationExecutionContexts({ items: [item] }, leafContexts, state.contentGenerationSections || {})[0];
+  if (!execution) {
+    throw new Error('未找到图片对应的正文上下文');
+  }
+
+  if (payload?.legacyCodeOnly) {
+    const adjustmentResult = await adjustMermaidReviewCode(aiService, {
+      execution,
+      currentCode: payload?.code,
+      adjustment: instruction,
+      referenceImages: payload?.referenceImages,
+      referenceImagePath: payload?.referenceImagePath,
+      referenceImageDataUrl: payload?.referenceImageDataUrl,
+    });
+    const patch = technicalPlanStore.saveIllustrationReviewItem({
+      itemId: item.item_id,
+      code: adjustmentResult.code,
+    });
+    return {
+      ...patch,
+      code: adjustmentResult.code,
+    };
+  }
+
+  const saveCandidate = (generation) => technicalPlanStore.saveIllustrationRedrawCandidate({
+    itemId: item.item_id,
+    generation,
+  });
+
+  saveCandidate({
+    redraw_status: 'running',
+    redraw_asset_url: undefined,
+    redraw_source_path: undefined,
+    redraw_error: undefined,
+  });
+
+  try {
+    let result;
+    if (item.kind === 'ai') {
+      result = await generateAiRedrawCandidate(aiService, execution, { instruction });
+    } else {
+      result = await generateHtmlRedrawCandidate({
+        aiService,
+        execution,
+        plan: state.contentIllustrationPlan,
+        workspaceStore: technicalPlanStore,
+        instruction,
+        onSourceSaved: (source) => saveCandidate(source),
+      });
+    }
+    return saveCandidate(result);
+  } catch (error) {
+    saveCandidate({
+      redraw_status: 'error',
+      redraw_error: singleLine(error?.message || error || 'AI 重绘失败'),
+      redraw_attempts: Number(item.generation?.redraw_attempts || 0) + 1,
+    });
+    throw error;
+  }
 }
 
 module.exports = {
@@ -119,6 +221,7 @@ module.exports = {
   buildIllustrationBlock,
   collectLeafContexts,
   confirmIllustrationReviewItem,
+  convertMermaidIllustrationReviewItem,
   getIllustrationKindLabel,
   getIllustrationReviewContext,
   previewIllustrationReviewItem,

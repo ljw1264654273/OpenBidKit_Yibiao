@@ -3,6 +3,7 @@ const {
   adjustIllustrationReviewItem,
   adoptIllustrationReviewItem,
   confirmIllustrationReviewItem,
+  convertMermaidIllustrationReviewItem,
   previewIllustrationReviewItem,
   saveIllustrationReviewItem,
   skipIllustrationReviewItem,
@@ -23,7 +24,17 @@ async function adjustMermaidReviewCodeForItem({ technicalPlanStore, aiService },
     ...technicalPlanStore,
     saveIllustrationReviewItem: (nextPayload) => technicalPlanStore.saveMermaidReviewCode(nextPayload),
   };
-  return adjustIllustrationReviewItem({ technicalPlanStore: compatStore, aiService }, payload);
+  return adjustIllustrationReviewItem({
+    technicalPlanStore: compatStore,
+    aiService,
+  }, {
+    ...payload,
+    legacyCodeOnly: true,
+  });
+}
+
+async function convertMermaidIllustrationReviewItemForItem({ technicalPlanStore, aiService }, payload) {
+  return convertMermaidIllustrationReviewItem({ technicalPlanStore, aiService }, payload);
 }
 
 function registerTechnicalPlanIpc({ technicalPlanStore, bidProjectManager, taskService, remoteKnowledgeService, aiService }) {
@@ -52,6 +63,7 @@ function registerTechnicalPlanIpc({ technicalPlanStore, bidProjectManager, taskS
   ipcMain.handle('technical-plan:save-illustration-review-item', (_event, payload) => saveIllustrationReviewItem({ technicalPlanStore: resolveStore(payload) }, payload));
   ipcMain.handle('technical-plan:adjust-illustration-review-item', (_event, payload) => adjustIllustrationReviewItem({ technicalPlanStore: resolveStore(payload), aiService }, payload));
   ipcMain.handle('technical-plan:confirm-illustration-review-item', (_event, payload) => confirmIllustrationReviewItem({ technicalPlanStore: resolveStore(payload) }, payload));
+  ipcMain.handle('technical-plan:convert-mermaid-illustration-review-item', (_event, payload) => convertMermaidIllustrationReviewItem({ technicalPlanStore: resolveStore(payload), aiService }, payload));
   ipcMain.handle('technical-plan:skip-illustration-review-item', (_event, payload) => skipIllustrationReviewItem({ technicalPlanStore: resolveStore(payload) }, payload));
   ipcMain.handle('technical-plan:adopt-illustration-review-item', (_event, payload) => adoptIllustrationReviewItem({ technicalPlanStore: resolveStore(payload) }, payload));
   ipcMain.handle('technical-plan:preview-mermaid-review-item', (_event, payload) => resolveStore(payload).previewMermaidReviewItem(payload));
@@ -76,6 +88,7 @@ function registerTechnicalPlanIpc({ technicalPlanStore, bidProjectManager, taskS
 
 module.exports = {
   adjustMermaidReviewCodeForItem,
+  convertMermaidIllustrationReviewItemForItem,
   registerTechnicalPlanIpc,
   saveOutlineConfig,
 };

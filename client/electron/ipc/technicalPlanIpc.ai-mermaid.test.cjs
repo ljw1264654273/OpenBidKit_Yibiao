@@ -1,7 +1,10 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 
-const { adjustMermaidReviewCodeForItem } = require('./technicalPlanIpc.cjs');
+const {
+  adjustMermaidReviewCodeForItem,
+  convertMermaidIllustrationReviewItemForItem,
+} = require('./technicalPlanIpc.cjs');
 
 test('AI adjusts a Mermaid review item from current plan state and saves returned code', async () => {
   const requests = [];
@@ -137,4 +140,50 @@ test('AI adjustment forwards multiple Mermaid reference images to the service', 
       },
     ],
   );
+});
+
+test('IPC 为流程图提供独立的 AI 图片化入口并透传已确认流程', async () => {
+  const calls = [];
+  const technicalPlanStore = {
+    loadTechnicalPlan: () => ({
+      outlineData: {
+        outline: [{ id: '1.1', title: '实施流程', content: '正文事实。' }],
+      },
+      contentGenerationSections: {
+        '1.1': { content: '正文事实。' },
+      },
+      contentIllustrationPlan: {
+        items: [{
+          item_id: 'mermaid-1',
+          kind: 'mermaid',
+          image_type: 'process',
+          title: '实施流程图',
+          section_ids: ['1.1'],
+          generation: {
+            review_status: 'confirmed',
+            code: 'flowchart TD\n  A["已确认"] --> B["流程"]',
+          },
+        }],
+      },
+    }),
+    saveIllustrationRedrawCandidate: (payload) => {
+      calls.push(payload);
+      return { contentIllustrationPlan: { items: [] } };
+    },
+  };
+  const aiService = {
+    generateImage: async ({ prompt }) => {
+      assert.match(prompt, /A\["已确认"\] --> B\["流程"\]/);
+      return { asset_url: 'yibiao-asset://generated-images/flow.png' };
+    },
+  };
+
+  const result = await convertMermaidIllustrationReviewItemForItem({
+    technicalPlanStore,
+    aiService,
+  }, { itemId: 'mermaid-1' });
+
+  assert.equal(calls[0].generation.redraw_status, 'running');
+  assert.equal(calls.at(-1).generation.redraw_asset_url, 'yibiao-asset://generated-images/flow.png');
+  assert.deepEqual(result, { contentIllustrationPlan: { items: [] } });
 });

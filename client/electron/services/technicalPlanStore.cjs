@@ -1952,6 +1952,14 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     });
   }
 
+  function saveIllustrationRedrawCandidate({ itemId, generation }) {
+    const { item } = findIllustrationReviewPlanItem(itemId);
+    return saveMermaidReviewItemGeneration(item, {
+      ...(generation || {}),
+      redraw_updated_at: now(),
+    });
+  }
+
   function confirmMermaidReviewItem({ itemId, code }) {
     const { item } = findMermaidReviewPlanItem(itemId);
     const normalizedCode = normalizeMermaidReviewCode(code);
@@ -1963,12 +1971,6 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       reviewed_at: now(),
       asset_url: undefined,
       source_path: undefined,
-      redraw_status: undefined,
-      redraw_asset_url: undefined,
-      redraw_source_path: undefined,
-      redraw_error: undefined,
-      redraw_attempts: undefined,
-      redraw_updated_at: undefined,
       error: undefined,
       attempts: undefined,
     });
@@ -1986,12 +1988,6 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
         reviewed_at: now(),
         asset_url: undefined,
         source_path: undefined,
-        redraw_status: undefined,
-        redraw_asset_url: undefined,
-        redraw_source_path: undefined,
-        redraw_error: undefined,
-        redraw_attempts: undefined,
-        redraw_updated_at: undefined,
         error: undefined,
         attempts: undefined,
       });
@@ -3340,6 +3336,7 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     getIllustrationReviewItem,
     previewIllustrationReviewItem,
     saveIllustrationReviewItem,
+    saveIllustrationRedrawCandidate,
     confirmIllustrationReviewItem,
     skipIllustrationReviewItem,
     adoptIllustrationReviewItem,

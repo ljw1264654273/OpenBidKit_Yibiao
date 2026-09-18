@@ -734,6 +734,7 @@ export interface YibiaoBridge {
     saveIllustrationReviewItem: (payload: { projectId?: string; itemId: string; code?: string }) => Promise<Partial<TechnicalPlanState>>;
     adjustIllustrationReviewItem: (payload: { projectId?: string; itemId: string; code?: string; instruction: string; referenceImages?: Array<{ path?: string; dataUrl?: string }>; referenceImagePath?: string; referenceImageDataUrl?: string }) => Promise<Partial<TechnicalPlanState> & { code?: string; instruction?: string }>;
     confirmIllustrationReviewItem: (payload: { projectId?: string; itemId: string; code?: string }) => Promise<Partial<TechnicalPlanState>>;
+    convertMermaidIllustrationReviewItem: (payload: { projectId?: string; itemId: string; instruction?: string }) => Promise<Partial<TechnicalPlanState>>;
     skipIllustrationReviewItem: (payload: { projectId?: string; itemId: string }) => Promise<Partial<TechnicalPlanState>>;
     adoptIllustrationReviewItem: (payload: { projectId?: string; itemId: string }) => Promise<Partial<TechnicalPlanState>>;
     previewMermaidReviewItem: (payload: { projectId?: string; itemId?: string; code: string }) => Promise<{ success: boolean; code: string }>;

@@ -2,7 +2,9 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 
 const {
+  adjustIllustrationReviewItem,
   confirmIllustrationReviewItem,
+  convertMermaidIllustrationReviewItem,
   buildIllustrationBlock,
   getIllustrationKindLabel,
   getIllustrationReviewContext,
@@ -81,4 +83,171 @@ test('候选图片正文块不存在时拒绝静默追加', () => {
     () => replaceIllustrationBlock('只有正文。', 'ai-1', 'candidate'),
     /未找到正文图片块/,
   );
+});
+
+test('通用 AI 重绘要求只保存候选资源，不覆盖当前图片', async () => {
+  const saves = [];
+  const item = {
+    item_id: 'ai-1',
+    kind: 'ai',
+    image_type: '工程图示',
+    title: '设备部署图',
+    section_ids: ['1.1'],
+    generation: {
+      status: 'success',
+      review_status: 'pending',
+      asset_url: 'yibiao-asset://generated-images/original.png',
+    },
+  };
+  const store = {
+    loadTechnicalPlan: () => ({
+      outlineData: {
+        outline: [{ id: '1.1', title: '实施方案', content: '正文事实：完成设备部署并验收。' }],
+      },
+      contentGenerationSections: {
+        '1.1': { content: '正文事实：完成设备部署并验收。' },
+      },
+      contentIllustrationPlan: {
+        revision: 'rev-1',
+        items: [item],
+      },
+    }),
+    saveIllustrationRedrawCandidate: ({ itemId, generation }) => {
+      saves.push({ itemId, generation });
+      return {
+        contentIllustrationPlan: {
+          items: [{
+            ...item,
+            generation: { ...item.generation, ...generation },
+          }],
+        },
+      };
+    },
+  };
+  const aiService = {
+    generateImage: async ({ prompt }) => {
+      assert.match(prompt, /提高可读性/);
+      return { asset_url: 'yibiao-asset://generated-images/candidate.png' };
+    },
+  };
+
+  const patch = await adjustIllustrationReviewItem({ technicalPlanStore: store, aiService }, {
+    itemId: item.item_id,
+    instruction: '提高可读性，减少装饰元素',
+  });
+
+  assert.equal(saves[0].generation.redraw_status, 'running');
+  assert.equal(saves.at(-1).generation.redraw_asset_url, 'yibiao-asset://generated-images/candidate.png');
+  assert.equal(patch.contentIllustrationPlan.items[0].generation.asset_url, item.generation.asset_url);
+  assert.equal(patch.contentIllustrationPlan.items[0].generation.redraw_asset_url, 'yibiao-asset://generated-images/candidate.png');
+});
+
+test('流程图确认后使用已确认代码生成独立 AI 图片候选，不修改正文和当前资源', async () => {
+  const saves = [];
+  const item = {
+    item_id: 'mermaid-1',
+    kind: 'mermaid',
+    image_type: 'process',
+    title: '实施流程图',
+    section_ids: ['1.1'],
+    generation: {
+      status: 'pending',
+      review_status: 'confirmed',
+      code: 'flowchart TD\n  A["资料收集"] --> B["成果验收"]',
+      asset_url: 'yibiao-asset://generated-images/old.png',
+    },
+  };
+  const state = {
+    outlineData: {
+      outline: [{ id: '1.1', title: '实施流程', content: '正文事实：先完成资料收集，再进行成果验收。' }],
+    },
+    contentGenerationSections: {
+      '1.1': { content: '正文事实：先完成资料收集，再进行成果验收。' },
+    },
+    contentIllustrationPlan: { items: [item] },
+  };
+  const store = {
+    loadTechnicalPlan: () => state,
+    saveIllustrationRedrawCandidate: ({ itemId, generation }) => {
+      saves.push({ itemId, generation });
+      return {
+        contentIllustrationPlan: {
+          items: [{
+            ...item,
+            generation: { ...item.generation, ...generation },
+          }],
+        },
+      };
+    },
+  };
+  const aiService = {
+    collectJsonResponse: async () => {
+      throw new Error('流程图图片化不应再次调用文本模型修改 Mermaid 代码');
+    },
+    generateImage: async ({ prompt }) => {
+      assert.match(prompt, /A\["资料收集"\] --> B\["成果验收"\]/);
+      return { asset_url: 'yibiao-asset://generated-images/flow-candidate.png' };
+    },
+  };
+
+  const result = await convertMermaidIllustrationReviewItem({
+    technicalPlanStore: store,
+    aiService,
+  }, { itemId: item.item_id });
+
+  assert.equal(saves[0].generation.redraw_status, 'running');
+  assert.equal(saves.at(-1).generation.redraw_asset_url, 'yibiao-asset://generated-images/flow-candidate.png');
+  assert.equal(result.contentIllustrationPlan.items[0].generation.asset_url, item.generation.asset_url);
+  assert.equal(result.contentIllustrationPlan.items[0].generation.code, item.generation.code);
+});
+
+test('流程图图片化失败时保留已确认代码并写入可重试的错误状态', async () => {
+  const saves = [];
+  const item = {
+    item_id: 'mermaid-1',
+    kind: 'mermaid',
+    image_type: 'process',
+    title: '实施流程图',
+    section_ids: ['1.1'],
+    generation: {
+      status: 'pending',
+      review_status: 'confirmed',
+      code: 'flowchart TD\n  A["资料收集"] --> B["成果验收"]',
+    },
+  };
+  const store = {
+    loadTechnicalPlan: () => ({
+      outlineData: { outline: [{ id: '1.1', title: '实施流程', content: '正文事实。' }] },
+      contentGenerationSections: { '1.1': { content: '正文事实。' } },
+      contentIllustrationPlan: { items: [item] },
+    }),
+    saveIllustrationRedrawCandidate: ({ itemId, generation }) => {
+      saves.push({ itemId, generation });
+      return {
+        contentIllustrationPlan: {
+          items: [{
+            ...item,
+            generation: { ...item.generation, ...generation },
+          }],
+        },
+      };
+    },
+  };
+
+  await assert.rejects(
+    () => convertMermaidIllustrationReviewItem({
+      technicalPlanStore: store,
+      aiService: {
+        generateImage: async () => {
+          throw new Error('模型暂时不可用');
+        },
+      },
+    }, { itemId: item.item_id }),
+    /模型暂时不可用/,
+  );
+
+  assert.equal(saves.at(-1).generation.redraw_status, 'error');
+  assert.match(saves.at(-1).generation.redraw_error, /模型暂时不可用/);
+  assert.equal(item.generation.review_status, 'confirmed');
+  assert.equal(item.generation.code, 'flowchart TD\n  A["资料收集"] --> B["成果验收"]');
 });

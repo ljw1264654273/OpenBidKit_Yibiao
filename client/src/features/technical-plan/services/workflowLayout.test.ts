@@ -118,37 +118,40 @@ test('第五步提供统一图片审核和 AI 重绘操作区', () => {
   const homeSource = readFileSync(new URL('../pages/TechnicalPlanHome.tsx', import.meta.url), 'utf8');
 
   assert.match(pageSource, /图片审核/);
-  assert.match(pageSource, /previewIllustrationReviewItem/);
-  assert.match(pageSource, /saveIllustrationReviewItem/);
   assert.match(pageSource, /confirmIllustrationReviewItem/);
   assert.match(pageSource, /skipIllustrationReviewItem/);
   assert.match(pageSource, /adoptIllustrationReviewItem/);
-  assert.match(pageSource, /恢复 AI 初稿/);
-  assert.match(pageSource, /redrawConfirmedIllustrations/);
-  assert.match(pageSource, /AI 重绘结果/);
+  assert.match(pageSource, /adjustIllustrationReviewItem/);
+  assert.match(pageSource, /AI 重绘当前图片/);
+  assert.match(pageSource, /AI 重绘要求/);
+  assert.match(pageSource, /当前图片效果/);
+  assert.match(pageSource, /AI 重绘候选/);
   assert.match(pageSource, /采用重绘结果/);
   assert.match(pageSource, /allowRawHtml=\{false\}/);
   assert.match(pageSource, /renderMermaid/);
+  assert.doesNotMatch(pageSource, /流程图代码/);
+  assert.doesNotMatch(pageSource, /AI 调整代码/);
+  assert.doesNotMatch(pageSource, /重绘备注/);
+  assert.doesNotMatch(pageSource, /AI 调整流程图/);
+  assert.doesNotMatch(pageSource, /单图 AI 重绘/);
+  assert.doesNotMatch(pageSource, /批量 AI 重绘/);
   assert.match(homeSource, /onPlanPatched/);
   assert.match(homeSource, /setState\(\(prev\) => \(\{ \.\.\.prev, \.\.\.patch \}\)\)/);
 });
 
-test('Mermaid 审核确认后保留弹窗并继续选择下一张待确认图', () => {
+test('图片审核确认后保留弹窗并继续选择下一张待确认图', () => {
   const pageSource = readFileSync(new URL('../pages/ContentEditPage.tsx', import.meta.url), 'utf8');
   const confirmStart = pageSource.indexOf('const confirmMermaidReviewItem = async');
   const confirmEnd = pageSource.indexOf('const skipMermaidReviewItem = async', confirmStart);
-  const redrawStart = pageSource.indexOf('const startIllustrationRedraw = async');
-  const redrawEnd = pageSource.indexOf('const handleGenerationButtonClick', redrawStart);
   const confirmSource = pageSource.slice(confirmStart, confirmEnd);
-  const redrawSource = pageSource.slice(redrawStart, redrawEnd);
 
-  assert.match(pageSource, /redrawableMermaidReviewCount/);
+  assert.match(pageSource, /redrawCandidateCount/);
   assert.match(pageSource, /selectNextPendingMermaidReviewItem/);
   assert.match(confirmSource, /selectNextPendingMermaidReviewItem\(item\.item_id\)/);
   assert.doesNotMatch(confirmSource, /setMermaidReviewOpen\(false\)/);
-  assert.doesNotMatch(redrawSource, /setMermaidReviewOpen\(false\)/);
-  assert.match(redrawSource, /pendingMermaidReviewCount/);
-  assert.match(pageSource, /批量 AI 重绘（\{redrawableMermaidReviewCount\} 张）/);
+  assert.match(pageSource, /redrawCurrentIllustration/);
+  assert.match(confirmSource, /convertMermaidIllustrationReviewItem/);
+  assert.match(confirmSource, /item\.kind === 'mermaid'/);
 });
 
 test('Mermaid 审核入口跟随对应章节状态按钮并按章节定位', () => {
@@ -184,24 +187,61 @@ test('图片汇总条提供审核全部总入口并优先打开待确认图', ()
   assert.match(pageSource, /sectionReviewItems\.find\(\(item\) => getMermaidReviewStatus\(item\) === 'pending'\)/);
 });
 
-test('Mermaid AI 调整支持粘贴参考图片并随文字要求传给多模态模型', () => {
+test('图片审核弹窗不再提供流程图代码编辑区', () => {
   const pageSource = readFileSync(new URL('../pages/ContentEditPage.tsx', import.meta.url), 'utf8');
-  const ipcTypes = readFileSync(new URL('../../../shared/types/ipc.ts', import.meta.url), 'utf8');
+  const css = readFileSync(new URL('../../../styles/feature-technical-plan.css', import.meta.url), 'utf8');
+
+  assert.doesNotMatch(pageSource, /流程图代码/);
+  assert.doesNotMatch(pageSource, /mermaidReviewDraftCode/);
+  assert.match(pageSource, /handleMermaidAiInstructionPaste/);
+  assert.match(pageSource, /adjustIllustrationReviewItem/);
+  assert.match(pageSource, /AI 重绘当前图片/);
+  assert.match(pageSource, /AI 重绘要求/);
+  assert.match(css, /\.content-mermaid-ai-inline-bar/);
+  assert.match(css, /\.content-mermaid-ai-input/);
+});
+
+test('图片审核的确认动作不再串联旧的单图或批量重绘任务', () => {
+  const pageSource = readFileSync(new URL('../pages/ContentEditPage.tsx', import.meta.url), 'utf8');
+  const confirmStart = pageSource.indexOf('const confirmMermaidReviewItem = async');
+  const confirmEnd = pageSource.indexOf('const skipMermaidReviewItem = async', confirmStart);
+  const confirmSource = pageSource.slice(confirmStart, confirmEnd);
+
+  assert.doesNotMatch(confirmSource, /startIllustrationRedraw/);
+  assert.doesNotMatch(confirmSource, /redrawConfirmedIllustrations/);
+  assert.match(confirmSource, /confirmIllustrationReviewItem/);
+});
+
+test('通用图片重绘请求覆盖 AI 配图、流程图和 PPT 图', () => {
+  const reviewSource = readFileSync(new URL('../../../../electron/services/contentIllustrationReview.cjs', import.meta.url), 'utf8');
   const generationSource = readFileSync(new URL('../../../../electron/services/contentIllustrationGeneration.cjs', import.meta.url), 'utf8');
 
-  assert.match(pageSource, /handleMermaidAiInstructionPaste/);
-  assert.match(pageSource, /window\.yibiao\?\.file\.getPathForFile/);
-  assert.match(pageSource, /readAsDataURL/);
-  assert.match(pageSource, /onPaste=\{handleMermaidAiInstructionPaste\}/);
-  assert.match(pageSource, /referenceImages: mermaidReferenceImages/);
-  assert.match(pageSource, /mermaidReferenceImages\.map/);
-  assert.doesNotMatch(pageSource, /mermaidReferenceImage\.name/);
-  assert.match(pageSource, /移除第 \$\{index \+ 1\} 张流程图参考图片/);
-  assert.match(pageSource, /if \(!open\) clearMermaidReferenceImages\(\)/);
-  assert.match(ipcTypes, /referenceImages\?: Array<\{ path\?: string; dataUrl\?: string \}>/);
-  assert.match(generationSource, /referenceImages/);
-  assert.match(generationSource, /type: 'local_image'/);
-  assert.match(generationSource, /detail: 'high'/);
+  assert.match(reviewSource, /generateAiRedrawCandidate/);
+  assert.match(reviewSource, /generateMermaidRedrawCandidateFromCode/);
+  assert.match(reviewSource, /convertMermaidIllustrationReviewItem/);
+  assert.match(reviewSource, /generateHtmlRedrawCandidate/);
+  assert.match(reviewSource, /saveIllustrationRedrawCandidate/);
+  assert.match(generationSource, /buildAiRedrawPrompt\(execution, options\.instruction\)/);
+  assert.match(generationSource, /buildHtmlRedrawPrompt\(execution, originalHtml, instruction\)/);
+});
+
+test('流程图图片化不再先调用文本模型修改 Mermaid 代码', () => {
+  const reviewSource = readFileSync(new URL('../../../../electron/services/contentIllustrationReview.cjs', import.meta.url), 'utf8');
+  const pageSource = readFileSync(new URL('../pages/ContentEditPage.tsx', import.meta.url), 'utf8');
+  const convertStart = reviewSource.indexOf('async function convertMermaidIllustrationReviewItem');
+  const convertEnd = reviewSource.indexOf('async function adjustIllustrationReviewItem', convertStart);
+  const convertSource = reviewSource.slice(convertStart, convertEnd);
+  assert.match(convertSource, /generateMermaidRedrawCandidateFromCode/);
+  assert.doesNotMatch(convertSource, /adjustMermaidReviewCode/);
+  assert.match(pageSource, /convertMermaidIllustrationReviewItem/);
+  assert.match(pageSource, /流程已确认，待生成 AI 图片/);
+});
+
+test('流程图审核阶段优先显示 Mermaid 结构，采用候选后才显示最终 AI 图片', () => {
+  const pageSource = readFileSync(new URL('../pages/ContentEditPage.tsx', import.meta.url), 'utf8');
+  assert.match(pageSource, /selectedMermaidReviewItem\?\.kind === 'mermaid' && selectedMermaidReviewCode && !selectedMermaidReviewItem\.generation\?\.asset_url/);
+  assert.match(pageSource, /重新生成 AI 图片/);
+  assert.match(pageSource, /采用重绘结果/);
 });
 
 test('图片审核弹窗保留 B 布局和流程图预览高度', () => {
@@ -216,28 +256,14 @@ test('图片审核弹窗保留 B 布局和流程图预览高度', () => {
   assert.match(pageSource, /style=\{mermaidPreviewZoomStyle\}/);
   assert.match(reviewCss, /height:\s*min\(920px,\s*calc\(100vh\s*-\s*24px\)\)/);
   assert.match(reviewCss, /\.content-mermaid-review-grid\s*\{[^}]*height:\s*100%/s);
-  assert.match(reviewCss, /\.content-mermaid-review-workspace\s*\{[^}]*grid-template-columns:\s*minmax\(420px,\s*0\.9fr\)\s+minmax\(520px,\s*1\.1fr\)/s);
-  assert.match(reviewCss, /\.content-mermaid-review-left\s*\{[^}]*grid-template-rows:\s*minmax\(240px,\s*0\.95fr\)\s+minmax\(260px,\s*1\.05fr\)/s);
-  assert.match(reviewCss, /\.content-mermaid-ai-inline-bar\s*\{[^}]*min-height:\s*260px/s);
-  assert.match(reviewCss, /\.content-mermaid-ai-input\s*\{[^}]*height:\s*100%;[^}]*flex-direction:\s*column/s);
-  assert.match(reviewCss, /\.content-mermaid-ai-input textarea\s*\{[^}]*flex:\s*1\s+1\s+180px;[^}]*min-height:\s*180px/s);
+  assert.match(reviewCss, /\.content-mermaid-review-workspace\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*0\.9fr\)\s+minmax\(0,\s*1\.1fr\)[^}]*grid-template-rows:\s*minmax\(0,\s*1fr\)\s+auto/s);
+  assert.doesNotMatch(reviewCss, /\.content-mermaid-review-left\s*\{/);
+  assert.match(reviewCss, /\.content-mermaid-ai-inline-bar\s*\{[^}]*grid-column:\s*1\s+\/\s*-1[^}]*grid-template-columns:/s);
+  assert.match(reviewCss, /\.content-mermaid-ai-input\s*\{[^}]*flex-direction:\s*column/s);
   assert.match(reviewCss, /\.content-mermaid-review-preview-panel\s*\{[^}]*grid-template-rows:\s*auto\s+minmax\(0,\s*1fr\)/s);
   assert.match(reviewCss, /\.content-mermaid-review-preview-scale\s*\{[^}]*transform-origin:\s*top left/s);
   assert.match(pageSource, /content-illustration-review-current/);
   assert.match(pageSource, /content-illustration-review-candidate/);
-});
-
-test('Mermaid AI 调整参考图片使用缩略图网格而不显示文件名', () => {
-  const pageSource = readFileSync(new URL('../pages/ContentEditPage.tsx', import.meta.url), 'utf8');
-  const css = readFileSync(new URL('../../../styles/feature-technical-plan.css', import.meta.url), 'utf8');
-  const reviewCss = css.slice(css.indexOf('.content-mermaid-review-card'), css.indexOf('/* 进度条已迁移到共享'));
-
-  assert.match(pageSource, /mermaidReferenceImages\.map\(\(image, index\)/);
-  assert.match(pageSource, /aria-label=\{\`移除第 \$\{index \+ 1\} 张流程图参考图片\`\}/);
-  assert.doesNotMatch(pageSource, /<span title=\{mermaidReferenceImage\.name\}/);
-  assert.match(reviewCss, /\.content-mermaid-ai-reference\s*\{[^}]*display:\s*grid/);
-  assert.match(reviewCss, /\.content-mermaid-ai-reference\s*\{[^}]*grid-template-columns:\s*repeat\(auto-fill,\s*56px\)/s);
-  assert.match(reviewCss, /\.content-mermaid-ai-reference img\s*\{[^}]*width:\s*56px;[^}]*height:\s*48px/s);
 });
 
 test('Mermaid 审核预览使用固定画布并支持滚轮缩放和拖拽平移', () => {

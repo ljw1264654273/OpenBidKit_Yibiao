@@ -105,15 +105,17 @@ ${adjustment ? `用户调整要求：${adjustment}` : '用户调整要求：保�
 只输出新的候选图片，不要修改或覆盖原图。`;
 }
 
-function buildMermaidAiImagePrompt(execution, code) {
+function buildMermaidAiImagePrompt(execution, code, instruction) {
   const title = getPlannedTitle(execution);
   const imageType = String(execution.planItem.image_type || '').trim();
+  const adjustment = singleLine(instruction);
   return `请将下面已经通过 Mermaid 语法和本地渲染校验的代码重绘为一张专业业务信息图。
 最终图题：${title}
 图表类型：${imageType}
 image_type: ${imageType}
 
 重绘要求：保留 Mermaid 中的步骤顺序、节点语义、判断关系和反馈关系，严格忠实于正文 reference；不得新增流程、角色、设备、数据或承诺，不得改变正文事实。画面应清晰、克制、适合投标技术方案，使用专业业务信息图风格，不要把完整代码或图题作为大段文字绘制在图片中。
+${adjustment ? `用户对 AI 图片的调整要求：${adjustment}` : '用户对 AI 图片的调整要求：保持流程结构不变，优化信息层级、可读性和专业度。'}
 
 ${buildIllustrationScheduleRule()}
 
@@ -494,13 +496,13 @@ async function generateMermaidAiIllustration(aiService, execution, isPauseLikeEr
   return generateMermaidAiIllustrationFromCode(aiService, execution, mermaid.code, runtime.isPauseLikeError, mermaid.attempts + 1);
 }
 
-async function generateMermaidAiIllustrationFromCode(aiService, execution, code, isPauseLikeError, attempts = 1) {
+async function generateMermaidAiIllustrationFromCode(aiService, execution, code, isPauseLikeError, attempts = 1, instruction = '') {
   let generated;
   try {
     generated = await aiService.generateImage({
       title: getPlannedTitle(execution),
       logTitle: `Mermaid AI图片重绘-${execution.planItem.item_id}-${getPlannedTitle(execution)}`,
-      prompt: buildMermaidAiImagePrompt(execution, normalizeMermaidCode(code)),
+      prompt: buildMermaidAiImagePrompt(execution, normalizeMermaidCode(code), instruction),
       style: execution.planItem.image_type,
     });
   } catch (error) {
@@ -511,8 +513,8 @@ async function generateMermaidAiIllustrationFromCode(aiService, execution, code,
   return { asset_url: generated.asset_url, attempts };
 }
 
-async function generateMermaidRedrawCandidateFromCode(aiService, execution, code, isPauseLikeError, attempts = 1) {
-  const result = await generateMermaidAiIllustrationFromCode(aiService, execution, code, isPauseLikeError, attempts);
+async function generateMermaidRedrawCandidateFromCode(aiService, execution, code, isPauseLikeError, attempts = 1, instruction = '') {
+  const result = await generateMermaidAiIllustrationFromCode(aiService, execution, code, isPauseLikeError, attempts, instruction);
   return {
     redraw_status: 'success',
     redraw_asset_url: result.asset_url,

@@ -388,13 +388,14 @@ test('流程图使用已确认 Mermaid code 生成独立候选图片', async () 
       imageRequests.push(request);
       return { asset_url: 'yibiao-asset://generated-images/redraw-mermaid.png' };
     },
-  }, createExecution(), 'flowchart TD\n  A["确认代码"] --> B["候选图"]', undefined, 3);
+  }, createExecution(), 'flowchart TD\n  A["确认代码"] --> B["候选图"]', undefined, 3, '突出主流程，减少装饰元素');
 
   assert.equal(result.redraw_status, 'success');
   assert.equal(result.redraw_asset_url, 'yibiao-asset://generated-images/redraw-mermaid.png');
   assert.equal(result.asset_url, undefined);
   assert.equal(result.redraw_attempts, 3);
   assert.match(imageRequests[0].prompt, /A\["确认代码"\]/);
+  assert.match(imageRequests[0].prompt, /突出主流程，减少装饰元素/);
 });
 
 test('PPT 图重绘读取原 HTML 并保存独立候选源文件和候选图片', async () => {
