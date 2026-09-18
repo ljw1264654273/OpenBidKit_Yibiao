@@ -32,13 +32,15 @@ test('表格密度缺失或非法时回退丰富，显式无表格保留', () =>
   assert.equal(normalizeTableRequirement('none'), 'none');
 });
 
-test('图片默认值遵循图片模型可用性并保留显式关闭', () => {
+test('图片默认值使用基础配图并在运行态遵循图片模型可用性', () => {
   const unavailable = resolveContentGenerationOptionsForQuickConfig(undefined, false);
+  assert.equal(unavailable.imagePreset, 'basic');
   assert.equal(unavailable.useAiImages, false);
   assert.equal(unavailable.useMermaidImages, true);
-  assert.equal(unavailable.useHtmlImages, true);
+  assert.equal(unavailable.useHtmlImages, false);
 
   const explicitlyDisabled = resolveContentGenerationOptionsForQuickConfig({
+    imagePreset: 'custom',
     useAiImages: false,
     useMermaidImages: false,
     useHtmlImages: false,
@@ -91,12 +93,13 @@ test('快速配置未全部设置时返回缺少项，全部设置后才算完�
     selectedBidSectionValid: false,
     contentGenerationOptions: undefined,
   });
-  assert.deepEqual(incomplete, ['投标范围', '标书篇幅', '表格密度', 'AI 配图', 'Mermaid 图', 'HTML 图']);
+  assert.deepEqual(incomplete, ['投标范围', '标书篇幅', '表格密度', '图片模式']);
   assert.equal(isQuickConfigComplete({
     pageLadder: 'p50-100',
     bidSectionMode: 'multiple',
     selectedBidSectionValid: true,
     contentGenerationOptions: {
+      imagePreset: 'basic',
       tableRequirement: 'heavy',
       useAiImages: false,
       useMermaidImages: true,

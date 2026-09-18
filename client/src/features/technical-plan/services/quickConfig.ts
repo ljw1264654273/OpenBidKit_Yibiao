@@ -65,14 +65,15 @@ export const QUICK_CONFIG_STORAGE_KEY = 'yibiao.technical-plan.step01.quick-conf
 
 const DEFAULT_HTML_IMAGE_TYPES = '甘特图、进度网络图、组织架构图、泳道图、RACI 职责矩阵、风险矩阵、系统架构与拓扑图、WBS 工作分解结构图、鱼骨图、柱状图、折线图、饼图';
 
-const DEFAULT_CONTENT_GENERATION_OPTIONS: ContentGenerationOptions = {
+export const DEFAULT_CONTENT_GENERATION_OPTIONS: ContentGenerationOptions = {
+  imagePreset: 'basic',
   useAiImages: false,
-  maxAiImages: 6,
+  maxAiImages: 0,
   useMermaidImages: true,
   useAiRedesignForMermaid: false,
   maxMermaidImages: 5,
-  useHtmlImages: true,
-  maxHtmlImages: 10,
+  useHtmlImages: false,
+  maxHtmlImages: 0,
   htmlImageTypes: DEFAULT_HTML_IMAGE_TYPES,
   tableRequirement: 'heavy',
   enableConsistencyAudit: true,
@@ -86,6 +87,11 @@ function sameWordControlOptions(left: OutlineWordControlOptions, right: OutlineW
     && left.maximumWords === right.maximumWords
     && left.sectionWords === right.sectionWords
     && left.strictSectionWords === right.strictSectionWords;
+}
+
+function normalizeImageCount(value: unknown, fallback: number) {
+  const numeric = Number(value);
+  return Math.max(0, Number.isFinite(numeric) ? Math.round(numeric) : fallback);
 }
 
 export function resolvePageLadderKey(options: OutlineWordControlOptions): PageLadderState {
@@ -114,12 +120,22 @@ export function resolveContentGenerationOptionsForQuickConfig(
   imageModelAvailable: boolean,
 ): ContentGenerationOptions {
   const source = options || {};
+  const maxAiImages = normalizeImageCount(source.maxAiImages, DEFAULT_CONTENT_GENERATION_OPTIONS.maxAiImages);
+  const maxMermaidImages = normalizeImageCount(source.maxMermaidImages, DEFAULT_CONTENT_GENERATION_OPTIONS.maxMermaidImages);
+  const maxHtmlImages = normalizeImageCount(source.maxHtmlImages, DEFAULT_CONTENT_GENERATION_OPTIONS.maxHtmlImages);
   return {
     ...DEFAULT_CONTENT_GENERATION_OPTIONS,
     ...source,
-    useAiImages: Boolean(source.useAiImages ?? imageModelAvailable) && imageModelAvailable,
+    imagePreset: source.imagePreset || DEFAULT_CONTENT_GENERATION_OPTIONS.imagePreset,
+    useAiImages: Boolean(source.useAiImages ?? DEFAULT_CONTENT_GENERATION_OPTIONS.useAiImages) && imageModelAvailable,
+    maxAiImages,
     useMermaidImages: Boolean(source.useMermaidImages ?? DEFAULT_CONTENT_GENERATION_OPTIONS.useMermaidImages),
+    maxMermaidImages,
     useHtmlImages: Boolean(source.useHtmlImages ?? DEFAULT_CONTENT_GENERATION_OPTIONS.useHtmlImages),
+    maxHtmlImages,
+    htmlImageTypes: typeof source.htmlImageTypes === 'string' && source.htmlImageTypes.trim()
+      ? source.htmlImageTypes
+      : DEFAULT_HTML_IMAGE_TYPES,
     tableRequirement: normalizeTableRequirement(source.tableRequirement),
     consistencyRepairMode: source.consistencyRepairMode === 'normal' ? 'normal' : 'agent',
     originalPlanCoverageRepairMode: source.originalPlanCoverageRepairMode === 'normal' ? 'normal' : 'agent',
@@ -164,14 +180,8 @@ export function getQuickConfigMissingItems({
   if (!contentGenerationOptions || contentGenerationOptions.tableRequirement === undefined) {
     missingItems.push('表格密度');
   }
-  if (!contentGenerationOptions || typeof contentGenerationOptions.useAiImages !== 'boolean') {
-    missingItems.push('AI 配图');
-  }
-  if (!contentGenerationOptions || typeof contentGenerationOptions.useMermaidImages !== 'boolean') {
-    missingItems.push('Mermaid 图');
-  }
-  if (!contentGenerationOptions || typeof contentGenerationOptions.useHtmlImages !== 'boolean') {
-    missingItems.push('HTML 图');
+  if (!contentGenerationOptions || !contentGenerationOptions.imagePreset) {
+    missingItems.push('图片模式');
   }
   return missingItems;
 }

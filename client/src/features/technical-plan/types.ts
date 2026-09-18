@@ -11,6 +11,7 @@ export type BackgroundTaskStatus = 'running' | 'pausing' | 'paused' | 'success' 
 export type ContentGenerationSectionStatus = 'idle' | 'running' | 'success' | 'error' | 'ignored';
 export type ContentGenerationPhase = 'planning' | 'restoring' | 'generating' | 'section-word-adjusting' | 'original-auditing' | 'auditing' | 'table-cleaning' | 'final-section-word-adjusting' | 'total-word-adjusting' | 'illustration-planning' | 'illustration-generating' | 'done';
 export type ContentTableRequirement = 'none' | 'light' | 'moderate' | 'heavy';
+export type ContentImagePreset = 'enhanced' | 'rich' | 'basic' | 'text-only' | 'custom';
 export type ConsistencyRepairMode = 'agent' | 'normal';
 export type OriginalPlanCoverageRepairMode = 'agent' | 'normal';
 export type SaveOutlineReason = 'sort' | 'edit' | 'delete' | 'add-root' | 'add-child' | 'replace';
@@ -78,6 +79,7 @@ export interface SaveOutlineSelectionRequest {
 }
 
 export interface ContentGenerationOptions {
+  imagePreset?: ContentImagePreset;
   useAiImages: boolean;
   maxAiImages: number;
   useMermaidImages: boolean;
