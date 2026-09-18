@@ -1,0 +1,10 @@
+services:
+  collector:
+    build: .
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      HOST: 0.0.0.0
+      PORT: 8787
+      TRUST_PROXY: "true"
+    ports:
+      - "8787:8787"

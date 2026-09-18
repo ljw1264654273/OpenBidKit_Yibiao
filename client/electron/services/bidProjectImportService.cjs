@@ -15,7 +15,7 @@ function safeFileName(value) {
   return String(value || '招标文件').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').trim() || '招标文件';
 }
 
-function createBidProjectImportService({ app, fileService, bidProjectManager }) {
+function createBidProjectImportService({ app, fileService, bidProjectManager, workflowAnalytics }) {
   const importsDir = path.join(getWorkspaceDir(app), 'bid-project-imports');
   fs.mkdirSync(importsDir, { recursive: true });
   for (const entry of fs.readdirSync(importsDir, { withFileTypes: true })) {
@@ -105,6 +105,7 @@ function createBidProjectImportService({ app, fileService, bidProjectManager }) 
   async function confirmImport(token, options = {}) {
     const metadata = readImport(token);
     let project;
+    let workflowOperation;
     try {
       project = bidProjectManager.createProject({
         projectName: options.projectName || metadata.fileName,
@@ -125,6 +126,13 @@ function createBidProjectImportService({ app, fileService, bidProjectManager }) 
           modifiedAt: document.modifiedAt,
         })),
       });
+      workflowOperation = workflowAnalytics?.startOperation({
+        operation: 'project_created',
+        workflowKind: project.projectType,
+        projectId: project.projectId,
+        projectName: project.projectName,
+        sourceFileNames: metadata.documents.map((document) => document.fileName),
+      });
       const store = bidProjectManager.getTechnicalPlanStore(project.projectId);
       await store.importTenderDocument(metadata.documents.map((document) => document.stagedPath));
       const state = store.loadTechnicalPlan();
@@ -143,8 +151,11 @@ function createBidProjectImportService({ app, fileService, bidProjectManager }) 
         };
       }));
       discardImport(token);
-      return bidProjectManager.openProject(project.projectId);
+      const openedProject = bidProjectManager.openProject(project.projectId);
+      workflowAnalytics?.finishOperation(workflowOperation, 'succeeded');
+      return openedProject;
     } catch (error) {
+      workflowAnalytics?.finishOperation(workflowOperation, 'failed', { failureCode: 'parse' });
       if (project?.projectId) bidProjectManager.deleteProject(project.projectId);
       discardImport(token);
       throw error;

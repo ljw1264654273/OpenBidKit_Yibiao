@@ -335,6 +335,8 @@ function createHeaders(apiKey) {
 }
 
 function trackAiRequest(app, config, payload) {
+  if (!app?.isPackaged) return;
+
   void Promise.resolve()
     .then(() => {
       const imageConfig = config.image_model || {};

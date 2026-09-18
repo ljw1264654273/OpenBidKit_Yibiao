@@ -45,6 +45,7 @@ const { createTaskLogStore } = require('../services/taskLogStore.cjs');
 const { createTechnicalPlanStore } = require('../services/technicalPlanStore.cjs');
 const { createBidProjectManager } = require('../services/bidProjectManager.cjs');
 const { createBidProjectImportService } = require('../services/bidProjectImportService.cjs');
+const { createWorkflowAnalytics } = require('../services/workflowAnalytics.cjs');
 const { createBidProjectDuplicateRewriteService } = require('../services/bidProjectDuplicateRewriteService.cjs');
 const { createFeasibilityReportStore } = require('../services/feasibilityReportStore.cjs');
 const { createTemplateStore } = require('../services/templateStore.cjs');
@@ -286,7 +287,7 @@ function registerWorkspaceDatabaseStatusIpc({ mainWindow }) {
   };
 }
 
-function registerWorkspaceDatabaseServices({ app, configStore, aiService, agentService, autoConfirmationService, fileService, openXmlHelperService, exportService, remoteKnowledgeService, remoteKnowledgeDecisionService, updateStatus }) {
+function registerWorkspaceDatabaseServices({ app, configStore, aiService, agentService, autoConfirmationService, fileService, openXmlHelperService, exportService, workflowAnalytics, remoteKnowledgeService, remoteKnowledgeDecisionService, updateStatus }) {
   const sqliteDatabase = createSqliteDatabase(app, { onStatus: updateStatus });
   runHistoricalStorageCleanup({ app, db: sqliteDatabase.db, configStore, onStatus: updateStatus });
   clearStalePiTaskArchives(app);
@@ -302,7 +303,7 @@ function registerWorkspaceDatabaseServices({ app, configStore, aiService, agentS
     taskLogStore,
     configStore,
   });
-  const bidProjectImportService = createBidProjectImportService({ app, fileService, bidProjectManager });
+  const bidProjectImportService = createBidProjectImportService({ app, fileService, bidProjectManager, workflowAnalytics });
   const bidProjectDuplicateRewriteService = createBidProjectDuplicateRewriteService({ aiService });
   const knowledgeBaseStore = createKnowledgeBaseStore({ app, db: sqliteDatabase.db });
   const knowledgeBaseService = createKnowledgeBaseService({ app, aiService, configStore, knowledgeBaseStore });
@@ -380,7 +381,8 @@ function registerIpcHandlers({ app, mainWindow, checkAndDownloadUpdate, triggerU
   const agentService = createAgentService({ app, configStore, aiService, licenseService, autoConfirmationService });
   const fileService = createFileService({ app, configStore });
   const openXmlHelperService = createOpenXmlHelperService({ app, configStore });
-  const exportService = createExportService({ configStore });
+  const workflowAnalytics = createWorkflowAnalytics({ app, configStore });
+  const exportService = createExportService({ configStore, workflowAnalytics });
   const systemFontService = createSystemFontService();
   const databaseStatus = registerWorkspaceDatabaseStatusIpc({ mainWindow });
   let workspaceDatabaseStarted = false;
@@ -503,7 +505,7 @@ function registerIpcHandlers({ app, mainWindow, checkAndDownloadUpdate, triggerU
     databaseStatus.updateStatus({ phase: 'checking', ready: false, message: '正在检查本地数据库' });
     setTimeout(() => {
       try {
-        registerWorkspaceDatabaseServices({ app, configStore, aiService, agentService, autoConfirmationService, fileService, openXmlHelperService, exportService, remoteKnowledgeService, remoteKnowledgeDecisionService, updateStatus: databaseStatus.updateStatus });
+        registerWorkspaceDatabaseServices({ app, configStore, aiService, agentService, autoConfirmationService, fileService, openXmlHelperService, exportService, workflowAnalytics, remoteKnowledgeService, remoteKnowledgeDecisionService, updateStatus: databaseStatus.updateStatus });
         setTimeout(() => {
           void agentService.warmup?.().catch((error) => {
             console.warn('[agent] warmup failed', error?.message || String(error));

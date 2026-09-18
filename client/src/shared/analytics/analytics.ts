@@ -200,6 +200,8 @@ function configUsageValueText(value: unknown) {
 }
 
 function sendAnalytics(event: AnalyticsEvent, page = '', payload: Record<string, unknown> = {}) {
+  if (import.meta.env.DEV) return;
+
   void Promise.all([getVersion(), getAnalyticsIdentity(), getAnalyticsLicenseSnapshot()]).then(([version, identity, license]) => {
     fetch(ANALYTICS_ENDPOINT, {
       method: 'POST',

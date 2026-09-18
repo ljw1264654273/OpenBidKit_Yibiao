@@ -16,6 +16,8 @@ function normalizeEndpointHost(value) {
 
 // 上报最终 Agent 执行状态，不包含任务内容、路径或错误详情。
 function trackAgentRuntime(app, configStore, status, meta = {}) {
+  if (!app?.isPackaged) return;
+
   const runtimeStatus = status === 'success' ? 'success' : 'failed';
   const modelRetryCount = Math.max(0, Math.floor(Number(meta.modelRetryCount || 0) || 0));
   void Promise.resolve()

@@ -2669,10 +2669,11 @@ async function buildDocxBuffer(payload, options = {}) {
   return result.buffer;
 }
 
-function createExportService({ configStore } = {}) {
+function createExportService({ configStore, workflowAnalytics } = {}) {
   return {
     async exportWord(payload = {}, onProgress) {
       const stats = countOutlineStats(Array.isArray(payload.outline) ? payload.outline : []);
+      const workflowMeta = payload.workflow_analytics || null;
       const developerLogger = createDeveloperLogger({
         app,
         config: loadDeveloperConfig(configStore),
@@ -2694,21 +2695,37 @@ function createExportService({ configStore } = {}) {
         throw error;
       }
 
+      const workflowOperation = workflowMeta?.projectId
+        ? workflowAnalytics?.startOperation({
+          operation: 'word_export',
+          workflowKind: workflowMeta.workflowKind,
+          projectId: workflowMeta.projectId,
+          projectName: workflowMeta.projectName || payload.project_name,
+        })
+        : null;
+
       const progressContext = { onProgress, warnings: [], stats };
       reportProgress(progressContext, 2, stats.mermaidCount
         ? `检测到 ${stats.mermaidCount} 张 Mermaid 图，导出时会转换为 Word 图片。`
         : '正在准备 Word 导出。');
       const defaultFilename = `${sanitizeFilename(payload.project_name || (payload.feasibility_options ? '可行性研究报告' : '标书文档'))}_${formatExportTimestamp()}.docx`;
       const defaultDir = app?.getPath ? app.getPath('downloads') : process.env.USERPROFILE || process.cwd();
-      const result = await dialog.showSaveDialog({
-        title: '导出 Word 文档',
-        defaultPath: path.join(defaultDir, defaultFilename),
-        filters: [{ name: 'Word 文档', extensions: ['docx'] }],
-      });
+      let result;
+      try {
+        result = await dialog.showSaveDialog({
+          title: '导出 Word 文档',
+          defaultPath: path.join(defaultDir, defaultFilename),
+          filters: [{ name: 'Word 文档', extensions: ['docx'] }],
+        });
+      } catch (error) {
+        workflowAnalytics?.finishOperation(workflowOperation, 'failed', { failureCode: 'export' });
+        throw error;
+      }
 
       if (result.canceled || !result.filePath) {
         reportProgress(progressContext, 0, '已取消导出。', { phase: 'canceled' });
         developerLogger.write('export.word.canceled', { stats });
+        workflowAnalytics?.finishOperation(workflowOperation, 'cancelled');
         return { success: false, canceled: true, message: '已取消导出' };
       }
 
@@ -2733,12 +2750,19 @@ function createExportService({ configStore } = {}) {
           warning_count: buildResult.warnings.length,
           stats: buildResult.stats,
         });
+        workflowAnalytics?.finishOperation(workflowOperation, 'succeeded', {
+          exportFileName: path.basename(result.filePath),
+        });
         return { success: true, path: result.filePath, message, warnings: buildResult.warnings };
       } catch (error) {
         developerLogger.write('export.word.error', {
           output_file_name: path.basename(result.filePath),
           output_extension: path.extname(result.filePath).toLowerCase(),
           error: compactLogError(error),
+        });
+        workflowAnalytics?.finishOperation(workflowOperation, 'failed', {
+          exportFileName: path.basename(result.filePath),
+          failureCode: 'export',
         });
         throw error;
       }

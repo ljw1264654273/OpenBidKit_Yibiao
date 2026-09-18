@@ -1449,6 +1449,13 @@ function TechnicalPlanHome({ workflowKind, projectId, registerLeaveGuard, onSect
           project_name: state.outlineData?.project_name,
           outline: state.outlineData?.outline || [],
           export_format: exportFormat,
+          ...(projectId && bidProject ? {
+            workflow_analytics: {
+              projectId,
+              projectName: bidProject.projectName || state.outlineData?.project_name,
+              workflowKind,
+            },
+          } : {}),
         })}
       />
 

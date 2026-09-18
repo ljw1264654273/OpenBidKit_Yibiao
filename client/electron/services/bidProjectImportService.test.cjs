@@ -60,7 +60,17 @@ test('creates independent projects when the same tender document is imported twi
   const db = new Database(':memory:');
   const fileService = createFileService(document);
   const manager = createManager(app, db, fileService);
-  const importService = createBidProjectImportService({ app, fileService, bidProjectManager: manager });
+  const workflowCalls = [];
+  const workflowAnalytics = {
+    startOperation(payload) {
+      workflowCalls.push({ type: 'started', payload });
+      return { operationId: 'operation-1' };
+    },
+    finishOperation(operation, status, details) {
+      workflowCalls.push({ type: 'finished', operation, status, details });
+    },
+  };
+  const importService = createBidProjectImportService({ app, fileService, bidProjectManager: manager, workflowAnalytics });
 
   try {
     const firstPreview = await importService.prepareImport([sourcePath]);
@@ -80,6 +90,13 @@ test('creates independent projects when the same tender document is imported twi
     `).all(first.projectId, second.projectId);
     assert.equal(rows.length, 2);
     assert.notEqual(rows[0].source_id, rows[1].source_id);
+    assert.deepEqual(workflowCalls.map((call) => [call.type, call.status]), [
+      ['started', undefined],
+      ['finished', 'succeeded'],
+      ['started', undefined],
+      ['finished', 'succeeded'],
+    ]);
+    assert.deepEqual(workflowCalls[0].payload.sourceFileNames, ['招标文件.md']);
   } finally {
     db.close();
     fs.rmSync(userDataPath, { recursive: true, force: true });

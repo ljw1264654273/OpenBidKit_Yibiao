@@ -137,6 +137,8 @@ function createAgentErrorReporter({ app, configStore, licenseService }) {
   }
 
   async function dispatch({ payload, error, userTaskContext }) {
+    if (!app?.isPackaged) return;
+
     const config = configStore.load();
     const license = normalizeLicenseEnvelope(licenseService?.getLicenseEnvelope?.());
     const version = typeof app?.getVersion === 'function' ? app.getVersion() : '';

@@ -105,6 +105,11 @@ function registerBidProjectIpc({
         project_name: project.projectName || state.outlineData?.project_name,
         outline,
         export_format: options.exportFormat || undefined,
+        workflow_analytics: {
+          projectId: project.projectId,
+          projectName: project.projectName || state.outlineData?.project_name,
+          workflowKind: project.projectType,
+        },
       }, sendProgress);
     } catch (error) {
       sendProgress({ phase: 'error', progress: 100, message: error.message || '导出 Word 失败' });
