@@ -145,12 +145,28 @@ export function resolveContentGenerationOptionsForQuickConfig(
 export function mergeContentGenerationOptionsForQuickConfig(
   current: Partial<ContentGenerationOptions> | undefined,
   patch: Partial<ContentGenerationOptions>,
-  imageModelAvailable: boolean,
-) {
-  return resolveContentGenerationOptionsForQuickConfig(
-    { ...current, ...patch },
-    imageModelAvailable,
-  );
+  _imageModelAvailable: boolean,
+): ContentGenerationOptions {
+  const source = { ...current, ...patch };
+  const maxAiImages = normalizeImageCount(source.maxAiImages, DEFAULT_CONTENT_GENERATION_OPTIONS.maxAiImages);
+  const maxMermaidImages = normalizeImageCount(source.maxMermaidImages, DEFAULT_CONTENT_GENERATION_OPTIONS.maxMermaidImages);
+  const maxHtmlImages = normalizeImageCount(source.maxHtmlImages, DEFAULT_CONTENT_GENERATION_OPTIONS.maxHtmlImages);
+  const consistencyRepairMode = source.consistencyRepairMode === 'normal' ? 'normal' : 'agent';
+  const originalPlanCoverageRepairMode = source.originalPlanCoverageRepairMode === 'normal' ? 'normal' : 'agent';
+  return {
+    ...DEFAULT_CONTENT_GENERATION_OPTIONS,
+    ...source,
+    imagePreset: source.imagePreset || DEFAULT_CONTENT_GENERATION_OPTIONS.imagePreset,
+    maxAiImages,
+    maxMermaidImages,
+    maxHtmlImages,
+    htmlImageTypes: typeof source.htmlImageTypes === 'string' && source.htmlImageTypes.trim()
+      ? source.htmlImageTypes
+      : DEFAULT_HTML_IMAGE_TYPES,
+    tableRequirement: normalizeTableRequirement(source.tableRequirement),
+    consistencyRepairMode,
+    originalPlanCoverageRepairMode,
+  };
 }
 
 export function isQuickConfigLocked(status?: BackgroundTaskStatus) {

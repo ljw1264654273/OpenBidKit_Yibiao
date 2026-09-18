@@ -78,6 +78,32 @@ test('快速配置更新只替换目标字段并保留其他正文生成配置',
   assert.equal(next.enableOriginalPlanCoverageAudit, true);
 });
 
+test('快速配置保存不把图片模型不可用写回持久化图片选项', () => {
+  const next = mergeContentGenerationOptionsForQuickConfig({
+    imagePreset: 'rich',
+    useAiImages: true,
+    maxAiImages: 3,
+    useMermaidImages: true,
+    useAiRedesignForMermaid: false,
+    maxMermaidImages: 3,
+    useHtmlImages: true,
+    maxHtmlImages: 3,
+    htmlImageTypes: '甘特图',
+    tableRequirement: 'heavy',
+    enableConsistencyAudit: true,
+    consistencyRepairMode: 'agent',
+    enableOriginalPlanCoverageAudit: false,
+    originalPlanCoverageRepairMode: 'agent',
+  }, {
+    tableRequirement: 'light',
+  }, false);
+
+  assert.equal(next.imagePreset, 'rich');
+  assert.equal(next.useAiImages, true);
+  assert.equal(next.maxAiImages, 3);
+  assert.equal(next.tableRequirement, 'light');
+});
+
 test('正文生成运行、暂停中锁定 STEP 01 危险操作', () => {
   assert.equal(isQuickConfigLocked('running'), true);
   assert.equal(isQuickConfigLocked('pausing'), true);

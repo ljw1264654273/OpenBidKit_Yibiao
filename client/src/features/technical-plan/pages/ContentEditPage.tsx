@@ -15,6 +15,11 @@ import mermaidImageExampleUrl from '../../../../assets/generate_img_example/merm
 import htmlImageExampleUrl from '../../../../assets/generate_img_example/html.png';
 import AdaptiveTwoPaneWorkspace, { type WorkspacePane } from '../components/AdaptiveTwoPaneWorkspace';
 import CompactTaskProgress from '../components/CompactTaskProgress';
+import {
+  DEFAULT_HTML_IMAGE_TYPES,
+  normalizePersistedContentGenerationOptions,
+  normalizeRuntimeContentGenerationOptions,
+} from '../services/imageConfig';
 
 interface ContentEditPageProps {
   projectId?: string;
@@ -87,9 +92,9 @@ const originalPlanCoverageRepairModeOptions: Array<{ value: OriginalPlanCoverage
 ];
 
 const illustrationKindLabels: Record<ContentIllustrationKind, string> = {
-  html: 'HTML 图片',
-  mermaid: 'Mermaid 图片',
-  ai: 'AI 图片',
+  html: 'PPT 图',
+  mermaid: '流程图',
+  ai: 'AI 配图',
 };
 
 const mermaidReviewStatusLabels: Record<'pending' | 'confirmed' | 'skipped', string> = {
@@ -109,9 +114,9 @@ const MERMAID_PREVIEW_ZOOM_STEP = 0.25;
 const illustrationKinds: ContentIllustrationKind[] = ['html', 'mermaid', 'ai'];
 
 const imageGenerationExamples: Record<ContentIllustrationKind, { src: string; alt: string }> = {
-  ai: { src: aiImageExampleUrl, alt: 'AI 生图示例' },
-  mermaid: { src: mermaidImageExampleUrl, alt: 'Mermaid 生图示例' },
-  html: { src: htmlImageExampleUrl, alt: 'HTML 生图示例' },
+  ai: { src: aiImageExampleUrl, alt: 'AI 配图示例' },
+  mermaid: { src: mermaidImageExampleUrl, alt: '流程图示例' },
+  html: { src: htmlImageExampleUrl, alt: 'PPT 图示例' },
 };
 
 // 渲染生图示例入口使用的帮助图标。
@@ -125,16 +130,15 @@ function ImageExampleIcon() {
   );
 }
 
-const DEFAULT_HTML_IMAGE_TYPES = '甘特图、进度网络图、组织架构图、泳道图、RACI 职责矩阵、风险矩阵、系统架构与拓扑图、WBS 工作分解结构图、鱼骨图、柱状图、折线图、饼图';
-
 const defaultContentGenerationOptions: ContentGenerationOptions = {
+  imagePreset: 'basic',
   useAiImages: false,
-  maxAiImages: 6,
+  maxAiImages: 0,
   useMermaidImages: true,
   useAiRedesignForMermaid: false,
   maxMermaidImages: 5,
-  useHtmlImages: true,
-  maxHtmlImages: 10,
+  useHtmlImages: false,
+  maxHtmlImages: 0,
   htmlImageTypes: DEFAULT_HTML_IMAGE_TYPES,
   tableRequirement: 'heavy',
   enableConsistencyAudit: true,
@@ -156,33 +160,22 @@ function isOriginalPlanCoverageRepairMode(value: unknown): value is OriginalPlan
 }
 
 function buildDefaultGenerationOptions(imageModelAvailable: boolean, leafCount: number): ContentGenerationOptions {
-  const imageLimit = Math.max(1, leafCount);
-  return {
-    ...defaultContentGenerationOptions,
-    useAiImages: imageModelAvailable,
-    maxAiImages: Math.min(defaultContentGenerationOptions.maxAiImages, imageLimit),
-    maxMermaidImages: Math.min(defaultContentGenerationOptions.maxMermaidImages, imageLimit),
-    maxHtmlImages: Math.min(defaultContentGenerationOptions.maxHtmlImages, imageLimit),
-  };
+  return normalizeRuntimeContentGenerationOptions(defaultContentGenerationOptions, { imageModelAvailable, leafCount });
 }
 
-function normalizeGenerationOptions(options: ContentGenerationOptions | undefined, imageModelAvailable: boolean, leafCount: number, isExpansionWorkflow = false): ContentGenerationOptions {
+function normalizeGenerationOptions(options: ContentGenerationOptions | undefined, imageModelAvailable: boolean, leafCount: number, isExpansionWorkflow = false, runtime = true): ContentGenerationOptions {
   const fallback = buildDefaultGenerationOptions(imageModelAvailable, leafCount);
-  const maxAiImagesLimit = Math.max(1, leafCount);
-  const requestedMaxAiImages = Number(options?.maxAiImages ?? fallback.maxAiImages);
-  const requestedMaxMermaidImages = Number(options?.maxMermaidImages ?? fallback.maxMermaidImages);
-  const requestedMaxHtmlImages = Number(options?.maxHtmlImages ?? fallback.maxHtmlImages);
   const tableRequirement = options?.tableRequirement;
+  const persistedImageOptions = normalizePersistedContentGenerationOptions({
+    ...defaultContentGenerationOptions,
+    ...options,
+  });
+  const imageOptions = runtime
+    ? normalizeRuntimeContentGenerationOptions(persistedImageOptions, { imageModelAvailable, leafCount })
+    : persistedImageOptions;
 
   return {
-    useAiImages: Boolean(options?.useAiImages ?? fallback.useAiImages) && imageModelAvailable,
-    maxAiImages: Math.max(0, Math.min(Number.isFinite(requestedMaxAiImages) ? Math.round(requestedMaxAiImages) : fallback.maxAiImages, maxAiImagesLimit)),
-    useMermaidImages: Boolean(options?.useMermaidImages ?? fallback.useMermaidImages),
-    useAiRedesignForMermaid: Boolean(options?.useAiRedesignForMermaid ?? fallback.useAiRedesignForMermaid),
-    maxMermaidImages: Math.max(0, Math.min(Number.isFinite(requestedMaxMermaidImages) ? Math.round(requestedMaxMermaidImages) : fallback.maxMermaidImages, maxAiImagesLimit)),
-    useHtmlImages: Boolean(options?.useHtmlImages ?? fallback.useHtmlImages),
-    maxHtmlImages: Math.max(0, Math.min(Number.isFinite(requestedMaxHtmlImages) ? Math.round(requestedMaxHtmlImages) : fallback.maxHtmlImages, maxAiImagesLimit)),
-    htmlImageTypes: String(options?.htmlImageTypes ?? fallback.htmlImageTypes),
+    ...imageOptions,
     tableRequirement: isContentTableRequirement(tableRequirement) ? tableRequirement : fallback.tableRequirement,
     enableConsistencyAudit: Boolean(options?.enableConsistencyAudit ?? fallback.enableConsistencyAudit),
     consistencyRepairMode: isConsistencyRepairMode(options?.consistencyRepairMode) ? options.consistencyRepairMode : fallback.consistencyRepairMode,
@@ -549,7 +542,7 @@ function ContentEditPage({
   const illustrationGenerationCompleted = contentStats?.illustration_generation_completed || 0;
   const illustrationGenerationProgress = illustrationGenerationTotal ? Math.round((illustrationGenerationCompleted / illustrationGenerationTotal) * 100) : 0;
   const illustrationGenerationStepLabel = contentStats?.illustration_generation_step_label || '';
-  const illustrationGenerationCount = `HTML ${contentStats?.illustration_generation_html_completed || 0}/${contentStats?.illustration_generation_html_total || 0}，Mermaid ${contentStats?.illustration_generation_mermaid_completed || 0}/${contentStats?.illustration_generation_mermaid_total || 0}，AI ${contentStats?.illustration_generation_ai_completed || 0}/${contentStats?.illustration_generation_ai_total || 0}`;
+  const illustrationGenerationCount = `PPT 图 ${contentStats?.illustration_generation_html_completed || 0}/${contentStats?.illustration_generation_html_total || 0}，流程图 ${contentStats?.illustration_generation_mermaid_completed || 0}/${contentStats?.illustration_generation_mermaid_total || 0}，AI 配图 ${contentStats?.illustration_generation_ai_completed || 0}/${contentStats?.illustration_generation_ai_total || 0}`;
   const wordTargetText = minimumWords > 0 && maximumWords > 0 ? `${minimumWords} 至 ${maximumWords} 字` : minimumWords > 0 ? `不少于 ${minimumWords} 字` : maximumWords > 0 ? `不超过 ${maximumWords} 字` : '未限制';
   const wordAdjusting = sectionWordAdjusting || finalSectionWordAdjusting || totalWordAdjusting;
   const sectionAdjustmentProgress = sectionAdjustmentTotal ? Math.round((sectionAdjustmentCompleted / sectionAdjustmentTotal) * 100) : 0;
@@ -770,10 +763,10 @@ function ContentEditPage({
   };
 
   const saveDraftGenerationOptions = async (showSuccess: boolean, imageAvailable = imageModelAvailable) => {
-    const normalizedDraftOptions = normalizeGenerationOptions(draftGenerationOptions, imageAvailable, leaves.length, isExpansionWorkflow);
+    const normalizedDraftOptions = normalizeGenerationOptions(draftGenerationOptions, imageAvailable, leaves.length, isExpansionWorkflow, false);
     const currentOptions = contentGenerationOptions
       ? { ...defaultContentGenerationOptions, ...contentGenerationOptions }
-      : normalizeGenerationOptions(undefined, imageAvailable, leaves.length, isExpansionWorkflow);
+      : normalizeGenerationOptions(undefined, imageAvailable, leaves.length, isExpansionWorkflow, false);
     const nextOptions = paused ? currentOptions : normalizedDraftOptions;
     await onContentGenerationOptionsChange(nextOptions);
     setDraftGenerationOptions(normalizeGenerationOptions(nextOptions, imageAvailable, leaves.length, isExpansionWorkflow));
@@ -802,7 +795,7 @@ function ContentEditPage({
 
   // 确认 HTML 图片类型设置并写回主配置草稿。
   const confirmHtmlImageTypes = () => {
-    setDraftGenerationOptions((prev) => ({ ...prev, htmlImageTypes: htmlImageTypesDraft }));
+    setDraftGenerationOptions((prev) => ({ ...prev, imagePreset: 'custom', htmlImageTypes: htmlImageTypesDraft }));
     setHtmlImageTypesDialogOpen(false);
   };
 
@@ -1230,35 +1223,43 @@ function ContentEditPage({
       setDraftContent('');
     }
 
+    const runtimeGenerationOptions = normalizeGenerationOptions(
+      savedGenerationOptions,
+      nextImageModelAvailable,
+      leaves.length,
+      isExpansionWorkflow,
+      true,
+    );
+
     await window.yibiao?.tasks.startContentGeneration({
       projectId,
       regenerate,
       simulatePartialFailures,
       generationOptions: {
-        useAiImages: nextImageModelAvailable && savedGenerationOptions.useAiImages,
-        maxAiImages: savedGenerationOptions.maxAiImages,
-        useMermaidImages: savedGenerationOptions.useMermaidImages,
-        useAiRedesignForMermaid: savedGenerationOptions.useAiRedesignForMermaid,
-        maxMermaidImages: savedGenerationOptions.maxMermaidImages,
-        useHtmlImages: savedGenerationOptions.useHtmlImages,
-        maxHtmlImages: savedGenerationOptions.maxHtmlImages,
-        htmlImageTypes: savedGenerationOptions.htmlImageTypes,
-        tableRequirement: savedGenerationOptions.tableRequirement,
-        enableConsistencyAudit: savedGenerationOptions.enableConsistencyAudit,
-        consistencyRepairMode: savedGenerationOptions.consistencyRepairMode,
-        enableOriginalPlanCoverageAudit: isExpansionWorkflow && savedGenerationOptions.enableOriginalPlanCoverageAudit,
-        originalPlanCoverageRepairMode: isExpansionWorkflow ? savedGenerationOptions.originalPlanCoverageRepairMode : undefined,
+        useAiImages: runtimeGenerationOptions.useAiImages,
+        maxAiImages: runtimeGenerationOptions.maxAiImages,
+        useMermaidImages: runtimeGenerationOptions.useMermaidImages,
+        useAiRedesignForMermaid: runtimeGenerationOptions.useAiRedesignForMermaid,
+        maxMermaidImages: runtimeGenerationOptions.maxMermaidImages,
+        useHtmlImages: runtimeGenerationOptions.useHtmlImages,
+        maxHtmlImages: runtimeGenerationOptions.maxHtmlImages,
+        htmlImageTypes: runtimeGenerationOptions.htmlImageTypes,
+        tableRequirement: runtimeGenerationOptions.tableRequirement,
+        enableConsistencyAudit: runtimeGenerationOptions.enableConsistencyAudit,
+        consistencyRepairMode: runtimeGenerationOptions.consistencyRepairMode,
+        enableOriginalPlanCoverageAudit: isExpansionWorkflow && runtimeGenerationOptions.enableOriginalPlanCoverageAudit,
+        originalPlanCoverageRepairMode: isExpansionWorkflow ? runtimeGenerationOptions.originalPlanCoverageRepairMode : undefined,
       },
     });
     trackConfigUsage({
-      table_requirement: savedGenerationOptions.tableRequirement,
-      use_mermaid_images: savedGenerationOptions.useMermaidImages,
-      use_ai_images: nextImageModelAvailable && savedGenerationOptions.useAiImages,
+      table_requirement: runtimeGenerationOptions.tableRequirement,
+      use_mermaid_images: runtimeGenerationOptions.useMermaidImages,
+      use_ai_images: runtimeGenerationOptions.useAiImages,
       content_generation_action: contentGenerationAction,
-      enable_consistency_audit: savedGenerationOptions.enableConsistencyAudit,
-      consistency_repair_mode: savedGenerationOptions.enableConsistencyAudit ? savedGenerationOptions.consistencyRepairMode : undefined,
-      enable_original_plan_coverage_audit: isExpansionWorkflow && savedGenerationOptions.enableOriginalPlanCoverageAudit,
-      original_plan_coverage_repair_mode: isExpansionWorkflow && savedGenerationOptions.enableOriginalPlanCoverageAudit ? savedGenerationOptions.originalPlanCoverageRepairMode : undefined,
+      enable_consistency_audit: runtimeGenerationOptions.enableConsistencyAudit,
+      consistency_repair_mode: runtimeGenerationOptions.enableConsistencyAudit ? runtimeGenerationOptions.consistencyRepairMode : undefined,
+      enable_original_plan_coverage_audit: isExpansionWorkflow && runtimeGenerationOptions.enableOriginalPlanCoverageAudit,
+      original_plan_coverage_repair_mode: isExpansionWorkflow && runtimeGenerationOptions.enableOriginalPlanCoverageAudit ? runtimeGenerationOptions.originalPlanCoverageRepairMode : undefined,
     }, config);
     setGenerationDialogOpen(false);
     showToast(simulatePartialFailures
@@ -1299,7 +1300,7 @@ function ContentEditPage({
       const config = await window.yibiao?.config.load();
       const nextImageModelStatus = config?.image_model?.status || 'untested';
       const nextImageModelAvailable = nextImageModelStatus === 'available';
-      const savedGenerationOptions = normalizeGenerationOptions(contentGenerationOptions, nextImageModelAvailable, leaves.length, isExpansionWorkflow);
+      const savedGenerationOptions = normalizeGenerationOptions(contentGenerationOptions, nextImageModelAvailable, leaves.length, isExpansionWorkflow, true);
       setImageModelStatus(nextImageModelStatus);
       await window.yibiao?.tasks.startContentGeneration({
         projectId,
@@ -1968,13 +1969,13 @@ ${mermaidReviewDraftCode.trim()}
               <div className="content-generation-config-group">
                 <div className="content-generation-config-row">
                   <div className="content-generation-image-option-title">
-                    <strong>使用 AI 生图</strong>
+                    <strong>使用 AI 配图</strong>
                     <button
                       type="button"
                       className="content-generation-example-button"
                       onClick={() => setPreviewImage(imageGenerationExamples.ai)}
-                      aria-label="查看 AI 生图示例"
-                      title="查看 AI 生图示例"
+                      aria-label="查看 AI 配图示例"
+                      title="查看 AI 配图示例"
                     >
                       <ImageExampleIcon />
                     </button>
@@ -1984,13 +1985,13 @@ ${mermaidReviewDraftCode.trim()}
                     <AppSwitch
                       checked={draftGenerationOptions.useAiImages && imageModelAvailable}
                       disabled={generationStrategyLocked || !imageModelAvailable}
-                      onCheckedChange={(checked) => setDraftGenerationOptions((prev) => ({ ...prev, useAiImages: checked }))}
-                      aria-label="是否使用 AI 生图" />
+                      onCheckedChange={(checked) => setDraftGenerationOptions((prev) => ({ ...prev, imagePreset: 'custom', useAiImages: checked }))}
+                      aria-label="是否使用 AI 配图" />
                   </div>
                 </div>
                 {draftGenerationOptions.useAiImages && imageModelAvailable && (
                   <label className="content-generation-config-row">
-                    <span><strong>AI 生图上限</strong></span>
+                    <span><strong>AI 配图上限</strong></span>
                     <input
                       type="number"
                       min="0"
@@ -1999,6 +2000,7 @@ ${mermaidReviewDraftCode.trim()}
                       disabled={generationStrategyLocked}
                       onChange={(event) => setDraftGenerationOptions((prev) => ({
                         ...prev,
+                        imagePreset: 'custom',
                         maxAiImages: Math.max(0, Math.min(Number(event.target.value) || 0, Math.max(1, leaves.length))),
                       }))}
                     />
@@ -2008,13 +2010,13 @@ ${mermaidReviewDraftCode.trim()}
               <div className="content-generation-config-group">
                 <div className="content-generation-config-row">
                   <div className="content-generation-image-option-title">
-                    <strong>使用 Mermaid 生图</strong>
+                    <strong>使用流程图</strong>
                     <button
                       type="button"
                       className="content-generation-example-button"
                       onClick={() => setPreviewImage(imageGenerationExamples.mermaid)}
-                      aria-label="查看 Mermaid 生图示例"
-                      title="查看 Mermaid 生图示例"
+                      aria-label="查看流程图示例"
+                      title="查看流程图示例"
                     >
                       <ImageExampleIcon />
                     </button>
@@ -2022,19 +2024,19 @@ ${mermaidReviewDraftCode.trim()}
                   <AppSwitch
                     checked={draftGenerationOptions.useMermaidImages}
                     disabled={generationStrategyLocked}
-                    onCheckedChange={(checked) => setDraftGenerationOptions((prev) => ({ ...prev, useMermaidImages: checked }))}
-                    aria-label="是否使用 Mermaid 生图" />
+                    onCheckedChange={(checked) => setDraftGenerationOptions((prev) => ({ ...prev, imagePreset: 'custom', useMermaidImages: checked }))}
+                    aria-label="是否使用流程图" />
                 </div>
                 {draftGenerationOptions.useMermaidImages && (
                   <>
                     <div className="content-generation-config-row">
                       <span>
-                        <strong>Mermaid 流程图先审核</strong>
-                        <small>生成后会在第五步目录中提供审核入口，确认后可统一转为 AI 图片。</small>
+                        <strong>流程图先审核</strong>
+                        <small>生成后会在第五步目录中提供审核入口，确认后可统一交给 AI 重绘。</small>
                       </span>
                     </div>
                     <label className="content-generation-config-row">
-                      <span><strong>Mermaid 生图上限</strong></span>
+                      <span><strong>流程图上限</strong></span>
                       <input
                         type="number"
                         min="0"
@@ -2043,6 +2045,7 @@ ${mermaidReviewDraftCode.trim()}
                         disabled={generationStrategyLocked}
                         onChange={(event) => setDraftGenerationOptions((prev) => ({
                           ...prev,
+                          imagePreset: 'custom',
                           maxMermaidImages: Math.max(0, Math.min(Number(event.target.value) || 0, Math.max(1, leaves.length))),
                         }))}
                       />
@@ -2053,13 +2056,13 @@ ${mermaidReviewDraftCode.trim()}
               <div className="content-generation-config-group">
                 <div className="content-generation-config-row">
                   <div className="content-generation-image-option-title">
-                    <strong>生成 HTML 图片</strong>
+                    <strong>生成 PPT 图</strong>
                     <button
                       type="button"
                       className="content-generation-example-button"
                       onClick={() => setPreviewImage(imageGenerationExamples.html)}
-                      aria-label="查看 HTML 生图示例"
-                      title="查看 HTML 生图示例"
+                      aria-label="查看 PPT 图示例"
+                      title="查看 PPT 图示例"
                     >
                       <ImageExampleIcon />
                     </button>
@@ -2067,12 +2070,12 @@ ${mermaidReviewDraftCode.trim()}
                   <AppSwitch
                     checked={draftGenerationOptions.useHtmlImages}
                     disabled={generationStrategyLocked}
-                    onCheckedChange={(checked) => setDraftGenerationOptions((prev) => ({ ...prev, useHtmlImages: checked }))}
-                    aria-label="是否生成 HTML 图片" />
+                    onCheckedChange={(checked) => setDraftGenerationOptions((prev) => ({ ...prev, imagePreset: 'custom', useHtmlImages: checked }))}
+                    aria-label="是否生成 PPT 图" />
                 </div>
                 {draftGenerationOptions.useHtmlImages && (
                   <label className="content-generation-config-row">
-                    <span><strong>HTML 生图上限</strong></span>
+                      <span><strong>PPT 图上限</strong></span>
                     <input
                       type="number"
                       min="0"
@@ -2081,6 +2084,7 @@ ${mermaidReviewDraftCode.trim()}
                       disabled={generationStrategyLocked}
                       onChange={(event) => setDraftGenerationOptions((prev) => ({
                         ...prev,
+                        imagePreset: 'custom',
                         maxHtmlImages: Math.max(0, Math.min(Number(event.target.value) || 0, Math.max(1, leaves.length))),
                       }))}
                     />

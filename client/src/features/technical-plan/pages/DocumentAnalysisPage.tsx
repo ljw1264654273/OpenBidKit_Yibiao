@@ -7,6 +7,7 @@ import type {
   BidSectionExtractionStatus,
   BidSectionMode,
   ContentGenerationOptions,
+  ContentImagePreset,
   ContentTableRequirement,
   DetectedBidSection,
   TechnicalPlanOriginalPlanFile,
@@ -16,6 +17,11 @@ import type {
   TechnicalPlanWorkflowKind,
 } from '../types';
 import BidSectionSelectorDialog from '../components/BidSectionSelectorDialog';
+import {
+  IMAGE_PRESET_LABELS,
+  applyImagePreset,
+  inferImagePreset,
+} from '../services/imageConfig';
 import {
   isQuickConfigLocked,
   mergeContentGenerationOptionsForQuickConfig,
@@ -139,6 +145,10 @@ function DocumentAnalysisPage({
   const resolvedContentOptions = useMemo(
     () => resolveContentGenerationOptionsForQuickConfig(contentGenerationOptions, imageModelAvailable),
     [contentGenerationOptions, imageModelAvailable],
+  );
+  const resolvedImagePreset = useMemo(
+    () => contentGenerationOptions?.imagePreset || inferImagePreset(contentGenerationOptions),
+    [contentGenerationOptions],
   );
   const pageLadderKey = useMemo(() => resolvePageLadderKey(outlineWordControlOptions), [outlineWordControlOptions]);
   const sectionExtractionRunning = bidSectionExtractionStatus === 'running';
@@ -349,7 +359,7 @@ function DocumentAnalysisPage({
     setQuickConfigSaving(`table:${value}`);
     try {
       await onContentGenerationOptionsChange(mergeContentGenerationOptionsForQuickConfig(
-        resolvedContentOptions,
+        contentGenerationOptions,
         {
           tableRequirement: value,
         },
@@ -362,28 +372,24 @@ function DocumentAnalysisPage({
     }
   };
 
-  const applyImageToggle = async (
-    key: 'useAiImages' | 'useMermaidImages' | 'useHtmlImages',
-    value: boolean,
-  ) => {
+  const applyImagePresetSelection = async (preset: Exclude<ContentImagePreset, 'custom'>) => {
     if (contentTaskLocked) {
       showToast('正文生成任务进行中，请等待任务结束后再调整快速配置', 'info');
       return;
     }
-    if (resolvedContentOptions[key] === value) return;
-    if (key === 'useAiImages' && value && !imageModelAvailable) {
-      showToast('图片模型不可用，暂时无法启用 AI 配图', 'info');
-      return;
+    if (resolvedImagePreset === preset) return;
+    if ((preset === 'enhanced' || preset === 'rich') && !imageModelAvailable) {
+      showToast('图片模型当前不可用，已保存图片模式；开始生成正文时会按运行环境自动处理 AI 配图', 'info');
     }
-    setQuickConfigSaving(`image:${key}`);
+    setQuickConfigSaving(`image:${preset}`);
     try {
       await onContentGenerationOptionsChange(mergeContentGenerationOptionsForQuickConfig(
-        resolvedContentOptions,
-        { [key]: value },
+        contentGenerationOptions,
+        applyImagePreset(preset),
         imageModelAvailable,
       ));
     } catch (error) {
-      showToast(error instanceof Error ? error.message : '保存图片配置失败', 'error');
+      showToast(error instanceof Error ? error.message : '保存图片模式失败', 'error');
     } finally {
       setQuickConfigSaving(null);
     }
@@ -519,19 +525,8 @@ function DocumentAnalysisPage({
       : PAGE_LADDER_PRESETS[pageLadderKey].label;
   const quickConfigTableSummary = tableDensityOptions.find((option) => option.value === resolvedContentOptions.tableRequirement)?.label || '丰富';
   const hasTableDensitySelection = contentGenerationOptions?.tableRequirement !== undefined;
-  const imageSelectionState = {
-    useAiImages: typeof contentGenerationOptions?.useAiImages === 'boolean',
-    useMermaidImages: typeof contentGenerationOptions?.useMermaidImages === 'boolean',
-    useHtmlImages: typeof contentGenerationOptions?.useHtmlImages === 'boolean',
-  };
-  const hasImageSelection = Object.values(imageSelectionState).every(Boolean);
-  const quickConfigImageSummary = hasImageSelection
-    ? [
-      resolvedContentOptions.useAiImages ? 'AI' : '',
-      resolvedContentOptions.useMermaidImages ? 'Mermaid' : '',
-      resolvedContentOptions.useHtmlImages ? 'HTML' : '',
-    ].filter(Boolean).join('、') || '未启用'
-    : '待选择';
+  const hasImageSelection = Boolean(contentGenerationOptions?.imagePreset);
+  const quickConfigImageSummary = hasImageSelection ? IMAGE_PRESET_LABELS[resolvedImagePreset] : '待选择';
   const updateQuickConfigExpanded = (expanded: boolean) => {
     setQuickConfigExpanded(expanded);
     try {
@@ -783,33 +778,29 @@ function DocumentAnalysisPage({
             </div>
 
             <div className="quick-config-row">
-              <div className="quick-config-label"><strong>图片设置</strong><small>配图类型开关</small></div>
+              <div className="quick-config-label"><strong>图片设置</strong><small>图文丰富度</small></div>
               <div className="quick-config-row-body">
-                <div className="quick-config-image-pills" role="group" aria-label="图片设置">
-                  {([
-                    ['useAiImages', 'AI 配图'],
-                    ['useMermaidImages', 'Mermaid 图'],
-                    ['useHtmlImages', 'HTML 图'],
-                  ] as const).map(([key, label]) => {
-                    const active = imageSelectionState[key] && resolvedContentOptions[key];
-                    const disabled = quickConfigSaving !== null || contentTaskLocked || (key === 'useAiImages' && !imageModelAvailable);
+                <div className="quick-config-image-pills" role="radiogroup" aria-label="图片模式">
+                  {(['enhanced', 'rich', 'basic', 'text-only'] as const).map((preset) => {
+                    const active = hasImageSelection && resolvedImagePreset === preset;
+                    const disabled = quickConfigSaving !== null || contentTaskLocked;
                     return (
                       <button
-                        key={key}
+                        key={preset}
                         type="button"
+                        role="radio"
                         className={`quick-config-image-pill${active ? ' is-active' : ''}`}
-                        aria-pressed={active}
-                        onClick={() => void applyImageToggle(key, !active)}
+                        aria-checked={active}
+                        onClick={() => void applyImagePresetSelection(preset)}
                         disabled={disabled}
-                        title={key === 'useAiImages' && !imageModelAvailable ? '图片模型不可用' : undefined}
                       >
                         <span className="quick-config-image-dot" aria-hidden="true" />
-                        {label}
+                        {IMAGE_PRESET_LABELS[preset]}
                       </button>
                     );
                   })}
                 </div>
-                <span className="quick-config-note">修改后沿用现有失效规则（清空全文图片计划）</span>
+                <span className="quick-config-note">增强/丰富包含 AI 配图、流程图、PPT 图；基础配图以流程图为主</span>
               </div>
             </div>
           </div>

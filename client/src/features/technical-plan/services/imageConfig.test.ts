@@ -2,13 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 // Node 的类型擦除测试运行器需要显式扩展名，产品代码仍使用标准无扩展名导入。
 // @ts-expect-error allowImportingTsExtensions 仅影响测试运行方式
-import {
-  DEFAULT_HTML_IMAGE_TYPES,
-  applyImagePreset,
-  inferImagePreset,
-  normalizePersistedContentGenerationOptions,
-  normalizeRuntimeContentGenerationOptions,
-} from './imageConfig.ts';
+import { DEFAULT_HTML_IMAGE_TYPES, applyImagePreset, inferImagePreset, normalizePersistedContentGenerationOptions, normalizeRuntimeContentGenerationOptions } from './imageConfig.ts';
 
 test('四种图片模式映射为稳定规范值', () => {
   assert.deepEqual(applyImagePreset('enhanced'), {

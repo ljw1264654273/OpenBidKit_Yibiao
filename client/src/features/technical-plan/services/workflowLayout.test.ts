@@ -166,7 +166,7 @@ test('第五步所有 Mermaid 图片都保留审核入口并兼容历史缺少 r
   assert.match(pageSource, /\.filter\(\(item\) => item\.kind === 'mermaid'\)/);
   assert.match(pageSource, /const getMermaidReviewStatus = \(item: ContentIllustrationPlanItem\)/);
   assert.match(pageSource, /getMermaidReviewStatus\(item\) === 'pending'/);
-  assert.match(pageSource, /Mermaid 流程图先审核/);
+  assert.match(pageSource, /流程图先审核/);
   assert.doesNotMatch(pageSource, /是否将 Mermaid 改用 AI 图片重绘/);
   assert.doesNotMatch(pageSource, /\.filter\(\(item\) => item\.kind === 'mermaid' && item\.generation\?\.review_status\)/);
 });
@@ -344,6 +344,23 @@ test('STEP 01 以解析为主并把快速配置折叠成可展开摘要', () => 
   assert.match(source, /sectionDetectionRequestRef/);
 });
 
+test('STEP 01 图片设置只提供四种图片模式并显示中文摘要', () => {
+  const source = readFileSync(new URL('../pages/DocumentAnalysisPage.tsx', import.meta.url), 'utf8');
+  const imageConfig = readFileSync(new URL('./imageConfig.ts', import.meta.url), 'utf8');
+
+  assert.match(source, /IMAGE_PRESET_LABELS/);
+  assert.match(source, /applyImagePreset/);
+  assert.match(imageConfig, /增强图文/);
+  assert.match(imageConfig, /丰富图文/);
+  assert.match(imageConfig, /基础配图/);
+  assert.match(imageConfig, /纯文字/);
+  assert.match(imageConfig, /自定义/);
+  assert.match(source, /role="radiogroup" aria-label="图片模式"/);
+  assert.doesNotMatch(source, /\['useAiImages', 'AI 配图'\]/);
+  assert.doesNotMatch(source, /\['useMermaidImages', 'Mermaid 图'\]/);
+  assert.doesNotMatch(source, /\['useHtmlImages', 'HTML 图'\]/);
+});
+
 test('STEP 01 快速配置和招标文件内容默认展开', () => {
   const source = readFileSync(new URL('../pages/DocumentAnalysisPage.tsx', import.meta.url), 'utf8');
 
@@ -407,13 +424,13 @@ test('STEP 01 导入疑似多标段文件后自动启动已有 AI 标段识别�
 test('STEP 01 加载已有招标文件时也会自动启动多标段 AI 识别', () => {
   const source = readFileSync(new URL('../pages/DocumentAnalysisPage.tsx', import.meta.url), 'utf8');
   const detectionEffect = source.slice(
-    source.indexOf('window.yibiao?.technicalPlan.checkBidSections()'),
+    source.indexOf('window.yibiao?.technicalPlan.checkBidSections('),
     source.indexOf('const resolveDroppedFilePaths'),
   );
 
   assert.match(
     detectionEffect,
-    /checkBidSections\(\)\.then\(\(detection\) => \{[\s\S]*detection\?\.hasMultiple[\s\S]*startBidSectionExtraction\(\)/,
+    /checkBidSections\(projectId \? \{ projectId \} : undefined\)\.then\(\(detection\) => \{[\s\S]*detection\?\.hasMultiple[\s\S]*startBidSectionExtraction\(\)/,
   );
 });
 
@@ -492,8 +509,9 @@ test('目录生成状态栏以两行摘要配合同排进度和操作保持紧�
 test('目录原文面板只展示当前分屏并保留精确原文高亮', () => {
   const source = readFileSync(new URL('../components/TenderSourcePanel.tsx', import.meta.url), 'utf8');
   const css = readFileSync(new URL('../../../styles/feature-technical-plan.css', import.meta.url), 'utf8');
-  assert.doesNotMatch(source, /MarkdownFullscreenViewer/);
-  assert.doesNotMatch(source, /全屏查看招标原文/);
+  assert.match(source, /<MarkdownFullscreenViewer/);
+  assert.match(source, /showFullscreen=\{false\}/);
+  assert.match(source, /全屏查看标书原文/);
   assert.match(source, /normalizeTableFragments/);
   assert.match(source, /<MarkdownRenderer allowRawHtml highlightSourceAnchor=\{activeSourceItem \? 'primary' : undefined\} preserveTableCellSpans>/);
   assert.doesNotMatch(source, /extractSourceKeywords|selectedItem\?\.description/);
