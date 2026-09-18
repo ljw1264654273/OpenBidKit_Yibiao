@@ -1,4 +1,5 @@
 import type { BidContentDuplicateDecision, BidContentDuplicateResult, BidContentDuplicateRewriteRequest, BidContentDuplicateRewriteResult, BidContentDuplicateTargetSide, BidProject, BidProjectCreateOptions, BidProjectDuplicateSummary, BidProjectImportPreview } from '../types';
+import type { ExportFormatConfig } from '../../../shared/types/exportFormat';
 
 export const bidProjectStorage = {
   list(filters?: { query?: string; status?: string; type?: string }): Promise<BidProject[]> {
@@ -43,7 +44,7 @@ export const bidProjectStorage = {
   replaceContent(projectId: string, payload: { nodeId: string; oldText: string; newText: string }): Promise<unknown> {
     return window.yibiao!.bidProject.replaceContent(projectId, payload);
   },
-  exportWord(projectId: string, options?: { requestId?: string }): Promise<{ success: boolean; canceled?: boolean; message?: string; path?: string; warnings?: string[] }> {
+  exportWord(projectId: string, options?: { requestId?: string; exportFormat?: ExportFormatConfig }): Promise<{ success: boolean; canceled?: boolean; message?: string; path?: string; warnings?: string[] }> {
     return window.yibiao!.bidProject.exportWord(projectId, options);
   },
 };

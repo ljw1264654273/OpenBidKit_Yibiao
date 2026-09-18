@@ -89,3 +89,30 @@ test('keeps the list page on manual comparison instead of auto-running the compa
   assert.doesNotMatch(workspacePage, /group\.length\s*>=\s*2/);
   assert.match(row, /查看查重结果/);
 });
+
+test('列表导出先选择模板，并复用导出完成后的打开文件流程', async () => {
+  const fs = await import('node:fs/promises');
+  const workspacePage = await fs.readFile(new URL('../pages/BidProjectWorkspacePage.tsx', import.meta.url), 'utf8');
+  const dialog = await fs.readFile(new URL('../../export-format/components/WordExportDialog.tsx', import.meta.url), 'utf8');
+
+  assert.match(workspacePage, /<WordExportDialog/);
+  assert.match(workspacePage, /setExportTarget\(project\)/);
+  assert.match(workspacePage, /exportTarget\.projectId, \{ requestId, exportFormat \}/);
+  assert.match(dialog, /<Dialog\.Title>选择导出模板<\/Dialog\.Title>/);
+  assert.match(dialog, /打开文件/);
+});
+
+test('列表页只有生成完成的标书允许导出', async () => {
+  const fs = await import('node:fs/promises');
+  const workspacePage = await fs.readFile(new URL('../pages/BidProjectWorkspacePage.tsx', import.meta.url), 'utf8');
+  const row = await fs.readFile(new URL('../components/BidProjectRow.tsx', import.meta.url), 'utf8');
+  const sharedStyles = await fs.readFile(new URL('../../../styles/shared-components.css', import.meta.url), 'utf8');
+
+  assert.match(row, /disabled=\{project\.status !== 'completed'\}/);
+  assert.match(row, /标书生成完成后才可导出/);
+  assert.match(workspacePage, /project\.status !== 'completed'/);
+  assert.match(workspacePage, /标书生成完成后才可导出/);
+  assert.match(sharedStyles, /\.text-button:disabled/);
+  assert.match(sharedStyles, /\.text-button:disabled[\s\S]*cursor:\s*not-allowed/);
+  assert.match(sharedStyles, /\.text-button:disabled[\s\S]*opacity:/);
+});

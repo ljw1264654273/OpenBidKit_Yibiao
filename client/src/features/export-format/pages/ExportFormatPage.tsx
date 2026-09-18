@@ -34,7 +34,7 @@ import {
 } from '../../../shared/types/exportFormat';
 import { buildExportFormatCssVars } from '../../../shared/utils/exportFormatCss';
 import { formatOutlineNumber, formatOutlineTitle } from '../../../shared/utils/outlineNumbering';
-import type { OutlineItem, WordExportProgressEvent } from '../../../shared/types';
+import type { WordExportProgressEvent } from '../../../shared/types';
 import {
   EXPORT_LAYOUT_PRESETS,
   EXPORT_THEME_PRESETS,
@@ -42,6 +42,7 @@ import {
   applyExportThemePreset,
 } from '../exportFormatPresets';
 import { MANDATORY_BID_CONTENT_RULES } from '../mandatoryBidContentRules';
+import { countOutlineMermaidDiagrams, hasGeneratedContent } from '../services/wordExportUi';
 
 type TemplateTab = 'quick' | 'content-rules' | 'layout' | 'cover' | 'heading' | 'body' | 'table' | 'image';
 type TableCellStyleKey = 'header_row' | 'first_column' | 'body_cell';
@@ -116,24 +117,6 @@ function arePreviewBlockHeightsEqual(left: Record<string, number>, right: Record
   const leftKeys = Object.keys(left);
   const rightKeys = Object.keys(right);
   return leftKeys.length === rightKeys.length && leftKeys.every((key) => left[key] === right[key]);
-}
-
-function collectLeafItems(items: OutlineItem[]): OutlineItem[] {
-  return items.flatMap((item) => item.children?.length ? collectLeafItems(item.children) : [item]);
-}
-
-function countMermaidDiagrams(content: string) {
-  const mermaidBlocks = (String(content || '').match(/```mermaid[\s\S]*?```/gi) || []).length;
-  const mermaidInkImages = (String(content || '').match(/https:\/\/mermaid\.ink\/img\//gi) || []).length;
-  return mermaidBlocks + mermaidInkImages;
-}
-
-function countOutlineMermaidDiagrams(items: OutlineItem[]) {
-  return collectLeafItems(items).reduce((sum, item) => sum + countMermaidDiagrams(item.content || ''), 0);
-}
-
-function hasGeneratedContent(items: OutlineItem[]) {
-  return collectLeafItems(items).some((item) => String(item.content || '').trim());
 }
 
 function mergeFontOptions(...groups: Array<readonly string[]>): string[] {

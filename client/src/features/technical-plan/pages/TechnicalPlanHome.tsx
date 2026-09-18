@@ -5,21 +5,19 @@ import BidAnalysisPage from './BidAnalysisPage';
 import OutlineEditPage from './OutlineEditPage';
 import GlobalFactsPage from './GlobalFactsPage';
 import ContentEditPage from './ContentEditPage';
-import { TemplatePreview } from '../../export-format/pages/ExportFormatPage';
+import WordExportDialog from '../../export-format/components/WordExportDialog';
 import { useTechnicalPlanWorkflow } from '../hooks/useTechnicalPlanWorkflow';
 import { bidAnalysisTasks, getBidAnalysisTasks, isMissingBidAnalysisResult } from '../services/bidAnalysisWorkflow';
 import { trackPageView } from '../../../shared/analytics/analytics';
-import { AppDialog, ProgressBar, ToolbarArrowLeftIcon, ToolbarArrowRightIcon, ToolbarDocumentIcon, useToast } from '../../../shared/ui';
+import { AppDialog, ToolbarArrowLeftIcon, ToolbarArrowRightIcon, ToolbarDocumentIcon, useToast } from '../../../shared/ui';
 import type { FloatingToolbarAction } from '../../../shared/ui';
 import type { BackgroundTaskState, BidAnalysisTasks, ContentGenerationOptions, GlobalFactGroupState, GlobalFactsMode, RemoteKnowledgeScope, SaveOutlineRequest, SaveOutlineSelectionRequest, TechnicalPlanState, TechnicalPlanStep, TechnicalPlanWorkflowKind } from '../types';
 import { DEFAULT_OUTLINE_WORD_CONTROL_OPTIONS } from '../../../shared/types';
-import type { OutlineData, OutlineItem, OutlineWordControlOptions, WordExportProgressEvent } from '../../../shared/types';
-import type { ExportFormatConfig, ExportTemplateRecord } from '../../../shared/types/exportFormat';
-import { DEFAULT_EXPORT_FORMAT } from '../../../shared/types/exportFormat';
+import type { OutlineData, OutlineItem, OutlineWordControlOptions } from '../../../shared/types';
 import type { SectionId } from '../../../shared/types/navigation';
 import { showRemoteKnowledgeDecision } from '../../../shared/navigation/appNavigation';
-import { buildExportFormatCssVars } from '../../../shared/utils/exportFormatCss';
 import { countReadableWords } from '../../../shared/utils/wordCount';
+import { hasGeneratedContent } from '../../export-format/services/wordExportUi';
 import { getQuickConfigMissingItems, isQuickConfigComplete, resolvePageLadderKey } from '../services/quickConfig';
 import type { BidProject } from '../../bid-project/types';
 
@@ -135,36 +133,6 @@ function isOutlineLeafCountOutsideRange(outlineData: OutlineData, options: Outli
   return (minimumLeafCount !== null && leafCount < minimumLeafCount)
     || (maximumLeafCount !== null && leafCount > maximumLeafCount);
 }
-
-function countMermaidDiagrams(content: string) {
-  const mermaidBlocks = (String(content || '').match(/```mermaid[\s\S]*?```/gi) || []).length;
-  const mermaidInkImages = (String(content || '').match(/https:\/\/mermaid\.ink\/img\//gi) || []).length;
-  return mermaidBlocks + mermaidInkImages;
-}
-
-function countOutlineMermaidDiagrams(items: OutlineItem[]) {
-  return collectLeafItems(items).reduce((sum, item) => sum + countMermaidDiagrams(item.content || ''), 0);
-}
-
-interface ExportProgressState {
-  open: boolean;
-  running: boolean;
-  progress: number;
-  message: string;
-  warnings: string[];
-  mermaidCount: number;
-  filePath?: string;
-  error?: string;
-}
-
-const initialExportProgress: ExportProgressState = {
-  open: false,
-  running: false,
-  progress: 0,
-  message: '',
-  warnings: [],
-  mermaidCount: 0,
-};
 
 const MAX_UI_TASK_LOGS = 80;
 const requiredBidAnalysisTasks = getBidAnalysisTasks('key');
@@ -317,13 +285,8 @@ function TechnicalPlanHome({ workflowKind, projectId, registerLeaveGuard, onSect
   const tenderFileVersion = state.tenderFile ? state.tenderFile.contentHash || state.tenderFile.updatedAt : null;
   const tenderMarkdownStepActive = state.step === 'document-analysis' || state.step === 'outline-generation';
   const [originalPlanMarkdown, setOriginalPlanMarkdown] = useState('');
-  const [exportProgress, setExportProgress] = useState<ExportProgressState>(initialExportProgress);
-  const [exportFormat, setExportFormat] = useState<ExportFormatConfig>(DEFAULT_EXPORT_FORMAT);
-  const [exportTemplateDialogOpen, setExportTemplateDialogOpen] = useState(false);
-  const [exportTemplates, setExportTemplates] = useState<ExportTemplateRecord[]>([]);
-  const [exportTemplatesLoading, setExportTemplatesLoading] = useState(false);
-  const [exportTemplateSearch, setExportTemplateSearch] = useState('');
-  const [selectedExportTemplateId, setSelectedExportTemplateId] = useState('');
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const [sortLeaveDialogOpen, setSortLeaveDialogOpen] = useState(false);
   const [wordControlWarningDialog, setWordControlWarningDialog] = useState<WordControlWarningDialogState | null>(null);
   const [pendingWordControlWarningTaskId, setPendingWordControlWarningTaskId] = useState<string | null>(null);
@@ -376,14 +339,6 @@ function TechnicalPlanHome({ workflowKind, projectId, registerLeaveGuard, onSect
   const contentTaskStatus = state.contentGenerationTask?.status;
   const isContentGenerating = contentTaskStatus === 'running' || contentTaskStatus === 'pausing';
   const isContentPaused = contentTaskStatus === 'paused';
-  const isExporting = exportProgress.running;
-  const filteredExportTemplates = useMemo(() => {
-    const keyword = exportTemplateSearch.trim().toLowerCase();
-    if (!keyword) return exportTemplates;
-    return exportTemplates.filter((template) => template.template_name.toLowerCase().includes(keyword));
-  }, [exportTemplateSearch, exportTemplates]);
-  const selectedExportTemplate = filteredExportTemplates.find((template) => template.template_id === selectedExportTemplateId) || filteredExportTemplates[0] || null;
-  const exportTemplatePreviewStyle = useMemo(() => buildExportFormatCssVars(selectedExportTemplate?.config || exportFormat), [exportFormat, selectedExportTemplate]);
   const requiresOriginalPlan = workflowKind === 'existing-plan-expansion';
   const isNextDisabled = activeIndex >= steps.length - 1
     || (state.step === 'document-analysis' && (!state.tenderFile || (requiresOriginalPlan && !state.originalPlanFile) || !quickConfigComplete))
@@ -642,16 +597,6 @@ function TechnicalPlanHome({ workflowKind, projectId, registerLeaveGuard, onSect
     setPendingWordControlWarningTaskId(null);
     setWordControlWarningDialog(dialog);
   }, [hydrated, pendingWordControlWarningTaskId, state, wordControlWarningDialog]);
-
-  useEffect(() => {
-    let cancelled = false;
-    window.yibiao?.config.load().then((cfg) => {
-      if (!cancelled && cfg?.export_format) {
-        setExportFormat(cfg.export_format);
-      }
-    }).catch(() => {});
-    return () => { cancelled = true; };
-  }, []);
 
   useEffect(() => {
     if (!registerLeaveGuard) return;
@@ -971,139 +916,6 @@ function TechnicalPlanHome({ workflowKind, projectId, registerLeaveGuard, onSect
     };
   }, [requiresOriginalPlan, showToast, state.originalPlanFile, state.step]);
 
-  const loadExportTemplates = useCallback(async () => {
-    setExportTemplatesLoading(true);
-    try {
-      const templates = await window.yibiao?.templates.list();
-      const nextTemplates = templates || [];
-      setExportTemplates(nextTemplates);
-      setSelectedExportTemplateId((prev) => nextTemplates.some((template) => template.template_id === prev) ? prev : nextTemplates[0]?.template_id || '');
-    } catch (error) {
-      setExportTemplates([]);
-      setSelectedExportTemplateId('');
-      showToast(error instanceof Error ? error.message : '读取导出模板失败', 'error');
-    } finally {
-      setExportTemplatesLoading(false);
-    }
-  }, [showToast]);
-
-  const openExportTemplateDialog = async () => {
-    if (!state.outlineData?.outline?.length) {
-      showToast('请先生成目录', 'info');
-      return;
-    }
-
-    setExportTemplateDialogOpen(true);
-    setExportTemplateSearch('');
-    await loadExportTemplates();
-  };
-
-  const runExportWord = async (latestExportFormat: ExportFormatConfig) => {
-    if (!state.outlineData?.outline?.length) {
-      showToast('请先生成目录', 'info');
-      return;
-    }
-
-    const requestId = `export-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const mermaidCount = countOutlineMermaidDiagrams(state.outlineData.outline);
-    let unsubscribe: (() => void) | undefined;
-
-    try {
-      setExportProgress({
-        open: true,
-        running: true,
-        progress: 2,
-        message: mermaidCount
-          ? `检测到 ${mermaidCount} 张 Mermaid 图，导出时会转换为 Word 图片，可能需要稍等。`
-          : '正在准备导出 Word。',
-        warnings: [],
-        mermaidCount,
-      });
-
-      unsubscribe = window.yibiao?.export.onWordExportProgress((event: WordExportProgressEvent) => {
-        if (event.requestId && event.requestId !== requestId) {
-          return;
-        }
-
-        setExportProgress((prev) => ({
-          ...prev,
-          open: true,
-          running: event.phase === 'running',
-          progress: event.progress,
-          message: event.message,
-          warnings: event.warnings || prev.warnings,
-          error: event.phase === 'error' ? event.message : undefined,
-        }));
-      });
-
-      const result = await window.yibiao?.export.exportWord({
-        requestId,
-        project_name: state.outlineData.project_name,
-        outline: state.outlineData.outline,
-        export_format: latestExportFormat,
-      });
-      if (result?.canceled) {
-        setExportProgress(initialExportProgress);
-        showToast('已取消导出', 'info');
-        return;
-      }
-      setExportProgress((prev) => ({
-        ...prev,
-        open: true,
-        running: false,
-        progress: 100,
-        message: result?.message || 'Word 已导出，请打开文档核对图片、表格和版式。',
-        warnings: result?.warnings || prev.warnings,
-        filePath: result?.path,
-      }));
-      showToast(result?.message || 'Word 已导出', result?.warnings?.length ? 'info' : 'success');
-    } catch (error) {
-      const message = error instanceof Error ? error.message : '导出 Word 失败';
-      setExportProgress((prev) => ({
-        ...prev,
-        open: true,
-        running: false,
-        progress: 100,
-        message,
-        error: message,
-      }));
-      showToast(message, 'error');
-    } finally {
-      unsubscribe?.();
-    }
-  };
-
-  const handleOpenExportedFile = async () => {
-    if (!exportProgress.filePath) return;
-
-    try {
-      await window.yibiao?.export.openFile(exportProgress.filePath);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : '打开文件失败';
-      showToast(message, 'error');
-    }
-  };
-
-  const confirmExportTemplate = async () => {
-    if (!selectedExportTemplate) {
-      showToast('请先选择导出模板', 'info');
-      return;
-    }
-
-    setExportTemplateDialogOpen(false);
-    await runExportWord(selectedExportTemplate.config);
-  };
-
-  const createExportTemplate = () => {
-    if (!onSectionChange) {
-      showToast('请从左侧菜单进入模板设置新建模板', 'info');
-      return;
-    }
-
-    setExportTemplateDialogOpen(false);
-    onSectionChange('new-template');
-  };
-
   const saveChapterContent = async (item: OutlineItem, content: string) => {
     if (!state.outlineData?.outline?.length) {
       throw new Error('当前没有可保存的目录');
@@ -1220,9 +1032,6 @@ function TechnicalPlanHome({ workflowKind, projectId, registerLeaveGuard, onSect
     }));
   };
 
-  const generatedContentCount = state.outlineData?.outline
-    ? collectLeafItems(state.outlineData.outline).filter((item) => item.content?.trim()).length
-    : 0;
   const outlineGenerationStatus = state.outlineGenerationTask?.status;
   const isOutlineGenerating = outlineGenerationStatus === 'running' || outlineGenerationStatus === 'pausing';
   const outlineAdjustmentStatus = state.outlineAdjustmentTask?.status;
@@ -1317,9 +1126,17 @@ function TechnicalPlanHome({ workflowKind, projectId, registerLeaveGuard, onSect
     label: isExporting ? '导出中...' : '导出 Word',
     icon: <ToolbarDocumentIcon />,
     variant: 'primary' as const,
-    disabled: isContentGenerating || isExporting || !state.outlineData,
-    tooltip: isContentGenerating ? '正文生成或暂停处理中，完成暂停后再导出' : isExporting ? 'Word 正在导出，请稍候' : isContentPaused ? '正文生成已暂停，可导出当前已完成内容' : generatedContentCount ? '导出当前技术方案正文' : '可导出空目录文档，建议先生成正文',
-    onClick: () => { void openExportTemplateDialog(); },
+    disabled: isContentGenerating || isExporting || !state.outlineData || !hasGeneratedContent(state.outlineData?.outline || []),
+    tooltip: isContentGenerating
+      ? '正文生成或暂停处理中，完成暂停后再导出'
+      : isExporting
+        ? 'Word 正在导出，请稍候'
+        : !hasGeneratedContent(state.outlineData?.outline || [])
+          ? '正文尚未生成，生成正文后才可导出'
+          : isContentPaused
+            ? '正文生成已暂停，可导出当前已完成内容'
+            : '导出当前技术方案正文',
+    onClick: () => { setExportDialogOpen(true); },
   };
   const navigationActions = state.step === 'content-edit'
     ? [previousStepAction, exportWordAction]
@@ -1621,122 +1438,19 @@ function TechnicalPlanHome({ workflowKind, projectId, registerLeaveGuard, onSect
         </div>
       </AppDialog>
 
-      <Dialog.Root open={exportTemplateDialogOpen} onOpenChange={(open) => !open && !isExporting && setExportTemplateDialogOpen(false)}>
-        <Dialog.Portal>
-          <Dialog.Overlay className="content-regenerate-modal" />
-          <Dialog.Content className="export-template-select-dialog">
-            <div className="export-template-select-head">
-              <div>
-                <span className="section-kicker">Word 导出</span>
-                <Dialog.Title>选择导出模板</Dialog.Title>
-                <Dialog.Description>选择一个已保存模板后继续导出。模板样式应用范围保持现有导出逻辑。</Dialog.Description>
-              </div>
-              <Dialog.Close className="detail-help-close" type="button" aria-label="关闭模板选择" disabled={isExporting}>×</Dialog.Close>
-            </div>
-
-            <div className="export-template-select-body">
-              <section className="export-template-select-list-panel" aria-label="模板列表">
-                <input
-                  className="export-template-select-search"
-                  type="text"
-                  value={exportTemplateSearch}
-                  onChange={(event) => setExportTemplateSearch(event.target.value)}
-                  placeholder="搜索模板名称"
-                />
-                <div className="export-template-select-list">
-                  {exportTemplatesLoading ? (
-                    <div className="export-template-select-empty"><strong>正在读取模板</strong><span>请稍候...</span></div>
-                  ) : null}
-                  {!exportTemplatesLoading && filteredExportTemplates.length === 0 ? (
-                    <div className="export-template-select-empty">
-                      <strong>{exportTemplates.length ? '没有匹配模板' : '暂无可用模板'}</strong>
-                      <span>{exportTemplates.length ? '请换个关键词搜索，或新建一个模板。' : '请先新建并保存模板，保存后再返回导出。'}</span>
-                      <button type="button" className="secondary-action" onClick={createExportTemplate} disabled={isExporting}>新建模板</button>
-                    </div>
-                  ) : null}
-                  {!exportTemplatesLoading && filteredExportTemplates.map((template) => {
-                    const selected = selectedExportTemplate?.template_id === template.template_id;
-                    return (
-                      <button
-                        type="button"
-                        className={`export-template-select-row${selected ? ' is-active' : ''}`}
-                        key={template.template_id}
-                        onClick={() => setSelectedExportTemplateId(template.template_id)}
-                      >
-                        <strong>{template.template_name}</strong>
-                      </button>
-                    );
-                  })}
-                </div>
-              </section>
-
-              <section className="export-template-select-preview" aria-label="模板预览">
-                {selectedExportTemplate ? (
-                  <>
-                    <div className="export-template-select-preview-head">
-                      <span className="section-kicker">预览</span>
-                      <strong>{selectedExportTemplate.template_name}</strong>
-                    </div>
-                    <TemplatePreview config={selectedExportTemplate.config} previewStyle={exportTemplatePreviewStyle} />
-                  </>
-                ) : (
-                  <div className="export-template-select-preview-empty">
-                    <strong>暂无模板预览</strong>
-                    <span>选择模板后会在这里显示预览。</span>
-                  </div>
-                )}
-              </section>
-            </div>
-
-            <div className="content-regenerate-actions export-template-select-actions">
-              <button type="button" className="secondary-action" onClick={createExportTemplate} disabled={isExporting}>新建模板</button>
-              <Dialog.Close className="secondary-action" type="button" disabled={isExporting}>取消</Dialog.Close>
-              <button type="button" className="primary-action" onClick={() => { void confirmExportTemplate(); }} disabled={exportTemplatesLoading || !selectedExportTemplate || isExporting}>继续导出</button>
-            </div>
-          </Dialog.Content>
-        </Dialog.Portal>
-      </Dialog.Root>
-
-      <Dialog.Root
-        open={exportProgress.open}
-        onOpenChange={(open) => {
-          if (!open && !exportProgress.running) {
-            setExportProgress(initialExportProgress);
-          }
-        }}
-      >
-        <Dialog.Portal>
-          <Dialog.Overlay className="content-regenerate-modal" />
-          <Dialog.Content className="export-progress-card">
-            <div className="content-regenerate-card-head">
-              <span className="section-kicker">Word 导出</span>
-              <Dialog.Title>{exportProgress.running ? '正在导出 Word' : exportProgress.error ? '导出失败' : '导出完成'}</Dialog.Title>
-              <Dialog.Description>
-                {exportProgress.mermaidCount > 0
-                  ? `本次包含 ${exportProgress.mermaidCount} 张 Mermaid 图，导出时会在本地转换成 Word 图片。`
-                  : '正在将正文、表格和图片写入 Word 文档。'}
-              </Dialog.Description>
-            </div>
-            <div className="export-progress-body">
-              <ProgressBar value={exportProgress.progress} label={`Word 导出进度 ${exportProgress.progress}%`} />
-              <p>{exportProgress.message || '正在处理导出任务，请稍候。'}</p>
-              {exportProgress.warnings.length > 0 && (
-                <div className="export-warning-list">
-                  <strong>需要核对</strong>
-                  {exportProgress.warnings.slice(0, 4).map((warning) => <small key={warning}>{warning}</small>)}
-                  {exportProgress.warnings.length > 4 && <small>还有 {exportProgress.warnings.length - 4} 条内容提示，请打开导出的 Word 核对。</small>}
-                </div>
-              )}
-            </div>
-            {!exportProgress.running && (
-              <div className="content-regenerate-actions">
-                {!exportProgress.error && exportProgress.filePath && <button className="primary-action" type="button" onClick={() => { void handleOpenExportedFile(); }}>打开文件</button>}
-                <Dialog.Close className={exportProgress.filePath && !exportProgress.error ? 'secondary-action' : 'primary-action'} type="button">知道了</Dialog.Close>
-              </div>
-            )}
-          </Dialog.Content>
-        </Dialog.Portal>
-      </Dialog.Root>
+      <WordExportDialog
+        open={exportDialogOpen}
+        outline={state.outlineData?.outline}
+        onOpenChange={setExportDialogOpen}
+        onBusyChange={setIsExporting}
+        onCreateTemplate={onSectionChange ? () => onSectionChange('new-template') : undefined}
+        onExport={({ requestId, exportFormat }) => window.yibiao!.export.exportWord({
+          requestId,
+          project_name: state.outlineData?.project_name,
+          outline: state.outlineData?.outline || [],
+          export_format: exportFormat,
+        })}
+      />
 
     </div>
   );

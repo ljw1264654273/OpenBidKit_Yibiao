@@ -42,6 +42,13 @@ function BidProjectRow({
     hour: '2-digit',
     minute: '2-digit',
   });
+  const canExport = project.status === 'completed';
+  const exportDisabledReason = project.status === 'generating'
+    ? '项目正在生成中，请等待任务结束后再导出'
+    : project.status === 'failed'
+      ? '标书生成失败，请重新生成后再导出'
+      : '标书生成完成后才可导出';
+
   return (
     <article className="bid-project-row">
       <button type="button" className="bid-project-row-main" onClick={() => onOpen(project)}>
@@ -68,7 +75,15 @@ function BidProjectRow({
             查看查重结果
           </button>
         ) : null}
-        <button type="button" className="text-button" onClick={() => onExport(project)} disabled={project.status === 'generating'}>导出</button>
+        <button
+          type="button"
+          className="text-button"
+          onClick={() => onExport(project)}
+          disabled={project.status !== 'completed'}
+          title={canExport ? '选择导出模板并导出 Word' : exportDisabledReason}
+        >
+          导出
+        </button>
         <button type="button" className="text-button danger-text" onClick={() => onDelete(project)}>删除</button>
       </div>
     </article>

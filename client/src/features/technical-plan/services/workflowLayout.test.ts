@@ -187,10 +187,12 @@ test('Mermaid 审核预览使用固定画布并支持滚轮缩放和拖拽平移
 
 test('Word 导出核对提示不把表格等普通警告误写成图片提示', () => {
   const homeSource = readFileSync(new URL('../pages/TechnicalPlanHome.tsx', import.meta.url), 'utf8');
+  const dialogSource = readFileSync(new URL('../../export-format/components/WordExportDialog.tsx', import.meta.url), 'utf8');
   const exportServiceSource = readFileSync(new URL('../../../../electron/services/exportService.cjs', import.meta.url), 'utf8');
 
-  assert.match(homeSource, /条内容提示，请打开导出的 Word 核对。/);
-  assert.doesNotMatch(homeSource, /条图片提示，请打开导出的 Word 核对。/);
+  assert.match(dialogSource, /条内容提示，请打开导出的 Word 核对。/);
+  assert.doesNotMatch(dialogSource, /条图片提示，请打开导出的 Word 核对。/);
+  assert.match(homeSource, /<WordExportDialog/);
   assert.match(exportServiceSource, /Word 已导出，但有 \$\{buildResult\.warnings\.length\} 处内容需要核对，请打开文档查看。/);
   assert.doesNotMatch(exportServiceSource, /处图片未能插入/);
 });
@@ -204,6 +206,17 @@ test('正文生成把导出 Word 放在上一步后面且不再渲染悬浮工�
   assert.match(navigationSource, /\?\s*\[previousStepAction,\s*exportWordAction\]/);
   assert.doesNotMatch(homeSource, /<FloatingToolbar/);
   assert.doesNotMatch(homeSource, /toolbarGroups/);
+});
+
+test('正文未生成时禁止导出空目录，并复用统一 Word 导出弹窗', () => {
+  const homeSource = readFileSync(new URL('../pages/TechnicalPlanHome.tsx', import.meta.url), 'utf8');
+  const dialogSource = readFileSync(new URL('../../export-format/components/WordExportDialog.tsx', import.meta.url), 'utf8');
+
+  assert.match(homeSource, /<WordExportDialog/);
+  assert.match(homeSource, /!hasGeneratedContent\(state\.outlineData\?\.outline \|\| \[\]\)/);
+  assert.match(homeSource, /正文尚未生成，生成正文后才可导出/);
+  assert.match(dialogSource, /<Dialog\.Title>选择导出模板<\/Dialog\.Title>/);
+  assert.match(dialogSource, /打开文件/);
 });
 
 test('正文生成目录支持拖拽调宽并让长标题最多显示两行', () => {

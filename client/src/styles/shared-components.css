@@ -295,6 +295,12 @@
   color: var(--yb-primary-deep);
 }
 
+.text-button:disabled {
+  color: var(--yb-text-muted);
+  cursor: not-allowed;
+  opacity: 0.52;
+}
+
 /* [928-1101] secondary-menu-page/list-panel/list-head/list/row/empty (SecondaryMenuPage.tsx) */
 .secondary-menu-page {
   overflow: auto;

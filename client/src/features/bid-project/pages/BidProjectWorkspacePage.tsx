@@ -6,6 +6,7 @@ import type { BidContentDuplicateResult, BidProject, BidProjectDuplicateSummary,
 import BidProjectCompareBar from '../components/BidProjectCompareBar';
 import BidProjectDuplicateResultDialog from '../components/BidProjectDuplicateResultDialog';
 import BidProjectRow from '../components/BidProjectRow';
+import WordExportDialog from '../../export-format/components/WordExportDialog';
 
 interface BidProjectWorkspacePageProps {
   onSectionChange: (section: SectionId) => void;
@@ -28,6 +29,7 @@ function BidProjectWorkspacePage({ onSectionChange, onProjectChange }: BidProjec
   const [compareResult, setCompareResult] = useState<BidContentDuplicateResult | null>(null);
   const [compareLoading, setCompareLoading] = useState(false);
   const [recentDuplicateSummaries, setRecentDuplicateSummaries] = useState<Record<string, BidProjectDuplicateSummary | null>>({});
+  const [exportTarget, setExportTarget] = useState<BidProject | null>(null);
   const compareRequestRef = useRef(0);
 
   const loadProjects = useCallback(async () => {
@@ -213,23 +215,19 @@ function BidProjectWorkspacePage({ onSectionChange, onProjectChange }: BidProjec
     }
   };
 
-  const exportProject = async (project: BidProject) => {
-    if (project.status === 'generating') {
-      showToast('项目正在生成中，请等待任务结束后再导出', 'info');
+  const exportProject = (project: BidProject) => {
+    if (project.status !== 'completed') {
+      showToast(
+        project.status === 'generating'
+          ? '项目正在生成中，请等待任务结束后再导出'
+          : project.status === 'failed'
+            ? '标书生成失败，请重新生成后再导出'
+            : '标书生成完成后才可导出',
+        'info',
+      );
       return;
     }
-    try {
-      const result = await bidProjectStorage.exportWord(project.projectId, {
-        requestId: `project-export-${project.projectId}-${Date.now()}`,
-      });
-      if (result?.canceled) {
-        showToast('已取消导出', 'info');
-      } else {
-        showToast(result?.message || 'Word 已导出', result?.warnings?.length ? 'info' : 'success');
-      }
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : '导出 Word 失败', 'error');
-    }
+    setExportTarget(project);
   };
 
   return (
@@ -346,6 +344,23 @@ function BidProjectWorkspacePage({ onSectionChange, onProjectChange }: BidProjec
         onResultChange={setCompareResult}
         onRecompare={async () => {
           if (comparePair) await runCompare(comparePair, compareSensitivity);
+        }}
+      />
+
+      <WordExportDialog
+        open={Boolean(exportTarget)}
+        onOpenChange={(open) => {
+          if (!open) setExportTarget(null);
+        }}
+        onCreateTemplate={() => {
+          setExportTarget(null);
+          onSectionChange('new-template');
+        }}
+        onExport={({ requestId, exportFormat }) => {
+          if (!exportTarget) {
+            throw new Error('未找到待导出的标书项目');
+          }
+          return bidProjectStorage.exportWord(exportTarget.projectId, { requestId, exportFormat });
         }}
       />
     </div>
