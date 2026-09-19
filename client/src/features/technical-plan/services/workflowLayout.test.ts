@@ -119,14 +119,16 @@ test('第五步提供统一图片审核和 AI 重绘操作区', () => {
 
   assert.match(pageSource, /图片审核/);
   assert.match(pageSource, /confirmIllustrationReviewItem/);
+  assert.match(pageSource, /resetIllustrationReviewItem/);
   assert.match(pageSource, /skipIllustrationReviewItem/);
-  assert.match(pageSource, /adoptIllustrationReviewItem/);
   assert.match(pageSource, /adjustIllustrationReviewItem/);
   assert.match(pageSource, /AI 重绘当前图片/);
   assert.match(pageSource, /AI 重绘要求/);
   assert.match(pageSource, /当前图片效果/);
   assert.match(pageSource, /AI 重绘候选/);
-  assert.match(pageSource, /采用重绘结果/);
+  assert.match(pageSource, /确认此图/);
+  assert.match(pageSource, /重置/);
+  assert.doesNotMatch(pageSource, /采用 AI 图片|采用重绘结果/);
   assert.match(pageSource, /allowRawHtml=\{false\}/);
   assert.match(pageSource, /renderMermaid/);
   assert.doesNotMatch(pageSource, /流程图代码/);
@@ -150,8 +152,9 @@ test('图片审核确认后保留弹窗并继续选择下一张待确认图', ()
   assert.match(confirmSource, /selectNextPendingMermaidReviewItem\(item\.item_id\)/);
   assert.doesNotMatch(confirmSource, /setMermaidReviewOpen\(false\)/);
   assert.match(pageSource, /redrawCurrentIllustration/);
-  assert.match(confirmSource, /convertMermaidIllustrationReviewItem/);
   assert.match(confirmSource, /item\.kind === 'mermaid'/);
+  assert.doesNotMatch(confirmSource, /convertMermaidIllustrationReviewItem/);
+  assert.doesNotMatch(confirmSource, /setMermaidAiBusy\(true\)/);
 });
 
 test('Mermaid 审核入口跟随对应章节状态按钮并按章节定位', () => {
@@ -234,14 +237,38 @@ test('流程图图片化不再先调用文本模型修改 Mermaid 代码', () =>
   assert.match(convertSource, /generateMermaidRedrawCandidateFromCode/);
   assert.doesNotMatch(convertSource, /adjustMermaidReviewCode/);
   assert.match(pageSource, /convertMermaidIllustrationReviewItem/);
-  assert.match(pageSource, /流程已确认，待生成 AI 图片/);
+  assert.match(pageSource, /已保留 Mermaid 流程图，可生成 AI 图片/);
+});
+
+test('确认流程图不自动触发 AI 图片生成，AI 图片由独立按钮触发', () => {
+  const pageSource = readFileSync(new URL('../pages/ContentEditPage.tsx', import.meta.url), 'utf8');
+  const confirmStart = pageSource.indexOf('const confirmMermaidReviewItem = async');
+  const confirmEnd = pageSource.indexOf('const skipMermaidReviewItem = async', confirmStart);
+  const confirmSource = pageSource.slice(confirmStart, confirmEnd);
+
+  assert.match(confirmSource, /confirmIllustrationReviewItem/);
+  assert.doesNotMatch(confirmSource, /convertMermaidIllustrationReviewItem/);
+  assert.match(pageSource, /重新生成 AI 图片/);
 });
 
 test('流程图审核阶段优先显示 Mermaid 结构，采用候选后才显示最终 AI 图片', () => {
   const pageSource = readFileSync(new URL('../pages/ContentEditPage.tsx', import.meta.url), 'utf8');
   assert.match(pageSource, /selectedMermaidReviewItem\?\.kind === 'mermaid' && selectedMermaidReviewCode && !selectedMermaidReviewItem\.generation\?\.asset_url/);
   assert.match(pageSource, /重新生成 AI 图片/);
-  assert.match(pageSource, /采用重绘结果/);
+  assert.match(pageSource, /确认此图/);
+});
+
+test('AI 图片生成期间候选区显示可感知的加载状态', () => {
+  const pageSource = readFileSync(new URL('../pages/ContentEditPage.tsx', import.meta.url), 'utf8');
+  const css = readFileSync(new URL('../../../styles/feature-technical-plan.css', import.meta.url), 'utf8');
+
+  assert.match(pageSource, /content-illustration-review-loading/);
+  assert.match(pageSource, /role="status"/);
+  assert.match(pageSource, /redraw_status === 'running'/);
+  assert.match(pageSource, /正在生成候选图片/);
+  assert.match(css, /\.content-illustration-review-loading/);
+  assert.match(css, /\.content-illustration-review-spinner/);
+  assert.match(css, /animation:\s*content-illustration-review-spin/);
 });
 
 test('图片审核弹窗保留 B 布局和流程图预览高度', () => {
@@ -249,43 +276,51 @@ test('图片审核弹窗保留 B 布局和流程图预览高度', () => {
   const css = readFileSync(new URL('../../../styles/feature-technical-plan.css', import.meta.url), 'utf8');
   const reviewCss = css.slice(css.indexOf('.content-mermaid-review-card'), css.indexOf('/* 进度条已迁移到共享'));
 
-  assert.match(pageSource, /mermaidPreviewZoom/);
-  assert.match(pageSource, /setMermaidPreviewZoom/);
-  assert.match(pageSource, /aria-label="缩小流程图预览"/);
-  assert.match(pageSource, /aria-label="放大流程图预览"/);
-  assert.match(pageSource, /style=\{mermaidPreviewZoomStyle\}/);
+  assert.match(pageSource, /illustrationPreviewZoom/);
+  assert.match(pageSource, /setIllustrationPreviewZoom/);
+  assert.match(pageSource, /aria-label=\{`缩小\$\{selectedIllustrationKindLabel\}预览`\}/);
+  assert.match(pageSource, /aria-label=\{`放大\$\{selectedIllustrationKindLabel\}预览`\}/);
+  assert.match(pageSource, /style=\{illustrationPreviewStyles\.current\}/);
   assert.match(reviewCss, /height:\s*min\(920px,\s*calc\(100vh\s*-\s*24px\)\)/);
   assert.match(reviewCss, /\.content-mermaid-review-grid\s*\{[^}]*height:\s*100%/s);
-  assert.match(reviewCss, /\.content-mermaid-review-workspace\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*0\.9fr\)\s+minmax\(0,\s*1\.1fr\)[^}]*grid-template-rows:\s*minmax\(0,\s*1fr\)\s+auto/s);
+  assert.match(reviewCss, /\.content-mermaid-review-editor\s*\{[^}]*display:\s*flex;[^}]*flex-direction:\s*column/s);
+  assert.match(reviewCss, /\.content-mermaid-review-workspace\s*\{[^}]*flex:\s*1\s+1\s+auto;[^}]*grid-template-columns:\s*minmax\(0,\s*0\.9fr\)\s+minmax\(0,\s*1\.1fr\)[^}]*grid-template-rows:\s*minmax\(0,\s*1fr\)\s+auto/s);
   assert.doesNotMatch(reviewCss, /\.content-mermaid-review-left\s*\{/);
   assert.match(reviewCss, /\.content-mermaid-ai-inline-bar\s*\{[^}]*grid-column:\s*1\s+\/\s*-1[^}]*grid-template-columns:/s);
   assert.match(reviewCss, /\.content-mermaid-ai-input\s*\{[^}]*flex-direction:\s*column/s);
   assert.match(reviewCss, /\.content-mermaid-review-preview-panel\s*\{[^}]*grid-template-rows:\s*auto\s+minmax\(0,\s*1fr\)/s);
-  assert.match(reviewCss, /\.content-mermaid-review-preview-scale\s*\{[^}]*transform-origin:\s*top left/s);
+  assert.match(reviewCss, /\.content-mermaid-review-preview-scale,\s*[\r\n\s]*\.content-illustration-review-scale\s*\{[^}]*transform-origin:\s*top left/s);
   assert.match(pageSource, /content-illustration-review-current/);
   assert.match(pageSource, /content-illustration-review-candidate/);
 });
 
-test('Mermaid 审核预览使用固定画布并支持滚轮缩放和拖拽平移', () => {
+test('图片审核预览支持滚轮缩放和拖拽平移', () => {
   const pageSource = readFileSync(new URL('../pages/ContentEditPage.tsx', import.meta.url), 'utf8');
   const css = readFileSync(new URL('../../../styles/feature-technical-plan.css', import.meta.url), 'utf8');
   const reviewCss = css.slice(css.indexOf('.content-mermaid-review-card'), css.indexOf('/* 进度条已迁移到共享'));
 
-  assert.match(pageSource, /MERMAID_PREVIEW_ZOOM_MAX\s*=\s*5/);
-  assert.match(pageSource, /mermaidPreviewPan/);
-  assert.match(pageSource, /handleMermaidPreviewWheel/);
-  assert.match(pageSource, /handleMermaidPreviewPointerDown/);
-  assert.match(pageSource, /handleMermaidPreviewPointerMove/);
-  assert.match(pageSource, /handleMermaidPreviewPointerUp/);
+  assert.match(pageSource, /ILLUSTRATION_PREVIEW_ZOOM_MAX\s*=\s*5/);
+  assert.match(pageSource, /illustrationPreviewPan/);
+  assert.match(pageSource, /handleIllustrationPreviewWheel/);
+  assert.match(pageSource, /handleIllustrationPreviewPointerDown/);
+  assert.match(pageSource, /handleIllustrationPreviewPointerMove/);
+  assert.match(pageSource, /handleIllustrationPreviewPointerUp/);
   assert.match(pageSource, /适应窗口/);
-  assert.match(pageSource, /onWheel=\{handleMermaidPreviewWheel\}/);
-  assert.match(pageSource, /onPointerDown=\{handleMermaidPreviewPointerDown\}/);
-  assert.match(pageSource, /onPointerMove=\{handleMermaidPreviewPointerMove\}/);
-  assert.match(pageSource, /onPointerUp=\{handleMermaidPreviewPointerUp\}/);
+  assert.match(pageSource, /handleIllustrationPreviewWheel\('current', event\)/);
+  assert.match(pageSource, /handleIllustrationPreviewWheel\('candidate', event\)/);
+  assert.match(pageSource, /handleIllustrationPreviewPointerDown\('current', event\)/);
+  assert.match(pageSource, /handleIllustrationPreviewPointerDown\('candidate', event\)/);
+  assert.match(pageSource, /handleIllustrationPreviewPointerMove\('current', event\)/);
+  assert.match(pageSource, /handleIllustrationPreviewPointerMove\('candidate', event\)/);
+  assert.match(pageSource, /handleIllustrationPreviewPointerUp\('current', event\)/);
+  assert.match(pageSource, /handleIllustrationPreviewPointerUp\('candidate', event\)/);
+  assert.match(pageSource, /content-illustration-review-zoomable/);
   assert.match(reviewCss, /\.content-mermaid-review-preview\s*\{[^}]*overflow:\s*hidden/s);
-  assert.match(reviewCss, /\.content-mermaid-review-preview-scale\s*\{[^}]*height:\s*100%;[^}]*transform:\s*translate3d\(var\(--content-mermaid-preview-pan-x,\s*0px\),\s*var\(--content-mermaid-preview-pan-y,\s*0px\),\s*0\)\s+scale\(var\(--content-mermaid-preview-zoom,\s*1\)\)/s);
+  assert.match(reviewCss, /\.content-illustration-review-zoomable\s*\{[^}]*overflow:\s*hidden[^}]*touch-action:\s*none/s);
+  assert.match(reviewCss, /\.content-mermaid-review-preview-scale,\s*[\r\n\s]*\.content-illustration-review-scale\s*\{[^}]*height:\s*100%;[^}]*transform-origin:\s*top left[^}]*transform:\s*translate3d\(/s);
   assert.match(reviewCss, /\.content-mermaid-review-preview-scale\s+\.mermaid-preview-card\s*\{[^}]*height:\s*100%/s);
   assert.match(reviewCss, /\.content-mermaid-review-preview\.is-dragging/s);
+  assert.match(pageSource, /style=\{illustrationPreviewStyles\.candidate\}/);
 });
 
 test('Word 导出核对提示不把表格等普通警告误写成图片提示', () => {

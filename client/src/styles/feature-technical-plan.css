@@ -1799,16 +1799,17 @@
 }
 
 .content-mermaid-review-editor {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   min-width: 0;
   min-height: 0;
-  grid-template-rows: auto auto minmax(0, 1fr);
   gap: 10px;
   overflow: hidden;
 }
 
 .content-mermaid-review-toolbar {
   display: flex;
+  flex: 0 0 auto;
   min-width: 0;
   align-items: flex-start;
   justify-content: space-between;
@@ -1836,6 +1837,7 @@
 
 .content-mermaid-review-workspace {
   display: grid;
+  flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
   grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
@@ -1913,14 +1915,89 @@
   object-fit: contain;
 }
 
+.content-illustration-review-zoomable {
+  position: relative;
+  overflow: hidden;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+
+.content-illustration-review-zoomable.is-dragging {
+  cursor: grabbing;
+}
+
+.content-mermaid-review-preview-scale,
+.content-illustration-review-scale {
+  display: flex;
+  min-width: 100%;
+  height: 100%;
+  min-height: 100%;
+  align-items: center;
+  justify-content: center;
+  transform-origin: top left;
+  transform: translate3d(
+    var(--content-illustration-preview-pan-x, 0px),
+    var(--content-illustration-preview-pan-y, 0px),
+    0
+  ) scale(var(--content-illustration-preview-zoom, 1));
+}
+
 .content-illustration-review-media > p,
-.content-illustration-review-candidate-media > p {
+.content-illustration-review-candidate-media > p,
+.content-illustration-review-scale > p {
   max-width: 280px;
   margin: 0;
   color: var(--yb-text-muted);
   font-size: 13px;
   line-height: 1.6;
   text-align: center;
+}
+
+.content-illustration-review-loading {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  min-width: 180px;
+  min-height: 160px;
+  gap: 10px;
+  color: var(--yb-text-muted);
+  text-align: center;
+}
+
+.content-illustration-review-loading strong {
+  color: var(--yb-text);
+  font-size: 14px;
+}
+
+.content-illustration-review-loading p {
+  max-width: 240px;
+  margin: 0;
+  color: var(--yb-text-muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.content-illustration-review-spinner {
+  display: block;
+  width: 30px;
+  height: 30px;
+  border: 3px solid rgba(33, 116, 253, 0.18);
+  border-top-color: var(--yb-primary);
+  border-radius: 50%;
+  animation: content-illustration-review-spin 0.9s linear infinite;
+}
+
+@keyframes content-illustration-review-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .content-illustration-review-spinner {
+    animation: none;
+  }
 }
 
 .content-illustration-review-adjust-copy {
@@ -2142,9 +2219,6 @@
   padding: 16px;
   overflow: hidden;
   background: #ffffff;
-  cursor: grab;
-  user-select: none;
-  touch-action: none;
 }
 
 .content-mermaid-review-preview.is-dragging {
@@ -2152,11 +2226,7 @@
 }
 
 .content-mermaid-review-preview-scale {
-  display: inline-block;
-  min-width: 100%;
-  height: 100%;
-  transform-origin: top left;
-  transform: translate3d(var(--content-mermaid-preview-pan-x, 0px), var(--content-mermaid-preview-pan-y, 0px), 0) scale(var(--content-mermaid-preview-zoom, 1));
+  flex: 0 0 auto;
 }
 
 .content-mermaid-review-preview-scale .mermaid-preview-card {

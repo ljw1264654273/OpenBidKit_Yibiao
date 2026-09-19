@@ -83,6 +83,10 @@ function collectGeneratedImageReferences(db) {
         FROM ${quoteIdentifier(tableName)}
         WHERE generation_asset_url IS NOT NULL AND generation_asset_url <> ''
         UNION ALL
+        SELECT generation_original_asset_url AS value
+        FROM ${quoteIdentifier(tableName)}
+        WHERE generation_original_asset_url IS NOT NULL AND generation_original_asset_url <> ''
+        UNION ALL
         SELECT generation_redraw_asset_url AS value
         FROM ${quoteIdentifier(tableName)}
         WHERE generation_redraw_asset_url IS NOT NULL AND generation_redraw_asset_url <> ''

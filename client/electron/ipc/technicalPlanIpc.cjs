@@ -5,6 +5,7 @@ const {
   confirmIllustrationReviewItem,
   convertMermaidIllustrationReviewItem,
   previewIllustrationReviewItem,
+  resetIllustrationReviewItem,
   saveIllustrationReviewItem,
   skipIllustrationReviewItem,
 } = require('../services/contentIllustrationReview.cjs');
@@ -63,6 +64,7 @@ function registerTechnicalPlanIpc({ technicalPlanStore, bidProjectManager, taskS
   ipcMain.handle('technical-plan:save-illustration-review-item', (_event, payload) => saveIllustrationReviewItem({ technicalPlanStore: resolveStore(payload) }, payload));
   ipcMain.handle('technical-plan:adjust-illustration-review-item', (_event, payload) => adjustIllustrationReviewItem({ technicalPlanStore: resolveStore(payload), aiService }, payload));
   ipcMain.handle('technical-plan:confirm-illustration-review-item', (_event, payload) => confirmIllustrationReviewItem({ technicalPlanStore: resolveStore(payload) }, payload));
+  ipcMain.handle('technical-plan:reset-illustration-review-item', (_event, payload) => resetIllustrationReviewItem({ technicalPlanStore: resolveStore(payload) }, payload));
   ipcMain.handle('technical-plan:convert-mermaid-illustration-review-item', (_event, payload) => convertMermaidIllustrationReviewItem({ technicalPlanStore: resolveStore(payload), aiService }, payload));
   ipcMain.handle('technical-plan:skip-illustration-review-item', (_event, payload) => skipIllustrationReviewItem({ technicalPlanStore: resolveStore(payload) }, payload));
   ipcMain.handle('technical-plan:adopt-illustration-review-item', (_event, payload) => adoptIllustrationReviewItem({ technicalPlanStore: resolveStore(payload) }, payload));

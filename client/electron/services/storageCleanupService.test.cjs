@@ -19,6 +19,7 @@ test('startup image cleanup collects references from project-scoped technical-pl
       return {
         all: () => [
           { value: 'yibiao-asset://generated-images/legacy.png' },
+          { value: 'yibiao-asset://generated-images/original.png' },
           { value: '![项目图](yibiao-asset://generated-images/2026-09-18-project.png)' },
         ],
       };
@@ -27,6 +28,6 @@ test('startup image cleanup collects references from project-scoped technical-pl
 
   assert.deepEqual(
     [...collectGeneratedImageReferences(db)].sort(),
-    ['2026-09-18-project.png', 'legacy.png'],
+    ['2026-09-18-project.png', 'legacy.png', 'original.png'],
   );
 });

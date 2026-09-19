@@ -1,6 +1,30 @@
-const { ipcMain, shell } = require('electron');
+const { ipcMain: defaultIpcMain, shell } = require('electron');
+const { getBidProjectTechnicalPlanDir } = require('../utils/paths.cjs');
 
-function registerExportIpc({ exportService }) {
+function resolveProjectId(payload) {
+  return String(
+    payload?.projectId
+      || payload?.project_id
+      || payload?.workflow_analytics?.projectId
+      || '',
+  ).trim();
+}
+
+function enrichExportPayload(payload, app) {
+  if (payload?.project_technical_plan_dir || payload?.projectTechnicalPlanDir || !app) {
+    return payload;
+  }
+
+  const projectId = resolveProjectId(payload);
+  if (!projectId) return payload;
+
+  return {
+    ...payload,
+    project_technical_plan_dir: getBidProjectTechnicalPlanDir(app, projectId),
+  };
+}
+
+function registerExportIpc({ app, ipcMain = defaultIpcMain, exportService }) {
   ipcMain.handle('export:word', async (event, payload = {}) => {
     const requestId = payload.requestId || payload.request_id;
     const sendProgress = (progress) => {
@@ -8,7 +32,7 @@ function registerExportIpc({ exportService }) {
     };
 
     try {
-      return await exportService.exportWord(payload, sendProgress);
+      return await exportService.exportWord(enrichExportPayload(payload, app), sendProgress);
     } catch (error) {
       sendProgress({
         phase: 'error',

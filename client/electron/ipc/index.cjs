@@ -164,6 +164,7 @@ const workspaceDatabaseChannels = [
   'technical-plan:save-illustration-review-item',
   'technical-plan:adjust-illustration-review-item',
   'technical-plan:confirm-illustration-review-item',
+  'technical-plan:reset-illustration-review-item',
   'technical-plan:convert-mermaid-illustration-review-item',
   'technical-plan:skip-illustration-review-item',
   'technical-plan:adopt-illustration-review-item',
@@ -486,7 +487,7 @@ function registerIpcHandlers({ app, mainWindow, checkAndDownloadUpdate, triggerU
   registerAgentIpc({ agentService });
   registerAutoConfirmationIpc({ autoConfirmationService });
   registerFileIpc({ fileService });
-  registerExportIpc({ exportService });
+  registerExportIpc({ app, exportService });
   registerSystemFontIpc({ systemFontService });
   registerPluginIpc(ipcMain, app, {
     agentService,

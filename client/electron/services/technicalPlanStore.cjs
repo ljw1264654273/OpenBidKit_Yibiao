@@ -1602,6 +1602,10 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       FROM technical_plan_illustration_items
       WHERE generation_asset_url IS NOT NULL AND generation_asset_url <> ''
       UNION ALL
+      SELECT generation_original_asset_url AS asset_url
+      FROM technical_plan_illustration_items
+      WHERE generation_original_asset_url IS NOT NULL AND generation_original_asset_url <> ''
+      UNION ALL
       SELECT generation_redraw_asset_url AS asset_url
       FROM technical_plan_illustration_items
       WHERE generation_redraw_asset_url IS NOT NULL AND generation_redraw_asset_url <> ''
@@ -1617,9 +1621,11 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       const retainedByPlan = db.prepare(`
         SELECT 1
         FROM technical_plan_illustration_items
-        WHERE generation_asset_url = ? OR generation_redraw_asset_url = ?
+        WHERE generation_asset_url = ?
+          OR generation_original_asset_url = ?
+          OR generation_redraw_asset_url = ?
         LIMIT 1
-      `).get(originalSource, originalSource);
+      `).get(originalSource, originalSource, originalSource);
       const stillReferenced = db.prepare('SELECT 1 FROM technical_plan_outline_nodes WHERE instr(content, ?) > 0 LIMIT 1').get(originalSource);
       if (retainedByPlan || stillReferenced) continue;
       const source = originalSource.split('?')[0];
@@ -1680,8 +1686,21 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     scheduleGeneratedAssetCleanup(assetUrls);
   }
 
-  function illustrationItemValues(item, sortOrder, timestamp) {
-    const generation = item?.generation;
+  function illustrationItemValues(item, sortOrder, timestamp, existing = {}) {
+    const sourceGeneration = item?.generation || {};
+    const isMermaid = item?.kind === 'mermaid';
+    const generation = {
+      ...sourceGeneration,
+      ...(existing.generation_original_code || sourceGeneration.original_code || (isMermaid ? sourceGeneration.code : '')
+        ? { original_code: existing.generation_original_code || sourceGeneration.original_code || (isMermaid ? sourceGeneration.code : '') }
+        : {}),
+      ...(existing.generation_original_asset_url || sourceGeneration.original_asset_url || (!isMermaid ? sourceGeneration.asset_url : '')
+        ? { original_asset_url: existing.generation_original_asset_url || sourceGeneration.original_asset_url || (!isMermaid ? sourceGeneration.asset_url : '') }
+        : {}),
+      ...(existing.generation_original_source_path || sourceGeneration.original_source_path || (!isMermaid ? sourceGeneration.source_path : '')
+        ? { original_source_path: existing.generation_original_source_path || sourceGeneration.original_source_path || (!isMermaid ? sourceGeneration.source_path : '') }
+        : {}),
+    };
     return {
       item_id: String(item.item_id),
       kind: String(item.kind || ''),
@@ -1699,6 +1718,9 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       generation_reviewed_at: generation?.reviewed_at ? String(generation.reviewed_at) : null,
       generation_source_path: generation?.source_path ? String(generation.source_path) : null,
       generation_asset_url: generation?.asset_url ? String(generation.asset_url) : null,
+      generation_original_code: generation?.original_code ? String(generation.original_code) : null,
+      generation_original_asset_url: generation?.original_asset_url ? String(generation.original_asset_url) : null,
+      generation_original_source_path: generation?.original_source_path ? String(generation.original_source_path) : null,
       generation_redraw_status: generation?.redraw_status ? String(generation.redraw_status) : null,
       generation_redraw_asset_url: generation?.redraw_asset_url ? String(generation.redraw_asset_url) : null,
       generation_redraw_source_path: generation?.redraw_source_path ? String(generation.redraw_source_path) : null,
@@ -1718,7 +1740,8 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       item_id, kind, image_type, title, section_ids_json, placement, priority,
       generation_status, generation_mode, generation_code, generation_draft_code,
       generation_review_status, generation_review_error, generation_reviewed_at, generation_source_path,
-      generation_asset_url, generation_redraw_status, generation_redraw_asset_url, generation_redraw_source_path,
+      generation_asset_url, generation_original_code, generation_original_asset_url, generation_original_source_path,
+      generation_redraw_status, generation_redraw_asset_url, generation_redraw_source_path,
       generation_redraw_error, generation_redraw_attempts, generation_redraw_updated_at,
       generation_attempts, generation_error, generation_updated_at,
       sort_order, updated_at
@@ -1726,7 +1749,8 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       @item_id, @kind, @image_type, @title, @section_ids_json, @placement, @priority,
       @generation_status, @generation_mode, @generation_code, @generation_draft_code,
       @generation_review_status, @generation_review_error, @generation_reviewed_at, @generation_source_path,
-      @generation_asset_url, @generation_redraw_status, @generation_redraw_asset_url, @generation_redraw_source_path,
+      @generation_asset_url, @generation_original_code, @generation_original_asset_url, @generation_original_source_path,
+      @generation_redraw_status, @generation_redraw_asset_url, @generation_redraw_source_path,
       @generation_redraw_error, @generation_redraw_attempts, @generation_redraw_updated_at,
       @generation_attempts, @generation_error, @generation_updated_at,
       @sort_order, @updated_at
@@ -1746,6 +1770,9 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       generation_reviewed_at = excluded.generation_reviewed_at,
       generation_source_path = excluded.generation_source_path,
       generation_asset_url = excluded.generation_asset_url,
+      generation_original_code = excluded.generation_original_code,
+      generation_original_asset_url = excluded.generation_original_asset_url,
+      generation_original_source_path = excluded.generation_original_source_path,
       generation_redraw_status = excluded.generation_redraw_status,
       generation_redraw_asset_url = excluded.generation_redraw_asset_url,
       generation_redraw_source_path = excluded.generation_redraw_source_path,
@@ -1780,8 +1807,18 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
 
   function saveContentIllustrationItem(item) {
     if (!item?.item_id) return;
-    const existing = db.prepare('SELECT sort_order, generation_asset_url, generation_redraw_asset_url FROM technical_plan_illustration_items WHERE item_id = ?').get(item.item_id);
-    upsertIllustrationItem.run(illustrationItemValues(item, existing?.sort_order || 0, now()));
+    const existing = db.prepare(`
+      SELECT
+        sort_order,
+        generation_asset_url,
+        generation_original_code,
+        generation_original_asset_url,
+        generation_original_source_path,
+        generation_redraw_asset_url
+      FROM technical_plan_illustration_items
+      WHERE item_id = ?
+    `).get(item.item_id);
+    upsertIllustrationItem.run(illustrationItemValues(item, existing?.sort_order || 0, now(), existing));
     const nextAssetUrl = item?.generation?.asset_url ? String(item.generation.asset_url) : '';
     const nextRedrawAssetUrl = item?.generation?.redraw_asset_url ? String(item.generation.redraw_asset_url) : '';
     const staleAssetUrls = [];
@@ -1808,6 +1845,9 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
         ...(row.generation_reviewed_at ? { reviewed_at: row.generation_reviewed_at } : {}),
         ...(row.generation_source_path ? { source_path: row.generation_source_path } : {}),
         ...(row.generation_asset_url ? { asset_url: row.generation_asset_url } : {}),
+        ...(row.generation_original_code ? { original_code: row.generation_original_code } : {}),
+        ...(row.generation_original_asset_url ? { original_asset_url: row.generation_original_asset_url } : {}),
+        ...(row.generation_original_source_path ? { original_source_path: row.generation_original_source_path } : {}),
         ...(row.generation_redraw_status ? { redraw_status: row.generation_redraw_status } : {}),
         ...(row.generation_redraw_asset_url ? { redraw_asset_url: row.generation_redraw_asset_url } : {}),
         ...(row.generation_redraw_source_path ? { redraw_source_path: row.generation_redraw_source_path } : {}),
@@ -1863,6 +1903,131 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     const item = plan?.items?.find((entry) => entry.item_id === id);
     if (!item) throw new Error('未找到图片审核项');
     return { plan, item };
+  }
+
+  function getIllustrationTargetNodeId(item) {
+    return item.kind === 'html' && item.placement === 'before'
+      ? item.section_ids?.[0]
+      : item.section_ids?.[item.section_ids.length - 1];
+  }
+
+  function buildMermaidIllustrationBlock(item, code) {
+    const itemId = String(item?.item_id || '').trim();
+    const caption = String(item?.title || '').replace(/\s+/g, ' ').trim();
+    if (!itemId || !caption || !code) {
+      throw new Error('流程图缺少有效的 Mermaid 代码或标题');
+    }
+    return `<!-- yibiao-illustration:start id="${itemId}" -->\n\`\`\`mermaid\n${code}\n\`\`\`\n\n*<!-- yibiao-figure-caption -->${caption}*\n<!-- yibiao-illustration:end -->`;
+  }
+
+  function cleanIllustrationGeneration(generation) {
+    const nextGeneration = { ...(generation || {}) };
+    Object.keys(nextGeneration).forEach((key) => {
+      if (nextGeneration[key] === undefined) delete nextGeneration[key];
+    });
+    return nextGeneration;
+  }
+
+  function resolveIllustrationAssetPath(assetUrl) {
+    const source = String(assetUrl || '').split('?')[0];
+    const prefix = 'yibiao-asset://generated-images/';
+    if (!source.startsWith(prefix)) return '';
+    let relativePath;
+    try {
+      relativePath = decodeURIComponent(source.slice(prefix.length));
+    } catch {
+      return '';
+    }
+    const projectIllustrationPrefix = 'technical-plan/illustrations/';
+    const rootDir = projectScoped && relativePath.startsWith(projectIllustrationPrefix)
+      ? generatedIllustrationsDir
+      : getGeneratedImagesDir(app);
+    const rootRelativePath = projectScoped && relativePath.startsWith(projectIllustrationPrefix)
+      ? relativePath.slice(projectIllustrationPrefix.length)
+      : relativePath;
+    const resolved = path.resolve(rootDir, rootRelativePath);
+    if (resolved === rootDir || !resolved.startsWith(`${path.resolve(rootDir)}${path.sep}`)) return '';
+    return resolved;
+  }
+
+  function assertIllustrationOriginalResource(item, assetUrl, sourcePath) {
+    const assetPath = resolveIllustrationAssetPath(assetUrl);
+    if (assetPath && !fs.existsSync(assetPath)) {
+      throw new Error(`原始图片文件不存在：${assetUrl}`);
+    }
+    if (sourcePath) {
+      const resolvedSourcePath = resolveMarkdownPath(sourcePath);
+      if (!fs.existsSync(resolvedSourcePath)) {
+        throw new Error(`原始图片源文件不存在：${sourcePath}`);
+      }
+    }
+  }
+
+  function saveIllustrationSelection(item, { assetUrl, sourcePath, code }) {
+    const targetNodeId = getIllustrationTargetNodeId(item);
+    if (!targetNodeId) throw new Error('图片没有关联正文小节');
+
+    const timestamp = now();
+    const transaction = db.transaction(() => {
+      const node = db.prepare('SELECT node_id, content FROM technical_plan_outline_nodes WHERE node_id = ?').get(targetNodeId);
+      if (!node) throw new Error('当前目录中未找到图片所属章节');
+      const replacement = assetUrl
+        ? buildIllustrationBlock(item, assetUrl)
+        : buildMermaidIllustrationBlock(item, code);
+      const nextContent = replaceIllustrationBlock(node.content || '', item.item_id, replacement);
+
+      db.prepare('UPDATE technical_plan_outline_nodes SET content = ?, updated_at = ? WHERE node_id = ?')
+        .run(nextContent, timestamp, targetNodeId);
+      db.prepare(`
+        INSERT INTO technical_plan_content_sections (node_id, status, error, updated_at)
+        VALUES (?, 'success', NULL, ?)
+        ON CONFLICT(node_id) DO UPDATE SET status = 'success', error = NULL, updated_at = excluded.updated_at
+      `).run(targetNodeId, timestamp);
+
+      const nextGeneration = {
+        ...(item.generation || {}),
+        status: assetUrl ? 'success' : item.kind === 'mermaid' ? 'pending' : (item.generation?.status || 'success'),
+        ...(code ? { code } : {}),
+        review_status: 'confirmed',
+        review_error: undefined,
+        reviewed_at: timestamp,
+        ...(assetUrl ? { asset_url: assetUrl, source_path: sourcePath || item.generation?.source_path } : {}),
+        ...(assetUrl ? {} : item.kind === 'mermaid' ? { asset_url: undefined, source_path: undefined } : {}),
+        redraw_status: undefined,
+        redraw_asset_url: undefined,
+        redraw_source_path: undefined,
+        redraw_error: undefined,
+        redraw_attempts: undefined,
+        redraw_updated_at: undefined,
+        error: undefined,
+        attempts: undefined,
+        updated_at: timestamp,
+      };
+      saveContentIllustrationItem({
+        ...item,
+        generation: cleanIllustrationGeneration(nextGeneration),
+        updated_at: timestamp,
+      });
+    });
+    transaction();
+
+    const state = loadTechnicalPlan();
+    return {
+      outlineData: state.outlineData,
+      contentGenerationSections: state.contentGenerationSections,
+      contentIllustrationPlan: state.contentIllustrationPlan,
+    };
+  }
+
+  function confirmMermaidIllustrationItem(item, normalizedCode) {
+    const candidateAssetUrl = item.generation?.redraw_status === 'success'
+      ? String(item.generation?.redraw_asset_url || '').trim()
+      : '';
+    return saveIllustrationSelection(item, {
+      assetUrl: candidateAssetUrl,
+      sourcePath: candidateAssetUrl ? item.generation?.redraw_source_path : undefined,
+      code: normalizedCode,
+    });
   }
 
   function saveMermaidReviewItemGeneration(item, generationPatch) {
@@ -1963,40 +2128,89 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
   function confirmMermaidReviewItem({ itemId, code }) {
     const { item } = findMermaidReviewPlanItem(itemId);
     const normalizedCode = normalizeMermaidReviewCode(code);
-    return saveMermaidReviewItemGeneration(item, {
-      status: 'pending',
-      code: normalizedCode,
-      review_status: 'confirmed',
-      review_error: undefined,
-      reviewed_at: now(),
-      asset_url: undefined,
-      source_path: undefined,
-      error: undefined,
-      attempts: undefined,
-    });
+    return confirmMermaidIllustrationItem(item, normalizedCode);
   }
 
   function confirmIllustrationReviewItem({ itemId, code }) {
     const { item } = findIllustrationReviewPlanItem(itemId);
     if (item.kind === 'mermaid') {
       const normalizedCode = normalizeMermaidReviewCode(code);
-      return saveMermaidReviewItemGeneration(item, {
-        status: 'pending',
-        code: normalizedCode,
-        review_status: 'confirmed',
+      return confirmMermaidIllustrationItem(item, normalizedCode);
+    }
+    const candidateAssetUrl = item.generation?.redraw_status === 'success'
+      ? String(item.generation?.redraw_asset_url || '').trim()
+      : '';
+    const currentAssetUrl = candidateAssetUrl || String(item.generation?.asset_url || '').trim();
+    if (!currentAssetUrl) throw new Error('当前图片没有可确认的图片资源');
+    return saveIllustrationSelection(item, {
+      assetUrl: currentAssetUrl,
+      sourcePath: candidateAssetUrl ? item.generation?.redraw_source_path : item.generation?.source_path,
+    });
+  }
+
+  function resetIllustrationReviewItem({ itemId }) {
+    const { item } = findIllustrationReviewPlanItem(itemId);
+    const originalCode = String(item.generation?.original_code || '').trim();
+    const originalAssetUrl = String(item.generation?.original_asset_url || '').trim();
+    const originalSourcePath = String(item.generation?.original_source_path || '').trim();
+    if (item.kind === 'mermaid') {
+      if (!originalCode) throw new Error('未找到原始 Mermaid 流程图，无法重置');
+    } else {
+      if (!originalAssetUrl) throw new Error('未找到原始图片，无法重置');
+      assertIllustrationOriginalResource(item, originalAssetUrl, originalSourcePath);
+    }
+
+    const targetNodeId = getIllustrationTargetNodeId(item);
+    if (!targetNodeId) throw new Error('图片没有关联正文小节');
+    const timestamp = now();
+    const transaction = db.transaction(() => {
+      const node = db.prepare('SELECT node_id, content FROM technical_plan_outline_nodes WHERE node_id = ?').get(targetNodeId);
+      if (!node) throw new Error('当前目录中未找到图片所属章节');
+      const replacement = item.kind === 'mermaid'
+        ? buildMermaidIllustrationBlock(item, originalCode)
+        : buildIllustrationBlock(item, originalAssetUrl);
+      const nextContent = replaceIllustrationBlock(node.content || '', item.item_id, replacement);
+      db.prepare('UPDATE technical_plan_outline_nodes SET content = ?, updated_at = ? WHERE node_id = ?')
+        .run(nextContent, timestamp, targetNodeId);
+      db.prepare(`
+        INSERT INTO technical_plan_content_sections (node_id, status, error, updated_at)
+        VALUES (?, 'success', NULL, ?)
+        ON CONFLICT(node_id) DO UPDATE SET status = 'success', error = NULL, updated_at = excluded.updated_at
+      `).run(targetNodeId, timestamp);
+
+      const nextGeneration = cleanIllustrationGeneration({
+        ...(item.generation || {}),
+        status: item.kind === 'mermaid' ? 'pending' : 'success',
+        ...(item.kind === 'mermaid'
+          ? { code: originalCode, asset_url: undefined, source_path: undefined }
+          : { asset_url: originalAssetUrl, source_path: originalSourcePath || undefined }),
+        review_status: 'pending',
         review_error: undefined,
-        reviewed_at: now(),
-        asset_url: undefined,
-        source_path: undefined,
+        reviewed_at: undefined,
+        redraw_status: undefined,
+        redraw_asset_url: undefined,
+        redraw_source_path: undefined,
+        redraw_error: undefined,
+        redraw_attempts: undefined,
+        redraw_updated_at: undefined,
         error: undefined,
         attempts: undefined,
+        updated_at: timestamp,
       });
-    }
-    return saveMermaidReviewItemGeneration(item, {
-      review_status: 'confirmed',
-      review_error: undefined,
-      reviewed_at: now(),
+      saveContentIllustrationItem({
+        ...item,
+        generation: nextGeneration,
+        updated_at: timestamp,
+      });
     });
+    transaction();
+
+    const state = loadTechnicalPlan();
+    return {
+      outlineData: state.outlineData,
+      contentGenerationSections: state.contentGenerationSections,
+      contentIllustrationPlan: state.contentIllustrationPlan,
+    };
   }
 
   function skipMermaidReviewItem({ itemId }) {
@@ -2041,57 +2255,10 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     if (!candidateAssetUrl || item.generation?.redraw_status !== 'success') {
       throw new Error('当前图片没有可采用的 AI 重绘候选');
     }
-    const targetNodeId = item.kind === 'html' && item.placement === 'before'
-      ? item.section_ids?.[0]
-      : item.section_ids?.[item.section_ids.length - 1];
-    if (!targetNodeId) throw new Error('图片没有关联正文小节');
-
-    const transaction = db.transaction(() => {
-      const node = db.prepare('SELECT node_id, content FROM technical_plan_outline_nodes WHERE node_id = ?').get(targetNodeId);
-      if (!node) throw new Error('当前目录中未找到图片所属章节');
-      const replacement = buildIllustrationBlock(item);
-      const nextContent = replaceIllustrationBlock(node.content || '', item.item_id, replacement);
-      const timestamp = now();
-      db.prepare('UPDATE technical_plan_outline_nodes SET content = ?, updated_at = ? WHERE node_id = ?')
-        .run(nextContent, timestamp, targetNodeId);
-      db.prepare(`
-        INSERT INTO technical_plan_content_sections (node_id, status, error, updated_at)
-        VALUES (?, 'success', NULL, ?)
-        ON CONFLICT(node_id) DO UPDATE SET status = 'success', error = NULL, updated_at = excluded.updated_at
-      `).run(targetNodeId, timestamp);
-
-      const nextGeneration = {
-        ...(item.generation || {}),
-        status: 'success',
-        review_status: 'confirmed',
-        asset_url: candidateAssetUrl,
-        source_path: item.generation?.redraw_source_path || item.generation?.source_path,
-        redraw_status: undefined,
-        redraw_asset_url: undefined,
-        redraw_source_path: undefined,
-        redraw_error: undefined,
-        redraw_attempts: undefined,
-        redraw_updated_at: undefined,
-        error: undefined,
-        updated_at: timestamp,
-      };
-      Object.keys(nextGeneration).forEach((key) => {
-        if (nextGeneration[key] === undefined) delete nextGeneration[key];
-      });
-      saveContentIllustrationItem({
-        ...item,
-        generation: nextGeneration,
-        updated_at: timestamp,
-      });
+    return saveIllustrationSelection(item, {
+      assetUrl: candidateAssetUrl,
+      sourcePath: item.generation?.redraw_source_path,
     });
-    transaction();
-
-    const state = loadTechnicalPlan();
-    return {
-      outlineData: state.outlineData,
-      contentGenerationSections: state.contentGenerationSections,
-      contentIllustrationPlan: state.contentIllustrationPlan,
-    };
   }
 
   function normalizeGlobalFactGroups(groups) {
@@ -3338,6 +3505,7 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     saveIllustrationReviewItem,
     saveIllustrationRedrawCandidate,
     confirmIllustrationReviewItem,
+    resetIllustrationReviewItem,
     skipIllustrationReviewItem,
     adoptIllustrationReviewItem,
     previewMermaidReviewItem,

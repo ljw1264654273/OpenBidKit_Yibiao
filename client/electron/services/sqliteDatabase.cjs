@@ -3,7 +3,7 @@ const path = require('node:path');
 const Database = require('better-sqlite3');
 const { getWorkspaceDatabasePath } = require('../utils/paths.cjs');
 
-const schemaVersion = 28;
+const schemaVersion = 29;
 
 function safeProjectTablePart(projectId) {
   return String(projectId || '')
@@ -187,6 +187,9 @@ function createTechnicalPlanProjectSchema(db, projectId) {
       generation_reviewed_at TEXT,
       generation_source_path TEXT,
       generation_asset_url TEXT,
+      generation_original_code TEXT,
+      generation_original_asset_url TEXT,
+      generation_original_source_path TEXT,
       generation_redraw_status TEXT,
       generation_redraw_asset_url TEXT,
       generation_redraw_source_path TEXT,
@@ -584,6 +587,9 @@ function createTaskLogsAndIllustrationItemsSchema(db) {
       generation_reviewed_at TEXT,
       generation_source_path TEXT,
       generation_asset_url TEXT,
+      generation_original_code TEXT,
+      generation_original_asset_url TEXT,
+      generation_original_source_path TEXT,
       generation_redraw_status TEXT,
       generation_redraw_asset_url TEXT,
       generation_redraw_source_path TEXT,
@@ -625,6 +631,12 @@ const technicalPlanIllustrationRedrawColumns = {
   generation_redraw_updated_at: 'TEXT',
 };
 
+const technicalPlanIllustrationOriginalColumns = {
+  generation_original_code: 'TEXT',
+  generation_original_asset_url: 'TEXT',
+  generation_original_source_path: 'TEXT',
+};
+
 function addTechnicalPlanIllustrationRedrawState(db) {
   const tables = db.prepare(`
     SELECT name
@@ -637,6 +649,23 @@ function addTechnicalPlanIllustrationRedrawState(db) {
   `).all().map((row) => String(row.name || '')).filter(Boolean);
   for (const tableName of tables) {
     for (const [columnName, columnType] of Object.entries(technicalPlanIllustrationRedrawColumns)) {
+      addColumnIfMissing(db, tableName, columnName, columnType);
+    }
+  }
+}
+
+function addTechnicalPlanIllustrationOriginalState(db) {
+  const tables = db.prepare(`
+    SELECT name
+    FROM sqlite_master
+    WHERE type = 'table'
+      AND (
+        name = 'technical_plan_illustration_items'
+        OR name GLOB 'technical_plan_project_*_illustration_items'
+      )
+  `).all().map((row) => String(row.name || '')).filter(Boolean);
+  for (const tableName of tables) {
+    for (const [columnName, columnType] of Object.entries(technicalPlanIllustrationOriginalColumns)) {
       addColumnIfMissing(db, tableName, columnName, columnType);
     }
   }
@@ -1648,6 +1677,11 @@ const schemaHealthColumnGroups = [
     table: 'technical_plan_illustration_items',
     columns: technicalPlanIllustrationRedrawColumns,
   },
+  {
+    version: 29,
+    table: 'technical_plan_illustration_items',
+    columns: technicalPlanIllustrationOriginalColumns,
+  },
 ];
 
 function quoteIdentifier(value) {
@@ -1711,6 +1745,9 @@ function ensureWorkspaceSchemaHealth(db, targetVersion = schemaVersion, onStatus
   }
   if (targetVersion >= 28) {
     addTechnicalPlanIllustrationRedrawState(db);
+  }
+  if (targetVersion >= 29) {
+    addTechnicalPlanIllustrationOriginalState(db);
   }
 }
 
@@ -1854,6 +1891,11 @@ const migrations = [
     version: 28,
     description: '技术方案图片审核新增 AI 重绘候选状态',
     up: addTechnicalPlanIllustrationRedrawState,
+  },
+  {
+    version: 29,
+    description: '技术方案图片审核新增原始版本基线',
+    up: addTechnicalPlanIllustrationOriginalState,
   },
 ];
 

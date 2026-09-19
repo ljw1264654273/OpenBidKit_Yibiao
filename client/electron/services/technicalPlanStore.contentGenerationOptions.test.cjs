@@ -115,6 +115,7 @@ async function runMermaidReviewPersistenceAssertions() {
       status: 'reviewing',
       code: 'flowchart TD\n  A["开始"] --> B["结束"]',
       draft_code: 'flowchart TD\n  A["开始"] --> B["结束"]',
+      original_code: 'flowchart TD\n  A["开始"] --> B["结束"]',
       review_status: 'pending',
       review_error: '旧错误',
       reviewed_at: '2026-09-13T00:00:00.000Z',
@@ -161,6 +162,8 @@ async function runIllustrationRedrawCandidatePersistenceAssertions() {
       status: 'success',
       asset_url: 'yibiao-asset://generated-images/original.png',
       source_path: 'technical-plan/illustrations/original.html',
+      original_asset_url: 'yibiao-asset://generated-images/original.png',
+      original_source_path: 'technical-plan/illustrations/original.html',
       redraw_status: 'success',
       redraw_asset_url: 'yibiao-asset://generated-images/candidate.png',
       redraw_source_path: 'technical-plan/illustrations/candidate.html',
@@ -230,6 +233,9 @@ async function runProjectIllustrationRedrawMigrationAssertions() {
     database = createSqliteDatabase(app);
     const columns = database.db.prepare('PRAGMA table_info(technical_plan_project_legacy_illustration_items)').all().map((row) => row.name);
     for (const column of [
+      'generation_original_code',
+      'generation_original_asset_url',
+      'generation_original_source_path',
       'generation_redraw_status',
       'generation_redraw_asset_url',
       'generation_redraw_source_path',
@@ -247,6 +253,159 @@ async function runProjectIllustrationRedrawMigrationAssertions() {
   }
 }
 
+async function runIllustrationFinalSelectionAssertions() {
+  const userDataPath = fs.mkdtempSync(path.join(os.tmpdir(), 'yibiao-illustration-final-selection-'));
+  let database;
+  try {
+    const app = createApp(userDataPath);
+    database = createSqliteDatabase(app);
+    const store = createStore(app, database.db);
+    fs.mkdirSync(path.join(userDataPath, 'workspace', 'generated-images'), { recursive: true });
+    fs.mkdirSync(path.join(userDataPath, 'workspace', 'technical-plan', 'illustrations'), { recursive: true });
+    fs.writeFileSync(path.join(userDataPath, 'workspace', 'generated-images', 'current-ai.png'), 'fixture');
+    fs.writeFileSync(path.join(userDataPath, 'workspace', 'generated-images', 'original-html.png'), 'fixture');
+    fs.writeFileSync(path.join(userDataPath, 'workspace', 'technical-plan', 'illustrations', 'current-ai.html'), 'fixture');
+    fs.writeFileSync(path.join(userDataPath, 'workspace', 'technical-plan', 'illustrations', 'original-html.html'), 'fixture');
+    const mermaidCode = 'flowchart TD\n  A["开始"] --> B["完成"]';
+    const mermaidBlock = '<!-- yibiao-illustration:start id="mermaid-candidate" -->\n```mermaid\nflowchart TD\n  A["开始"] --> B["完成"]\n```\n\n*<!-- yibiao-figure-caption -->候选流程图*\n<!-- yibiao-illustration:end -->';
+    const mermaidKeepBlock = '<!-- yibiao-illustration:start id="mermaid-current" -->\n```mermaid\nflowchart TD\n  A["原始"] --> B["流程"]\n```\n\n*<!-- yibiao-figure-caption -->当前流程图*\n<!-- yibiao-illustration:end -->';
+    const aiBlock = '<!-- yibiao-illustration:start id="ai-current" -->\n![当前配图](yibiao-asset://generated-images/current-ai.png)\n\n*<!-- yibiao-figure-caption -->当前配图*\n<!-- yibiao-illustration:end -->';
+    const htmlBlock = '<!-- yibiao-illustration:start id="html-candidate" -->\n![进度图](yibiao-asset://generated-images/candidate-html.png)\n\n*<!-- yibiao-figure-caption -->进度图*\n<!-- yibiao-illustration:end -->';
+    const outline = [
+      { id: 'm-candidate', title: '候选流程图', content: mermaidBlock },
+      { id: 'm-current', title: '当前流程图', content: mermaidKeepBlock },
+      { id: 'ai-current', title: '当前配图', content: aiBlock },
+      { id: 'html-candidate', title: '进度图', content: htmlBlock },
+    ];
+    store.saveOutline({ outlineData: { project_overview: '图片审核选择', outline }, reason: 'replace' });
+    store.updateTechnicalPlan({
+      contentGenerationSections: Object.fromEntries(outline.map((item) => [
+        item.id,
+        { id: item.id, title: item.title, status: 'success', content: item.content },
+      ])),
+      contentIllustrationPlan: {
+        plan_version: 1,
+        revision: 'final-selection',
+        items: [
+          {
+            item_id: 'mermaid-candidate',
+            kind: 'mermaid',
+            image_type: 'process',
+            title: '候选流程图',
+            section_ids: ['m-candidate'],
+            placement: 'after',
+            generation: {
+              status: 'reviewing',
+              code: mermaidCode,
+              original_code: mermaidCode,
+              review_status: 'pending',
+              redraw_status: 'success',
+              redraw_asset_url: 'yibiao-asset://generated-images/candidate-mermaid.png',
+            },
+          },
+          {
+            item_id: 'mermaid-current',
+            kind: 'mermaid',
+            image_type: 'process',
+            title: '当前流程图',
+            section_ids: ['m-current'],
+            placement: 'after',
+            generation: {
+              status: 'reviewing',
+              code: 'flowchart TD\n  A["原始"] --> B["流程"]',
+              original_code: 'flowchart TD\n  A["原始"] --> B["流程"]',
+              review_status: 'pending',
+            },
+          },
+          {
+            item_id: 'ai-current',
+            kind: 'ai',
+            image_type: 'engineering',
+            title: '当前配图',
+            section_ids: ['ai-current'],
+            placement: 'after',
+            generation: {
+              status: 'success',
+              review_status: 'pending',
+              asset_url: 'yibiao-asset://generated-images/current-ai.png',
+              original_asset_url: 'yibiao-asset://generated-images/current-ai.png',
+              original_source_path: 'technical-plan/illustrations/current-ai.html',
+            },
+          },
+          {
+            item_id: 'html-candidate',
+            kind: 'html',
+            image_type: 'gantt',
+            title: '进度图',
+            section_ids: ['html-candidate'],
+            placement: 'after',
+            generation: {
+              status: 'success',
+              review_status: 'pending',
+              asset_url: 'yibiao-asset://generated-images/original-html.png',
+              source_path: 'technical-plan/illustrations/original-html.html',
+              original_asset_url: 'yibiao-asset://generated-images/original-html.png',
+              original_source_path: 'technical-plan/illustrations/original-html.html',
+              redraw_status: 'success',
+              redraw_asset_url: 'yibiao-asset://generated-images/candidate-html.png',
+              redraw_source_path: 'technical-plan/illustrations/candidate-html.html',
+            },
+          },
+        ],
+      },
+    });
+
+    const mermaidCandidateResult = store.confirmIllustrationReviewItem({ itemId: 'mermaid-candidate', code: mermaidCode });
+    assert.match(mermaidCandidateResult.outlineData.outline.find((item) => item.id === 'm-candidate').content, /candidate-mermaid\.png/);
+    assert.equal(mermaidCandidateResult.contentIllustrationPlan.items.find((item) => item.item_id === 'mermaid-candidate').generation.asset_url, 'yibiao-asset://generated-images/candidate-mermaid.png');
+    assert.equal(mermaidCandidateResult.contentIllustrationPlan.items.find((item) => item.item_id === 'mermaid-candidate').generation.original_code, mermaidCode);
+    assert.equal(mermaidCandidateResult.contentIllustrationPlan.items.find((item) => item.item_id === 'mermaid-candidate').generation.redraw_asset_url, undefined);
+
+    const mermaidCurrentResult = store.confirmIllustrationReviewItem({ itemId: 'mermaid-current', code: 'flowchart TD\n  A["新预览"] --> B["流程"]' });
+    const mermaidCurrentContent = mermaidCurrentResult.outlineData.outline.find((item) => item.id === 'm-current').content;
+    assert.match(mermaidCurrentContent, /```mermaid/);
+    assert.match(mermaidCurrentContent, /新预览/);
+    assert.equal(mermaidCurrentResult.contentIllustrationPlan.items.find((item) => item.item_id === 'mermaid-current').generation.review_status, 'confirmed');
+
+    const aiCurrentResult = store.confirmIllustrationReviewItem({ itemId: 'ai-current' });
+    const aiCurrentContent = aiCurrentResult.outlineData.outline.find((item) => item.id === 'ai-current').content;
+    assert.match(aiCurrentContent, /current-ai\.png/);
+    assert.equal(aiCurrentResult.contentIllustrationPlan.items.find((item) => item.item_id === 'ai-current').generation.review_status, 'confirmed');
+
+    const htmlCandidateResult = store.confirmIllustrationReviewItem({ itemId: 'html-candidate' });
+    const htmlCandidateContent = htmlCandidateResult.outlineData.outline.find((item) => item.id === 'html-candidate').content;
+    assert.match(htmlCandidateContent, /candidate-html\.png/);
+    assert.equal(htmlCandidateResult.contentIllustrationPlan.items.find((item) => item.item_id === 'html-candidate').generation.asset_url, 'yibiao-asset://generated-images/candidate-html.png');
+
+    const mermaidResetResult = store.resetIllustrationReviewItem({ itemId: 'mermaid-candidate' });
+    const mermaidResetContent = mermaidResetResult.outlineData.outline.find((item) => item.id === 'm-candidate').content;
+    assert.match(mermaidResetContent, /```mermaid/);
+    assert.match(mermaidResetContent, /开始/);
+    assert.doesNotMatch(mermaidResetContent, /candidate-mermaid\.png/);
+    const mermaidResetItem = mermaidResetResult.contentIllustrationPlan.items.find((item) => item.item_id === 'mermaid-candidate');
+    assert.equal(mermaidResetItem.generation.asset_url, undefined);
+    assert.equal(mermaidResetItem.generation.review_status, 'pending');
+
+    const aiResetResult = store.resetIllustrationReviewItem({ itemId: 'ai-current' });
+    const aiResetItem = aiResetResult.contentIllustrationPlan.items.find((item) => item.item_id === 'ai-current');
+    assert.match(aiResetResult.outlineData.outline.find((item) => item.id === 'ai-current').content, /current-ai\.png/);
+    assert.equal(aiResetItem.generation.asset_url, 'yibiao-asset://generated-images/current-ai.png');
+    assert.equal(aiResetItem.generation.original_source_path, 'technical-plan/illustrations/current-ai.html');
+    assert.equal(aiResetItem.generation.review_status, 'pending');
+
+    const htmlResetResult = store.resetIllustrationReviewItem({ itemId: 'html-candidate' });
+    const htmlResetItem = htmlResetResult.contentIllustrationPlan.items.find((item) => item.item_id === 'html-candidate');
+    assert.match(htmlResetResult.outlineData.outline.find((item) => item.id === 'html-candidate').content, /original-html\.png/);
+    assert.equal(htmlResetItem.generation.asset_url, 'yibiao-asset://generated-images/original-html.png');
+    assert.equal(htmlResetItem.generation.source_path, 'technical-plan/illustrations/original-html.html');
+    assert.equal(htmlResetItem.generation.review_status, 'pending');
+    assert.equal(htmlResetItem.generation.redraw_asset_url, undefined);
+  } finally {
+    database?.close();
+    fs.rmSync(userDataPath, { recursive: true, force: true });
+  }
+}
+
 async function runMermaidReviewActionAssertions() {
   const userDataPath = fs.mkdtempSync(path.join(os.tmpdir(), 'yibiao-mermaid-review-actions-'));
   let database;
@@ -254,7 +413,19 @@ async function runMermaidReviewActionAssertions() {
     const app = createApp(userDataPath);
     database = createSqliteDatabase(app);
     const store = createStore(app, database.db);
+    const currentBlock = '<!-- yibiao-illustration:start id="mermaid-review-1" -->\n![审核流程](yibiao-asset://generated-images/original.png)\n\n*<!-- yibiao-figure-caption -->审核流程*\n<!-- yibiao-illustration:end -->';
+    const outlineContent = `正文前置。\n\n${currentBlock}\n\n正文后置。`;
+    store.saveOutline({
+      outlineData: {
+        project_overview: '流程图确认恢复测试',
+        outline: [{ id: '1.1', title: '审核流程', content: outlineContent }],
+      },
+      reason: 'replace',
+    });
     store.updateTechnicalPlan({
+      contentGenerationSections: {
+        '1.1': { id: '1.1', title: '审核流程', status: 'success', content: outlineContent },
+      },
       contentIllustrationPlan: {
         plan_version: 1,
         revision: 'review-actions',
@@ -272,6 +443,8 @@ async function runMermaidReviewActionAssertions() {
             review_status: 'pending',
             asset_url: 'yibiao-asset://generated-images/old.png',
             source_path: 'technical-plan/old.html',
+            redraw_status: 'success',
+            redraw_asset_url: 'yibiao-asset://generated-images/candidate.png',
             error: '旧错误',
             attempts: 2,
           },
@@ -287,7 +460,7 @@ async function runMermaidReviewActionAssertions() {
     assert.equal(saveResult.contentIllustrationPlan.items[0].generation.review_status, 'pending');
     assert.equal(saveResult.contentIllustrationPlan.items[0].generation.code, 'flowchart TD\n  A["保存草稿"] --> B["等待确认"]');
 
-    const confirmResult = store.confirmMermaidReviewItem({
+    const confirmResult = store.confirmIllustrationReviewItem({
       itemId: 'mermaid-review-1',
       code: 'flowchart TD\n  A["确认代码"] --> B["进入重绘"]',
     });
@@ -298,8 +471,21 @@ async function runMermaidReviewActionAssertions() {
     assert.match(confirmResult.contentIllustrationPlan.items[0].generation.reviewed_at, /^\d{4}-\d{2}-\d{2}T/);
     assert.equal(confirmResult.contentIllustrationPlan.items[0].generation.asset_url, undefined);
     assert.equal(confirmResult.contentIllustrationPlan.items[0].generation.source_path, undefined);
+    assert.equal(confirmResult.contentIllustrationPlan.items[0].generation.redraw_status, undefined);
+    assert.equal(confirmResult.contentIllustrationPlan.items[0].generation.redraw_asset_url, undefined);
     assert.equal(confirmResult.contentIllustrationPlan.items[0].generation.error, undefined);
     assert.equal(confirmResult.contentIllustrationPlan.items[0].generation.attempts, undefined);
+    assert.match(confirmResult.outlineData.outline[0].content, /```mermaid/);
+    assert.match(confirmResult.outlineData.outline[0].content, /确认代码/);
+    assert.doesNotMatch(confirmResult.outlineData.outline[0].content, /old\.png|candidate\.png/);
+    assert.equal(confirmResult.contentGenerationSections['1.1'].content, confirmResult.outlineData.outline[0].content);
+
+    const legacyConfirmResult = store.confirmMermaidReviewItem({
+      itemId: 'mermaid-review-1',
+      code: 'flowchart TD\n  A["兼容确认"] --> B["保留流程图"]',
+    });
+    assert.match(legacyConfirmResult.outlineData.outline[0].content, /兼容确认/);
+    assert.doesNotMatch(legacyConfirmResult.outlineData.outline[0].content, /old\.png|candidate\.png/);
 
     const skipResult = store.skipMermaidReviewItem({ itemId: 'mermaid-review-1' });
     assert.equal(skipResult.contentIllustrationPlan.items[0].generation.status, 'skipped');
@@ -318,6 +504,10 @@ async function runIllustrationAdoptAssertions() {
     const app = createApp(userDataPath);
     database = createSqliteDatabase(app);
     const store = createStore(app, database.db);
+    const generatedImagesDir = path.join(userDataPath, 'workspace', 'generated-images');
+    fs.mkdirSync(generatedImagesDir, { recursive: true });
+    fs.writeFileSync(path.join(generatedImagesDir, 'original.png'), 'original');
+    fs.writeFileSync(path.join(generatedImagesDir, 'candidate.png'), 'candidate');
     const currentBlock = '<!-- yibiao-illustration:start id="ai-adopt-1" -->\n![设备图](yibiao-asset://generated-images/original.png)\n\n*<!-- yibiao-figure-caption -->设备图*\n<!-- yibiao-illustration:end -->';
     const outlineContent = `正文前置。\n\n${currentBlock}\n\n正文后置。`;
     store.saveOutline({
@@ -358,6 +548,8 @@ async function runIllustrationAdoptAssertions() {
     assert.equal(result.contentGenerationSections['1.1'].content, result.outlineData.outline[0].content);
     assert.equal(result.contentIllustrationPlan.items[0].generation.asset_url, 'yibiao-asset://generated-images/candidate.png');
     assert.equal(result.contentIllustrationPlan.items[0].generation.redraw_asset_url, undefined);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(fs.existsSync(path.join(generatedImagesDir, 'original.png')), true);
   } finally {
     database?.close();
     fs.rmSync(userDataPath, { recursive: true, force: true });
@@ -369,6 +561,8 @@ if (process.argv.includes('--electron-native')) {
     ? runMermaidReviewPersistenceAssertions
     : process.argv.includes('--mermaid-review-actions')
       ? runMermaidReviewActionAssertions
+    : process.argv.includes('--illustration-final-selection')
+      ? runIllustrationFinalSelectionAssertions
     : process.argv.includes('--redraw-candidate')
       ? runIllustrationRedrawCandidatePersistenceAssertions
     : process.argv.includes('--project-redraw-migration')
@@ -405,6 +599,14 @@ if (process.argv.includes('--electron-native')) {
       timeout: 30000,
     });
     assert.equal(result.status, 0, `${result.stderr || result.stdout || 'Electron native persistence test timed out'}`);
+  });
+
+  test('illustration confirmation and reset preserve the selected current resource', () => {
+    const result = spawnSync(require('electron'), ['--runAsNode', __filename, '--electron-native', '--illustration-final-selection'], {
+      encoding: 'utf8',
+      timeout: 30000,
+    });
+    assert.equal(result.status, 0, `${result.stderr || result.stdout || 'Electron native illustration selection test timed out'}`);
   });
 
   test('illustration redraw candidate fields persist across restart', () => {

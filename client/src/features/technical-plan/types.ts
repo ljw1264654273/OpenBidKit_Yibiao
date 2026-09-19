@@ -297,6 +297,9 @@ export interface ContentIllustrationPlanItem {
     reviewed_at?: string;
     source_path?: string;
     asset_url?: string;
+    original_code?: string;
+    original_asset_url?: string;
+    original_source_path?: string;
     redraw_status?: 'pending' | 'running' | 'success' | 'error';
     redraw_asset_url?: string;
     redraw_source_path?: string;

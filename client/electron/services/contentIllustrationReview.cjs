@@ -16,14 +16,14 @@ function singleLine(value) {
   return String(value || '').replace(/\s+/g, ' ').trim();
 }
 
-function buildIllustrationBlock(item) {
+function buildIllustrationBlock(item, assetUrl = item?.generation?.redraw_asset_url) {
   const itemId = String(item?.item_id || '').trim();
   const caption = singleLine(item?.title);
-  const assetUrl = String(item?.generation?.redraw_asset_url || '').trim();
-  if (!itemId || !caption || !assetUrl) {
+  const resolvedAssetUrl = String(assetUrl || '').trim();
+  if (!itemId || !caption || !resolvedAssetUrl) {
     throw new Error('图片重绘候选缺少有效资源');
   }
-  return `<!-- yibiao-illustration:start id="${itemId}" -->\n![${caption}](${assetUrl})\n\n*<!-- yibiao-figure-caption -->${caption}*\n<!-- yibiao-illustration:end -->`;
+  return `<!-- yibiao-illustration:start id="${itemId}" -->\n![${caption}](${resolvedAssetUrl})\n\n*<!-- yibiao-figure-caption -->${caption}*\n<!-- yibiao-illustration:end -->`;
 }
 
 function replaceIllustrationBlock(content, itemId, replacement) {
@@ -77,6 +77,10 @@ function saveIllustrationReviewItem({ technicalPlanStore }, payload) {
 
 function confirmIllustrationReviewItem({ technicalPlanStore }, payload) {
   return technicalPlanStore.confirmIllustrationReviewItem(payload);
+}
+
+function resetIllustrationReviewItem({ technicalPlanStore }, payload) {
+  return technicalPlanStore.resetIllustrationReviewItem(payload);
 }
 
 function skipIllustrationReviewItem({ technicalPlanStore }, payload) {
@@ -226,6 +230,7 @@ module.exports = {
   getIllustrationReviewContext,
   previewIllustrationReviewItem,
   replaceIllustrationBlock,
+  resetIllustrationReviewItem,
   saveIllustrationReviewItem,
   skipIllustrationReviewItem,
 };
