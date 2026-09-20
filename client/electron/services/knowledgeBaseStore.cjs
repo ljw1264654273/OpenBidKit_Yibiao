@@ -5,6 +5,8 @@ const { getKnowledgeBaseDir } = require('../utils/paths.cjs');
 
 const documentStatuses = ['pending', 'copying', 'converting', 'extracting', 'ready_for_matching', 'matching', 'recovering', 'analyzing', 'saving', 'success', 'error'];
 const documentStepKeys = ['copy_source', 'convert_markdown', 'build_blocks', 'extract_first_items', 'extract_supplement_items', 'merge_candidates', 'match_batches', 'recover_missing', 'save_result'];
+const knowledgeBaseIds = ['document', 'national-standard', 'provincial-standard', 'municipal-standard', 'industry-standard', 'enterprise'];
+const defaultKnowledgeBaseId = 'document';
 const stepStatuses = ['idle', 'running', 'success', 'error'];
 function now() {
   return new Date().toISOString();
@@ -28,6 +30,11 @@ function normalizeStepStatus(value) {
 
 function normalizeDropPosition(value) {
   return value === 'before' ? 'before' : 'after';
+}
+
+function normalizeKnowledgeBaseId(value) {
+  const normalized = String(value || '').trim();
+  return knowledgeBaseIds.includes(normalized) ? normalized : defaultKnowledgeBaseId;
 }
 
 function safeJsonParse(value, fallback) {
@@ -120,6 +127,7 @@ function createKnowledgeBaseStore({ app, db }) {
     return {
       id: row.document_id,
       folder_id: row.folder_id,
+      knowledge_base_id: normalizeKnowledgeBaseId(row.knowledge_base_id),
       file_name: row.file_name,
       document_dir: row.document_dir,
       source_path: row.source_path,
@@ -146,6 +154,7 @@ function createKnowledgeBaseStore({ app, db }) {
     return {
       id: row.folder_id,
       name: row.name,
+      knowledge_base_id: normalizeKnowledgeBaseId(row.knowledge_base_id),
       sort_order: Number(row.sort_order || 0),
       created_at: row.created_at,
       updated_at: row.updated_at,
@@ -154,15 +163,17 @@ function createKnowledgeBaseStore({ app, db }) {
 
   function insertOrUpdateFolder(folder) {
     db.prepare(`
-      INSERT INTO knowledge_folders (folder_id, name, sort_order, created_at, updated_at)
-      VALUES (@folder_id, @name, @sort_order, @created_at, @updated_at)
+      INSERT INTO knowledge_folders (folder_id, name, knowledge_base_id, sort_order, created_at, updated_at)
+      VALUES (@folder_id, @name, @knowledge_base_id, @sort_order, @created_at, @updated_at)
       ON CONFLICT(folder_id) DO UPDATE SET
         name = excluded.name,
+        knowledge_base_id = excluded.knowledge_base_id,
         sort_order = excluded.sort_order,
         updated_at = excluded.updated_at
     `).run({
       folder_id: folder.id,
       name: safeName(folder.name),
+      knowledge_base_id: normalizeKnowledgeBaseId(folder.knowledge_base_id),
       sort_order: Number(folder.sort_order || 0),
       created_at: folder.created_at || now(),
       updated_at: folder.updated_at || now(),
@@ -204,6 +215,8 @@ function createKnowledgeBaseStore({ app, db }) {
       created_at: normalized.created_at,
       updated_at: normalized.updated_at,
     };
+    const folder = db.prepare('SELECT knowledge_base_id FROM knowledge_folders WHERE folder_id = ?').get(normalized.folder_id);
+    values.knowledge_base_id = normalizeKnowledgeBaseId(folder?.knowledge_base_id);
     db.prepare(`
       INSERT INTO knowledge_documents (
         document_id, folder_id, file_name, document_dir, source_path, markdown_path, markdown_hash, markdown_chars,
@@ -242,14 +255,35 @@ function createKnowledgeBaseStore({ app, db }) {
     return documentFromRow(values);
   }
 
-  function list() {
-    const folders = db.prepare('SELECT * FROM knowledge_folders ORDER BY sort_order ASC, created_at ASC').all().map(folderFromRow);
+  function list(options = {}) {
+    const allKnowledgeBases = options?.allKnowledgeBases === true;
+    const knowledgeBaseId = normalizeKnowledgeBaseId(options?.knowledgeBaseId);
+    const folderWhere = allKnowledgeBases ? '' : 'WHERE knowledge_base_id = ?';
+    const documentWhere = allKnowledgeBases ? '' : 'WHERE f.knowledge_base_id = ?';
+    const folderParams = allKnowledgeBases ? [] : [knowledgeBaseId];
+    const documentParams = allKnowledgeBases ? [] : [knowledgeBaseId];
+    const categoryOrder = `CASE knowledge_base_id
+      WHEN 'document' THEN 0
+      WHEN 'national-standard' THEN 1
+      WHEN 'provincial-standard' THEN 2
+      WHEN 'municipal-standard' THEN 3
+      WHEN 'industry-standard' THEN 4
+      WHEN 'enterprise' THEN 5
+      ELSE 99 END`;
+    const folders = db.prepare(`
+      SELECT *
+      FROM knowledge_folders
+      ${folderWhere}
+      ORDER BY ${categoryOrder} ASC, sort_order ASC, created_at ASC
+    `).all(...folderParams).map(folderFromRow);
     const documents = db.prepare(`
       SELECT d.*
+        , f.knowledge_base_id
       FROM knowledge_documents d
       LEFT JOIN knowledge_folders f ON f.folder_id = d.folder_id
+      ${documentWhere}
       ORDER BY COALESCE(f.sort_order, 0) ASC, d.folder_id ASC, d.sort_order ASC, d.created_at DESC, d.document_id ASC
-    `).all().map(documentFromRow);
+    `).all(...documentParams).map(documentFromRow);
     return { folders, documents };
   }
 
@@ -298,15 +332,21 @@ function createKnowledgeBaseStore({ app, db }) {
   }
 
   function getDocument(documentId) {
-    const row = db.prepare('SELECT * FROM knowledge_documents WHERE document_id = ?').get(documentId);
+    const row = db.prepare(`
+      SELECT d.*, f.knowledge_base_id
+      FROM knowledge_documents d
+      LEFT JOIN knowledge_folders f ON f.folder_id = d.folder_id
+      WHERE d.document_id = ?
+    `).get(documentId);
     if (!row) throw new Error('知识库文档不存在');
     return documentFromRow(row);
   }
 
-  function createFolder(name) {
+  function createFolder(name, knowledgeBaseId = defaultKnowledgeBaseId) {
+    const normalizedKnowledgeBaseId = normalizeKnowledgeBaseId(knowledgeBaseId);
     const timestamp = now();
-    const maxOrder = db.prepare('SELECT COALESCE(MAX(sort_order), -1) AS value FROM knowledge_folders').get()?.value ?? -1;
-    const folder = { id: createId('folder'), name: safeName(name), sort_order: Number(maxOrder) + 1, created_at: timestamp, updated_at: timestamp };
+    const maxOrder = db.prepare('SELECT COALESCE(MAX(sort_order), -1) AS value FROM knowledge_folders WHERE knowledge_base_id = ?').get(normalizedKnowledgeBaseId)?.value ?? -1;
+    const folder = { id: createId('folder'), name: safeName(name), knowledge_base_id: normalizedKnowledgeBaseId, sort_order: Number(maxOrder) + 1, created_at: timestamp, updated_at: timestamp };
     insertOrUpdateFolder(folder);
     return folder;
   }
@@ -378,11 +418,18 @@ function createKnowledgeBaseStore({ app, db }) {
 
   function reorderFolders(draggedFolderId, targetFolderId, position) {
     const normalizedPosition = normalizeDropPosition(position);
-    const folderIds = db.prepare('SELECT folder_id FROM knowledge_folders ORDER BY sort_order ASC, created_at ASC').all().map((row) => row.folder_id);
-    if (!folderIds.includes(draggedFolderId) || !folderIds.includes(targetFolderId)) {
+    const draggedFolder = db.prepare('SELECT * FROM knowledge_folders WHERE folder_id = ?').get(draggedFolderId);
+    const targetFolder = db.prepare('SELECT * FROM knowledge_folders WHERE folder_id = ?').get(targetFolderId);
+    if (!draggedFolder || !targetFolder || draggedFolder.knowledge_base_id !== targetFolder.knowledge_base_id) {
       throw new Error('知识库文件夹不存在');
     }
     if (draggedFolderId === targetFolderId) return;
+    const folderIds = db.prepare(`
+      SELECT folder_id
+      FROM knowledge_folders
+      WHERE knowledge_base_id = ?
+      ORDER BY sort_order ASC, created_at ASC
+    `).all(draggedFolder.knowledge_base_id).map((row) => row.folder_id);
     db.transaction(() => resequenceFolderIds(reorderIds(folderIds, draggedFolderId, targetFolderId, normalizedPosition)))();
   }
 
@@ -438,6 +485,7 @@ function createKnowledgeBaseStore({ app, db }) {
     return {
       ...document,
       folder_id: targetFolderId,
+      knowledge_base_id: normalizeKnowledgeBaseId(folder.knowledge_base_id),
       document_dir: options.documentDir || document.document_dir,
       source_path: options.sourcePath || document.source_path,
       markdown_path: options.markdownPath || document.markdown_path,
@@ -497,7 +545,8 @@ function createKnowledgeBaseStore({ app, db }) {
       RETURNING *
     `).get(values);
     if (!row) throw new Error('知识库文档不存在');
-    return documentFromRow(row);
+    const folder = db.prepare('SELECT knowledge_base_id FROM knowledge_folders WHERE folder_id = ?').get(row.folder_id);
+    return documentFromRow({ ...row, knowledge_base_id: folder?.knowledge_base_id });
   }
 
   function updateMarkdownMetadata(documentId, markdown, parserLabel) {
@@ -986,7 +1035,12 @@ function createKnowledgeBaseStore({ app, db }) {
       .filter(Boolean))];
     if (!ids.length) return [];
     const placeholders = ids.map(() => '?').join(', ');
-    const documentRows = db.prepare(`SELECT * FROM knowledge_documents WHERE document_id IN (${placeholders})`).all(...ids);
+    const documentRows = db.prepare(`
+      SELECT d.*, f.knowledge_base_id
+      FROM knowledge_documents d
+      LEFT JOIN knowledge_folders f ON f.folder_id = d.folder_id
+      WHERE d.document_id IN (${placeholders})
+    `).all(...ids);
     const documentById = new Map(documentRows.map((row) => [row.document_id, row]));
     const blocksByItem = new Map();
     const itemsByDocument = new Map();

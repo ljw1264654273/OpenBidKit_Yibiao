@@ -151,8 +151,8 @@ const bridge = {
     getPathForFile: (file) => webUtils.getPathForFile(file),
   },
   knowledgeBase: {
-    list: () => ipcRenderer.invoke('knowledge-base:list'),
-    createFolder: (name) => ipcRenderer.invoke('knowledge-base:create-folder', name),
+    list: (options) => ipcRenderer.invoke('knowledge-base:list', options),
+    createFolder: (name, knowledgeBaseId) => ipcRenderer.invoke('knowledge-base:create-folder', name, knowledgeBaseId),
     renameFolder: (folderId, name) => ipcRenderer.invoke('knowledge-base:rename-folder', folderId, name),
     reorderFolder: (draggedFolderId, targetFolderId, position) => ipcRenderer.invoke('knowledge-base:reorder-folder', draggedFolderId, targetFolderId, position),
     deleteFolder: (folderId) => ipcRenderer.invoke('knowledge-base:delete-folder', folderId),

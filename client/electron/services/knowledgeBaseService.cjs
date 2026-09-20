@@ -1081,9 +1081,9 @@ function createKnowledgeBaseService({ app, aiService, configStore, knowledgeBase
     }
   }
 
-  function emitProgress(webContents, document) {
+  function emitProgress(webContents, document, eventPatch = {}) {
     if (!webContents?.isDestroyed()) {
-      webContents.send('knowledge-base:event', { document });
+      webContents.send('knowledge-base:event', { document, ...eventPatch });
     }
   }
 
@@ -2077,12 +2077,12 @@ function createKnowledgeBaseService({ app, aiService, configStore, knowledgeBase
   recoverInterruptedDocuments();
 
   return {
-    list() {
-      return knowledgeBaseStore.list();
+    list(options) {
+      return knowledgeBaseStore.list(options);
     },
 
-    createFolder(name) {
-      return knowledgeBaseStore.createFolder(name);
+    createFolder(name, knowledgeBaseId) {
+      return knowledgeBaseStore.createFolder(name, knowledgeBaseId);
     },
 
     renameFolder(folderId, name) {
@@ -2095,7 +2095,7 @@ function createKnowledgeBaseService({ app, aiService, configStore, knowledgeBase
     },
 
     deleteFolder(folderId) {
-      const index = knowledgeBaseStore.list();
+      const index = knowledgeBaseStore.list({ allKnowledgeBases: true });
       const folder = index.folders.find((item) => item.id === folderId);
       if (!folder) throw new Error('知识库文件夹不存在');
 
@@ -2128,7 +2128,7 @@ function createKnowledgeBaseService({ app, aiService, configStore, knowledgeBase
       return { success: true, message: `已删除文档“${document.file_name}”` };
     },
 
-    moveDocument(documentId, targetFolderId, targetDocumentId, position) {
+    moveDocument(documentId, targetFolderId, targetDocumentId, position, webContents) {
       const document = getDocument(documentId);
       if (activePreparations.has(documentId) || activeMatches.has(documentId)) {
         throw new Error('该文档正在处理中，请完成后再移动');
@@ -2137,7 +2137,7 @@ function createKnowledgeBaseService({ app, aiService, configStore, knowledgeBase
         throw new Error('该文档正在处理中，请完成后再移动');
       }
 
-      const index = knowledgeBaseStore.list();
+      const index = knowledgeBaseStore.list({ allKnowledgeBases: true });
       const targetFolder = index.folders.find((folder) => folder.id === targetFolderId);
       if (!targetFolder) throw new Error('目标知识库文件夹不存在');
 
@@ -2166,6 +2166,10 @@ function createKnowledgeBaseService({ app, aiService, configStore, knowledgeBase
 
       try {
         const movedDocument = knowledgeBaseStore.moveDocument(documentId, targetFolderId, moveOptions);
+        emitProgress(webContents, movedDocument, {
+          previousFolderId: document.folder_id,
+          previousKnowledgeBaseId: document.knowledge_base_id,
+        });
         return { success: true, message: `已移动文档“${document.file_name}”`, document: movedDocument };
       } catch (error) {
         if (oldDir && newDir && fs.existsSync(newDir) && !fs.existsSync(oldDir)) {
@@ -2180,7 +2184,7 @@ function createKnowledgeBaseService({ app, aiService, configStore, knowledgeBase
     },
 
     async uploadDocuments(folderId, webContents) {
-      const currentIndex = knowledgeBaseStore.list();
+      const currentIndex = knowledgeBaseStore.list({ allKnowledgeBases: true });
       const folder = currentIndex.folders.find((item) => item.id === folderId);
       if (!folder) throw new Error('请先选择知识库文件夹');
 

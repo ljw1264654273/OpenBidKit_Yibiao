@@ -1,3 +1,6 @@
+import type { KnowledgeBaseId } from './knowledgeBaseCatalog';
+export type { KnowledgeBaseId } from './knowledgeBaseCatalog';
+
 export interface KnowledgeItem {
   id: string;
   title: string;
@@ -76,6 +79,7 @@ export type KnowledgeDocumentStatus = 'pending' | 'copying' | 'converting' | 'ex
 export interface KnowledgeFolder {
   id: string;
   name: string;
+  knowledge_base_id: KnowledgeBaseId;
   sort_order?: number;
   created_at: string;
   updated_at: string;
@@ -84,6 +88,7 @@ export interface KnowledgeFolder {
 export interface KnowledgeDocument {
   id: string;
   folder_id: string;
+  knowledge_base_id: KnowledgeBaseId;
   file_name: string;
   status: KnowledgeDocumentStatus;
   progress: number;
@@ -106,6 +111,10 @@ export interface KnowledgeBaseIndex {
   documents: KnowledgeDocument[];
 }
 
+export type KnowledgeBaseIndexOptions =
+  | { knowledgeBaseId: KnowledgeBaseId }
+  | { allKnowledgeBases: true };
+
 export interface KnowledgeBaseUploadResult {
   success: boolean;
   message: string;
@@ -114,4 +123,6 @@ export interface KnowledgeBaseUploadResult {
 
 export interface KnowledgeBaseEvent {
   document: KnowledgeDocument;
+  previousFolderId?: string;
+  previousKnowledgeBaseId?: KnowledgeBaseId;
 }

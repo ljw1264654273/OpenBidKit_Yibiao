@@ -2325,6 +2325,96 @@ function collectLeafContexts(items, parents = []) {
   return results;
 }
 
+function normalizeStringIds(value) {
+  return [...new Set((Array.isArray(value) ? value : [])
+    .map((id) => String(id || '').trim())
+    .filter(Boolean))];
+}
+
+function collectLeafKnowledgeFolderIds(items, inheritedFolderIds = [], result = new Map()) {
+  for (const item of items || []) {
+    const folderIds = normalizeStringIds([...inheritedFolderIds, ...(Array.isArray(item?.knowledge_folder_ids) ? item.knowledge_folder_ids : [])]);
+    const children = normalizeChildren(item);
+    if (!children.length) {
+      if (folderIds.length) result.set(String(item.id), folderIds);
+      continue;
+    }
+    collectLeafKnowledgeFolderIds(children, folderIds, result);
+  }
+  return result;
+}
+
+function collectLeafKnowledgeDocumentIds(items, inheritedDocumentIds = [], result = new Map()) {
+  for (const item of items || []) {
+    const documentIds = normalizeStringIds([...inheritedDocumentIds, ...(Array.isArray(item?.knowledge_document_ids) ? item.knowledge_document_ids : [])]);
+    const children = normalizeChildren(item);
+    if (!children.length) {
+      if (documentIds.length) result.set(String(item.id), documentIds);
+      continue;
+    }
+    collectLeafKnowledgeDocumentIds(children, documentIds, result);
+  }
+  return result;
+}
+
+function resolveNodeKnowledgeDocumentIds(knowledgeIndex, sectionFolderIds) {
+  const documents = Array.isArray(knowledgeIndex?.documents) ? knowledgeIndex.documents : [];
+  const successDocumentsByFolderId = new Map();
+  for (const document of documents) {
+    if (document?.status !== 'success') continue;
+    const folderId = String(document.folder_id || '').trim();
+    const documentId = String(document.id || '').trim();
+    if (!folderId || !documentId) continue;
+    const list = successDocumentsByFolderId.get(folderId) || [];
+    list.push(documentId);
+    successDocumentsByFolderId.set(folderId, list);
+  }
+
+  const result = new Map();
+  for (const [sectionId, folderIds] of sectionFolderIds.entries()) {
+    const documentIds = normalizeStringIds((folderIds || []).flatMap((folderId) => successDocumentsByFolderId.get(folderId) || []));
+    if (documentIds.length) result.set(sectionId, documentIds);
+  }
+  return result;
+}
+
+function loadAllKnowledgeBaseIndex(knowledgeBaseService) {
+  if (!knowledgeBaseService?.list) {
+    return { folders: [], documents: [] };
+  }
+  return knowledgeBaseService.list({ allKnowledgeBases: true });
+}
+
+function mergeSectionDocumentIds(...maps) {
+  const result = new Map();
+  for (const map of maps) {
+    if (!(map instanceof Map)) continue;
+    for (const [sectionId, documentIds] of map.entries()) {
+      result.set(sectionId, normalizeStringIds([...(result.get(sectionId) || []), ...(documentIds || [])]));
+    }
+  }
+  return result;
+}
+
+function buildKnowledgeItemIdsBySection(knowledgeItems, sectionDocumentIds) {
+  const result = new Map();
+  for (const [sectionId, documentIds] of sectionDocumentIds.entries()) {
+    const allowedDocumentIds = new Set(normalizeStringIds(documentIds));
+    const itemIds = (Array.isArray(knowledgeItems) ? knowledgeItems : [])
+      .map((item) => String(item?.id || '').trim())
+      .filter((id) => allowedDocumentIds.has(id.split('::')[0]));
+    if (itemIds.length) result.set(sectionId, new Set(itemIds));
+  }
+  return result;
+}
+
+function buildKnowledgeItemIdSetForDocuments(knowledgeItems, documentIds) {
+  const allowedDocumentIds = new Set(normalizeStringIds(documentIds));
+  return new Set((Array.isArray(knowledgeItems) ? knowledgeItems : [])
+    .map((item) => String(item?.id || '').trim())
+    .filter((id) => allowedDocumentIds.has(id.split('::')[0])));
+}
+
 function normalizeReferenceDocumentIds(storedPlan) {
   const raw = storedPlan?.referenceKnowledgeDocumentIds ?? [];
   return Array.isArray(raw)
@@ -3059,7 +3149,7 @@ function percentageFor(completed, total) {
   return clampPercentage((Math.max(0, Number(completed) || 0) / normalizedTotal) * 100);
 }
 
-// 将当前正文子阶段的计数统一为插件和 Renderer 可直接消费的进度明细。
+// 将当前正文子阶段的计数统一为 Agent 和 Renderer 可直接消费的进度明细。
 function buildContentPhaseProgress(contentStats, latestLog = '', progressMode = 'full') {
   const stats = contentStats || {};
   const phase = stats.phase || 'planning';
@@ -3739,15 +3829,41 @@ async function runContentGenerationTask({ aiService, agentService, workspaceStor
     publishTaskUpdate({ status: 'running', progress: progressFor(leaves, sections), logs, stats: statsSnapshot() });
   }
 
-  const knowledgeReferences = loadContentKnowledgeReferences(knowledgeBaseService, referenceKnowledgeDocumentIds, (message) => {
+  const nodeKnowledgeFolderIdsBySection = collectLeafKnowledgeFolderIds(outlineData.outline);
+  const nodeDirectDocumentIdsBySection = collectLeafKnowledgeDocumentIds(outlineData.outline);
+  let nodeKnowledgeDocumentIdsBySection = new Map();
+  if (nodeKnowledgeFolderIdsBySection.size && knowledgeBaseService?.list) {
+    try {
+      nodeKnowledgeDocumentIdsBySection = resolveNodeKnowledgeDocumentIds(
+        loadAllKnowledgeBaseIndex(knowledgeBaseService),
+        nodeKnowledgeFolderIdsBySection,
+      );
+      const nodeDocumentCount = [...nodeKnowledgeDocumentIdsBySection.values()].reduce((total, documentIds) => total + documentIds.length, 0);
+      if (nodeDocumentCount) logs = [...logs, `正文编排已按目录项关联知识库匹配 ${nodeDocumentCount} 个章节文档引用。`];
+    } catch (error) {
+      logs = [...logs, `读取目录项关联知识库失败，已跳过：${error.message || String(error)}`];
+    }
+  }
+  nodeKnowledgeDocumentIdsBySection = mergeSectionDocumentIds(nodeKnowledgeDocumentIdsBySection, nodeDirectDocumentIdsBySection);
+  const nodeReferenceDocumentIds = [...new Set([...nodeKnowledgeDocumentIdsBySection.values()].flat())];
+  const contentKnowledgeDocumentIds = normalizeStringIds([...referenceKnowledgeDocumentIds, ...nodeReferenceDocumentIds]);
+  const knowledgeReferences = loadContentKnowledgeReferences(knowledgeBaseService, contentKnowledgeDocumentIds, (message) => {
     logs = [...logs, message];
   });
   knowledgeItems = knowledgeReferences.items;
-  allowedKnowledgeItemIds = new Set(knowledgeItems.map((item) => item.id));
+  const globalKnowledgeItemIds = buildKnowledgeItemIdSetForDocuments(knowledgeItems, referenceKnowledgeDocumentIds);
+  const nodeKnowledgeItemIdsBySection = buildKnowledgeItemIdsBySection(knowledgeItems, nodeKnowledgeDocumentIdsBySection);
+  allowedKnowledgeItemIds = new Set([
+    ...globalKnowledgeItemIds,
+    ...[...nodeKnowledgeItemIdsBySection.values()].flatMap((ids) => [...ids]),
+  ]);
   knowledgeContentMap = knowledgeReferences.contentMap;
 
   function getAllowedKnowledgeItemIdsForSection(itemId, currentRemoteReferences = []) {
-    const allowed = new Set(allowedKnowledgeItemIds);
+    const allowed = new Set(globalKnowledgeItemIds);
+    for (const knowledgeItemId of nodeKnowledgeItemIdsBySection.get(itemId) || []) {
+      allowed.add(knowledgeItemId);
+    }
     const lockedReferences = contentRuntime.remoteKnowledgeReferencesBySection?.[itemId] || [];
     for (const reference of [...lockedReferences, ...currentRemoteReferences]) {
       const normalized = namespaceRemoteKnowledgeItem(reference);
@@ -4080,7 +4196,7 @@ async function runContentGenerationTask({ aiService, agentService, workspaceStor
   }
 
   function getContentPlanForItem(itemId) {
-    const plan = contentPlans.get(itemId) || getReusableStoredContentPlan(itemId)?.plan || normalizeContentPlan({}, allowedKnowledgeItemIds, allowedFactTitles);
+    const plan = contentPlans.get(itemId) || getReusableStoredContentPlan(itemId)?.plan || normalizeContentPlan({}, getAllowedKnowledgeItemIdsForSection(itemId), allowedFactTitles);
     contentPlans.set(itemId, plan);
     return plan;
   }
@@ -4101,7 +4217,7 @@ async function runContentGenerationTask({ aiService, agentService, workspaceStor
   function getOriginalMaterialRuntimeState(itemOrId) {
     const itemId = typeof itemOrId === 'string' ? itemOrId : String(itemOrId?.id || '').trim();
     const item = typeof itemOrId === 'string' ? leaves.find((context) => context.item.id === itemId)?.item : itemOrId;
-    const plan = contentPlans.get(itemId) || getStoredContentPlan(itemId)?.plan || normalizeContentPlan({}, allowedKnowledgeItemIds, allowedFactTitles);
+    const plan = contentPlans.get(itemId) || getStoredContentPlan(itemId)?.plan || normalizeContentPlan({}, getAllowedKnowledgeItemIdsForSection(itemId), allowedFactTitles);
     const originalMaterial = normalizeOriginalMaterial(plan.original_material);
     const sourceSegments = originalMaterial.source_ids.map((sourceId) => originalPlanSegmentById.get(sourceId)).filter(Boolean);
     const allSourcesValid = Boolean(originalMaterial.source_ids.length) && sourceSegments.length === originalMaterial.source_ids.length;
@@ -4200,7 +4316,7 @@ async function runContentGenerationTask({ aiService, agentService, workspaceStor
   function persistContentPlans(targets) {
     const nextPlans = { ...storedContentPlans };
     for (const context of targets) {
-      const contentPlan = contentPlans.get(context.item.id) || normalizeContentPlan({}, allowedKnowledgeItemIds, allowedFactTitles);
+      const contentPlan = contentPlans.get(context.item.id) || normalizeContentPlan({}, getAllowedKnowledgeItemIdsForSection(context.item.id), allowedFactTitles);
       nextPlans[context.item.id] = createStoredContentPlan(contentPlan, tableRequirement);
     }
     storedContentPlans = pruneContentGenerationPlans(nextPlans, leaves);
@@ -4247,15 +4363,15 @@ async function runContentGenerationTask({ aiService, agentService, workspaceStor
     const { item, parentChapters, siblingChapters } = context;
     let contentPlan;
     const remoteReferences = await retrieveRemoteKnowledgeForPlanning(context);
+    const sectionAllowedKnowledgeItemIds = getAllowedKnowledgeItemIdsForSection(item.id, remoteReferences);
     const sectionKnowledgeItems = [
-      ...knowledgeItems,
+      ...knowledgeItems.filter((knowledgeItem) => sectionAllowedKnowledgeItemIds.has(knowledgeItem.id)),
       ...remoteReferences.map((reference) => ({
         id: reference.id,
         title: reference.title,
         resume: reference.content.slice(0, 240),
       })),
     ];
-    const sectionAllowedKnowledgeItemIds = getAllowedKnowledgeItemIdsForSection(item.id, remoteReferences);
 
     try {
       contentPlan = await aiService.collectJsonResponse({
@@ -7307,6 +7423,12 @@ module.exports = {
   normalizeContentGenerationRuntime,
   namespaceRemoteKnowledgeItem,
   resolveRemoteKnowledgeContents,
+  collectLeafKnowledgeFolderIds,
+  collectLeafKnowledgeDocumentIds,
+  resolveNodeKnowledgeDocumentIds,
+  loadAllKnowledgeBaseIndex,
+  mergeSectionDocumentIds,
+  buildKnowledgeItemIdsBySection,
   shouldRetainContentGenerationRuntime,
   buildChapterContentMessages,
   renderAgentTechnicalPlanOutline,
