@@ -1,7 +1,8 @@
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
-const { getWorkspaceDir } = require('../utils/paths.cjs');
+const { getWorkspaceDir, getWorkspaceTrashDir } = require('../utils/paths.cjs');
+const { forceRemoveSync } = require('../utils/forceRemove.cjs');
 
 function hashFile(filePath) {
   return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
@@ -17,11 +18,15 @@ function safeFileName(value) {
 
 function createBidProjectImportService({ app, fileService, bidProjectManager, workflowAnalytics }) {
   const importsDir = path.join(getWorkspaceDir(app), 'bid-project-imports');
+  const workspaceTrashDir = getWorkspaceTrashDir(app);
   fs.mkdirSync(importsDir, { recursive: true });
   for (const entry of fs.readdirSync(importsDir, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     try {
-      fs.rmSync(path.join(importsDir, entry.name), { recursive: true, force: true });
+      forceRemoveSync(path.join(importsDir, entry.name), {
+        trashDir: workspaceTrashDir,
+        deferOnFailure: true,
+      });
     } catch {
       // 重启时清理暂存失败不阻断后续导入，下一次启动继续尝试。
     }
@@ -98,7 +103,10 @@ function createBidProjectImportService({ app, fileService, bidProjectManager, wo
   }
 
   function discardImport(token) {
-    fs.rmSync(getImportDir(token), { recursive: true, force: true });
+    forceRemoveSync(getImportDir(token), {
+      trashDir: workspaceTrashDir,
+      deferOnFailure: true,
+    });
     return { success: true };
   }
 

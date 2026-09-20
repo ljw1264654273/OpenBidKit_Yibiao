@@ -103,6 +103,45 @@ test('creates independent projects when the same tender document is imported twi
   }
 });
 
+test('does not fail staged import cleanup when Windows first reports EPERM', async () => {
+  const userDataPath = fs.mkdtempSync(path.join(os.tmpdir(), 'yibiao-bid-import-cleanup-'));
+  const sourcePath = path.join(userDataPath, '招标文件.md');
+  const document = {
+    file_name: '招标文件.md',
+    file_content: '# 招标文件\n\n项目范围与技术要求。',
+  };
+  fs.writeFileSync(sourcePath, document.file_content, 'utf8');
+  const app = createApp(userDataPath);
+  const fileService = createFileService(document);
+  const bidProjectManager = {
+    getSourceMatches: () => [],
+  };
+  const importService = createBidProjectImportService({ app, fileService, bidProjectManager });
+  const originalRmSync = fs.rmSync;
+  let simulatedFailure = false;
+
+  try {
+    const preview = await importService.prepareImport([sourcePath]);
+    const importDir = path.join(userDataPath, 'workspace', 'bid-project-imports', preview.token);
+    fs.rmSync = (targetPath, options) => {
+      if (targetPath === importDir && !simulatedFailure) {
+        simulatedFailure = true;
+        const error = new Error(`EPERM: permission denied, rm '${targetPath}'`);
+        error.code = 'EPERM';
+        error.path = targetPath;
+        throw error;
+      }
+      return originalRmSync(targetPath, options);
+    };
+
+    assert.deepEqual(importService.discardImport(preview.token), { success: true });
+    assert.equal(fs.existsSync(importDir), false);
+  } finally {
+    fs.rmSync = originalRmSync;
+    fs.rmSync(userDataPath, { recursive: true, force: true });
+  }
+});
+
 test.after(() => {
   if (process.versions.electron) {
     require('electron').app.quit();
