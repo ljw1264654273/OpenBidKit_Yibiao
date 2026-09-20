@@ -271,6 +271,8 @@ CREATE TABLE IF NOT EXISTS technical_plan_outline_nodes (
   source_requirement_id TEXT,
   source_requirement_title TEXT,
   knowledge_item_ids_json TEXT,
+  knowledge_folder_ids_json TEXT,
+  knowledge_document_ids_json TEXT,
   content TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,

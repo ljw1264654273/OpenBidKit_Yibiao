@@ -129,6 +129,8 @@ function createTechnicalPlanProjectSchema(db, projectId) {
       source_requirement_id TEXT,
       source_requirement_title TEXT,
       knowledge_item_ids_json TEXT,
+      knowledge_folder_ids_json TEXT,
+      knowledge_document_ids_json TEXT,
       content TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
@@ -320,6 +322,8 @@ function createInitialSchema(db) {
       source_requirement_id TEXT,
       source_requirement_title TEXT,
       knowledge_item_ids_json TEXT,
+      knowledge_folder_ids_json TEXT,
+      knowledge_document_ids_json TEXT,
       content TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
@@ -502,6 +506,20 @@ function addTechnicalPlanOutlineWordControl(db) {
 function addTechnicalPlanOutlineContentMode(db) {
   addColumnIfMissing(db, 'technical_plan_outline_nodes', 'content_mode', 'TEXT');
   addColumnIfMissing(db, 'technical_plan_outline_nodes', 'content_mode_note', 'TEXT');
+}
+
+function addTechnicalPlanOutlineKnowledgeFolders(db) {
+  addColumnIfMissing(db, 'technical_plan_outline_nodes', 'knowledge_folder_ids_json', 'TEXT');
+  for (const table of db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'technical_plan_project_%_outline_nodes'").all()) {
+    addColumnIfMissing(db, table.name, 'knowledge_folder_ids_json', 'TEXT');
+  }
+}
+
+function addTechnicalPlanOutlineKnowledgeDocuments(db) {
+  addColumnIfMissing(db, 'technical_plan_outline_nodes', 'knowledge_document_ids_json', 'TEXT');
+  for (const table of db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'technical_plan_project_%_outline_nodes'").all()) {
+    addColumnIfMissing(db, table.name, 'knowledge_document_ids_json', 'TEXT');
+  }
 }
 
 function createTaskLogsAndIllustrationItemsSchema(db) {
