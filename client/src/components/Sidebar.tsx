@@ -1,7 +1,7 @@
 import * as Tooltip from '@radix-ui/react-tooltip';
 import { useEffect, useState, type ComponentType, type ReactElement, type SVGProps } from 'react';
 import { getAppMenuItems, getParentMenuItemBySection } from '../app/menuConfig';
-import type { AppMenuItem, SectionId } from '../shared/types/navigation';
+import { normalizeSectionId, type AppMenuItem, type SectionId } from '../shared/types/navigation';
 import { useToast } from '../shared/ui';
 import logoUrl from '../../assets/brand-logo.png';
 
@@ -20,8 +20,13 @@ const navigationIcons: Record<SectionId, ComponentType<SVGProps<SVGSVGElement>>>
   'business-bid': BriefcaseIcon,
   'knowledge-base': ArchiveIcon,
   'document-knowledge-base': ArchiveIcon,
-  'image-knowledge-base': ArchiveIcon,
-  resources: ResourcesIcon,
+  'national-standard-knowledge-base': ArchiveIcon,
+  'provincial-standard-knowledge-base': ArchiveIcon,
+  'municipal-standard-knowledge-base': ArchiveIcon,
+  'industry-standard-knowledge-base': ArchiveIcon,
+  'enterprise-knowledge-base': ArchiveIcon,
+  'remote-knowledge-base': CloudIcon,
+  'image-knowledge-base': ImageIcon,
   'bid-check': BidCheckIcon,
   'duplicate-check': CompareIcon,
   'rejection-check': ShieldIcon,
@@ -30,7 +35,6 @@ const navigationIcons: Record<SectionId, ComponentType<SVGProps<SVGSVGElement>>>
   'my-templates': DocumentIcon,
   'new-template': DocumentIcon,
   'export-format': DocumentIcon,
-  'bid-opportunity': RadarIcon,
   'developer-test': FlaskIcon,
   'developer-json-test': FlaskIcon,
   'developer-multimodal-test': FlaskIcon,
@@ -39,7 +43,6 @@ const navigationIcons: Record<SectionId, ComponentType<SVGProps<SVGSVGElement>>>
   'developer-export-preview': FlaskIcon,
   'developer-expansion-replace-test': FlaskIcon,
   'developer-agent-test': FlaskIcon,
-  'plugin-manager': PluginIcon,
   settings: GearIcon,
 };
 
@@ -62,7 +65,8 @@ function Sidebar({ activeSection, developerMode, onSectionChange }: SidebarProps
   const [collapsed, setCollapsed] = useState(readSidebarCollapsedPreference);
   const { showToast } = useToast();
   const menuItems = getAppMenuItems(developerMode);
-  const activeParent = getParentMenuItemBySection(activeSection, developerMode);
+  const normalizedActiveSection = normalizeSectionId(activeSection);
+  const activeParent = getParentMenuItemBySection(normalizedActiveSection, developerMode);
 
   useEffect(() => {
     try {
@@ -107,7 +111,7 @@ function Sidebar({ activeSection, developerMode, onSectionChange }: SidebarProps
       <nav className="sidebar-nav" aria-label="主菜单">
         {menuItems.map((item) => {
           const Icon = navigationIcons[item.id];
-          const isActive = item.id === activeSection || activeParent?.id === item.id;
+          const isActive = item.id === normalizedActiveSection || activeParent?.id === item.id;
           const button = (
             <button
               key={item.id}
@@ -248,13 +252,22 @@ function ArchiveIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
-function ResourcesIcon(props: SVGProps<SVGSVGElement>) {
+function CloudIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" {...props}>
-      <path d="M4.8 6.4h4v12.2h-4z" />
-      <path d="M10.1 4.8h4.2v13.8h-4.2z" />
-      <path d="m15.4 7.1 3.4-.9 2.7 10.8-3.4.85z" />
-      <path d="M4 19.3h16.8" />
+      <path d="M7.3 18.2h9.4a4.3 4.3 0 0 0 .5-8.57A5.8 5.8 0 0 0 6.1 8.2a5 5 0 0 0 1.2 10Z" />
+      <path d="M12 11.2v6" />
+      <path d="m9.8 13.4 2.2-2.2 2.2 2.2" />
+    </svg>
+  );
+}
+
+function ImageIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" {...props}>
+      <rect x="4.25" y="4.25" width="15.5" height="15.5" rx="1.5" />
+      <circle cx="9" cy="9" r="1.4" />
+      <path d="m5.5 17 4.2-4.2 3.2 3.2 2.1-2.1 3.5 3.5" />
     </svg>
   );
 }
@@ -295,17 +308,6 @@ function ShieldIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
-function RadarIcon(props: SVGProps<SVGSVGElement>) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" {...props}>
-      <path d="M12 20.5a8.5 8.5 0 1 0 0-17 8.5 8.5 0 0 0 0 17Z" />
-      <path d="M12 16.5a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9Z" />
-      <path d="M12 12 18 6" />
-      <path d="M12 12h.01" />
-    </svg>
-  );
-}
-
 function FlaskIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" {...props}>
@@ -322,17 +324,6 @@ function GearIcon(props: SVGProps<SVGSVGElement>) {
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" {...props}>
       <path d="M12 8.2a3.8 3.8 0 1 0 0 7.6 3.8 3.8 0 0 0 0-7.6Z" />
       <path d="m19.1 13.5.1-1.5-.1-1.5 2-1.5-2-3.4-2.45.95a8.2 8.2 0 0 0-2.55-1.45L13.75 2h-3.5L9.9 5.1a8.2 8.2 0 0 0-2.55 1.45L4.9 5.6l-2 3.4 2 1.5L4.8 12l.1 1.5-2 1.5 2 3.4 2.45-.95A8.2 8.2 0 0 0 9.9 18.9l.35 3.1h3.5l.35-3.1a8.2 8.2 0 0 0 2.55-1.45l2.45.95 2-3.4z" />
-    </svg>
-  );
-}
-
-function PluginIcon(props: SVGProps<SVGSVGElement>) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...props}>
-      <path d="M8 3v5" />
-      <path d="M16 3v5" />
-      <path d="M6 8h12v2a6 6 0 0 1-12 0z" />
-      <path d="M12 16v5" />
     </svg>
   );
 }

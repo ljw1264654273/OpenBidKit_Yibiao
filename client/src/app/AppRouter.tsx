@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import type { SectionId } from '../shared/types/navigation';
+import { getKnowledgeBaseIdByNavigationId } from '../features/knowledge-base/knowledgeBaseCatalog';
+import { normalizeSectionId, type SectionId } from '../shared/types/navigation';
 import { getAppMenuItemById } from './menuConfig';
-import BidOpportunityPage from '../features/bid-opportunity/pages/BidOpportunityPage';
 import BusinessBidPage from '../features/business-bid/pages/BusinessBidPage';
 import ContentExpansionReplaceTestPage from '../features/developer/pages/ContentExpansionReplaceTestPage';
 import DeveloperDemoPage, { isDeveloperDemoSection } from '../features/developer/pages/DeveloperDemoPage';
@@ -13,8 +13,6 @@ import MyTemplatesPage from '../features/export-format/pages/MyTemplatesPage';
 import DuplicateCheckPage from '../features/duplicate-check/pages/DuplicateCheckPage';
 import KnowledgeBasePage from '../features/knowledge-base/pages/KnowledgeBasePage';
 import RejectionCheckPage from '../features/rejection-check/pages/RejectionCheckPage';
-import ResourcesPage from '../features/resources/pages/ResourcesPage';
-import PluginsPage from '../features/plugins/pages/PluginsPage';
 import SettingsPage from '../features/settings/pages/SettingsPage';
 import TechnicalPlanHome from '../features/technical-plan/pages/TechnicalPlanHome';
 import FeasibilityReportHome from '../features/feasibility-report/pages/FeasibilityReportHome';
@@ -32,24 +30,30 @@ interface AppRouterProps {
 }
 
 function AppRouter({ activeSection, activeProjectId, developerMode, onDeveloperModeChange, onSectionChange, onProjectChange, registerLeaveGuard }: AppRouterProps) {
-  const activeMenuItem = getAppMenuItemById(activeSection, developerMode);
+  const normalizedSection = normalizeSectionId(activeSection);
+  const activeMenuItem = getAppMenuItemById(normalizedSection, developerMode);
   const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (activeSection !== 'my-templates') {
+    if (normalizedSection !== 'my-templates') {
       setEditingTemplateId(null);
     }
-  }, [activeSection]);
+  }, [normalizedSection]);
 
   if (activeMenuItem?.children?.length) {
     return <SecondaryMenuPage menuItem={activeMenuItem} onNavigate={onSectionChange} />;
   }
 
-  if (isDeveloperDemoSection(activeSection)) {
-    return <DeveloperDemoPage sectionId={activeSection} />;
+  if (isDeveloperDemoSection(normalizedSection)) {
+    return <DeveloperDemoPage sectionId={normalizedSection} />;
   }
 
-  switch (activeSection) {
+  const knowledgeBaseId = getKnowledgeBaseIdByNavigationId(normalizedSection);
+  if (knowledgeBaseId) {
+    return <KnowledgeBasePage knowledgeBaseId={knowledgeBaseId} />;
+  }
+
+  switch (normalizedSection) {
     case 'bid-projects':
       return <BidProjectWorkspacePage onSectionChange={onSectionChange} onProjectChange={onProjectChange} />;
     case 'technical-plan':
@@ -60,12 +64,10 @@ function AppRouter({ activeSection, activeProjectId, developerMode, onDeveloperM
       return <FeasibilityReportHome registerLeaveGuard={registerLeaveGuard} onSectionChange={onSectionChange} />;
     case 'business-bid':
       return <BusinessBidPage />;
-    case 'document-knowledge-base':
-      return <KnowledgeBasePage />;
-    case 'resources':
-      return <ResourcesPage />;
-    case 'plugin-manager':
-      return <PluginsPage />;
+    case 'remote-knowledge-base':
+      return <RemoteKnowledgeBasePage />;
+    case 'image-knowledge-base':
+      return <KnowledgeBasePlaceholder title="图片知识库" description="图片知识库正在开发中，敬请期待。" />;
     case 'duplicate-check':
       return <DuplicateCheckPage />;
     case 'rejection-check':
@@ -78,8 +80,6 @@ function AppRouter({ activeSection, activeProjectId, developerMode, onDeveloperM
       return <ExportFormatPage mode="create" />;
     case 'export-format':
       return <ExportFormatPage mode="create" />;
-    case 'bid-opportunity':
-      return <BidOpportunityPage />;
     case 'developer-test':
       return null;
     case 'developer-json-test':
@@ -95,6 +95,22 @@ function AppRouter({ activeSection, activeProjectId, developerMode, onDeveloperM
     default:
       return null;
   }
+}
+
+function RemoteKnowledgeBasePage() {
+  return <KnowledgeBasePlaceholder title="远程知识库" description="远程知识库浏览页即将接入，当前可在技术方案引用面板中使用远程资料。" />;
+}
+
+function KnowledgeBasePlaceholder({ title, description }: { title: string; description: string }) {
+  return (
+    <div className="page-stack knowledge-placeholder-page">
+      <section className="knowledge-placeholder-panel">
+        <span className="section-kicker">知识库</span>
+        <h2>{title}</h2>
+        <p>{description}</p>
+      </section>
+    </div>
+  );
 }
 
 export default AppRouter;

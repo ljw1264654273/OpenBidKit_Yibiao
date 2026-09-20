@@ -1,4 +1,6 @@
 import type { AppMenuItem, SectionId } from '../shared/types/navigation';
+import { normalizeSectionId } from '../shared/types/navigation';
+import { KNOWLEDGE_BASE_CATALOG } from '../features/knowledge-base/knowledgeBaseCatalog';
 
 const underDevelopmentNotice = {
   message: '功能正在开发中。',
@@ -34,25 +36,21 @@ export const appMenuItems: AppMenuItem[] = [
       },
     ],
   },
+  ...KNOWLEDGE_BASE_CATALOG.map((item): AppMenuItem => ({
+    id: item.navigationId,
+    label: item.label,
+    description: `管理${item.label.replace(/知识库$/, '')}资料、文件夹和可复用知识条目`,
+  })),
   {
-    id: 'knowledge-base',
-    label: '知识库',
-    description: '素材、模板和案例资产',
-    children: [
-      {
-        id: 'document-knowledge-base',
-        label: '文档知识库',
-        description: '管理文档资料、案例素材和可复用知识条目',
-        icon: 'document',
-      },
-      {
-        id: 'image-knowledge-base',
-        label: '图片知识库',
-        description: '管理图片素材、图示和视觉参考资料',
-        icon: 'file',
-        notice: underDevelopmentNotice,
-      },
-    ],
+    id: 'remote-knowledge-base',
+    label: '远程知识库',
+    description: '浏览和选择在线远程知识库内容',
+  },
+  {
+    id: 'image-knowledge-base',
+    label: '图片知识库',
+    description: '管理图片素材、图示和视觉参考资料',
+    notice: underDevelopmentNotice,
   },
   {
     id: 'bid-check',
@@ -79,22 +77,6 @@ export const appMenuItems: AppMenuItem[] = [
         notice: underDevelopmentNotice,
       },
     ],
-  },
-  {
-    id: 'bid-opportunity',
-    label: '投标机会',
-    description: '机会发现与线索跟踪',
-    notice: underDevelopmentNotice,
-  },
-  {
-    id: 'plugin-manager',
-    label: '插件管理',
-    description: '安装和管理插件，扩展软件功能',
-  },
-  {
-    id: 'resources',
-    label: '资源下载',
-    description: '投标相关资料、工具下载',
   },
 ];
 
@@ -159,9 +141,11 @@ export function getSectionOrder(developerMode: boolean): SectionId[] {
 }
 
 export function getAppMenuItemById(id: SectionId, developerMode: boolean): AppMenuItem | undefined {
-  return getAppMenuItems(developerMode).find((item) => item.id === id);
+  const normalizedId = normalizeSectionId(id);
+  return getAppMenuItems(developerMode).find((item) => item.id === normalizedId);
 }
 
 export function getParentMenuItemBySection(section: SectionId, developerMode: boolean): AppMenuItem | undefined {
-  return getAppMenuItems(developerMode).find((item) => item.id === section || item.children?.some((child) => child.id === section));
+  const normalizedSection = normalizeSectionId(section);
+  return getAppMenuItems(developerMode).find((item) => item.id === normalizedSection || item.children?.some((child) => child.id === normalizedSection));
 }

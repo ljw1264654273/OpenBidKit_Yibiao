@@ -2,7 +2,8 @@ import { Profiler, startTransition, useEffect, useLayoutEffect, useMemo, useRef,
 import * as Dialog from '@radix-ui/react-dialog';
 import { trackPageView } from '../../../shared/analytics/analytics';
 import { AppDialog, InlineSpinner, isLibreOfficeRequiredMessage, MarkdownFullscreenViewer, MarkdownRenderer, ProgressBar, useDocumentParseNotice, useToast } from '../../../shared/ui';
-import type { KnowledgeAnalysisSnapshot, KnowledgeBaseIndex, KnowledgeDocument, KnowledgeItem } from '../types';
+import { getKnowledgeBaseCatalogItem, type KnowledgeBaseId } from '../knowledgeBaseCatalog';
+import type { KnowledgeAnalysisSnapshot, KnowledgeBaseEvent, KnowledgeBaseIndex, KnowledgeDocument, KnowledgeItem } from '../types';
 
 declare global {
   interface Window {
@@ -295,7 +296,51 @@ type KnowledgeViewer = {
   mode: 'analysis' | 'items' | 'markdown';
 };
 
-function KnowledgeBasePage() {
+type KnowledgeDocumentWithCategory = KnowledgeDocument & {
+  knowledgeBaseId?: string;
+};
+
+type KnowledgeBaseCategoryEvent = KnowledgeBaseEvent & {
+  document: KnowledgeDocumentWithCategory;
+};
+
+function getDocumentKnowledgeBaseId(document: KnowledgeDocumentWithCategory) {
+  return String(document.knowledge_base_id || document.knowledgeBaseId || '').trim();
+}
+
+function isDocumentInCategory(
+  document: KnowledgeDocumentWithCategory,
+  knowledgeBaseId: KnowledgeBaseId,
+  folders: KnowledgeBaseIndex['folders'],
+) {
+  const documentKnowledgeBaseId = getDocumentKnowledgeBaseId(document);
+  return documentKnowledgeBaseId
+    ? documentKnowledgeBaseId === knowledgeBaseId
+    : folders.some((folder) => folder.id === document.folder_id);
+}
+
+function isPreviousDocumentInCategory(
+  event: KnowledgeBaseCategoryEvent,
+  knowledgeBaseId: KnowledgeBaseId,
+  folders: KnowledgeBaseIndex['folders'],
+) {
+  if (event.previousKnowledgeBaseId) {
+    return event.previousKnowledgeBaseId === knowledgeBaseId;
+  }
+  return Boolean(event.previousFolderId && folders.some((folder) => folder.id === event.previousFolderId));
+}
+
+interface KnowledgeBasePageProps {
+  knowledgeBaseId: KnowledgeBaseId;
+}
+
+function KnowledgeBasePage({ knowledgeBaseId }: KnowledgeBasePageProps) {
+  const category = getKnowledgeBaseCatalogItem(knowledgeBaseId) || {
+    id: knowledgeBaseId,
+    label: '知识库',
+    navigationId: 'document-knowledge-base',
+  };
+  const knowledgeBaseApi = window.yibiao?.knowledgeBase;
   const [index, setIndex] = useState<KnowledgeBaseIndex>(emptyIndex);
   const [activeFolderId, setActiveFolderId] = useState('');
   const [listLoading, setListLoading] = useState(true);
@@ -325,6 +370,8 @@ function KnowledgeBasePage() {
   const [deletingConfirm, setDeletingConfirm] = useState(false);
   const autoMatchingIdsRef = useRef(new Set<string>());
   const documentParseNoticeIdsRef = useRef(new Set<string>());
+  const indexRef = useRef<KnowledgeBaseIndex>(emptyIndex);
+  const categoryLoadRequestIdRef = useRef(0);
   const viewerRequestIdRef = useRef(0);
   const viewerTraceRef = useRef<RenderDebugTrace | null>(null);
   const { showToast } = useToast();
@@ -347,14 +394,25 @@ function KnowledgeBasePage() {
   const visibleDocuments = documents.slice(0, Math.min(visibleDocumentCount, documents.length));
 
   useEffect(() => {
-    trackPageView(viewer ? `knowledge-base/viewer/${viewer.mode}` : 'knowledge-base/library');
-  }, [viewer?.mode]);
+    trackPageView(viewer ? `${category.navigationId}/viewer/${viewer.mode}` : `${category.navigationId}/library`);
+  }, [category.navigationId, viewer?.mode]);
 
   useEffect(() => {
-    void loadInitialData();
+    indexRef.current = emptyIndex;
+    setIndex(emptyIndex);
+    setActiveFolderId('');
+    setViewer(null);
+    setViewerLoading(false);
+    setItemsPreview([]);
+    setMarkdownPreview('');
+    setAnalysisSnapshot(null);
+    setListLoading(true);
+    const requestId = ++categoryLoadRequestIdRef.current;
+    void loadInitialData(requestId);
     window.addEventListener('focus', loadDeveloperMode);
     document.addEventListener('visibilitychange', loadDeveloperMode);
-    const unsubscribe = window.yibiao?.knowledgeBase.onEvent(({ document }) => {
+    const unsubscribe = knowledgeBaseApi?.onEvent((event) => {
+      const { document } = event as KnowledgeBaseCategoryEvent;
       const parseMessage = document.error || document.message;
       if (document.status === 'error'
         && isLibreOfficeRequiredMessage(parseMessage)
@@ -362,12 +420,28 @@ function KnowledgeBasePage() {
         documentParseNoticeIdsRef.current.add(document.id);
         showDocumentParseNotice(parseMessage);
       }
-      setIndex((prev) => ({
-        ...prev,
-        documents: prev.documents.some((item) => item.id === document.id)
-          ? prev.documents.map((item) => (item.id === document.id ? document : item))
-          : [...prev.documents, document],
-      }));
+      const previousIndex = indexRef.current;
+      const nextInCategory = isDocumentInCategory(document, knowledgeBaseId, previousIndex.folders);
+      const previousInCategory = isPreviousDocumentInCategory(event as KnowledgeBaseCategoryEvent, knowledgeBaseId, previousIndex.folders);
+      if (!nextInCategory && !previousInCategory) return;
+      if (!nextInCategory) {
+        indexRef.current = {
+          ...previousIndex,
+          documents: previousIndex.documents.filter((item) => item.id !== document.id),
+        };
+        setIndex(indexRef.current);
+        setViewer((prev) => (prev?.document.id === document.id ? null : prev));
+        setAnalysisSnapshot((prev) => (prev?.document.id === document.id ? null : prev));
+        return;
+      }
+      const nextIndex = {
+        ...previousIndex,
+        documents: previousIndex.documents.some((item) => item.id === document.id)
+          ? previousIndex.documents.map((item) => (item.id === document.id ? document : item))
+          : [...previousIndex.documents, document],
+      };
+      indexRef.current = nextIndex;
+      setIndex(nextIndex);
       setViewer((prev) => (prev?.document.id === document.id ? { ...prev, document } : prev));
       setAnalysisSnapshot((prev) => (prev?.document.id === document.id ? { ...prev, document } : prev));
     });
@@ -376,7 +450,7 @@ function KnowledgeBasePage() {
       document.removeEventListener('visibilitychange', loadDeveloperMode);
       unsubscribe?.();
     };
-  }, []);
+  }, [category.navigationId, knowledgeBaseApi, knowledgeBaseId, showDocumentParseNotice]);
 
   useEffect(() => {
     setVisibleDocumentCount(documentRenderBatchSize);
@@ -422,31 +496,44 @@ function KnowledgeBasePage() {
     }
   }, [viewer?.document.id, viewer?.document.status, viewer?.mode]);
 
-  const loadInitialData = async () => {
+  const loadInitialData = async (requestId = categoryLoadRequestIdRef.current) => {
     try {
       setListLoading(true);
       const config = await window.yibiao?.config.load();
       setDeveloperMode(Boolean(config?.developer_mode));
-      const data = await window.yibiao?.knowledgeBase.list();
+      const data = await knowledgeBaseApi?.list({ knowledgeBaseId });
+      if (requestId !== categoryLoadRequestIdRef.current) return;
       if (data) {
+        indexRef.current = data;
         setIndex(data);
         setActiveFolderId((currentId) => (
           data.folders.some((folder) => folder.id === currentId) ? currentId : data.folders[0]?.id || ''
         ));
       }
     } catch (error) {
+      if (requestId !== categoryLoadRequestIdRef.current) return;
       showToast(error instanceof Error ? error.message : '读取知识库失败', 'error');
     } finally {
+      if (requestId !== categoryLoadRequestIdRef.current) return;
       setLoading(false);
       setListLoading(false);
     }
   };
 
   const applyKnowledgeIndex = (data: KnowledgeBaseIndex) => {
+    indexRef.current = data;
     setIndex(data);
     setActiveFolderId((currentId) => (
       data.folders.some((folder) => folder.id === currentId) ? currentId : data.folders[0]?.id || ''
     ));
+  };
+
+  const updateKnowledgeIndex = (updater: (previous: KnowledgeBaseIndex) => KnowledgeBaseIndex) => {
+    setIndex((previous) => {
+      const next = updater(previous);
+      indexRef.current = next;
+      return next;
+    });
   };
 
   const clearDragState = () => {
@@ -505,7 +592,7 @@ function KnowledgeBasePage() {
       if (!result?.success) {
         throw new Error(result?.message || '拖拽操作失败');
       }
-      const data = await window.yibiao?.knowledgeBase.list();
+      const data = await knowledgeBaseApi?.list({ knowledgeBaseId });
       if (!data) throw new Error('拖拽操作已保存，但读取知识库列表失败');
       applyKnowledgeIndex(data);
       showToast(result.message, 'success');
@@ -535,7 +622,7 @@ function KnowledgeBasePage() {
       if (!result?.success) {
         throw new Error(result?.message || '文档排序失败');
       }
-      const data = await window.yibiao?.knowledgeBase.list();
+      const data = await knowledgeBaseApi?.list({ knowledgeBaseId });
       if (!data) throw new Error('文档排序已保存，但读取知识库列表失败');
       applyKnowledgeIndex(data);
       setActiveFolderId(document.folder_id);
@@ -578,9 +665,11 @@ function KnowledgeBasePage() {
 
     try {
       setCreatingFolder(true);
-      const folder = await window.yibiao?.knowledgeBase.createFolder(name.trim());
+      const folder = await knowledgeBaseApi?.createFolder(name.trim(), knowledgeBaseId);
       if (!folder) return;
-      setIndex((prev) => ({ ...prev, folders: [...prev.folders, folder] }));
+      const nextIndex = { ...indexRef.current, folders: [...indexRef.current.folders, folder] };
+      indexRef.current = nextIndex;
+      setIndex(nextIndex);
       setActiveFolderId(folder.id);
       setNewFolderName('');
       setShowCreateFolder(false);
@@ -611,7 +700,7 @@ function KnowledgeBasePage() {
         return;
       }
       if (result.documents?.length) {
-        setIndex((prev) => ({ ...prev, documents: mergeDocuments(prev.documents, result.documents || []) }));
+        updateKnowledgeIndex((prev) => ({ ...prev, documents: mergeDocuments(prev.documents, result.documents || []) }));
       }
       showToast(result.message, 'success');
     } catch (error) {
@@ -633,7 +722,7 @@ function KnowledgeBasePage() {
     try {
       const folder = await window.yibiao?.knowledgeBase.renameFolder(folderId, name);
       if (!folder) return;
-      setIndex((prev) => ({
+      updateKnowledgeIndex((prev) => ({
         ...prev,
         folders: prev.folders.map((item) => (item.id === folder.id ? folder : item)),
       }));
@@ -661,7 +750,9 @@ function KnowledgeBasePage() {
         const result = await window.yibiao?.knowledgeBase.deleteFolder(folderId);
         const folders = index.folders.filter((item) => item.id !== folderId);
         const documents = index.documents.filter((document) => document.folder_id !== folderId);
-        setIndex({ folders, documents });
+        const nextIndex = { folders, documents };
+        indexRef.current = nextIndex;
+        setIndex(nextIndex);
         if (activeFolderId === folderId) {
           setActiveFolderId(folders[0]?.id || '');
         }
@@ -670,7 +761,7 @@ function KnowledgeBasePage() {
       } else {
         const { document } = deleteConfirm;
         const result = await window.yibiao?.knowledgeBase.deleteDocument(document.id);
-        setIndex((prev) => ({ ...prev, documents: prev.documents.filter((item) => item.id !== document.id) }));
+        updateKnowledgeIndex((prev) => ({ ...prev, documents: prev.documents.filter((item) => item.id !== document.id) }));
         setViewer((prev) => (prev?.document.id === document.id ? null : prev));
         showToast(result?.message || '文档已删除', 'success');
       }
@@ -688,7 +779,7 @@ function KnowledgeBasePage() {
       const result = await window.yibiao?.knowledgeBase.retryDocument(document.id);
       if (result?.document) {
         const updatedDocument = result.document;
-        setIndex((prev) => ({ ...prev, documents: mergeDocuments(prev.documents, [updatedDocument]) }));
+        updateKnowledgeIndex((prev) => ({ ...prev, documents: mergeDocuments(prev.documents, [updatedDocument]) }));
         setViewer((prev) => (prev?.document.id === updatedDocument.id ? { ...prev, document: updatedDocument } : prev));
         setAnalysisSnapshot((prev) => (prev?.document.id === updatedDocument.id ? { ...prev, document: updatedDocument } : prev));
       }
@@ -863,6 +954,7 @@ function KnowledgeBasePage() {
       <>
         <KnowledgeDocumentViewer
           document={viewer.document}
+          categoryLabel={category.label}
           mode={viewer.mode}
           itemsPreview={itemsPreview}
           markdownPreview={markdownPreview}
@@ -882,12 +974,12 @@ function KnowledgeBasePage() {
 
   return (
     <>
-      <div className="page-stack knowledge-page">
-        <section className="knowledge-workspace-bar">
+      <div className="page-stack knowledge-page" data-knowledge-base-id={knowledgeBaseId}>
+        <section className="knowledge-workspace-bar knowledge-category-header">
         <div className="knowledge-breadcrumb">
-          <span>知识库</span>
-          <strong>{activeFolder?.name || '未选择文件夹'}</strong>
-          <small>{index.folders.length} 个文件夹 / {index.documents.length} 个文档</small>
+          <span>本地知识库</span>
+          <strong>{category.label}</strong>
+          <small>{activeFolder ? `当前文件夹：${activeFolder.name} · ` : ''}{index.folders.length} 个文件夹 / {index.documents.length} 个文档</small>
         </div>
         <div className="knowledge-toolbar-actions">
           <button type="button" className="secondary-action" onClick={() => setShowCreateFolder((value) => !value)} disabled={listLoading}>新建文件夹</button>
@@ -937,7 +1029,7 @@ function KnowledgeBasePage() {
               <p>请稍候，正在加载文件夹和文档列表。</p>
             </div>
           ) : index.folders.length ? (
-            <div className="knowledge-folder-list">
+            <div className="knowledge-folder-list knowledge-category-list">
               {index.folders.map((folder) => {
                 const count = documentsByFolder.get(folder.id)?.length || 0;
                 const dragging = dragPayload?.kind === 'folder' && dragPayload.folderId === folder.id;
@@ -993,7 +1085,7 @@ function KnowledgeBasePage() {
               <p>文档列表加载完成后会自动显示。</p>
             </div>
           ) : documents.length ? (
-            <div className="knowledge-document-list">
+            <div className="knowledge-document-list knowledge-category-list">
               {visibleDocuments.map((document) => {
                 const retrying = retryingDocumentIds.has(document.id);
                 const canDragDocument = canMoveKnowledgeDocument(document) && !dragSaving;
@@ -1085,6 +1177,7 @@ function KnowledgeBasePage() {
 
 interface KnowledgeDocumentViewerProps {
   document: KnowledgeDocument;
+  categoryLabel: string;
   mode: KnowledgeViewer['mode'];
   itemsPreview: KnowledgeItem[];
   markdownPreview: string;
@@ -1101,6 +1194,7 @@ interface KnowledgeDocumentViewerProps {
 
 function KnowledgeDocumentViewer({
   document,
+  categoryLabel,
   mode,
   itemsPreview,
   markdownPreview,
@@ -1178,7 +1272,7 @@ function KnowledgeDocumentViewer({
     <div className="page-stack knowledge-viewer-page">
       <section className="knowledge-workspace-bar knowledge-viewer-bar">
         <div className="knowledge-breadcrumb">
-          <span>知识库</span>
+          <span>{categoryLabel}</span>
           <strong>{document.file_name}</strong>
           {developerMode && <code className="knowledge-entity-id">文档ID：{document.id}</code>}
           <small>{mode === 'analysis' ? '分析调试' : mode === 'items' ? `${document.item_count || 0} 条知识` : 'Markdown 原文'}</small>

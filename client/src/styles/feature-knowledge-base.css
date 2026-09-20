@@ -17,6 +17,50 @@
   box-shadow: 0 10px 28px rgba(33, 116, 253, 0.08);
 }
 
+.knowledge-category-header {
+  border-left: 3px solid var(--yb-primary);
+}
+
+.knowledge-category-header .knowledge-breadcrumb {
+  flex-wrap: wrap;
+}
+
+.knowledge-category-header .knowledge-breadcrumb strong {
+  color: var(--yb-primary-deep);
+}
+
+.knowledge-category-list {
+  background: rgba(248, 250, 252, 0.42);
+}
+
+.knowledge-placeholder-page {
+  display: grid;
+  min-height: 0;
+  place-items: center;
+}
+
+.knowledge-placeholder-panel {
+  width: min(560px, 100%);
+  padding: 36px;
+  text-align: center;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid var(--yb-border-soft);
+  border-radius: var(--yb-radius-lg);
+  box-shadow: var(--yb-shadow-sm);
+}
+
+.knowledge-placeholder-panel h2 {
+  margin: 10px 0 8px;
+  color: var(--yb-text);
+  font-size: 24px;
+}
+
+.knowledge-placeholder-panel p {
+  margin: 0;
+  color: var(--yb-text-muted);
+  line-height: 1.7;
+}
+
 .knowledge-breadcrumb {
   display: flex;
   align-items: baseline;

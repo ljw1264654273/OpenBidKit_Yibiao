@@ -7,8 +7,13 @@ export type SectionId =
   | 'business-bid'
   | 'knowledge-base'
   | 'document-knowledge-base'
+  | 'national-standard-knowledge-base'
+  | 'provincial-standard-knowledge-base'
+  | 'municipal-standard-knowledge-base'
+  | 'industry-standard-knowledge-base'
+  | 'enterprise-knowledge-base'
+  | 'remote-knowledge-base'
   | 'image-knowledge-base'
-  | 'resources'
   | 'bid-check'
   | 'duplicate-check'
   | 'rejection-check'
@@ -17,7 +22,6 @@ export type SectionId =
   | 'my-templates'
   | 'new-template'
   | 'export-format'
-  | 'bid-opportunity'
   | 'developer-test'
   | 'developer-json-test'
   | 'developer-multimodal-test'
@@ -26,8 +30,19 @@ export type SectionId =
   | 'developer-export-preview'
   | 'developer-expansion-replace-test'
   | 'developer-agent-test'
-  | 'settings'
-  | 'plugin-manager';
+  | 'settings';
+
+export function normalizeSectionId(section: string | null | undefined): SectionId {
+  switch (section) {
+    case 'knowledge-base':
+    case 'document':
+      return 'document-knowledge-base';
+    case 'image':
+      return 'image-knowledge-base';
+    default:
+      return (section || 'bid-projects') as SectionId;
+  }
+}
 
 export interface AppMenuNotice {
   message: string;
