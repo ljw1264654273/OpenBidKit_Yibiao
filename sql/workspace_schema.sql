@@ -14,7 +14,7 @@ PRAGMA busy_timeout = 5000;
 
 -- 目标完整结构版本。
 -- 运行时代码应通过 PRAGMA user_version 判断是否需要自动升级。
-PRAGMA user_version = 27;
+PRAGMA user_version = 32;
 
 -- v27 标书项目工作区索引。正文和技术方案状态按项目专属表/目录保存。
 CREATE TABLE IF NOT EXISTS bid_projects (
@@ -726,6 +726,7 @@ ON rejection_check_logic_findings(sort_order);
 CREATE TABLE IF NOT EXISTS knowledge_folders (
   folder_id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
+  knowledge_base_id TEXT NOT NULL DEFAULT 'document',
   sort_order INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
@@ -733,6 +734,9 @@ CREATE TABLE IF NOT EXISTS knowledge_folders (
 
 CREATE INDEX IF NOT EXISTS idx_knowledge_folders_order
 ON knowledge_folders(sort_order, created_at);
+
+CREATE INDEX IF NOT EXISTS idx_knowledge_folders_category_order
+ON knowledge_folders(knowledge_base_id, sort_order, created_at);
 
 -- 知识库文档元数据和处理状态。
 -- 原始文件和 Markdown 原文仍保存在 knowledge-base/folders/<folderId>/documents/<documentId>/ 下。

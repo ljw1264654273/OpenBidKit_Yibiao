@@ -3,7 +3,7 @@ const path = require('node:path');
 const Database = require('better-sqlite3');
 const { getWorkspaceDatabasePath } = require('../utils/paths.cjs');
 
-const schemaVersion = 29;
+const schemaVersion = 32;
 
 function safeProjectTablePart(projectId) {
   return String(projectId || '')
@@ -746,6 +746,20 @@ function addKnowledgeDocumentSortOrder(db) {
     DROP INDEX IF EXISTS idx_knowledge_documents_folder_order;
     CREATE INDEX IF NOT EXISTS idx_knowledge_documents_folder_order
     ON knowledge_documents(folder_id, sort_order, created_at DESC);
+  `);
+}
+
+function addKnowledgeFolderCatalog(db) {
+  const existingTables = getExistingTables(db);
+  if (!existingTables.has('knowledge_folders')) return;
+  addColumnIfMissing(db, 'knowledge_folders', 'knowledge_base_id', "TEXT NOT NULL DEFAULT 'document'");
+  db.exec(`
+    UPDATE knowledge_folders
+    SET knowledge_base_id = 'document'
+    WHERE knowledge_base_id IS NULL OR TRIM(knowledge_base_id) = '';
+
+    CREATE INDEX IF NOT EXISTS idx_knowledge_folders_category_order
+    ON knowledge_folders(knowledge_base_id, sort_order, created_at);
   `);
 }
 
@@ -1673,6 +1687,27 @@ const schemaHealthColumnGroups = [
     },
   },
   {
+    version: 30,
+    table: 'technical_plan_outline_nodes',
+    columns: {
+      knowledge_folder_ids_json: 'TEXT',
+    },
+  },
+  {
+    version: 31,
+    table: 'technical_plan_outline_nodes',
+    columns: {
+      knowledge_document_ids_json: 'TEXT',
+    },
+  },
+  {
+    version: 32,
+    table: 'knowledge_folders',
+    columns: {
+      knowledge_base_id: "TEXT NOT NULL DEFAULT 'document'",
+    },
+  },
+  {
     version: 28,
     table: 'technical_plan_illustration_items',
     columns: technicalPlanIllustrationRedrawColumns,
@@ -1748,6 +1783,15 @@ function ensureWorkspaceSchemaHealth(db, targetVersion = schemaVersion, onStatus
   }
   if (targetVersion >= 29) {
     addTechnicalPlanIllustrationOriginalState(db);
+  }
+  if (targetVersion >= 30) {
+    addTechnicalPlanOutlineKnowledgeFolders(db);
+  }
+  if (targetVersion >= 31) {
+    addTechnicalPlanOutlineKnowledgeDocuments(db);
+  }
+  if (targetVersion >= 32) {
+    addKnowledgeFolderCatalog(db);
   }
 }
 
@@ -1896,6 +1940,21 @@ const migrations = [
     version: 29,
     description: '技术方案图片审核新增原始版本基线',
     up: addTechnicalPlanIllustrationOriginalState,
+  },
+  {
+    version: 30,
+    description: '技术方案目录项新增知识库文件夹关联',
+    up: addTechnicalPlanOutlineKnowledgeFolders,
+  },
+  {
+    version: 31,
+    description: '技术方案目录项新增知识库文档关联',
+    up: addTechnicalPlanOutlineKnowledgeDocuments,
+  },
+  {
+    version: 32,
+    description: '知识库文件夹新增固定分类',
+    up: addKnowledgeFolderCatalog,
   },
 ];
 
