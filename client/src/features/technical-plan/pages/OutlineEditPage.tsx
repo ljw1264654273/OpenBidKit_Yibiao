@@ -480,6 +480,7 @@ function OutlineEditPage({
   const knowledgeIndexLoadedRef = useRef(false);
   const knowledgeIndexLoadPromiseRef = useRef<Promise<void> | null>(null);
   const knowledgeIndexRequestIdRef = useRef(0);
+  const knowledgeIndexMountedRef = useRef(false);
   const { showToast } = useToast();
   const { showDocumentParseNotice } = useDocumentParseNotice();
   const activeOutlineData = sorting ? draftOutlineData : outlineData;
@@ -801,6 +802,15 @@ function OutlineEditPage({
   }, [progressCollapsed]);
 
   useEffect(() => {
+    knowledgeIndexMountedRef.current = true;
+    return () => {
+      knowledgeIndexMountedRef.current = false;
+      knowledgeIndexRequestIdRef.current += 1;
+      knowledgeIndexLoadPromiseRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
     if (!generationDialogOpen) {
       return;
     }
@@ -843,20 +853,21 @@ function OutlineEditPage({
     const requestId = ++knowledgeIndexRequestIdRef.current;
     const loadPromise = (async () => {
       try {
+        if (!knowledgeIndexMountedRef.current) return;
         setLoadingKnowledge(true);
         const data = await window.yibiao?.knowledgeBase.list({ allKnowledgeBases: true });
-        if (requestId !== knowledgeIndexRequestIdRef.current) return;
+        if (!knowledgeIndexMountedRef.current || requestId !== knowledgeIndexRequestIdRef.current) return;
         setKnowledgeIndex(data || emptyKnowledgeIndex);
         setExpandedKnowledgeFolderIds(getInitialExpandedKnowledgeFolders(data || emptyKnowledgeIndex));
         knowledgeIndexLoadedRef.current = true;
       } catch (error) {
-        if (requestId !== knowledgeIndexRequestIdRef.current) return;
+        if (!knowledgeIndexMountedRef.current || requestId !== knowledgeIndexRequestIdRef.current) return;
         knowledgeIndexLoadedRef.current = false;
         showToast(error instanceof Error ? error.message : '读取知识库失败', 'error');
         setKnowledgeIndex(emptyKnowledgeIndex);
         setExpandedKnowledgeFolderIds(new Set());
       } finally {
-        if (requestId === knowledgeIndexRequestIdRef.current) {
+        if (knowledgeIndexMountedRef.current && requestId === knowledgeIndexRequestIdRef.current) {
           setLoadingKnowledge(false);
         }
       }
