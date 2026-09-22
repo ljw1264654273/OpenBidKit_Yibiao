@@ -76,6 +76,14 @@ test('持久化图片模式不因叶子数量或图片模型可用性变成自�
   assert.equal(runtime.maxHtmlImages, 2);
 });
 
+test('缺少图片模式的历史配置默认按丰富图文归一化', () => {
+  const normalized = normalizePersistedContentGenerationOptions({});
+  assert.equal(normalized.imagePreset, 'enhanced');
+  assert.equal(normalized.useAiImages, true);
+  assert.equal(normalized.useMermaidImages, true);
+  assert.equal(normalized.useHtmlImages, true);
+});
+
 test('历史配置缺少 imagePreset 时精确匹配，否则为 custom', () => {
   assert.equal(inferImagePreset({
     useAiImages: true,

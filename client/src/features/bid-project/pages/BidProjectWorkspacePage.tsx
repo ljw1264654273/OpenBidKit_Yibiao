@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppDialog, EmptyState, useToast } from '../../../shared/ui';
 import type { SectionId } from '../../../shared/types/navigation';
 import { bidProjectStorage } from '../services/bidProjectStorage';
+import { filterBidProjects, getBidProjectCounts, paginateBidProjects } from '../services/bidProjectList';
 import type { BidContentDuplicateResult, BidProject, BidProjectDuplicateSummary, BidProjectStatus } from '../types';
 import BidProjectCompareBar from '../components/BidProjectCompareBar';
 import BidProjectDuplicateResultDialog from '../components/BidProjectDuplicateResultDialog';
@@ -10,15 +11,18 @@ import WordExportDialog from '../../export-format/components/WordExportDialog';
 
 interface BidProjectWorkspacePageProps {
   onSectionChange: (section: SectionId) => void;
-  onProjectChange?: (projectId: string | null) => void;
+  onProjectOpen: (project: BidProject) => Promise<void>;
 }
 
-function BidProjectWorkspacePage({ onSectionChange, onProjectChange }: BidProjectWorkspacePageProps) {
+const DUPLICATE_RESULT_PAGE_SIZE = 20;
+
+function BidProjectWorkspacePage({ onSectionChange, onProjectOpen }: BidProjectWorkspacePageProps) {
   const { showToast } = useToast();
   const [projects, setProjects] = useState<BidProject[]>([]);
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState<'all' | BidProjectStatus>('all');
-  const [type, setType] = useState('all');
+  const [type, setType] = useState<'all' | BidProject['projectType']>('all');
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [renameTarget, setRenameTarget] = useState<BidProject | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<BidProject | null>(null);
@@ -28,20 +32,24 @@ function BidProjectWorkspacePage({ onSectionChange, onProjectChange }: BidProjec
   const [comparePair, setComparePair] = useState<[BidProject, BidProject] | null>(null);
   const [compareResult, setCompareResult] = useState<BidContentDuplicateResult | null>(null);
   const [compareLoading, setCompareLoading] = useState(false);
+  const [duplicateResultDialogOpen, setDuplicateResultDialogOpen] = useState(false);
+  const [duplicateResultLoading, setDuplicateResultLoading] = useState(false);
+  const [duplicateResultError, setDuplicateResultError] = useState<string | null>(null);
   const [recentDuplicateSummaries, setRecentDuplicateSummaries] = useState<Record<string, BidProjectDuplicateSummary | null>>({});
   const [exportTarget, setExportTarget] = useState<BidProject | null>(null);
   const compareRequestRef = useRef(0);
+  const duplicateResultRequestRef = useRef(0);
 
   const loadProjects = useCallback(async () => {
     setLoading(true);
     try {
-      setProjects(await bidProjectStorage.list({ query, status, type }));
+      setProjects(await bidProjectStorage.list());
     } catch (error) {
       showToast(error instanceof Error ? error.message : '读取标书项目失败', 'error');
     } finally {
       setLoading(false);
     }
-  }, [query, showToast, status, type]);
+  }, [showToast]);
 
   const loadRecentDuplicateSummaries = useCallback(async (items: BidProject[]) => {
     if (!items.length) {
@@ -60,15 +68,22 @@ function BidProjectWorkspacePage({ onSectionChange, onProjectChange }: BidProjec
   }, [loadProjects]);
 
   useEffect(() => {
+    setPage(1);
+  }, [query, status, type]);
+
+  useEffect(() => {
     void loadRecentDuplicateSummaries(projects);
   }, [loadRecentDuplicateSummaries, projects]);
 
-  const counts = useMemo(() => ({
-    all: projects.length,
-    generating: projects.filter((project) => project.status === 'generating').length,
-    incomplete: projects.filter((project) => project.status === 'incomplete').length,
-    completed: projects.filter((project) => project.status === 'completed').length,
-  }), [projects]);
+  const counts = useMemo(() => getBidProjectCounts(projects), [projects]);
+  const filteredProjects = useMemo(
+    () => filterBidProjects(projects, { query, status, type }),
+    [projects, query, status, type],
+  );
+  const paginatedProjects = useMemo(
+    () => paginateBidProjects(filteredProjects, page),
+    [filteredProjects, page],
+  );
 
   const selectedProjects = useMemo(
     () => compareSelection
@@ -79,9 +94,7 @@ function BidProjectWorkspacePage({ onSectionChange, onProjectChange }: BidProjec
 
   const openProject = async (project: BidProject) => {
     try {
-      await window.yibiao?.bidProject.open(project.projectId);
-      onProjectChange?.(project.projectId);
-      onSectionChange(project.projectType === 'existing-plan-expansion' ? 'existing-plan-expansion' : 'technical-plan');
+      await onProjectOpen(project);
     } catch (error) {
       showToast(error instanceof Error ? error.message : '打开标书项目失败', 'error');
     }
@@ -124,11 +137,15 @@ function BidProjectWorkspacePage({ onSectionChange, onProjectChange }: BidProjec
         sensitivity,
       });
       if (requestId !== compareRequestRef.current) return;
+      setDuplicateResultError(null);
       setCompareResult(result);
+      setDuplicateResultDialogOpen(true);
       await loadRecentDuplicateSummaries(projects);
     } catch (error) {
       if (requestId !== compareRequestRef.current) return;
-      showToast(error instanceof Error ? error.message : '正文查重失败', 'error');
+      const message = error instanceof Error ? error.message : '正文查重失败';
+      setDuplicateResultError(message);
+      showToast(message, 'error');
     } finally {
       if (requestId === compareRequestRef.current) setCompareLoading(false);
     }
@@ -152,17 +169,19 @@ function BidProjectWorkspacePage({ onSectionChange, onProjectChange }: BidProjec
   const clearCompareSelection = () => setCompareSelection([]);
   const swapCompareSelection = () => setCompareSelection((previous) => [previous[1], previous[0]].filter(Boolean));
 
-  const openLatestDuplicateResult = async (project: BidProject) => {
-    if (compareLoading) {
-      showToast('当前正在对比正文，请等待本次对比完成', 'info');
-      return;
-    }
+  const loadDuplicateResultPage = async (resultId: string, offset: number) => {
+    const requestId = duplicateResultRequestRef.current + 1;
+    duplicateResultRequestRef.current = requestId;
+    setDuplicateResultError(null);
+    setDuplicateResultLoading(true);
     try {
-      const result = await bidProjectStorage.loadLatestDuplicateResult(project.projectId);
-      if (!result) {
-        showToast('暂无查重结果', 'info');
-        return;
-      }
+      const result = await bidProjectStorage.loadDuplicateResultPage(
+        resultId,
+        offset,
+        DUPLICATE_RESULT_PAGE_SIZE,
+      );
+      if (requestId !== duplicateResultRequestRef.current) return;
+      if (!result) throw new Error('查重结果已不存在，请重新执行查重');
       const leftProject = result.leftProject || projects.find((item) => item.projectId === result.leftProjectId);
       const rightProject = result.rightProject || projects.find((item) => item.projectId === result.rightProjectId);
       if (!leftProject || !rightProject) throw new Error('查重结果对应的项目已不存在');
@@ -172,13 +191,44 @@ function BidProjectWorkspacePage({ onSectionChange, onProjectChange }: BidProjec
       setComparePair([leftProject, rightProject]);
       setCompareResult(result);
     } catch (error) {
-      showToast(error instanceof Error ? error.message : '读取查重结果失败', 'error');
+      if (requestId !== duplicateResultRequestRef.current) return;
+      const message = error instanceof Error ? error.message : '读取查重结果失败';
+      setDuplicateResultError(message);
+      showToast(message, 'error');
+    } finally {
+      if (requestId === duplicateResultRequestRef.current) setDuplicateResultLoading(false);
     }
+  };
+
+  const openLatestDuplicateResult = async (project: BidProject) => {
+    if (compareLoading) {
+      showToast('当前正在对比正文，请等待本次对比完成', 'info');
+      return;
+    }
+    const duplicateSummary = recentDuplicateSummaries[project.projectId];
+    if (!duplicateSummary) {
+      showToast('暂无查重结果', 'info');
+      return;
+    }
+    const otherProject = projects.find((item) => item.projectId === duplicateSummary.otherProjectId);
+    if (!otherProject) {
+      showToast('查重结果对应的项目已不存在', 'error');
+      return;
+    }
+    setComparePair([project, otherProject]);
+    setCompareResult(null);
+    setDuplicateResultError(null);
+    setDuplicateResultDialogOpen(true);
+    await loadDuplicateResultPage(duplicateSummary.resultId, 0);
   };
 
   const closeCompareResult = () => {
     if (compareLoading) return;
     compareRequestRef.current += 1;
+    duplicateResultRequestRef.current += 1;
+    setDuplicateResultDialogOpen(false);
+    setDuplicateResultLoading(false);
+    setDuplicateResultError(null);
     setComparePair(null);
     setCompareResult(null);
   };
@@ -242,16 +292,16 @@ function BidProjectWorkspacePage({ onSectionChange, onProjectChange }: BidProjec
       </header>
 
       <div className="bid-project-summary">
-        <button type="button" className={`bid-project-summary-card ${status === 'all' ? 'is-active' : ''}`} onClick={() => setStatus('all')}>
+        <button type="button" aria-pressed={status === 'all'} className={`bid-project-summary-card ${status === 'all' ? 'is-active' : ''}`} onClick={() => setStatus('all')}>
           <span>全部项目</span><strong>{counts.all}</strong><small>本机保存</small>
         </button>
-        <button type="button" className={`bid-project-summary-card ${status === 'generating' ? 'is-active' : ''}`} onClick={() => setStatus('generating')}>
+        <button type="button" aria-pressed={status === 'generating'} className={`bid-project-summary-card ${status === 'generating' ? 'is-active' : ''}`} onClick={() => setStatus('generating')}>
           <span>生成中</span><strong>{counts.generating}</strong><small>后台任务</small>
         </button>
-        <button type="button" className={`bid-project-summary-card ${status === 'incomplete' ? 'is-active' : ''}`} onClick={() => setStatus('incomplete')}>
+        <button type="button" aria-pressed={status === 'incomplete'} className={`bid-project-summary-card ${status === 'incomplete' ? 'is-active' : ''}`} onClick={() => setStatus('incomplete')}>
           <span>未完成</span><strong>{counts.incomplete}</strong><small>可以继续处理</small>
         </button>
-        <button type="button" className={`bid-project-summary-card ${status === 'completed' ? 'is-active' : ''}`} onClick={() => setStatus('completed')}>
+        <button type="button" aria-pressed={status === 'completed'} className={`bid-project-summary-card ${status === 'completed' ? 'is-active' : ''}`} onClick={() => setStatus('completed')}>
           <span>已完成</span><strong>{counts.completed}</strong><small>可直接导出</small>
         </button>
       </div>
@@ -276,7 +326,7 @@ function BidProjectWorkspacePage({ onSectionChange, onProjectChange }: BidProjec
             <option value="completed">状态：已完成</option>
             <option value="failed">状态：生成失败</option>
           </select>
-          <select value={type} onChange={(event) => setType(event.target.value)} aria-label="类型筛选">
+          <select value={type} onChange={(event) => setType(event.target.value as 'all' | BidProject['projectType'])} aria-label="类型筛选">
             <option value="all">类型：全部</option>
             <option value="technical-plan">技术方案</option>
             <option value="existing-plan-expansion">已有方案扩写</option>
@@ -284,12 +334,15 @@ function BidProjectWorkspacePage({ onSectionChange, onProjectChange }: BidProjec
         </div>
         <div className="bid-project-list-head"><span>标书</span><span>类型</span><span>状态</span><span>更新时间</span><span>操作</span></div>
         {loading ? <div className="bid-project-loading">正在读取本机标书项目...</div> : null}
-        {!loading && projects.length === 0 ? (
-          <EmptyState title="还没有标书项目" hint="新建一份标书后，目录、正文和生成进度都会独立保存。">
-            <button type="button" className="primary-action" onClick={() => { void createProject(); }}>新建第一份标书</button>
+        {!loading && filteredProjects.length === 0 ? (
+          <EmptyState
+            title={projects.length ? '没有符合条件的标书项目' : '还没有标书项目'}
+            hint={projects.length ? '可以调整搜索关键词或筛选条件。' : '新建一份标书后，目录、正文和生成进度都会独立保存。'}
+          >
+            {projects.length ? null : <button type="button" className="primary-action" onClick={() => { void createProject(); }}>新建第一份标书</button>}
           </EmptyState>
         ) : null}
-        {!loading && projects.map((project) => (
+        {!loading && paginatedProjects.items.map((project) => (
           <BidProjectRow
             key={project.projectId}
             project={project}
@@ -303,6 +356,29 @@ function BidProjectWorkspacePage({ onSectionChange, onProjectChange }: BidProjec
             onViewDuplicateResult={(target) => { void openLatestDuplicateResult(target); }}
           />
         ))}
+        {!loading && filteredProjects.length > 0 ? (
+          <div className="bid-project-pagination" aria-label="标书项目分页">
+            <span>共 {filteredProjects.length} 份，当前第 {paginatedProjects.page} / {paginatedProjects.pageCount} 页</span>
+            <div className="bid-project-pagination-actions">
+              <button
+                type="button"
+                className="secondary-action"
+                onClick={() => setPage((current) => Math.max(1, current - 1))}
+                disabled={paginatedProjects.page <= 1}
+              >
+                上一页
+              </button>
+              <button
+                type="button"
+                className="secondary-action"
+                onClick={() => setPage((current) => Math.min(paginatedProjects.pageCount, current + 1))}
+                disabled={paginatedProjects.page >= paginatedProjects.pageCount}
+              >
+                下一页
+              </button>
+            </div>
+          </div>
+        ) : null}
       </section>
 
       <AppDialog
@@ -336,12 +412,17 @@ function BidProjectWorkspacePage({ onSectionChange, onProjectChange }: BidProjec
       />
 
       <BidProjectDuplicateResultDialog
-        open={Boolean(compareResult)}
+        open={duplicateResultDialogOpen}
         result={compareResult}
+        resultLoading={compareLoading || duplicateResultLoading}
+        error={duplicateResultError}
         leftProject={comparePair?.[0] || null}
         rightProject={comparePair?.[1] || null}
         onOpenChange={(open) => { if (!open) closeCompareResult(); }}
         onResultChange={setCompareResult}
+        onLoadPage={async (offset) => {
+          if (compareResult?.resultId) await loadDuplicateResultPage(compareResult.resultId, offset);
+        }}
         onRecompare={async () => {
           if (comparePair) await runCompare(comparePair, compareSensitivity);
         }}

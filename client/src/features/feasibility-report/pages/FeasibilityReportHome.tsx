@@ -1,7 +1,7 @@
 import * as Dialog from '@radix-ui/react-dialog';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { trackPageView } from '../../../shared/analytics/analytics';
-import { AppDialog, AppSwitch, FloatingToolbar, ProgressBar, ToolbarArrowLeftIcon, ToolbarArrowRightIcon, ToolbarDocumentIcon, ToolbarSparkleIcon, useToast } from '../../../shared/ui';
+import { AppDialog, AppSwitch, FloatingToolbar, ProgressBar, ToolbarArrowLeftIcon, ToolbarArrowRightIcon, ToolbarDocumentIcon, useToast } from '../../../shared/ui';
 import type { FloatingToolbarGroup } from '../../../shared/ui';
 import type { OutlineItem } from '../../../shared/types';
 import type { ExportFormatConfig, ExportTemplateRecord } from '../../../shared/types/exportFormat';
@@ -39,8 +39,6 @@ const initialExportProgress = {
   filePath: '',
   error: '',
 };
-
-const PET_PLUGIN_ID = 'openbidkit-pet';
 
 function hasOwn(value: object | null | undefined, field: string) {
   return Object.prototype.hasOwnProperty.call(value || {}, field);
@@ -83,8 +81,6 @@ function FeasibilityReportHome({ registerLeaveGuard, onSectionChange }: Feasibil
   const [selectedExportTemplateId, setSelectedExportTemplateId] = useState('');
   const [isExporting, setIsExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState(initialExportProgress);
-  const [petInstallDialogOpen, setPetInstallDialogOpen] = useState(false);
-  const [installingPetPlugin, setInstallingPetPlugin] = useState(false);
 
   const activeIndex = Math.max(0, FEASIBILITY_STEPS.indexOf(state.step));
   const analysisRunning = isActiveStatus(state.analysisTask?.status);
@@ -112,7 +108,6 @@ function FeasibilityReportHome({ registerLeaveGuard, onSectionChange }: Feasibil
 
   useEffect(() => {
     trackPageView(`feasibility-report/${state.step}`);
-    void window.yibiao?.ui?.setCurrentView({ section: 'feasibility-report', step: state.step });
   }, [state.step]);
 
   useEffect(() => {
@@ -436,58 +431,6 @@ function FeasibilityReportHome({ registerLeaveGuard, onSectionChange }: Feasibil
     }
   };
 
-  const openPetAiChat = useCallback(async () => {
-    await window.yibiao!.plugins.notifyEvent(PET_PLUGIN_ID, 'open-ai-chat');
-  }, []);
-
-  const handleAiAdjustClick = useCallback(async () => {
-    try {
-      const plugins = await window.yibiao!.plugins.getAvailablePlugins();
-      const pet = plugins.find((plugin) => plugin.id === PET_PLUGIN_ID);
-      if (!pet) {
-        showToast('插件市场中未找到桌宠插件，请在插件市场刷新后重试', 'error');
-        return;
-      }
-      if (!pet.installed || !pet.enabled) {
-        setPetInstallDialogOpen(true);
-        return;
-      }
-      await openPetAiChat();
-      showToast('请在桌宠对话框中输入调整要求', 'info');
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : '打开桌宠 AI 对话失败', 'error');
-    }
-  }, [openPetAiChat, showToast]);
-
-  const installPetPluginAndOpenChat = useCallback(async () => {
-    setInstallingPetPlugin(true);
-    try {
-      const plugins = await window.yibiao!.plugins.getAvailablePlugins();
-      const pet = plugins.find((plugin) => plugin.id === PET_PLUGIN_ID);
-      if (!pet) {
-        throw new Error('插件市场中未找到桌宠插件');
-      }
-      if (!pet.installed) {
-        await window.yibiao!.plugins.install(PET_PLUGIN_ID);
-      }
-      await window.yibiao!.plugins.enable(PET_PLUGIN_ID);
-      setPetInstallDialogOpen(false);
-      await openPetAiChat();
-      showToast('桌宠已启用，请在桌宠对话框中输入调整要求', 'success');
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : '安装桌宠插件失败', 'error');
-    } finally {
-      setInstallingPetPlugin(false);
-    }
-  }, [openPetAiChat, showToast]);
-
-  const aiAdjustDisabled = !state.outlineData?.outline?.length || outlineRunning || outlineAdjusting;
-  const aiAdjustTooltip = outlineAdjusting
-    ? 'AI 正在按要求调整目录，请稍候'
-    : outlineRunning || !state.outlineData?.outline?.length
-      ? '目录生成结束后才能使用 AI 调整'
-      : '通过桌宠 AI 对话调整当前目录';
-
   const nextDisabled = state.step === 'materials'
     ? !draftProjectInfo.projectName.trim()
     : state.step === 'sources'
@@ -505,20 +448,6 @@ function FeasibilityReportHome({ registerLeaveGuard, onSectionChange }: Feasibil
       id: 'feasibility-reset',
       actions: [{ id: 'reset', label: '重置', variant: 'danger', onClick: () => setResetOpen(true) }],
     },
-    ...(state.step === 'outline' ? [{
-      id: 'feasibility-ai',
-      actions: [
-        {
-          id: 'ai-adjust',
-          label: outlineAdjusting ? 'AI调整中' : 'AI调整',
-          icon: <ToolbarSparkleIcon />,
-          variant: 'ai' as const,
-          disabled: aiAdjustDisabled,
-          tooltip: aiAdjustTooltip,
-          onClick: () => { void handleAiAdjustClick(); },
-        },
-      ],
-    }] : []),
     {
       id: 'feasibility-navigation',
       actions: state.step === 'content'
@@ -678,22 +607,6 @@ function FeasibilityReportHome({ registerLeaveGuard, onSectionChange }: Feasibil
                 }).catch((error) => showToast(error instanceof Error ? error.message : '重置失败', 'error'));
               }}
             >确认重置</button>
-          </>
-        )}
-      />
-
-      <AppDialog
-        open={petInstallDialogOpen}
-        onOpenChange={(open) => !open && !installingPetPlugin && setPetInstallDialogOpen(false)}
-        kicker="AI 调整"
-        title="需要安装桌宠插件"
-        description="AI 调整通过桌宠的 AI 对话完成。当前桌宠插件尚未安装或未启用，是否立即安装并启用？"
-        actions={(
-          <>
-            <button type="button" className="secondary-action" onClick={() => setPetInstallDialogOpen(false)} disabled={installingPetPlugin}>取消</button>
-            <button type="button" className="primary-action" onClick={() => { void installPetPluginAndOpenChat(); }} disabled={installingPetPlugin}>
-              {installingPetPlugin ? '正在安装...' : '安装并启用'}
-            </button>
           </>
         )}
       />

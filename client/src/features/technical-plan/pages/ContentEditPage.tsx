@@ -154,14 +154,14 @@ function ImageExampleIcon() {
 }
 
 const defaultContentGenerationOptions: ContentGenerationOptions = {
-  imagePreset: 'basic',
-  useAiImages: false,
-  maxAiImages: 0,
+  imagePreset: 'enhanced',
+  useAiImages: true,
+  maxAiImages: 10,
   useMermaidImages: true,
   useAiRedesignForMermaid: false,
-  maxMermaidImages: 5,
-  useHtmlImages: false,
-  maxHtmlImages: 0,
+  maxMermaidImages: 8,
+  useHtmlImages: true,
+  maxHtmlImages: 8,
   htmlImageTypes: DEFAULT_HTML_IMAGE_TYPES,
   tableRequirement: 'heavy',
   enableConsistencyAudit: true,

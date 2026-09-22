@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import * as Dialog from '@radix-ui/react-dialog';
 import { ProgressBar, useToast } from '../../../shared/ui';
 import type { KnowledgeBaseIndex } from '../../knowledge-base/types';
+import { KNOWLEDGE_BASE_CATALOG, getKnowledgeBaseCatalogItem } from '../../knowledge-base/knowledgeBaseCatalog';
 import type { OutlineData, OutlineItem } from '../../../shared/types';
 import { formatOutlineTitle } from '../../../shared/utils/outlineNumbering';
 import { DEFAULT_EXPORT_FORMAT } from '../../../shared/types/exportFormat';
@@ -133,7 +134,7 @@ function OutlinePage({
   const staleText = running && Number.isFinite(updatedAt) ? `最近更新 ${Math.floor(Math.max(0, nowTick - updatedAt) / 1000)} 秒前` : '';
 
   useEffect(() => {
-    window.yibiao?.knowledgeBase.list().then(setKnowledgeIndex).catch(() => setKnowledgeIndex(emptyKnowledgeIndex));
+    window.yibiao?.knowledgeBase.list({ allKnowledgeBases: true }).then(setKnowledgeIndex).catch(() => setKnowledgeIndex(emptyKnowledgeIndex));
   }, []);
 
   useEffect(() => {
@@ -412,19 +413,50 @@ function OutlinePage({
                   <span>已选择 {draftKnowledgeIds.length} 个文档</span>
                 </div>
                 <div className="outline-knowledge-document-list">
-                  {knowledgeIndex.documents.filter((doc) => doc.status === 'success').map((doc) => {
-                    const selected = draftKnowledgeIds.includes(doc.id);
+                  {KNOWLEDGE_BASE_CATALOG.map((category) => {
+                    const folders = knowledgeIndex.folders
+                      .filter((folder) => folder.knowledge_base_id === category.id)
+                      .map((folder) => ({
+                        folder,
+                        documents: knowledgeIndex.documents.filter((doc) => doc.folder_id === folder.id && doc.status === 'success'),
+                      }))
+                      .filter(({ documents }) => documents.length);
+                    if (!folders.length) return null;
                     return (
-                      <label key={doc.id} className={`outline-knowledge-document${selected ? ' is-selected' : ''}`}>
-                        <input
-                          type="checkbox"
-                          checked={selected}
-                          onChange={(event) => setDraftKnowledgeIds((prev) => (
-                            event.target.checked ? [...prev, doc.id] : prev.filter((id) => id !== doc.id)
-                          ))}
-                        />
-                        <span><strong>{doc.file_name}</strong></span>
-                      </label>
+                      <section className="outline-knowledge-category-group" key={category.id}>
+                        <div className="outline-knowledge-category-head">
+                          <strong>{category.label}</strong>
+                          <small>{folders.reduce((count, item) => count + item.documents.length, 0)} 个可用文档</small>
+                        </div>
+                        {folders.map(({ folder, documents }) => (
+                          <section className="outline-knowledge-folder compact" key={folder.id}>
+                            <div className="outline-knowledge-folder-head compact">
+                              <strong>{folder.name}</strong>
+                              <small>{documents.length} 个</small>
+                            </div>
+                            <div className="outline-knowledge-document-list compact">
+                              {documents.map((doc) => {
+                                const selected = draftKnowledgeIds.includes(doc.id);
+                                return (
+                                  <label key={doc.id} className={`outline-knowledge-document compact${selected ? ' is-selected' : ''}`}>
+                                    <input
+                                      type="checkbox"
+                                      checked={selected}
+                                      onChange={(event) => setDraftKnowledgeIds((prev) => (
+                                        event.target.checked ? [...prev, doc.id] : prev.filter((id) => id !== doc.id)
+                                      ))}
+                                    />
+                                    <span>
+                                      <strong title={doc.file_name}>{doc.file_name}</strong>
+                                      <small>{getKnowledgeBaseCatalogItem(folder.knowledge_base_id)?.label || category.label} / {folder.name}</small>
+                                    </span>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          </section>
+                        ))}
+                      </section>
                     );
                   })}
                   {!knowledgeIndex.documents.some((doc) => doc.status === 'success') && (

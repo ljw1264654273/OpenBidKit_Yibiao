@@ -42,9 +42,9 @@ const originalPlanMarkdownRelativePath = path.join('technical-plan', 'original-p
 const originalOutlineRuntimeFileName = 'original-outline-runtime.json';
 const defaultOutlineWordControlOptions = Object.freeze({
   enabled: false,
-  minimumWords: 0,
-  maximumWords: 0,
-  sectionWords: 0,
+  minimumWords: 550000,
+  maximumWords: 650000,
+  sectionWords: 1800,
   strictSectionWords: false,
 });
 
@@ -377,6 +377,8 @@ function flattenOutlineItems(items, parentNodeId = null, level = 1, rows = []) {
       source_requirement_id: item?.source_requirement_id ? String(item.source_requirement_id) : null,
       source_requirement_title: item?.source_requirement_title ? String(item.source_requirement_title) : null,
       knowledge_item_ids_json: Array.isArray(item?.knowledge_item_ids) && item.knowledge_item_ids.length ? JSON.stringify(item.knowledge_item_ids) : null,
+      knowledge_folder_ids_json: Array.isArray(item?.knowledge_folder_ids) && item.knowledge_folder_ids.length ? JSON.stringify(item.knowledge_folder_ids) : null,
+      knowledge_document_ids_json: Array.isArray(item?.knowledge_document_ids) && item.knowledge_document_ids.length ? JSON.stringify(item.knowledge_document_ids) : null,
       content: String(item?.content || ''),
     });
     if (item?.children?.length) {
@@ -420,6 +422,10 @@ function normalizeStringSet(value) {
   return new Set((Array.isArray(value) ? value : [])
     .map((item) => String(item || '').trim())
     .filter(Boolean));
+}
+
+function normalizeStringList(value) {
+  return [...normalizeStringSet(value)];
 }
 
 function reverseIdMap(idMap) {
@@ -613,28 +619,6 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
   }
   function deleteGlobalFactsAgentTask() {
     agentService.deletePersistentTask(scopedAgentTaskKey(GLOBAL_FACTS_AGENT_TASK_KEY));
-  }
-  let agentWorkspaceChangeListener = null;
-  let lastAgentWorkspaceSignal = null;
-  function setAgentWorkspaceChangeListener(listener) {
-    agentWorkspaceChangeListener = typeof listener === 'function' ? listener : null;
-  }
-  function getAgentWorkspaceSignal() {
-    const meta = ensureMetaRow();
-    const hasOutline = Boolean(db.prepare('SELECT 1 FROM technical_plan_outline_nodes LIMIT 1').get());
-    const hasFacts = Boolean(db.prepare('SELECT 1 FROM technical_plan_global_fact_groups LIMIT 1').get());
-    return `${meta.step || ''}|${hasOutline ? 1 : 0}|${hasFacts ? 1 : 0}`;
-  }
-  function notifyAgentWorkspaceChange(options = {}) {
-    const signal = getAgentWorkspaceSignal();
-    if (!options.force && signal === lastAgentWorkspaceSignal) return;
-    lastAgentWorkspaceSignal = signal;
-    if (!agentWorkspaceChangeListener) return;
-    try {
-      agentWorkspaceChangeListener();
-    } catch (error) {
-      console.error('[technical-plan] Agent 工作空间变更通知失败:', error);
-    }
   }
   const tenderMarkdownPath = path.join(technicalPlanDir, 'tender.md');
   const tenderOriginalMarkdownPath = path.join(technicalPlanDir, 'tender-original.md');
@@ -1431,6 +1415,8 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
         source_requirement_id: row.source_requirement_id || undefined,
         source_requirement_title: row.source_requirement_title || undefined,
         knowledge_item_ids: safeJsonParse(row.knowledge_item_ids_json, undefined),
+        knowledge_folder_ids: safeJsonParse(row.knowledge_folder_ids_json, undefined),
+        knowledge_document_ids: safeJsonParse(row.knowledge_document_ids_json, undefined),
         content: row.content || '',
         children: [],
       });
@@ -1454,6 +1440,8 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
         item.children.forEach(cleanup);
       }
       if (!item.knowledge_item_ids?.length) delete item.knowledge_item_ids;
+      if (!item.knowledge_folder_ids?.length) delete item.knowledge_folder_ids;
+      if (!item.knowledge_document_ids?.length) delete item.knowledge_document_ids;
       if (!item.content) delete item.content;
       return item;
     }
@@ -1478,10 +1466,10 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     const upsert = db.prepare(`
       INSERT INTO technical_plan_outline_nodes (
         node_id, parent_node_id, sort_order, level, title, description, content_mode, content_mode_note, source_requirement_id,
-        source_requirement_title, knowledge_item_ids_json, content, created_at, updated_at
+        source_requirement_title, knowledge_item_ids_json, knowledge_folder_ids_json, knowledge_document_ids_json, content, created_at, updated_at
       ) VALUES (
         @node_id, @parent_node_id, @sort_order, @level, @title, @description, @content_mode, @content_mode_note, @source_requirement_id,
-        @source_requirement_title, @knowledge_item_ids_json, @content, @created_at, @updated_at
+        @source_requirement_title, @knowledge_item_ids_json, @knowledge_folder_ids_json, @knowledge_document_ids_json, @content, @created_at, @updated_at
       ) ON CONFLICT(node_id) DO UPDATE SET
         parent_node_id = excluded.parent_node_id,
         sort_order = excluded.sort_order,
@@ -1493,6 +1481,8 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
         source_requirement_id = excluded.source_requirement_id,
         source_requirement_title = excluded.source_requirement_title,
         knowledge_item_ids_json = excluded.knowledge_item_ids_json,
+        knowledge_folder_ids_json = excluded.knowledge_folder_ids_json,
+        knowledge_document_ids_json = excluded.knowledge_document_ids_json,
         content = excluded.content,
         updated_at = excluded.updated_at
     `);
@@ -2428,7 +2418,6 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       selected_section_id: null,
       selected_section_title: null,
     });
-    notifyAgentWorkspaceChange({ force: true });
   }
 
   function clearDownstreamFromBidSectionChange() {
@@ -2452,13 +2441,41 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       outline_project_name: null,
       outline_project_overview: null,
     });
-    notifyAgentWorkspaceChange({ force: true });
   }
 
   function clearContentGenerationState() {
     db.prepare("UPDATE technical_plan_outline_nodes SET content = '', updated_at = ?").run(now());
     db.prepare('DELETE FROM technical_plan_content_sections').run();
     db.prepare('DELETE FROM technical_plan_content_plans').run();
+    db.prepare("DELETE FROM technical_plan_tasks WHERE type = 'content-generation'").run();
+    clearContentIllustrationPlan();
+    clearTechnicalPlanMermaidCache();
+    updateMeta({ content_generation_runtime_json: null });
+  }
+
+  function collectOutlineNodeAndDescendantIds(nodeId) {
+    const targetNodeId = String(nodeId || '').trim();
+    if (!targetNodeId) return [];
+    return db.prepare(`
+      WITH RECURSIVE affected(node_id) AS (
+        SELECT node_id FROM technical_plan_outline_nodes WHERE node_id = ?
+        UNION ALL
+        SELECT child.node_id
+        FROM technical_plan_outline_nodes child
+        JOIN affected parent ON child.parent_node_id = parent.node_id
+      )
+      SELECT node_id FROM affected
+    `).all(targetNodeId).map((row) => row.node_id);
+  }
+
+  function clearContentGenerationStateForNodes(nodeIds) {
+    const affectedIds = normalizeStringList(nodeIds);
+    if (!affectedIds.length) return;
+    const placeholders = affectedIds.map(() => '?').join(', ');
+    const timestamp = now();
+    db.prepare(`UPDATE technical_plan_outline_nodes SET content = '', updated_at = ? WHERE node_id IN (${placeholders})`).run(timestamp, ...affectedIds);
+    db.prepare(`DELETE FROM technical_plan_content_sections WHERE node_id IN (${placeholders})`).run(...affectedIds);
+    db.prepare(`DELETE FROM technical_plan_content_plans WHERE node_id IN (${placeholders})`).run(...affectedIds);
     db.prepare("DELETE FROM technical_plan_tasks WHERE type = 'content-generation'").run();
     clearContentIllustrationPlan();
     clearTechnicalPlanMermaidCache();
@@ -2483,14 +2500,6 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       content_generation_runtime_json: null,
       outline_word_control_snapshot_json: null,
     });
-    notifyAgentWorkspaceChange({ force: true });
-  }
-
-  function assertNoTechnicalPlanTaskRunning() {
-    const row = db.prepare("SELECT type FROM technical_plan_tasks WHERE status IN ('running', 'pausing') LIMIT 1").get();
-    if (row) {
-      throw new Error('当前有技术方案任务正在运行，请等待任务结束后再切换模式');
-    }
   }
 
   // 正文任务活动或暂停期间禁止手工保存，避免清空待恢复的图片计划。
@@ -2499,42 +2508,6 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     if (row) {
       throw new Error('当前正文生成任务正在运行或已暂停，请先完成任务再编辑正文');
     }
-  }
-
-  function clearWorkflowSpecificState(workflowKind) {
-    deleteOutlineAgentTask();
-    deleteGlobalFactsAgentTask();
-    db.prepare(`DELETE FROM technical_plan_tasks WHERE type IN (${originalPlanDownstreamTaskTypes.map(() => '?').join(', ')})`).run(...originalPlanDownstreamTaskTypes);
-    db.prepare('DELETE FROM technical_plan_reference_docs').run();
-    db.prepare('DELETE FROM technical_plan_remote_knowledge_documents').run();
-    db.prepare('DELETE FROM technical_plan_remote_knowledge_scopes').run();
-    db.prepare('DELETE FROM technical_plan_content_sections').run();
-    db.prepare('DELETE FROM technical_plan_content_plans').run();
-    db.prepare('DELETE FROM technical_plan_outline_nodes').run();
-    db.prepare('DELETE FROM technical_plan_global_fact_groups').run();
-    clearContentIllustrationPlan();
-    clearOriginalOutlineRuntime();
-    clearTechnicalPlanMermaidCache();
-    updateMeta({
-      workflow_kind: normalizeWorkflowKind(workflowKind),
-      step: 'document-analysis',
-      outline_mode: defaultOutlineModeForWorkflow(workflowKind),
-      outline_expansion_mode: 'ai-complement',
-      global_facts_mode: 'fabricate',
-      original_plan_file_name: null,
-      original_plan_markdown_path: null,
-      original_plan_markdown_hash: null,
-      original_plan_markdown_chars: 0,
-      original_plan_parser_label: null,
-      original_plan_imported_at: null,
-      outline_project_name: null,
-      outline_project_overview: null,
-      outline_word_control_options_json: null,
-      outline_word_control_snapshot_json: null,
-      content_generation_options_json: null,
-      content_generation_runtime_json: null,
-    });
-    notifyAgentWorkspaceChange({ force: true });
   }
 
   function loadOutlinePersistenceSnapshot() {
@@ -2553,6 +2526,14 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     if (['running', 'pausing', 'paused'].includes(task?.status)) {
       throw new Error('正文生成任务正在运行或暂停中，请结束后再调整目录');
     }
+  }
+
+  function assertOutlineNodeKnowledgeMutationAllowed() {
+    const outlineTask = db.prepare("SELECT status FROM technical_plan_tasks WHERE type = 'outline-generation'").get();
+    if (['running', 'pausing'].includes(outlineTask?.status)) {
+      throw new Error('目录生成任务正在运行中，请结束后再关联知识库');
+    }
+    assertOutlineMutationAllowed();
   }
 
   function shouldClearSavedNode({ clearAll, oldId, newId, affectedIds }) {
@@ -2845,7 +2826,6 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       clearTechnicalPlanMermaidCache();
     }
     if (deletedAgentSessions || hasOwn(partial, 'step') || hasOwn(partial, 'outlineData') || hasOwn(partial, 'globalFacts')) {
-      notifyAgentWorkspaceChange({ force: deletedAgentSessions });
     }
   }
 
@@ -2861,24 +2841,13 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     return updateTechnicalPlan({ workflowKind: normalizeWorkflowKind(workflowKind) });
   }
 
-  function switchWorkflowKind(workflowKind) {
-    const nextWorkflowKind = normalizeWorkflowKind(workflowKind);
-    const meta = ensureMetaRow();
-    if (normalizeWorkflowKind(meta.workflow_kind) === nextWorkflowKind) {
-      return;
-    }
+  function syncWorkflowKind(workflowKind) {
+    updateMeta({ workflow_kind: normalizeWorkflowKind(workflowKind) });
+  }
 
-    const originalPlanFilePath = meta.original_plan_markdown_path
-      ? resolveMarkdownPath(meta.original_plan_markdown_path)
-      : originalPlanMarkdownPath;
-    const transaction = db.transaction(() => {
-      assertNoTechnicalPlanTaskRunning();
-      clearWorkflowSpecificState(nextWorkflowKind);
-    });
-    transaction();
-    if (fs.existsSync(originalPlanFilePath)) {
-      fs.rmSync(originalPlanFilePath, { force: true });
-    }
+  function switchWorkflowKind(workflowKind) {
+    void workflowKind;
+    throw new Error('项目类型固定，请返回项目列表创建新项目');
   }
 
   function saveOutlineConfig({ referenceKnowledgeDocumentIds, remoteKnowledgeScopes, outlineMode, outlineExpansionMode, wordControlOptions } = {}) {
@@ -3055,6 +3024,39 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
         contentGenerationRuntime: undefined,
       } : {}),
     };
+  }
+
+  function saveOutlineNodeKnowledge({ nodeId, knowledgeFolderIds, knowledgeDocumentIds } = {}) {
+    const targetNodeId = String(nodeId || '').trim();
+    const normalizedFolderIds = normalizeStringList(knowledgeFolderIds);
+    const normalizedDocumentIds = normalizeStringList(knowledgeDocumentIds);
+    let result;
+    const transaction = db.transaction(() => {
+      assertOutlineNodeKnowledgeMutationAllowed();
+      const affectedNodeIds = collectOutlineNodeAndDescendantIds(targetNodeId);
+      if (!affectedNodeIds.length) {
+        throw new Error('未找到要关联知识库的目录项');
+      }
+      db.prepare('UPDATE technical_plan_outline_nodes SET knowledge_folder_ids_json = ?, knowledge_document_ids_json = ?, updated_at = ? WHERE node_id = ?')
+        .run(
+          normalizedFolderIds.length ? JSON.stringify(normalizedFolderIds) : null,
+          normalizedDocumentIds.length ? JSON.stringify(normalizedDocumentIds) : null,
+          now(),
+          targetNodeId,
+        );
+      clearContentGenerationStateForNodes(affectedNodeIds);
+      const outlineData = loadOutlineData(readMetaRow());
+      result = {
+        outlineData,
+        contentGenerationSections: loadContentSections(outlineData),
+        contentGenerationPlans: loadContentPlans(),
+        contentGenerationTask: undefined,
+        contentGenerationRuntime: undefined,
+        contentIllustrationPlan: undefined,
+      };
+    });
+    transaction();
+    return result;
   }
 
   function saveGlobalFactsConfig({ globalFactsMode } = {}) {
@@ -3457,7 +3459,6 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       updateMeta({ workflow_kind: workflowKind });
     });
     transaction();
-    notifyAgentWorkspaceChange({ force: true });
     return { success: true, message: '技术方案缓存已清空' };
   }
 
@@ -3487,13 +3488,14 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     saveOriginalOutlineRuntime,
     clearOriginalOutlineRuntime,
     updateStep,
+    syncWorkflowKind,
     setWorkflowKind,
     switchWorkflowKind,
-    setAgentWorkspaceChangeListener,
     saveBidAnalysisConfig,
     saveOutlineConfig,
     saveOutlineSelection,
     saveOutline,
+    saveOutlineNodeKnowledge,
     saveGlobalFactsConfig,
     saveGlobalFacts,
     saveIllustrationHtml,

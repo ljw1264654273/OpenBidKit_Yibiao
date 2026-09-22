@@ -3479,6 +3479,8 @@ async function runContentGenerationTask({ aiService, agentService, workspaceStor
   let storedContentPlans = pruneContentGenerationPlans(fullRegenerate ? {} : storedPlan.contentGenerationPlans, leaves);
   let knowledgeItems = [];
   let allowedKnowledgeItemIds = new Set();
+  let globalKnowledgeItemIds = new Set();
+  let nodeKnowledgeItemIdsBySection = new Map();
   let knowledgeContentMap = new Map();
   let sections = createInitialSections(leaves, fullRegenerate ? {} : storedPlan.contentGenerationSections);
   const touchedItemIds = new Set(contentRuntime.touched_item_ids);
@@ -3851,8 +3853,8 @@ async function runContentGenerationTask({ aiService, agentService, workspaceStor
     logs = [...logs, message];
   });
   knowledgeItems = knowledgeReferences.items;
-  const globalKnowledgeItemIds = buildKnowledgeItemIdSetForDocuments(knowledgeItems, referenceKnowledgeDocumentIds);
-  const nodeKnowledgeItemIdsBySection = buildKnowledgeItemIdsBySection(knowledgeItems, nodeKnowledgeDocumentIdsBySection);
+  globalKnowledgeItemIds = buildKnowledgeItemIdSetForDocuments(knowledgeItems, referenceKnowledgeDocumentIds);
+  nodeKnowledgeItemIdsBySection = buildKnowledgeItemIdsBySection(knowledgeItems, nodeKnowledgeDocumentIdsBySection);
   allowedKnowledgeItemIds = new Set([
     ...globalKnowledgeItemIds,
     ...[...nodeKnowledgeItemIdsBySection.values()].flatMap((ids) => [...ids]),

@@ -342,6 +342,56 @@ function assertServiceMovesAcrossCategoriesAndEmitsContext() {
   }
 }
 
+function assertServiceRollsBackFilesystemWhenStoreMoveFails() {
+  const workspace = createKnowledgeWorkspace();
+  try {
+    const sourceFolder = workspace.store.createFolder('回滚源文件夹');
+    const targetFolder = workspace.store.createFolder('回滚目标文件夹', 'enterprise');
+    const document = createTestDocument(workspace.store, sourceFolder.id, {
+      id: 'doc-move-rollback',
+      document_dir: `folders/${sourceFolder.id}/documents/doc-move-rollback`,
+      source_path: `folders/${sourceFolder.id}/documents/doc-move-rollback/source.md`,
+      markdown_path: `folders/${sourceFolder.id}/documents/doc-move-rollback/content.md`,
+    });
+    const baseDir = getKnowledgeBaseDir(workspace.app);
+    const oldDir = path.join(baseDir, document.document_dir);
+    const newDir = path.join(baseDir, `folders/${targetFolder.id}/documents/${document.id}`);
+    fs.mkdirSync(oldDir, { recursive: true });
+    fs.writeFileSync(path.join(oldDir, 'source.md'), 'source', 'utf8');
+
+    const failingStore = {
+      recoverInterruptedDocuments() {
+        return [];
+      },
+      getDocument(documentId) {
+        return workspace.store.getDocument(documentId);
+      },
+      list(options) {
+        return workspace.store.list(options);
+      },
+      moveDocument() {
+        throw new Error('模拟数据库移动失败');
+      },
+    };
+    const service = createKnowledgeBaseService({
+      app: workspace.app,
+      configStore: { load: () => ({}) },
+      knowledgeBaseStore: failingStore,
+    });
+
+    assert.throws(
+      () => service.moveDocument(document.id, targetFolder.id),
+      /模拟数据库移动失败/,
+    );
+    assert.equal(fs.existsSync(oldDir), true);
+    assert.equal(fs.existsSync(path.join(oldDir, 'source.md')), true);
+    assert.equal(fs.existsSync(newDir), false);
+    assert.equal(workspace.store.getDocument(document.id).folder_id, sourceFolder.id);
+  } finally {
+    workspace.close();
+  }
+}
+
 function runNativeAssertions() {
   assertKnowledgeFolderCategoryMigration(31);
   assertKnowledgeFolderCategoryMigration(schemaVersion);
@@ -349,6 +399,7 @@ function runNativeAssertions() {
   assertCategoryAwareStoreContracts();
   assertServiceRejectsInvalidMoves();
   assertServiceMovesAcrossCategoriesAndEmitsContext();
+  assertServiceRollsBackFilesystemWhenStoreMoveFails();
 }
 
 if (process.argv.includes('--electron-native')) {

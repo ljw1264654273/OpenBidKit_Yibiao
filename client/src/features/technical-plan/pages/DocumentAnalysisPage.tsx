@@ -19,15 +19,23 @@ import type {
 import BidSectionSelectorDialog from '../components/BidSectionSelectorDialog';
 import {
   IMAGE_PRESET_LABELS,
+  QUICK_CONFIG_IMAGE_OPTIONS,
   applyImagePreset,
   inferImagePreset,
 } from '../services/imageConfig';
 import {
+  createCustomPageOptions,
+  DEFAULT_PAGE_LADDER_KEY,
   isQuickConfigLocked,
+  isQuickConfigOptionLocked,
+  isValidCustomPageCount,
   mergeContentGenerationOptionsForQuickConfig,
+  PAGE_LADDER_KEYS,
   PAGE_LADDER_PRESETS,
   QUICK_CONFIG_STORAGE_KEY,
   resolveContentGenerationOptionsForQuickConfig,
+  resolveCustomPageCount,
+  resolveCustomPageDraft,
   resolvePageLadderKey,
 } from '../services/quickConfig';
 
@@ -84,6 +92,7 @@ interface DocumentAnalysisPageProps {
   onOutlineWordControlChange: (options: OutlineWordControlOptions) => Promise<void>;
   onContentGenerationOptionsChange: (options: ContentGenerationOptions) => Promise<void>;
   onStateRefresh: () => Promise<void>;
+  onCustomPageStateChange?: (state: { selected: boolean; draft: string }) => void;
 }
 
 const tableDensityOptions: Array<{ value: ContentTableRequirement; label: string }> = [
@@ -114,6 +123,7 @@ function DocumentAnalysisPage({
   onOutlineWordControlChange,
   onContentGenerationOptionsChange,
   onStateRefresh,
+  onCustomPageStateChange,
 }: DocumentAnalysisPageProps) {
   const [configuredParserLabel, setConfiguredParserLabel] = useState(parserLabels.local);
   const [busy, setBusy] = useState<TechnicalPlanUploadBusy>(null);
@@ -125,6 +135,8 @@ function DocumentAnalysisPage({
   const [sectionSelectorOpen, setSectionSelectorOpen] = useState(false);
   const [sectionExtracting, setSectionExtracting] = useState(false);
   const [quickConfigSaving, setQuickConfigSaving] = useState<string | null>(null);
+  const [customPageDraft, setCustomPageDraft] = useState('');
+  const [customPageSelected, setCustomPageSelected] = useState(false);
   const [quickConfigExpanded, setQuickConfigExpanded] = useState(() => {
     try {
       const storedValue = window.localStorage.getItem(QUICK_CONFIG_STORAGE_KEY);
@@ -147,13 +159,35 @@ function DocumentAnalysisPage({
     [contentGenerationOptions, imageModelAvailable],
   );
   const resolvedImagePreset = useMemo(
-    () => contentGenerationOptions?.imagePreset || inferImagePreset(contentGenerationOptions),
-    [contentGenerationOptions],
+    () => contentGenerationOptions?.imagePreset
+      || (contentGenerationOptions ? inferImagePreset(contentGenerationOptions) : resolvedContentOptions.imagePreset || 'enhanced'),
+    [contentGenerationOptions, resolvedContentOptions.imagePreset],
   );
   const pageLadderKey = useMemo(() => resolvePageLadderKey(outlineWordControlOptions), [outlineWordControlOptions]);
   const sectionExtractionRunning = bidSectionExtractionStatus === 'running';
   const contentTaskLocked = isQuickConfigLocked(contentTaskStatus);
+  const quickConfigOptionLocked = isQuickConfigOptionLocked(contentTaskStatus);
   const tenderDocumentVersion = tenderFile?.contentHash || tenderFile?.updatedAt || tenderFiles.map((file) => `${file.id}:${file.contentHash || file.updatedAt}`).join('|') || null;
+
+  useEffect(() => {
+    setCustomPageDraft((currentDraft) => resolveCustomPageDraft(outlineWordControlOptions, currentDraft));
+  }, [
+    outlineWordControlOptions.maximumWords,
+    outlineWordControlOptions.minimumWords,
+    outlineWordControlOptions.sectionWords,
+    outlineWordControlOptions.strictSectionWords,
+  ]);
+
+  useEffect(() => {
+    setCustomPageSelected(pageLadderKey === 'custom');
+  }, [pageLadderKey]);
+
+  useEffect(() => {
+    onCustomPageStateChange?.({
+      selected: customPageSelected,
+      draft: customPageDraft,
+    });
+  }, [customPageDraft, customPageSelected, onCustomPageStateChange]);
 
   useEffect(() => {
     let mounted = true;
@@ -334,12 +368,13 @@ function DocumentAnalysisPage({
   };
 
   const applyPageLadder = async (key: keyof typeof PAGE_LADDER_PRESETS) => {
-    if (contentTaskLocked) {
+    if (quickConfigOptionLocked) {
       showToast('正文生成任务进行中，请等待任务结束后再调整快速配置', 'info');
       return;
     }
     const preset = PAGE_LADDER_PRESETS[key];
     if (!preset) return;
+    setCustomPageSelected(false);
     setQuickConfigSaving(`pageLadder:${key}`);
     try {
       await onOutlineWordControlChange(preset.options);
@@ -350,8 +385,34 @@ function DocumentAnalysisPage({
     }
   };
 
+  const selectCustomPage = () => {
+    if (quickConfigOptionLocked) {
+      showToast('正文生成任务进行中，请等待任务结束后再调整快速配置', 'info');
+      return;
+    }
+    setCustomPageDraft((currentDraft) => resolveCustomPageDraft(outlineWordControlOptions, currentDraft));
+    setCustomPageSelected(true);
+  };
+
+  const applyCustomPage = async (value: string) => {
+    if (quickConfigOptionLocked) {
+      showToast('正文生成任务进行中，请等待任务结束后再调整快速配置', 'info');
+      return;
+    }
+    if (!isValidCustomPageCount(value)) return;
+    const pageCount = Number(value);
+    setQuickConfigSaving('pageLadder:custom');
+    try {
+      await onOutlineWordControlChange(createCustomPageOptions(pageCount));
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '保存自定义标书篇幅失败', 'error');
+    } finally {
+      setQuickConfigSaving(null);
+    }
+  };
+
   const applyTableDensity = async (value: ContentTableRequirement) => {
-    if (contentTaskLocked) {
+    if (quickConfigOptionLocked) {
       showToast('正文生成任务进行中，请等待任务结束后再调整快速配置', 'info');
       return;
     }
@@ -373,7 +434,7 @@ function DocumentAnalysisPage({
   };
 
   const applyImagePresetSelection = async (preset: Exclude<ContentImagePreset, 'custom'>) => {
-    if (contentTaskLocked) {
+    if (quickConfigOptionLocked) {
       showToast('正文生成任务进行中，请等待任务结束后再调整快速配置', 'info');
       return;
     }
@@ -518,14 +579,22 @@ function DocumentAnalysisPage({
   const hasSectionHint = Boolean(bidSectionDetection?.hasMultiple && !selectedSectionTitle);
   const hasFormalBidSections = bidSections.length >= 2;
   const sectionActionLabel = hasFormalBidSections ? '确认投标范围' : '识别标段';
-  const quickConfigPageSummary = pageLadderKey === 'unset'
-    ? '未设置'
-    : pageLadderKey === 'custom'
-      ? '自定义'
-      : PAGE_LADDER_PRESETS[pageLadderKey].label;
+  const activePageOption = customPageSelected ? 'custom' : pageLadderKey;
+  const isCustomPageActive = activePageOption === 'custom';
+  const activePresetKey = pageLadderKey !== 'unset' && pageLadderKey !== 'custom'
+    ? pageLadderKey
+    : DEFAULT_PAGE_LADDER_KEY;
+  const customPageCount = isValidCustomPageCount(customPageDraft)
+    ? Number(customPageDraft)
+    : resolveCustomPageCount(outlineWordControlOptions);
+  const quickConfigPageSummary = isCustomPageActive
+    ? `自定义${customPageCount || ''}页`
+    : pageLadderKey === 'unset'
+      ? PAGE_LADDER_PRESETS[DEFAULT_PAGE_LADDER_KEY].label
+      : PAGE_LADDER_PRESETS[activePresetKey].label;
   const quickConfigTableSummary = tableDensityOptions.find((option) => option.value === resolvedContentOptions.tableRequirement)?.label || '丰富';
-  const hasTableDensitySelection = contentGenerationOptions?.tableRequirement !== undefined;
-  const hasImageSelection = Boolean(contentGenerationOptions?.imagePreset);
+  const hasTableDensitySelection = true;
+  const hasImageSelection = Boolean(contentGenerationOptions?.imagePreset) || !contentGenerationOptions;
   const quickConfigImageSummary = hasImageSelection ? IMAGE_PRESET_LABELS[resolvedImagePreset] : '待选择';
   const updateQuickConfigExpanded = (expanded: boolean) => {
     setQuickConfigExpanded(expanded);
@@ -726,9 +795,9 @@ function DocumentAnalysisPage({
               <div className="quick-config-label"><strong>标书篇幅</strong><small>字数控制预设</small></div>
               <div className="quick-config-row-body quick-config-ladder-row">
                 <div className="quick-config-ladder" role="radiogroup" aria-label="标书篇幅">
-                  {(Object.keys(PAGE_LADDER_PRESETS) as Array<keyof typeof PAGE_LADDER_PRESETS>).map((key) => {
+                  {PAGE_LADDER_KEYS.map((key) => {
                     const preset = PAGE_LADDER_PRESETS[key];
-                    const isActive = key === pageLadderKey;
+                    const isActive = activePageOption === key;
                     return (
                       <button
                         key={key}
@@ -737,20 +806,53 @@ function DocumentAnalysisPage({
                         aria-checked={isActive}
                         className={`quick-config-pill${isActive ? ' is-active' : ''}`}
                         onClick={() => void applyPageLadder(key)}
-                        disabled={quickConfigSaving !== null || contentTaskLocked}
+                        disabled={quickConfigSaving !== null || quickConfigOptionLocked}
                         title={preset.description}
                       >
                         {preset.label}
                       </button>
                     );
                   })}
+                      <div className={`quick-config-custom-page${isCustomPageActive ? ' is-active' : ''}`}>
+                        <button
+                          type="button"
+                          role="radio"
+                          aria-checked={isCustomPageActive}
+                          className={`quick-config-pill${isCustomPageActive ? ' is-active' : ''}`}
+                          onClick={selectCustomPage}
+                          disabled={quickConfigSaving !== null || quickConfigOptionLocked}
+                        >
+                          自定义
+                        </button>
+                        {isCustomPageActive && (
+                          <input
+                            type="number"
+                            min="1"
+                            step="1"
+                            value={customPageDraft}
+                            aria-label="自定义页数"
+                            placeholder="页数"
+                            onChange={(event) => setCustomPageDraft(event.target.value)}
+                            onBlur={() => {
+                              if (customPageDraft.trim()) void applyCustomPage(customPageDraft);
+                            }}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter') {
+                                event.preventDefault();
+                                void applyCustomPage(customPageDraft);
+                              }
+                            }}
+                            disabled={quickConfigSaving !== null || quickConfigOptionLocked}
+                          />
+                        )}
+                      </div>
                 </div>
                 <small className="quick-config-note">
-                  {pageLadderKey === 'custom'
+                  {isCustomPageActive
                     ? `当前为自定义字数，将在 STEP 03 精调（每节 ${outlineWordControlOptions.sectionWords || '未设置'} 字）`
                     : pageLadderKey === 'unset'
-                      ? '尚未设置篇幅约束'
-                      : `换算为全文 ${PAGE_LADDER_PRESETS[pageLadderKey].description}，STEP 03 可精确调整上下限与单节字数。`}
+                      ? `默认按 ${PAGE_LADDER_PRESETS[DEFAULT_PAGE_LADDER_KEY].label} 生成`
+                      : `换算为全文 ${PAGE_LADDER_PRESETS[activePresetKey].description}，STEP 03 可精确调整上下限与单节字数。`}
                 </small>
               </div>
             </div>
@@ -767,7 +869,7 @@ function DocumentAnalysisPage({
                       aria-checked={option.value === resolvedContentOptions.tableRequirement}
                       className={hasTableDensitySelection && option.value === resolvedContentOptions.tableRequirement ? 'is-active' : ''}
                       onClick={() => void applyTableDensity(option.value)}
-                      disabled={quickConfigSaving !== null || contentTaskLocked}
+                      disabled={quickConfigSaving !== null || quickConfigOptionLocked}
                     >
                       {option.label}
                     </button>
@@ -780,27 +882,28 @@ function DocumentAnalysisPage({
             <div className="quick-config-row">
               <div className="quick-config-label"><strong>图片设置</strong><small>图文丰富度</small></div>
               <div className="quick-config-row-body">
-                <div className="quick-config-image-pills" role="radiogroup" aria-label="图片模式">
-                  {(['enhanced', 'rich', 'basic', 'text-only'] as const).map((preset) => {
+                <div className="quick-config-image-options" role="radiogroup" aria-label="图片模式">
+                  {QUICK_CONFIG_IMAGE_OPTIONS.map(({ preset, label, description }) => {
                     const active = hasImageSelection && resolvedImagePreset === preset;
-                    const disabled = quickConfigSaving !== null || contentTaskLocked;
+                    const disabled = quickConfigSaving !== null || quickConfigOptionLocked;
                     return (
-                      <button
-                        key={preset}
-                        type="button"
-                        role="radio"
-                        className={`quick-config-image-pill${active ? ' is-active' : ''}`}
-                        aria-checked={active}
-                        onClick={() => void applyImagePresetSelection(preset)}
-                        disabled={disabled}
-                      >
-                        <span className="quick-config-image-dot" aria-hidden="true" />
-                        {IMAGE_PRESET_LABELS[preset]}
-                      </button>
+                      <div className={`quick-config-image-option${active ? ' is-active' : ''}`} key={preset}>
+                        <button
+                          type="button"
+                          role="radio"
+                          className={`quick-config-image-pill${active ? ' is-active' : ''}`}
+                          aria-checked={active}
+                          onClick={() => void applyImagePresetSelection(preset)}
+                          disabled={disabled}
+                        >
+                          <span className="quick-config-image-dot" aria-hidden="true" />
+                          <span>{label}</span>
+                        </button>
+                        <small className="quick-config-image-description">{description}</small>
+                      </div>
                     );
                   })}
                 </div>
-                <span className="quick-config-note">增强/丰富包含 AI 配图、流程图、PPT 图；基础配图以流程图为主</span>
               </div>
             </div>
           </div>

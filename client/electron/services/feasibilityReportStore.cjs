@@ -187,33 +187,8 @@ async function runBeforeCommit(beforeCommit) {
 
 function createFeasibilityReportStore({ app, db, fileService, taskLogStore, agentService }) {
   const workspaceDir = getWorkspaceDir(app);
-  let agentWorkspaceChangeListener = null;
-  let lastAgentWorkspaceSignal = null;
-
   function deleteFeasibilityOutlineAgentTask() {
     agentService?.deletePersistentTask?.(FEASIBILITY_OUTLINE_AGENT_TASK_KEY);
-  }
-
-  function setAgentWorkspaceChangeListener(listener) {
-    agentWorkspaceChangeListener = typeof listener === 'function' ? listener : null;
-  }
-
-  function getAgentWorkspaceSignal() {
-    const meta = ensureMetaRow();
-    const hasOutline = Boolean(db.prepare('SELECT 1 FROM feasibility_report_outline_nodes LIMIT 1').get());
-    return `${meta.step || ''}|${hasOutline ? 1 : 0}`;
-  }
-
-  function notifyAgentWorkspaceChange(options = {}) {
-    const signal = getAgentWorkspaceSignal();
-    if (!options.force && signal === lastAgentWorkspaceSignal) return;
-    lastAgentWorkspaceSignal = signal;
-    if (!agentWorkspaceChangeListener) return;
-    try {
-      agentWorkspaceChangeListener();
-    } catch (error) {
-      console.error('[feasibility-report] Agent 工作空间变更通知失败:', error);
-    }
   }
 
   function ensureMetaRow() {
@@ -419,7 +394,6 @@ function createFeasibilityReportStore({ app, db, fileService, taskLogStore, agen
       outline_project_name: null,
       outline_project_overview: null,
     });
-    notifyAgentWorkspaceChange({ force: true });
   }
 
   function clearDownstreamFromAnalysis() {
@@ -431,7 +405,6 @@ function createFeasibilityReportStore({ app, db, fileService, taskLogStore, agen
       outline_project_name: null,
       outline_project_overview: null,
     });
-    notifyAgentWorkspaceChange({ force: true });
   }
 
   function clearDownstreamFromOutline() {
@@ -495,13 +468,11 @@ function createFeasibilityReportStore({ app, db, fileService, taskLogStore, agen
       deleteFeasibilityOutlineAgentTask();
     }
     if (deletedAgentSessions || hasOwn(partial, 'step') || hasOwn(partial, 'outlineData')) {
-      notifyAgentWorkspaceChange({ force: deletedAgentSessions });
     }
   }
 
   function updateStep(step) {
     updateMeta({ step: normalizeStep(step) });
-    notifyAgentWorkspaceChange();
   }
 
   function saveProjectInfo(projectInfo, options = {}) {
@@ -567,7 +538,6 @@ function createFeasibilityReportStore({ app, db, fileService, taskLogStore, agen
       if (reason !== 'sort') clearDownstreamFromOutline();
     });
     transaction();
-    notifyAgentWorkspaceChange({ force: true });
     return {
       outlineData: savedOutlineData,
       keyParametersMarkdown: reason === 'sort' ? String(ensureMetaRow().key_parameters_markdown || '') : '',
@@ -704,7 +674,6 @@ function createFeasibilityReportStore({ app, db, fileService, taskLogStore, agen
       `).run(timestamp);
     });
     transaction();
-    notifyAgentWorkspaceChange({ force: true });
     return { success: true, message: '已重置可研报告工作区' };
   }
 
@@ -723,7 +692,6 @@ function createFeasibilityReportStore({ app, db, fileService, taskLogStore, agen
     readSourceMarkdown,
     readCombinedSourceMarkdown,
     clearFeasibilityReport,
-    setAgentWorkspaceChangeListener,
   };
 }
 

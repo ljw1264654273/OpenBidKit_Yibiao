@@ -47,8 +47,6 @@ test('application startup mounts functional prompts without remote announcements
     './app/AppRouter': 'export default function AppRouter() { return <main>workspace</main>; }',
     './app/GpuHardwareAccelerationPrompt': 'export default function Prompt() { return <div data-global-prompt="gpu" />; }',
     './app/RequiredOnlineServicesPrompt': 'export default function Prompt() { return <div data-global-prompt="online-services" />; }',
-    './app/PluginUpdateNotifier': 'export default function Notifier() { return <div data-global-service="plugin-updates" />; }',
-    './app/UpdateNotifier': 'export default function Prompt() { return <div data-global-prompt="remote-notice" />; }',
     './components/AppShell': 'export default function AppShell({ children }) { return <>{children}</>; }',
     './shared/analytics/analytics': 'export function trackAppOpen() {} export function trackConfigUsage() {} export function trackPageView() {}',
   });
@@ -56,7 +54,6 @@ test('application startup mounts functional prompts without remote announcements
   const html = renderToStaticMarkup(React.createElement(App));
   assert.match(html, /data-global-prompt="gpu"/);
   assert.match(html, /data-global-prompt="online-services"/);
-  assert.match(html, /data-global-service="plugin-updates"/);
   assert.doesNotMatch(html, /data-global-prompt="remote-notice"/);
 });
 
@@ -69,6 +66,7 @@ test('global providers keep operational dialogs without the donation provider', 
       export const AgentQuestionDialogProvider = wrap('agent-question');
       export const AiHttpErrorDialogProvider = wrap('ai-http-error');
       export const DocumentParseNoticeProvider = wrap('document-parse');
+      export const RemoteKnowledgeDecisionDialogProvider = wrap('remote-knowledge');
     `,
   });
 

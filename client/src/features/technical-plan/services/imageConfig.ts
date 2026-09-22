@@ -3,12 +3,30 @@ import type { ContentGenerationOptions, ContentImagePreset } from '../types';
 export const DEFAULT_HTML_IMAGE_TYPES = '甘特图、进度网络图、组织架构图、泳道图、RACI 职责矩阵、风险矩阵、系统架构与拓扑图、WBS 工作分解结构图、鱼骨图、柱状图、折线图、饼图';
 
 export const IMAGE_PRESET_LABELS: Record<ContentImagePreset, string> = {
-  enhanced: '增强图文',
+  enhanced: '丰富图文',
   rich: '丰富图文',
   basic: '基础配图',
   'text-only': '纯文字',
   custom: '自定义',
 };
+
+export const QUICK_CONFIG_IMAGE_OPTIONS = [
+  {
+    preset: 'enhanced',
+    label: '丰富图文',
+    description: '适量实拍图、PPT 插图、页面丰富',
+  },
+  {
+    preset: 'basic',
+    label: '基础配图',
+    description: '适量流程图配图，内容简洁清晰',
+  },
+  {
+    preset: 'text-only',
+    label: '纯文字',
+    description: '无配图，仅文字方案',
+  },
+] as const;
 
 type ImageOptionFields = Pick<
   ContentGenerationOptions,
@@ -115,7 +133,7 @@ export function normalizePersistedContentGenerationOptions(
   const fallbackPreset = normalizeKnownPreset(source.imagePreset);
   const fallback = fallbackPreset && fallbackPreset !== 'custom'
     ? IMAGE_PRESET_DEFINITIONS[fallbackPreset]
-    : IMAGE_PRESET_DEFINITIONS.basic;
+    : IMAGE_PRESET_DEFINITIONS.enhanced;
   const normalized: ImageOptionFields = {
     imagePreset: normalizeKnownPreset(source.imagePreset),
     useAiImages: Boolean(source.useAiImages ?? fallback.useAiImages),

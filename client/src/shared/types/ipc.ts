@@ -7,7 +7,7 @@ import type { BidAnalysisMode, BidAnalysisTaskState, BidSectionMode, ContentGene
 import type { FeasibilityProjectInfo, FeasibilityReportState, FeasibilityReportStep, FeasibilitySaveOutlineRequest, FeasibilitySourceFile } from '../../features/feasibility-report/types';
 import type { ExportFormatConfig, ExportTemplateRecord } from './exportFormat';
 import type { OutlineData, OutlineExpansionMode, OutlineMode, OutlineWordControlOptions } from './outline';
-import type { BidContentDuplicateDecision, BidContentDuplicateResult, BidContentDuplicateRewriteRequest, BidContentDuplicateRewriteResult, BidContentDuplicateTargetSide, BidProject, BidProjectContent, BidProjectCreateOptions, BidProjectDuplicateSummary, BidProjectImportPreview } from '../../features/bid-project/types';
+import type { BidContentDuplicateDecision, BidContentDuplicateResult, BidContentDuplicateRewriteRequest, BidContentDuplicateRewriteResult, BidContentDuplicateTargetSide, BidProject, BidProjectContent, BidProjectCreateOptions, BidProjectDuplicateSummary, BidProjectImportPreview, ExpansionProjectImportOptions, ExpansionProjectImportPreview } from '../../features/bid-project/types';
 
 export interface TaskEventTask {
   task_id: string;
@@ -219,23 +219,6 @@ export interface UpdateCheckResult {
 export interface UpdateInstallResult {
   success: boolean;
   message?: string;
-}
-
-export interface PluginUpdateInfo {
-  id: string;
-  name: string;
-  installedVersion: string;
-  version: string;
-}
-
-export interface PluginUpdateResult extends PluginUpdateInfo {
-  success: boolean;
-  message?: string;
-}
-
-export interface PluginUpdateAllResult {
-  updates: PluginUpdateInfo[];
-  results: PluginUpdateResult[];
 }
 
 export interface GpuHardwareAccelerationStatus {
@@ -580,13 +563,9 @@ export interface YibiaoBridge {
   onUpdateProgress: (callback: (event: { percent: number }) => void) => () => void;
   onUpdateDownloaded: (callback: (event: { version: string }) => void) => () => void;
   onUpdateError: (callback: (event: { message: string }) => void) => () => void;
-  onPluginUpdatesAvailable: (callback: (updates: PluginUpdateInfo[]) => void) => () => void;
   database: {
     getStatus: () => Promise<WorkspaceDatabaseStatus>;
     onStatus: (callback: (status: WorkspaceDatabaseStatus) => void) => () => void;
-  };
-  ui: {
-    setCurrentView: (view: { section: string; step?: string | null; projectId?: string | null }) => Promise<{ success: boolean }>;
   };
   config: {
     load: () => Promise<ClientConfig>;
@@ -634,12 +613,16 @@ export interface YibiaoBridge {
     prepareImport: (filePaths?: string[]) => Promise<BidProjectImportPreview>;
     confirmImport: (token: string, options?: Partial<BidProjectCreateOptions>) => Promise<BidProject>;
     discardImport: (token: string) => Promise<{ success: boolean }>;
+    prepareExpansionImport: (payload: { tenderFilePaths?: string[]; originalPlanFilePaths?: string[] }) => Promise<ExpansionProjectImportPreview>;
+    confirmExpansionImport: (token: string, options?: ExpansionProjectImportOptions) => Promise<BidProject>;
+    discardExpansionImport: (token: string) => Promise<{ success: boolean; message?: string }>;
     readContent: (projectId: string) => Promise<BidProjectContent>;
     compareContent: (payload: { leftProjectId: string; rightProjectId: string; sensitivity?: 'low' | 'medium' | 'high' }) => Promise<BidContentDuplicateResult>;
     listRecentDuplicateSummaries: (projectIds?: string[]) => Promise<Record<string, BidProjectDuplicateSummary | null>>;
     loadDuplicateResult: (resultId: string) => Promise<BidContentDuplicateResult | null>;
+    loadDuplicateResultPage: (resultId: string, offset: number, limit: number) => Promise<BidContentDuplicateResult | null>;
     loadLatestDuplicateResult: (projectId: string) => Promise<BidContentDuplicateResult | null>;
-    updateDuplicateMatchDecision: (payload: { resultId: string; matchId: string; decision: BidContentDuplicateDecision; targetSide: BidContentDuplicateTargetSide; rewriteDraft?: string | null }) => Promise<BidContentDuplicateResult>;
+    updateDuplicateMatchDecision: (payload: { resultId: string; matchId: string; decision: BidContentDuplicateDecision; targetSide: BidContentDuplicateTargetSide; rewriteDraft?: string | null; offset?: number; limit?: number }) => Promise<BidContentDuplicateResult>;
     rewriteDuplicateMatch: (payload: BidContentDuplicateRewriteRequest) => Promise<BidContentDuplicateRewriteResult>;
     replaceContent: (projectId: string, payload: { nodeId: string; oldText: string; newText: string }) => Promise<unknown>;
     exportWord: (projectId: string, options?: { requestId?: string; exportFormat?: ExportFormatConfig }) => Promise<WordExportResult>;
@@ -720,12 +703,11 @@ export interface YibiaoBridge {
     readTenderSourceMarkdown: (payload: { projectId?: string; sourceId: string } | string) => Promise<string>;
     readOriginalPlanMarkdown: (payload?: { projectId?: string }) => Promise<string>;
     updateStep: (payload: { projectId?: string; step: TechnicalPlanStep } | TechnicalPlanStep) => Promise<void>;
-    setWorkflowKind: (payload: { projectId?: string; workflowKind: TechnicalPlanWorkflowKind } | TechnicalPlanWorkflowKind) => Promise<void>;
-    switchWorkflowKind: (payload: { projectId?: string; workflowKind: TechnicalPlanWorkflowKind } | TechnicalPlanWorkflowKind) => Promise<void>;
     saveBidAnalysisConfig: (payload: { projectId?: string; mode: BidAnalysisMode; selectedTaskIds: string[]; bidSectionMode?: BidSectionMode }) => Promise<void>;
     saveOutlineConfig: (payload: { projectId?: string; referenceKnowledgeDocumentIds: string[]; remoteKnowledgeScopes?: RemoteKnowledgeScope[]; outlineMode?: OutlineMode; outlineExpansionMode?: OutlineExpansionMode; wordControlOptions: OutlineWordControlOptions }) => Promise<void>;
     saveOutlineSelection: (payload: SaveOutlineSelectionRequest) => Promise<{ success: boolean }>;
     saveOutline: (payload: SaveOutlineRequest & { projectId?: string }) => Promise<Partial<TechnicalPlanState>>;
+    saveOutlineNodeKnowledge: (payload: { projectId?: string; nodeId: string; knowledgeFolderIds: string[]; knowledgeDocumentIds?: string[] }) => Promise<Partial<TechnicalPlanState>>;
     saveGlobalFactsConfig: (payload: { projectId?: string; globalFactsMode: GlobalFactsMode }) => Promise<Partial<TechnicalPlanState>>;
     saveGlobalFacts: (payload: { projectId?: string; globalFacts: GlobalFactGroupState[] } | GlobalFactGroupState[]) => Promise<Partial<TechnicalPlanState>>;
     saveContentGenerationOptions: (payload: { projectId?: string; options: ContentGenerationOptions } | ContentGenerationOptions) => Promise<Partial<TechnicalPlanState>>;
@@ -815,55 +797,5 @@ export interface YibiaoBridge {
   };
   systemFonts: {
     list: () => Promise<string[]>;
-  };
-  plugins: {
-    getAvailablePlugins: () => Promise<AvailablePlugin[]>;
-    install: (pluginId: string) => Promise<void>;
-    installOffline: () => Promise<OfflinePluginInstallResult>;
-    uninstall: (pluginId: string) => Promise<void>;
-    enable: (pluginId: string) => Promise<void>;
-    disable: (pluginId: string) => Promise<void>;
-    update: (pluginId: string) => Promise<void>;
-    checkUpdates: () => Promise<PluginUpdateInfo[]>;
-    updateAll: () => Promise<PluginUpdateAllResult>;
-    openConfig: (pluginId: string) => Promise<void>;
-    refreshMarket: () => Promise<void>;
-    clearUpdateFailedState: (pluginId: string) => Promise<boolean>;
-    notifyEvent: (pluginId: string, event: string, payload?: unknown) => Promise<void>;
-  };
-}
-
-export type OfflinePluginInstallResult =
-  | { canceled: true }
-  | {
-      canceled: false;
-      id: string;
-      name: string;
-      version: string;
-      previousVersion: string | null;
-      updated: boolean;
-      enabled: boolean;
-    };
-
-export interface AvailablePlugin {
-  id: string;
-  name: string;
-  description: string;
-  version: string;
-  author?: string;
-  repository: string;
-  releaseUrl: string;
-  tags: string[];
-  iconUrl: string;
-  downloadCount: number;
-  installed: boolean;
-  installedVersion?: string;
-  enabled: boolean;
-  hasConfig: boolean;
-  hasUpdate?: boolean;
-  updating?: boolean;
-  updateFailed?: {
-    stage: string;
-    message: string;
   };
 }

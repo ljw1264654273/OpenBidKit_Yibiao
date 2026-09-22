@@ -354,6 +354,25 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
     return bidProjectManager?.getTechnicalPlanStore(projectId || bidProjectManager?.getCurrentProjectId?.()) || technicalPlanStore;
   }
 
+  function requireProjectId(projectId, operation) {
+    const normalizedProjectId = String(projectId || '').trim();
+    if (!normalizedProjectId) {
+      throw new Error(`${operation}必须提供 projectId`);
+    }
+    return normalizedProjectId;
+  }
+
+  function getProjectScopedTechnicalPlanStore(projectId, operation) {
+    const normalizedProjectId = requireProjectId(projectId, operation);
+    const store = bidProjectManager
+      ? bidProjectManager.getTechnicalPlanStore(normalizedProjectId)
+      : technicalPlanStore;
+    if (!store) {
+      throw new Error(`${operation}未找到项目 ${normalizedProjectId} 的技术方案 Store`);
+    }
+    return { projectId: normalizedProjectId, store };
+  }
+
   function getProjectId(payloadOrTask) {
     return getScopeId(payloadOrTask) || String(bidProjectManager?.getCurrentProjectId?.() || '').trim();
   }
@@ -1102,6 +1121,7 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
 
   // 取消技术方案任务并等待退出，避免清空下游后旧任务继续提交 checkpoint。
   async function cancelTechnicalPlanTasks(reason, taskTypes, projectId) {
+    const targetProjectId = requireProjectId(projectId, '取消技术方案任务');
     const typeFilter = Array.isArray(taskTypes) && taskTypes.length ? new Set(taskTypes) : null;
     const controls = [];
     for (const [taskKey, task] of activeTasks.entries()) {
@@ -1109,7 +1129,7 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
       const control = activeTaskControls.get(taskKey);
       if (definition.group !== 'technical-plan' || !isActiveTaskStatus(task.status) || !control?.cancel) continue;
       if (typeFilter && !typeFilter.has(task.type)) continue;
-      if (projectId && getProjectId(task) !== String(projectId)) continue;
+      if (String(getScopeId(task) || '').trim() !== targetProjectId) continue;
       controls.push(control);
       control.cancel(reason);
     }
@@ -1790,35 +1810,44 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
       return control.suppressOutlineSelectionAutoConfirmation(payload);
     },
     async resetTechnicalPlan(projectId) {
-      await cancelTechnicalPlanTasks('技术方案已重置，后台任务已取消', undefined, projectId);
+      const target = getProjectScopedTechnicalPlanStore(projectId, '重置技术方案');
+      await cancelTechnicalPlanTasks('技术方案已重置，后台任务已取消', undefined, target.projectId);
       // 空闲常驻的 openxml 助手不在任务取消范围内,重置前显式关掉,确保没有进程握着招标原件
       await openXmlHelperService.close?.();
-      return getTechnicalPlanStore(projectId).clearTechnicalPlan();
+      return target.store.clearTechnicalPlan();
     },
-    cancelProjectTasks(projectId) {
-      return cancelTechnicalPlanTasks('标书项目已删除，后台任务已取消', undefined, projectId);
+    async cancelProjectTasks(projectId) {
+      const targetProjectId = requireProjectId(projectId, '取消标书项目任务');
+      return cancelTechnicalPlanTasks('标书项目已删除，后台任务已取消', undefined, targetProjectId);
     },
-    importTenderDocument(filePaths, projectId) {
-      const store = getTechnicalPlanStore(projectId);
+    async importTenderDocument(filePaths, projectId) {
+      const target = getProjectScopedTechnicalPlanStore(projectId, '导入招标文件');
+      const store = target.store;
       return store.importTenderDocument(filePaths, {
         beforeCommit: async () => {
-          await cancelTechnicalPlanTasks('招标文件已更新，后台任务已取消', undefined, projectId);
+          await cancelTechnicalPlanTasks('招标文件已更新，后台任务已取消', undefined, target.projectId);
           await openXmlHelperService.close?.();
         },
       });
     },
-    removeTenderDocument(sourceId, projectId) {
-      const store = getTechnicalPlanStore(projectId);
+    async removeTenderDocument(sourceId, projectId) {
+      const target = getProjectScopedTechnicalPlanStore(projectId, '删除招标文件');
+      const store = target.store;
       return store.removeTenderDocument(sourceId, {
         beforeCommit: async () => {
-          await cancelTechnicalPlanTasks('招标文件已更新，后台任务已取消', undefined, projectId);
+          await cancelTechnicalPlanTasks('招标文件已更新，后台任务已取消', undefined, target.projectId);
           await openXmlHelperService.close?.();
         },
       });
     },
-    importOriginalPlanDocument(filePaths, projectId) {
-      return getTechnicalPlanStore(projectId).importOriginalPlanDocument(filePaths, {
-        beforeCommit: () => cancelTechnicalPlanTasks('原方案已更新，后台任务已取消', originalPlanDownstreamTaskTypes, projectId),
+    async importOriginalPlanDocument(filePaths, projectId) {
+      const target = getProjectScopedTechnicalPlanStore(projectId, '导入原方案');
+      return target.store.importOriginalPlanDocument(filePaths, {
+        beforeCommit: () => cancelTechnicalPlanTasks(
+          '原方案已更新，后台任务已取消',
+          originalPlanDownstreamTaskTypes,
+          target.projectId,
+        ),
       });
     },
     async resetRejectionCheck() {

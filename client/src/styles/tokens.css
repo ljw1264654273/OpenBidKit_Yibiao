@@ -146,8 +146,7 @@ textarea:focus-visible {
   .agent-runtime-status-bar.is-running .agent-runtime-status-dot,
   .yb-progress-track.is-active::after,
   .content-outline-item.is-running .content-outline-dot,
-  .content-outline-item.is-planning .content-outline-dot,
-  .plugin-status-pill.is-updating {
+  .content-outline-item.is-planning .content-outline-dot {
     animation: none !important;
   }
 

@@ -17,8 +17,6 @@ const { registerBidProjectIpc } = require('./bidProjectIpc.cjs');
 const { registerFeasibilityReportIpc } = require('./feasibilityReportIpc.cjs');
 const { registerTemplateIpc } = require('./templateIpc.cjs');
 const { registerSystemFontIpc } = require('./systemFontIpc.cjs');
-const { registerPluginIpc } = require('./pluginIpc.cjs');
-const pluginService = require('../services/pluginService.cjs');
 const { createAgentService } = require('../services/agentService.cjs');
 const { createAiService } = require('../services/aiService.cjs');
 const { createAutoConfirmationService } = require('../services/autoConfirmationService.cjs');
@@ -40,7 +38,6 @@ const { createSqliteDatabase } = require('../services/sqliteDatabase.cjs');
 const { createSystemFontService } = require('../services/systemFontService.cjs');
 const { clearOrphanedGeneratedImages, clearStalePiTaskArchives, runHistoricalStorageCleanup } = require('../services/storageCleanupService.cjs');
 const { createTaskService } = require('../services/taskService.cjs');
-const { createAgentWorkspaceService } = require('../services/agentWorkspaceService.cjs');
 const { createTaskLogStore } = require('../services/taskLogStore.cjs');
 const { createTechnicalPlanStore } = require('../services/technicalPlanStore.cjs');
 const { createBidProjectManager } = require('../services/bidProjectManager.cjs');
@@ -57,44 +54,6 @@ const { createOpenXmlHelperService } = require('../services/openXmlHelperService
 const { cleanupTrashDirSync } = require('../utils/forceRemove.cjs');
 const { getWorkspaceTrashDir } = require('../utils/paths.cjs');
 
-let pendingUiCurrentView = null;
-let agentWorkspaceServiceRef = null;
-let currentViewWebContentsId = null;
-const currentViewLifetimeBound = new WeakSet();
-
-function clearUiCurrentView() {
-  pendingUiCurrentView = null;
-  currentViewWebContentsId = null;
-  if (agentWorkspaceServiceRef?.setCurrentView) {
-    agentWorkspaceServiceRef.setCurrentView({});
-  }
-}
-
-function bindCurrentViewLifetime(webContents) {
-  if (!webContents || currentViewLifetimeBound.has(webContents)) return;
-  currentViewLifetimeBound.add(webContents);
-  const webContentsId = webContents.id;
-  const clearIfCurrent = () => {
-    if (currentViewWebContentsId === webContentsId) {
-      clearUiCurrentView();
-    }
-  };
-  webContents.once('destroyed', clearIfCurrent);
-  webContents.on('render-process-gone', clearIfCurrent);
-}
-
-function applyUiCurrentView(view, senderWebContents) {
-  if (senderWebContents?.isDestroyed?.()) {
-    clearUiCurrentView();
-    return;
-  }
-  pendingUiCurrentView = view && typeof view === 'object' ? view : {};
-  currentViewWebContentsId = senderWebContents?.id ?? null;
-  bindCurrentViewLifetime(senderWebContents);
-  if (agentWorkspaceServiceRef?.setCurrentView) {
-    agentWorkspaceServiceRef.setCurrentView(pendingUiCurrentView);
-  }
-}
 
 function normalizeExternalUrl(value) {
   const raw = String(value || '').trim();
@@ -135,6 +94,9 @@ const workspaceDatabaseChannels = [
   'bid-project:prepare-import',
   'bid-project:confirm-import',
   'bid-project:discard-import',
+  'bid-project:prepare-expansion-import',
+  'bid-project:confirm-expansion-import',
+  'bid-project:discard-expansion-import',
   'bid-project:read-content',
   'bid-project:compare-content',
   'bid-project:recent-duplicate-summaries',
@@ -153,9 +115,9 @@ const workspaceDatabaseChannels = [
   'technical-plan:read-tender-markdown',
   'technical-plan:read-original-plan-markdown',
   'technical-plan:update-step',
-  'technical-plan:set-workflow-kind',
   'technical-plan:save-outline-config',
   'technical-plan:save-outline',
+  'technical-plan:save-outline-node-knowledge',
   'technical-plan:save-global-facts-config',
   'technical-plan:save-global-facts',
   'technical-plan:save-content-generation-options',
@@ -333,13 +295,6 @@ function registerWorkspaceDatabaseServices({ app, configStore, aiService, agentS
     duplicateCheckStore,
   });
   const taskService = createTaskService({ aiService, agentService, autoConfirmationService, technicalPlanStore, bidProjectManager, rejectionCheckStore, duplicateCheckStore, feasibilityReportStore, knowledgeBaseService, knowledgeReferenceService, remoteKnowledgeDecisionService, duplicateCheckService, openXmlHelperService });
-  const agentWorkspaceService = createAgentWorkspaceService({ agentService, taskService, technicalPlanStore, feasibilityReportStore, bidProjectManager });
-  agentWorkspaceServiceRef = agentWorkspaceService;
-  technicalPlanStore.setAgentWorkspaceChangeListener(() => agentWorkspaceService.emitWorkspacesChanged());
-  feasibilityReportStore.setAgentWorkspaceChangeListener(() => agentWorkspaceService.emitWorkspacesChanged());
-  if (pendingUiCurrentView) {
-    agentWorkspaceService.setCurrentView(pendingUiCurrentView);
-  }
 
   clearWorkspaceDatabaseIpc();
   registerKnowledgeBaseIpc({ knowledgeBaseService });
@@ -360,21 +315,6 @@ function registerWorkspaceDatabaseServices({ app, configStore, aiService, agentS
   registerTemplateIpc({ templateStore, templateFileService });
   registerTaskIpc({ taskService });
   updateStatus({ phase: 'ready', ready: true, message: '本地数据库已就绪' });
-  
-  // 更新 pluginService 的服务引用
-  pluginService.updateServices({
-    agentService,
-    taskService,
-    agentWorkspaceService,
-    technicalPlanStore,
-    duplicateCheckStore,
-    rejectionCheckStore,
-  });
-  
-  // 在服务就绪后启用已启用的插件
-  pluginService.activateEnabledPlugins().catch((error) => {
-    console.error('[plugin-service] 启用插件失败:', error);
-  });
   
   return { sqliteDatabase };
 }
@@ -491,17 +431,6 @@ function registerIpcHandlers({ app, mainWindow, checkAndDownloadUpdate, triggerU
   registerFileIpc({ fileService });
   registerExportIpc({ app, exportService });
   registerSystemFontIpc({ systemFontService });
-  registerPluginIpc(ipcMain, app, {
-    agentService,
-    taskService: null,
-    technicalPlanStore: null,
-    duplicateCheckStore: null,
-    rejectionCheckStore: null,
-  });
-  ipcMain.handle('ui:set-current-view', (event, view) => {
-    applyUiCurrentView(view, event.sender);
-    return { success: true };
-  });
   registerPendingWorkspaceDatabaseIpc(databaseStatus.getStatus);
 
   setTimeout(() => {
@@ -609,22 +538,8 @@ function registerIpcHandlers({ app, mainWindow, checkAndDownloadUpdate, triggerU
     return quitAndInstall({ app });
   });
 
-  /** 与主程序更新检查并行检查插件，并使用独立事件通知 Renderer。 */
-  const checkPluginUpdates = (webContents) => {
-    void pluginService.checkAvailableUpdates()
-      .then((updates) => {
-        if (updates.length > 0) {
-          sendToWebContents(webContents, 'plugins:updates-available', updates);
-        }
-      })
-      .catch((error) => {
-        console.warn('[plugin-service] 自动检查插件更新失败:', error?.message || String(error));
-      });
-  };
-
   ipcMain.handle('app:check-update', (event) => {
     const webContents = event.sender;
-    checkPluginUpdates(webContents);
     return checkAndDownloadUpdate({
       app,
       mainWindow,
@@ -643,7 +558,6 @@ function registerIpcHandlers({ app, mainWindow, checkAndDownloadUpdate, triggerU
 
   ipcMain.handle('app:start-update', (event) => {
     const webContents = event.sender;
-    checkPluginUpdates(webContents);
     return triggerUpdateDownload({
       app,
       mainWindow,

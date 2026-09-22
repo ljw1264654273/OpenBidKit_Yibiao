@@ -1,4 +1,4 @@
-const { compareBidContents, normalizeParagraph } = require('../services/bidContentDuplicateService.cjs');
+const { compareBidContents, normalizeParagraph, replaceFirstTextOutsideIllustrationBlocks, replaceTextPreservingIllustrationBlocks, splitBidParagraphs } = require('../services/bidContentDuplicateService.cjs');
 const { getBidProjectTechnicalPlanDir } = require('../utils/paths.cjs');
 
 function registerBidProjectIpc({
@@ -26,6 +26,9 @@ function registerBidProjectIpc({
   ipc.handle('bid-project:prepare-import', (_event, filePaths) => bidProjectImportService.prepareImport(filePaths));
   ipc.handle('bid-project:confirm-import', (_event, token, options) => bidProjectImportService.confirmImport(token, options));
   ipc.handle('bid-project:discard-import', (_event, token) => bidProjectImportService.discardImport(token));
+  ipc.handle('bid-project:prepare-expansion-import', (_event, payload) => bidProjectImportService.prepareExpansionImport(payload));
+  ipc.handle('bid-project:confirm-expansion-import', (_event, token, options) => bidProjectImportService.confirmExpansionImport(token, options));
+  ipc.handle('bid-project:discard-expansion-import', (_event, token) => bidProjectImportService.discardExpansionImport(token));
   ipc.handle('bid-project:read-content', (_event, projectId) => {
     const store = bidProjectManager.getTechnicalPlanStore(projectId) || technicalPlanStore;
     const state = store.loadTechnicalPlan();
@@ -33,6 +36,7 @@ function registerBidProjectIpc({
   });
   ipc.handle('bid-project:recent-duplicate-summaries', (_event, projectIds) => projectStore.listRecentDuplicateSummaries(projectIds));
   ipc.handle('bid-project:load-duplicate-result', (_event, resultId) => projectStore.loadDuplicateResult(resultId));
+  ipc.handle('bid-project:load-duplicate-result-page', (_event, resultId, offset, limit) => projectStore.loadDuplicateResultPage(resultId, offset, limit));
   ipc.handle('bid-project:load-latest-duplicate-result', (_event, projectId) => projectStore.loadLatestDuplicateResult(projectId));
   ipc.handle('bid-project:update-duplicate-match-decision', (_event, payload) => projectStore.updateDuplicateMatchDecision(payload));
   ipc.handle('bid-project:compare-content', async (_event, payload) => {
@@ -65,7 +69,7 @@ function registerBidProjectIpc({
       threshold: result.threshold,
       matches,
     });
-    return projectStore.loadDuplicateResult(savedResultId);
+    return projectStore.loadDuplicateResultPage(savedResultId, 0, 20);
   });
   ipc.handle('bid-project:rewrite-duplicate-match', async (_event, payload) => {
     const result = projectStore.loadDuplicateResult(payload?.resultId);
@@ -136,9 +140,15 @@ function registerBidProjectIpc({
     const paragraphs = content.split(/\n\s*\n+/);
     const paragraphIndex = paragraphs.findIndex((paragraph) => normalizeParagraph(paragraph) === oldText);
     if (paragraphIndex < 0 && !content.includes(oldText)) throw new Error('原正文已发生变化，请重新查重');
+    const fallbackContent = paragraphIndex < 0
+      ? replaceFirstTextOutsideIllustrationBlocks(content, oldText, String(payload?.newText || ''))
+      : null;
+    if (paragraphIndex < 0 && fallbackContent === null) throw new Error('原正文已发生变化，请重新查重');
     const nextContent = paragraphIndex >= 0
-      ? paragraphs.map((paragraph, index) => index === paragraphIndex ? String(payload?.newText || '') : paragraph).join('\n\n')
-      : content.replace(oldText, String(payload?.newText || ''));
+      ? paragraphs.map((paragraph, index) => index === paragraphIndex
+        ? replaceTextPreservingIllustrationBlocks(paragraph, String(payload?.newText || ''))
+        : paragraph).join('\n\n')
+      : fallbackContent;
     return store.saveChapterContent({
       nodeId: node.id,
       content: nextContent,
@@ -150,8 +160,8 @@ function readProjectParagraphs(state) {
     const paragraphs = [];
     const visit = (items) => (items || []).forEach((item) => {
       if (item?.children?.length) visit(item.children);
-      else String(item?.content || '').split(/\n\s*\n+/).map((content) => content.trim()).filter(Boolean)
-        .forEach((content) => paragraphs.push({ nodeId: item.id, title: item.title, content }));
+      else splitBidParagraphs(item?.content || '')
+        .forEach((paragraph) => paragraphs.push({ nodeId: item.id, title: item.title, content: paragraph.text }));
   });
   visit(state?.outlineData?.outline || []);
   return { paragraphs, content: paragraphs.map((item) => item.content).join('\n\n') };

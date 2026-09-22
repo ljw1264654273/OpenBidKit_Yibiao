@@ -141,6 +141,60 @@ test('lists the latest duplicate summary once for every requested project', () =
   }
 });
 
+test('keeps only the latest duplicate result for the same unordered project pair', () => {
+  const { root, db, store } = createTestStore();
+  try {
+    const sourceFile = createSourceFile();
+    const first = store.createProject({ projectName: '项目一', sourceFile });
+    const second = store.createProject({ projectName: '项目二', sourceFile });
+    const third = store.createProject({ projectName: '项目三', sourceFile });
+
+    store.saveDuplicateResult({
+      resultId: 'pair-old',
+      leftProjectId: first.projectId,
+      rightProjectId: second.projectId,
+      summary: { duplicateParagraphCount: 1 },
+      matches: [makeMatch('old-match', '旧段落', '旧段落')],
+    });
+    const unrelatedResultId = store.saveDuplicateResult({
+      resultId: 'other-pair',
+      leftProjectId: first.projectId,
+      rightProjectId: third.projectId,
+      summary: { duplicateParagraphCount: 2 },
+      matches: [makeMatch('other-match', '其他段落', '其他段落')],
+    });
+
+    const latestResultId = store.saveDuplicateResult({
+      resultId: 'pair-new',
+      leftProjectId: second.projectId,
+      rightProjectId: first.projectId,
+      summary: { duplicateParagraphCount: 3 },
+      matches: [makeMatch('new-match', '新段落', '新段落')],
+    });
+
+    assert.equal(store.loadDuplicateResult('pair-old'), null);
+    assert.equal(store.loadDuplicateResult(latestResultId).matches[0].id, 'new-match');
+    assert.equal(store.loadDuplicateResult(unrelatedResultId).matches[0].id, 'other-match');
+    assert.equal(
+      db.prepare(`
+        SELECT COUNT(*) AS count
+        FROM bid_project_duplicate_results
+        WHERE (left_project_id = ? AND right_project_id = ?)
+           OR (left_project_id = ? AND right_project_id = ?)
+      `).get(first.projectId, second.projectId, second.projectId, first.projectId).count,
+      1,
+    );
+    assert.equal(
+      db.prepare('SELECT COUNT(*) AS count FROM bid_project_duplicate_matches WHERE result_id = ?')
+        .get('pair-old').count,
+      0,
+    );
+  } finally {
+    db.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('ignores cross-source duplicate results when listing or opening the latest same-source result', () => {
   const { root, db, store } = createTestStore();
   try {
@@ -246,6 +300,75 @@ test('loads complete duplicate results and persists one match decision without c
       }),
       /未找到查重结果/,
     );
+  } finally {
+    db.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('loads only the requested duplicate result page and reports total matches', () => {
+  const { root, db, store } = createTestStore();
+  try {
+    const sourceFile = createSourceFile();
+    const left = store.createProject({ projectName: '分页左侧', sourceFile });
+    const right = store.createProject({ projectName: '分页右侧', sourceFile });
+    const resultId = store.saveDuplicateResult({
+      resultId: 'result-page',
+      leftProjectId: left.projectId,
+      rightProjectId: right.projectId,
+      sensitivity: 'medium',
+      threshold: 0.64,
+      summary: { duplicateParagraphCount: 3, maxSimilarity: 0.91 },
+      matches: [
+        makeMatch('page-1', '分页段落一', '分页参考一'),
+        makeMatch('page-2', '分页段落二', '分页参考二'),
+        makeMatch('page-3', '分页段落三', '分页参考三'),
+      ],
+    });
+
+    const page = store.loadDuplicateResultPage(resultId, 1, 1);
+
+    assert.equal(page.resultId, resultId);
+    assert.equal(page.totalMatches, 3);
+    assert.equal(page.offset, 1);
+    assert.equal(page.limit, 1);
+    assert.equal(page.hasMore, true);
+    assert.deepEqual(page.matches.map((match) => match.id), ['page-2']);
+  } finally {
+    db.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('loads duplicate result pages from normalized match rows instead of the legacy JSON blob', () => {
+  const { root, db, store } = createTestStore();
+  try {
+    const sourceFile = createSourceFile();
+    const left = store.createProject({ projectName: '拆分左侧', sourceFile });
+    const right = store.createProject({ projectName: '拆分右侧', sourceFile });
+    const resultId = store.saveDuplicateResult({
+      resultId: 'result-normalized-page',
+      leftProjectId: left.projectId,
+      rightProjectId: right.projectId,
+      sensitivity: 'medium',
+      threshold: 0.64,
+      summary: { duplicateParagraphCount: 2, maxSimilarity: 0.88 },
+      matches: [
+        makeMatch('normalized-1', '拆分段落一', '拆分参考一'),
+        makeMatch('normalized-2', '拆分段落二', '拆分参考二'),
+      ],
+    });
+
+    db.prepare(`
+      UPDATE bid_project_duplicate_results
+      SET matches_json = ?
+      WHERE result_id = ?
+    `).run('legacy-json-is-not-needed-for-page-load', resultId);
+
+    const page = store.loadDuplicateResultPage(resultId, 1, 1);
+
+    assert.equal(page.totalMatches, 2);
+    assert.deepEqual(page.matches.map((match) => match.id), ['normalized-2']);
   } finally {
     db.close();
     fs.rmSync(root, { recursive: true, force: true });

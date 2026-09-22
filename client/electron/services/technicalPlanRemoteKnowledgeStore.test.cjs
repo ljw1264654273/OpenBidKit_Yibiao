@@ -48,7 +48,7 @@ async function runPersistenceAssertions() {
     resetToV23(app);
 
     database = createSqliteDatabase(app);
-    assert.equal(database.schemaVersion, 24);
+    assert.ok(database.schemaVersion >= 24);
 
     const store = createStore(app, database.db, {
       importDocument: async () => ({
@@ -141,10 +141,13 @@ async function runPersistenceAssertions() {
         endpointFingerprint: 'fingerprint-a',
       }],
     });
-    restartedStore.switchWorkflowKind('existing-plan-expansion');
-    assert.equal(restartedDatabase.db.prepare('SELECT COUNT(*) AS count FROM technical_plan_reference_docs').get().count, 0);
+    assert.throws(
+      () => restartedStore.switchWorkflowKind('existing-plan-expansion'),
+      /项目类型固定，请返回项目列表创建新项目/,
+    );
+    assert.equal(restartedDatabase.db.prepare('SELECT COUNT(*) AS count FROM technical_plan_reference_docs').get().count, 1);
     assert.equal(restartedDatabase.db.prepare('SELECT COUNT(*) AS count FROM technical_plan_remote_knowledge_documents').get().count, 0);
-    assert.equal(restartedDatabase.db.prepare('SELECT COUNT(*) AS count FROM technical_plan_remote_knowledge_scopes').get().count, 0);
+    assert.equal(restartedDatabase.db.prepare('SELECT COUNT(*) AS count FROM technical_plan_remote_knowledge_scopes').get().count, 1);
 
     restartedStore.saveBidAnalysisConfig({ mode: 'key', selectedTaskIds: [], bidSectionMode: 'multiple' });
     assert.equal(restartedDatabase.db.prepare('SELECT COUNT(*) AS count FROM technical_plan_remote_knowledge_documents').get().count, 0);

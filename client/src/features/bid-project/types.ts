@@ -53,6 +53,56 @@ export interface BidProjectImportPreview {
   matches?: BidProject[];
 }
 
+export interface ExpansionImportDocumentSuccessPreview {
+  success: true;
+  message?: string;
+  fileName: string;
+  parserLabel: string | null;
+  fileHash: string;
+  contentHash: string;
+  contentPreview: string;
+  markdownChars: number;
+  size: number;
+  modifiedAt: string;
+}
+
+export interface ExpansionImportDocumentFailurePreview {
+  success: false;
+  message?: string;
+  fileName?: string;
+  parserLabel?: string | null;
+  fileHash?: string;
+  contentHash?: string;
+  contentPreview?: string;
+  markdownChars?: number;
+  size?: number;
+  modifiedAt?: string;
+}
+
+export type ExpansionImportDocumentPreview =
+  | ExpansionImportDocumentSuccessPreview
+  | ExpansionImportDocumentFailurePreview;
+
+export interface ExpansionImportTenderPreview {
+  success: boolean;
+  requestedCount: number;
+  documents: ExpansionImportDocumentPreview[];
+  errors: string[];
+}
+
+export interface ExpansionProjectImportPreview {
+  success: boolean;
+  canceled: boolean;
+  message?: string;
+  token: string | null;
+  tender: ExpansionImportTenderPreview;
+  originalPlan: ExpansionImportDocumentPreview;
+}
+
+export interface ExpansionProjectImportOptions {
+  projectName?: string;
+}
+
 export interface BidProjectContent {
   projectId: string;
   paragraphs: Array<{ nodeId: string; title: string; content: string }>;
@@ -63,6 +113,12 @@ export interface BidContentDuplicateMatch {
   id: string;
   similarity: number;
   level: 'medium' | 'high';
+  matchType?: 'similar-paragraph' | 'exact-sentence' | 'mixed';
+  exactSentences?: Array<{
+    normalized: string;
+    left: string;
+    right: string;
+  }>;
   leftParagraph: { index: number; text: string };
   rightParagraph: { index: number; text: string };
   suggestion: { title: string; reason: string; instruction: string };
@@ -83,6 +139,7 @@ export interface BidContentDuplicateResult {
     leftParagraphCount: number;
     rightParagraphCount: number;
     duplicateParagraphCount: number;
+    exactSentenceCount?: number;
     maxSimilarity: number;
     threshold?: number;
   };
@@ -94,6 +151,10 @@ export interface BidContentDuplicateResult {
   status?: string;
   createdAt?: string;
   updatedAt?: string;
+  totalMatches?: number;
+  offset?: number;
+  limit?: number;
+  hasMore?: boolean;
 }
 
 export interface BidProjectDuplicateSummary {

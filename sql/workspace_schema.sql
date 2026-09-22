@@ -14,7 +14,7 @@ PRAGMA busy_timeout = 5000;
 
 -- 目标完整结构版本。
 -- 运行时代码应通过 PRAGMA user_version 判断是否需要自动升级。
-PRAGMA user_version = 32;
+PRAGMA user_version = 33;
 
 -- v27 标书项目工作区索引。正文和技术方案状态按项目专属表/目录保存。
 CREATE TABLE IF NOT EXISTS bid_projects (
@@ -71,6 +71,15 @@ CREATE TABLE IF NOT EXISTS bid_project_duplicate_results (
   updated_at TEXT NOT NULL,
   FOREIGN KEY (left_project_id) REFERENCES bid_projects(project_id) ON DELETE CASCADE,
   FOREIGN KEY (right_project_id) REFERENCES bid_projects(project_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS bid_project_duplicate_matches (
+  result_id TEXT NOT NULL,
+  match_index INTEGER NOT NULL,
+  match_id TEXT,
+  match_json TEXT NOT NULL,
+  PRIMARY KEY (result_id, match_index),
+  FOREIGN KEY (result_id) REFERENCES bid_project_duplicate_results(result_id) ON DELETE CASCADE
 );
 
 -- ============================================================================

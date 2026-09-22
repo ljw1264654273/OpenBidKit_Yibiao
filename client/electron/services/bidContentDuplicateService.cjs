@@ -4,9 +4,95 @@ const sensitivityThresholds = Object.freeze({
   high: 0.76,
 });
 
+const illustrationBlockPatterns = Object.freeze([
+  /<!--\s*yibiao-illustration:start\b[\s\S]*?<!--\s*yibiao-illustration:end\s*-->/gi,
+  /<!\s*yibiaoillustration:start\b[\s\S]*?<!\s*yibiaoillustration:end\s*>/gi,
+  /<!\s*yibiaofigurecaption\b[\s\S]*?(?:<!\s*)?yibiaoillustration:end\b(?:\s*(?:-->|>))?/gi,
+]);
+
+function removeIllustrationBlocks(value) {
+  let text = String(value || '').replace(/\r\n?/g, '\n');
+  for (const pattern of illustrationBlockPatterns) {
+    text = text.replace(pattern, '\n');
+  }
+  return text;
+}
+
+function illustrationBlockRanges(value) {
+  const text = String(value || '').replace(/\r\n?/g, '\n');
+  const ranges = [];
+  for (const pattern of illustrationBlockPatterns) {
+    pattern.lastIndex = 0;
+    let match = pattern.exec(text);
+    while (match) {
+      ranges.push({ start: match.index, end: match.index + match[0].length });
+      match = pattern.exec(text);
+    }
+    pattern.lastIndex = 0;
+  }
+  ranges.sort((left, right) => left.start - right.start || right.end - left.end);
+  return ranges.reduce((merged, range) => {
+    const previous = merged[merged.length - 1];
+    if (previous && range.start <= previous.end) {
+      previous.end = Math.max(previous.end, range.end);
+      return merged;
+    }
+    merged.push({ ...range });
+    return merged;
+  }, []);
+}
+
+function replaceTextPreservingIllustrationBlocks(value, replacement) {
+  const text = String(value || '').replace(/\r\n?/g, '\n');
+  const ranges = illustrationBlockRanges(text);
+  if (!ranges.length) return String(replacement || '');
+
+  let cursor = 0;
+  let inserted = false;
+  let result = '';
+  for (const range of ranges) {
+    const before = text.slice(cursor, range.start);
+    if (!inserted && before.trim()) {
+      result += String(replacement || '');
+      inserted = true;
+    } else if (!before.trim()) {
+      result += before;
+    }
+    result += text.slice(range.start, range.end);
+    cursor = range.end;
+  }
+  const after = text.slice(cursor);
+  if (!inserted && after.trim()) {
+    result += String(replacement || '');
+    inserted = true;
+  } else if (!after.trim()) {
+    result += after;
+  }
+  return inserted ? result : text;
+}
+
+function replaceFirstTextOutsideIllustrationBlocks(value, oldText, replacement) {
+  const text = String(value || '').replace(/\r\n?/g, '\n');
+  const ranges = illustrationBlockRanges(text);
+  let cursor = 0;
+  for (const range of ranges) {
+    const before = text.slice(cursor, range.start);
+    const matchIndex = before.indexOf(String(oldText || ''));
+    if (matchIndex >= 0) {
+      return `${text.slice(0, cursor + matchIndex)}${String(replacement || '')}${text.slice(cursor + matchIndex + String(oldText || '').length)}`;
+    }
+    cursor = range.end;
+  }
+  const after = text.slice(cursor);
+  const matchIndex = after.indexOf(String(oldText || ''));
+  if (matchIndex >= 0) {
+    return `${text.slice(0, cursor + matchIndex)}${String(replacement || '')}${text.slice(cursor + matchIndex + String(oldText || '').length)}`;
+  }
+  return null;
+}
+
 function normalizeParagraph(value) {
-  return String(value || '')
-    .replace(/\r\n?/g, '\n')
+  return removeIllustrationBlocks(value)
     .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
     .replace(/[`*_>#~-]+/g, '')
     .replace(/\s+/g, ' ')
@@ -20,8 +106,7 @@ function compactParagraph(value) {
 }
 
 function splitBidParagraphs(content) {
-  return String(content || '')
-    .replace(/\r\n?/g, '\n')
+  return removeIllustrationBlocks(content)
     .split(/\n\s*\n+/)
     .map((text, index) => ({
       index,
@@ -29,6 +114,129 @@ function splitBidParagraphs(content) {
     }))
     .filter((paragraph) => paragraph.text)
     .map((paragraph, index) => ({ ...paragraph, index }));
+}
+
+function splitSentences(value) {
+  const text = removeIllustrationBlocks(value);
+  const sentences = [];
+  let start = 0;
+  const isAsciiLetter = (character) => Boolean(character && /[A-Za-z]/.test(character));
+  const isDigit = (character) => Boolean(character && /[0-9]/.test(character));
+  const isBoundary = (index) => {
+    const character = text[index];
+    if ('。！？；!?;，,：:'.includes(character)) return true;
+    if (character !== '.') return false;
+    const previous = text[index - 1];
+    const next = text[index + 1];
+    if (isDigit(previous) && isDigit(next)) return false;
+    if (isAsciiLetter(previous) && isAsciiLetter(next)) return false;
+    const tokenStart = Math.max(
+      text.lastIndexOf(' ', index - 1),
+      text.lastIndexOf('\n', index - 1),
+      text.lastIndexOf('\t', index - 1),
+    ) + 1;
+    const token = text.slice(tokenStart, index + 1);
+    if (/^(?:(?:[A-Za-z]\.){2,}|(?:Mr|Mrs|Ms|Dr|Prof|Sr|Jr|St|e\.g|i\.e)\.)$/i.test(token)) return false;
+    return true;
+  };
+  const push = (end) => {
+    const sentence = normalizeParagraph(text.slice(start, end));
+    if (sentence) sentences.push(sentence);
+    start = end;
+  };
+
+  for (let index = 0; index < text.length; index += 1) {
+    if (text[index] === '\n' || text[index] === '\r') {
+      push(index);
+      while (text[index + 1] === '\n' || text[index + 1] === '\r') index += 1;
+      start = index + 1;
+      continue;
+    }
+    if (isBoundary(index)) push(index + 1);
+  }
+  push(text.length);
+  return sentences;
+}
+
+function isPureListMarker(value) {
+  const text = normalizeParagraph(value);
+  if (!text) return true;
+  return /^(?:\d+\s*[.．、:：)]|[（(]\s*\d+\s*[）)]|[一二三四五六七八九十百千万零〇两]+\s*[、.．:：]|[（(]\s*[一二三四五六七八九十百千万零〇两]+\s*[）)])$/.test(text);
+}
+
+function collectExactSentenceMatches(leftParagraphs, rightParagraphs, leftExempt, rightExempt) {
+  const rightSentencesByKey = new Map();
+  const rightParagraphsByKey = new Map();
+  for (const rightParagraph of rightParagraphs) {
+    const rightCompact = compactParagraph(rightParagraph.text);
+    if (!rightCompact || rightExempt.has(rightCompact) || looksExemptParagraph(rightParagraph.text)) continue;
+    const rightSentences = splitSentences(rightParagraph.text)
+      .filter((sentence) => !isPureListMarker(sentence));
+    if (!rightSentences.length) continue;
+    const sameParagraphs = rightParagraphsByKey.get(rightCompact) || [];
+    sameParagraphs.push(rightParagraph);
+    rightParagraphsByKey.set(rightCompact, sameParagraphs);
+    rightSentences.forEach((sentence) => {
+      const normalized = compactParagraph(sentence);
+      if (!normalized) return;
+      const occurrences = rightSentencesByKey.get(normalized) || [];
+      occurrences.push({ paragraph: rightParagraph, sentence });
+      rightSentencesByKey.set(normalized, occurrences);
+    });
+  }
+
+  const groups = new Map();
+  for (const leftParagraph of leftParagraphs) {
+    const leftCompact = compactParagraph(leftParagraph.text);
+    if (!leftCompact || leftExempt.has(leftCompact) || looksExemptParagraph(leftParagraph.text)) continue;
+    const leftSentences = splitSentences(leftParagraph.text)
+      .filter((sentence) => !isPureListMarker(sentence));
+    const leftSentenceEntries = leftSentences
+      .map((sentence) => ({ sentence, normalized: compactParagraph(sentence) }))
+      .filter((entry) => entry.normalized);
+
+    for (const entry of leftSentenceEntries) {
+      for (const occurrence of rightSentencesByKey.get(entry.normalized) || []) {
+        const groupKey = `${leftParagraph.index}:${occurrence.paragraph.index}`;
+        const group = groups.get(groupKey) || {
+          leftParagraph,
+          rightParagraph: occurrence.paragraph,
+          exactSentences: [],
+        };
+        if (!group.exactSentences.some((item) => (
+          item.normalized === entry.normalized
+          && item.left === entry.sentence
+          && item.right === occurrence.sentence
+        ))) {
+          group.exactSentences.push({
+            normalized: entry.normalized,
+            left: entry.sentence,
+            right: occurrence.sentence,
+          });
+        }
+        groups.set(groupKey, group);
+      }
+    }
+
+    for (const rightParagraph of rightParagraphsByKey.get(leftCompact) || []) {
+      const groupKey = `${leftParagraph.index}:${rightParagraph.index}`;
+      const group = groups.get(groupKey) || {
+        leftParagraph,
+        rightParagraph,
+        exactSentences: [],
+      };
+      const matchedText = group.exactSentences.map((item) => item.normalized).join('');
+      if (matchedText !== leftCompact) {
+        group.exactSentences.push({
+          normalized: leftCompact,
+          left: leftParagraph.text,
+          right: rightParagraph.text,
+        });
+      }
+      groups.set(groupKey, group);
+    }
+  }
+  return Array.from(groups.values());
 }
 
 function makeNGramSet(value, size = 2) {
@@ -155,6 +363,7 @@ function compareBidContents({
       id: `match-${leftParagraph.index}-${best.rightParagraph.index}`,
       similarity: best.similarity,
       level: best.similarity >= Math.min(0.94, threshold + 0.14) ? 'high' : 'medium',
+      matchType: 'similar-paragraph',
       leftParagraph,
       rightParagraph: best.rightParagraph,
       suggestion: buildRewriteSuggestion(leftParagraph.text, best.rightParagraph.text),
@@ -164,17 +373,41 @@ function compareBidContents({
   const uniqueMatches = matches.filter((match, index, all) => (
     all.findIndex((candidate) => candidate.rightParagraph.index === match.rightParagraph.index) === index
   ));
+  const exactSentenceGroups = collectExactSentenceMatches(leftParagraphs, rightParagraphs, leftExempt, rightExempt);
+  const mergedMatches = [...uniqueMatches];
+  for (const group of exactSentenceGroups) {
+    const existing = mergedMatches.find((match) => (
+      match.leftParagraph.index === group.leftParagraph.index
+      && match.rightParagraph.index === group.rightParagraph.index
+    ));
+    if (existing) {
+      existing.matchType = 'mixed';
+      existing.exactSentences = group.exactSentences;
+      continue;
+    }
+    mergedMatches.push({
+      id: `exact-${group.leftParagraph.index}-${group.rightParagraph.index}`,
+      similarity: 1,
+      level: 'high',
+      matchType: 'exact-sentence',
+      exactSentences: group.exactSentences,
+      leftParagraph: group.leftParagraph,
+      rightParagraph: group.rightParagraph,
+      suggestion: buildRewriteSuggestion(group.leftParagraph.text, group.rightParagraph.text),
+    });
+  }
   return {
     sensitivity: sensitivityThresholds[sensitivity] ? sensitivity : 'medium',
     threshold,
     leftParagraphs,
     rightParagraphs,
-    matches: uniqueMatches,
+    matches: mergedMatches,
     summary: {
       leftParagraphCount: leftParagraphs.length,
       rightParagraphCount: rightParagraphs.length,
-      duplicateParagraphCount: uniqueMatches.length,
-      maxSimilarity: uniqueMatches.reduce((max, item) => Math.max(max, item.similarity), 0),
+      duplicateParagraphCount: mergedMatches.length,
+      exactSentenceCount: exactSentenceGroups.reduce((count, group) => count + group.exactSentences.length, 0),
+      maxSimilarity: mergedMatches.reduce((max, item) => Math.max(max, item.similarity), 0),
     },
   };
 }
@@ -185,6 +418,10 @@ module.exports = {
   compactParagraph,
   editSimilarity,
   normalizeParagraph,
+  removeIllustrationBlocks,
+  replaceFirstTextOutsideIllustrationBlocks,
+  replaceTextPreservingIllustrationBlocks,
   paragraphSimilarity,
+  splitSentences,
   splitBidParagraphs,
 };

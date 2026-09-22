@@ -116,3 +116,45 @@ test('列表页只有生成完成的标书允许导出', async () => {
   assert.match(sharedStyles, /\.text-button:disabled[\s\S]*cursor:\s*not-allowed/);
   assert.match(sharedStyles, /\.text-button:disabled[\s\S]*opacity:/);
 });
+
+test('查看最近查重结果先打开加载态，并直接使用列表摘要中的结果 ID', async () => {
+  const fs = await import('node:fs/promises');
+  const workspacePage = await fs.readFile(new URL('../pages/BidProjectWorkspacePage.tsx', import.meta.url), 'utf8');
+  const dialog = await fs.readFile(new URL('../components/BidProjectDuplicateResultDialog.tsx', import.meta.url), 'utf8');
+
+  assert.match(workspacePage, /setDuplicateResultDialogOpen\(true\)/);
+  assert.match(workspacePage, /loadDuplicateResultPage\(duplicateSummary\.resultId/);
+  assert.match(workspacePage, /duplicateResultLoading/);
+  assert.match(dialog, /正在读取查重结果/);
+  assert.match(dialog, /resultLoading\??: boolean/);
+});
+
+test('查重结果弹窗只展示当前页并支持继续加载下一页', async () => {
+  const fs = await import('node:fs/promises');
+  const dialog = await fs.readFile(new URL('../components/BidProjectDuplicateResultDialog.tsx', import.meta.url), 'utf8');
+  const workspacePage = await fs.readFile(new URL('../pages/BidProjectWorkspacePage.tsx', import.meta.url), 'utf8');
+
+  assert.match(dialog, /onLoadPage/);
+  assert.match(dialog, /totalMatches/);
+  assert.match(dialog, /下一页/);
+  assert.match(workspacePage, /loadDuplicateResultPage/);
+});
+
+test('查重结果弹窗支持在当前文件对上重新对比，并在对比期间禁止关闭', async () => {
+  const fs = await import('node:fs/promises');
+  const dialog = await fs.readFile(new URL('../components/BidProjectDuplicateResultDialog.tsx', import.meta.url), 'utf8');
+
+  assert.match(dialog, /重新对比/);
+  assert.match(dialog, /onRecompare/);
+  assert.match(dialog, /resultLoading\s*\|\|\s*!leftProject\s*\|\|\s*!rightProject/);
+  assert.match(dialog, /if \(!nextOpen && resultLoading\) return/);
+});
+
+test('标书列表查重摘要查询不读取完整匹配正文 JSON', async () => {
+  const fs = await import('node:fs/promises');
+  const store = await fs.readFile(new URL('../../../../electron/services/bidProjectStore.cjs', import.meta.url), 'utf8');
+
+  assert.doesNotMatch(store, /SELECT\s+r\.\*/);
+  assert.match(store, /r\.summary_json/);
+  assert.match(store, /r\.result_id/);
+});

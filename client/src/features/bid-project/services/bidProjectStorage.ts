@@ -1,4 +1,4 @@
-import type { BidContentDuplicateDecision, BidContentDuplicateResult, BidContentDuplicateRewriteRequest, BidContentDuplicateRewriteResult, BidContentDuplicateTargetSide, BidProject, BidProjectCreateOptions, BidProjectDuplicateSummary, BidProjectImportPreview } from '../types';
+import type { BidContentDuplicateDecision, BidContentDuplicateResult, BidContentDuplicateRewriteRequest, BidContentDuplicateRewriteResult, BidContentDuplicateTargetSide, BidProject, BidProjectCreateOptions, BidProjectDuplicateSummary, BidProjectImportPreview, ExpansionProjectImportOptions, ExpansionProjectImportPreview } from '../types';
 import type { ExportFormatConfig } from '../../../shared/types/exportFormat';
 
 export const bidProjectStorage = {
@@ -23,6 +23,15 @@ export const bidProjectStorage = {
   prepareImport(filePaths?: string[]): Promise<BidProjectImportPreview> {
     return window.yibiao!.bidProject.prepareImport(filePaths);
   },
+  prepareExpansionImport(payload: { tenderFilePaths?: string[]; originalPlanFilePaths?: string[] }): Promise<ExpansionProjectImportPreview> {
+    return window.yibiao!.bidProject.prepareExpansionImport(payload);
+  },
+  confirmExpansionImport(token: string, options?: ExpansionProjectImportOptions): Promise<BidProject> {
+    return window.yibiao!.bidProject.confirmExpansionImport(token, options);
+  },
+  discardExpansionImport(token: string): Promise<{ success: boolean; message?: string }> {
+    return window.yibiao!.bidProject.discardExpansionImport(token);
+  },
   compareContent(payload: { leftProjectId: string; rightProjectId: string; sensitivity?: 'low' | 'medium' | 'high' }): Promise<BidContentDuplicateResult> {
     return window.yibiao!.bidProject.compareContent(payload);
   },
@@ -32,10 +41,13 @@ export const bidProjectStorage = {
   loadDuplicateResult(resultId: string): Promise<BidContentDuplicateResult | null> {
     return window.yibiao!.bidProject.loadDuplicateResult(resultId);
   },
+  loadDuplicateResultPage(resultId: string, offset: number, limit: number): Promise<BidContentDuplicateResult | null> {
+    return window.yibiao!.bidProject.loadDuplicateResultPage(resultId, offset, limit);
+  },
   loadLatestDuplicateResult(projectId: string): Promise<BidContentDuplicateResult | null> {
     return window.yibiao!.bidProject.loadLatestDuplicateResult(projectId);
   },
-  updateDuplicateMatchDecision(payload: { resultId: string; matchId: string; decision: BidContentDuplicateDecision; targetSide: BidContentDuplicateTargetSide; rewriteDraft?: string | null }): Promise<BidContentDuplicateResult> {
+  updateDuplicateMatchDecision(payload: { resultId: string; matchId: string; decision: BidContentDuplicateDecision; targetSide: BidContentDuplicateTargetSide; rewriteDraft?: string | null; offset?: number; limit?: number }): Promise<BidContentDuplicateResult> {
     return window.yibiao!.bidProject.updateDuplicateMatchDecision(payload);
   },
   rewriteDuplicateMatch(payload: BidContentDuplicateRewriteRequest): Promise<BidContentDuplicateRewriteResult> {

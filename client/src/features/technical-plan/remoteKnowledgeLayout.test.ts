@@ -38,6 +38,16 @@ test('remote knowledge picker uses the dialog list and compact action styles', (
   assert.match(component, /className="remote-knowledge-action/);
   assert.match(component, /className="remote-knowledge-pagination"/);
 });
+
+test('standalone remote knowledge page gives its picker the remaining page height', () => {
+  const stylesheet = readClientSource('src/styles/feature-knowledge-base.css');
+
+  assert.match(
+    stylesheet,
+    /\.remote-knowledge-page-panel\s*\{[^}]*flex:\s*1\s+1\s+0;/s,
+  );
+});
+
 test('reference knowledge tabs and remote browser use knowledge-base labels and show the base count', () => {
   const outlinePage = readClientSource('src/features/technical-plan/pages/OutlineEditPage.tsx');
   const remotePicker = readClientSource('src/features/technical-plan/components/RemoteKnowledgePicker.tsx');

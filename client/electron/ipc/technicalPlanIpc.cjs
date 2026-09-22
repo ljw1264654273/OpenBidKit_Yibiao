@@ -50,12 +50,11 @@ function registerTechnicalPlanIpc({ technicalPlanStore, bidProjectManager, taskS
   ipcMain.handle('technical-plan:read-tender-source-markdown', (_event, payload) => resolveStore(payload).readTenderSourceMarkdown(payload?.sourceId || payload));
   ipcMain.handle('technical-plan:read-original-plan-markdown', (_event, payload) => resolveStore(payload).readOriginalPlanMarkdown());
   ipcMain.handle('technical-plan:update-step', (_event, payload) => resolveStore(payload).updateStep(payload?.step || payload));
-  ipcMain.handle('technical-plan:set-workflow-kind', (_event, payload) => resolveStore(payload).setWorkflowKind(payload?.workflowKind || payload));
-  ipcMain.handle('technical-plan:switch-workflow-kind', (_event, payload) => resolveStore(payload).switchWorkflowKind(payload?.workflowKind || payload));
   ipcMain.handle('technical-plan:save-bid-analysis-config', (_event, payload) => resolveStore(payload).saveBidAnalysisConfig(payload));
   ipcMain.handle('technical-plan:save-outline-config', (_event, payload) => saveOutlineConfig({ technicalPlanStore: resolveStore(payload), remoteKnowledgeService }, payload));
   ipcMain.handle('technical-plan:save-outline-selection', (_event, payload) => resolveStore(payload).saveOutlineSelection(payload));
-  ipcMain.handle('technical-plan:save-outline', (_event, payload) => resolveStore(payload).saveOutline(payload?.outlineData || payload));
+  ipcMain.handle('technical-plan:save-outline', (_event, payload) => resolveStore(payload).saveOutline(payload));
+  ipcMain.handle('technical-plan:save-outline-node-knowledge', (_event, payload) => resolveStore(payload).saveOutlineNodeKnowledge(payload));
   ipcMain.handle('technical-plan:save-global-facts-config', (_event, payload) => resolveStore(payload).saveGlobalFactsConfig(payload));
   ipcMain.handle('technical-plan:save-global-facts', (_event, payload) => resolveStore(payload).saveGlobalFacts(payload?.globalFacts || payload));
   ipcMain.handle('technical-plan:save-content-generation-options', (_event, payload) => resolveStore(payload).saveContentGenerationOptions(payload?.options || payload));

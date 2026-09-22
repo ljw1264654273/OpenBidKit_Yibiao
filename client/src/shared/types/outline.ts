@@ -17,6 +17,8 @@ export interface OutlineItem {
   source_requirement_id?: string;
   source_requirement_title?: string;
   knowledge_item_ids?: string[];
+  knowledge_folder_ids?: string[];
+  knowledge_document_ids?: string[];
   children?: OutlineItem[];
   content?: string;
 }
@@ -32,9 +34,9 @@ export interface OutlineWordControlOptions {
 }
 
 export const DEFAULT_OUTLINE_WORD_CONTROL_OPTIONS: OutlineWordControlOptions = {
-  minimumWords: 0,
-  maximumWords: 0,
-  sectionWords: 0,
+  minimumWords: 550000,
+  maximumWords: 650000,
+  sectionWords: 1800,
   strictSectionWords: false,
 };
 

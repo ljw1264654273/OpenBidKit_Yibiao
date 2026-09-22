@@ -12,11 +12,14 @@ import ExportFormatPage from '../features/export-format/pages/ExportFormatPage';
 import MyTemplatesPage from '../features/export-format/pages/MyTemplatesPage';
 import DuplicateCheckPage from '../features/duplicate-check/pages/DuplicateCheckPage';
 import KnowledgeBasePage from '../features/knowledge-base/pages/KnowledgeBasePage';
+import RemoteKnowledgeBasePage from '../features/knowledge-base/pages/RemoteKnowledgeBasePage';
 import RejectionCheckPage from '../features/rejection-check/pages/RejectionCheckPage';
 import SettingsPage from '../features/settings/pages/SettingsPage';
 import TechnicalPlanHome from '../features/technical-plan/pages/TechnicalPlanHome';
 import FeasibilityReportHome from '../features/feasibility-report/pages/FeasibilityReportHome';
 import BidProjectWorkspacePage from '../features/bid-project/pages/BidProjectWorkspacePage';
+import ExpansionProjectCreatePage from '../features/bid-project/pages/ExpansionProjectCreatePage';
+import type { BidProject } from '../features/bid-project/types';
 import SecondaryMenuPage from '../shared/ui/SecondaryMenuPage';
 
 interface AppRouterProps {
@@ -26,10 +29,20 @@ interface AppRouterProps {
   onDeveloperModeChange: (developerMode: boolean) => void;
   onSectionChange: (section: SectionId) => void;
   onProjectChange: (projectId: string | null) => void;
+  onProjectOpen: (project: BidProject) => Promise<void>;
   registerLeaveGuard?: (guard: ((nextSection?: string) => Promise<boolean>) | null) => void;
 }
 
-function AppRouter({ activeSection, activeProjectId, developerMode, onDeveloperModeChange, onSectionChange, onProjectChange, registerLeaveGuard }: AppRouterProps) {
+function AppRouter({
+  activeSection,
+  activeProjectId,
+  developerMode,
+  onDeveloperModeChange,
+  onSectionChange,
+  onProjectChange,
+  onProjectOpen,
+  registerLeaveGuard,
+}: AppRouterProps) {
   const normalizedSection = normalizeSectionId(activeSection);
   const activeMenuItem = getAppMenuItemById(normalizedSection, developerMode);
   const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
@@ -55,11 +68,20 @@ function AppRouter({ activeSection, activeProjectId, developerMode, onDeveloperM
 
   switch (normalizedSection) {
     case 'bid-projects':
-      return <BidProjectWorkspacePage onSectionChange={onSectionChange} onProjectChange={onProjectChange} />;
+      return <BidProjectWorkspacePage onSectionChange={onSectionChange} onProjectOpen={onProjectOpen} />;
     case 'technical-plan':
       return <TechnicalPlanHome workflowKind="technical-plan" projectId={activeProjectId || undefined} registerLeaveGuard={registerLeaveGuard} onSectionChange={onSectionChange} />;
     case 'existing-plan-expansion':
-      return <TechnicalPlanHome workflowKind="existing-plan-expansion" projectId={activeProjectId || undefined} registerLeaveGuard={registerLeaveGuard} onSectionChange={onSectionChange} />;
+      return activeProjectId ? (
+        <TechnicalPlanHome workflowKind="existing-plan-expansion" projectId={activeProjectId} registerLeaveGuard={registerLeaveGuard} onSectionChange={onSectionChange} />
+      ) : (
+        <ExpansionProjectCreatePage
+          onBack={() => onSectionChange('bid-projects')}
+          onProjectCreated={(project) => {
+            onProjectChange(project.projectId);
+          }}
+        />
+      );
     case 'feasibility-report':
       return <FeasibilityReportHome registerLeaveGuard={registerLeaveGuard} onSectionChange={onSectionChange} />;
     case 'business-bid':
@@ -95,10 +117,6 @@ function AppRouter({ activeSection, activeProjectId, developerMode, onDeveloperM
     default:
       return null;
   }
-}
-
-function RemoteKnowledgeBasePage() {
-  return <KnowledgeBasePlaceholder title="远程知识库" description="远程知识库浏览页即将接入，当前可在技术方案引用面板中使用远程资料。" />;
 }
 
 function KnowledgeBasePlaceholder({ title, description }: { title: string; description: string }) {

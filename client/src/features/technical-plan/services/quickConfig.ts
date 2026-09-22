@@ -7,15 +7,16 @@ import type {
 import type { OutlineWordControlOptions } from '../../../shared/types';
 
 export type PageLadderKey =
-  | 'p50-100'
-  | 'p100-200'
-  | 'p200-350'
-  | 'p350-500'
-  | 'p500-800'
-  | 'p800-1200'
-  | 'p1200-1500';
+  | 'p1500'
+  | 'p1200'
+  | 'p900'
+  | 'p500'
+  | 'p200';
 
 export type PageLadderState = PageLadderKey | 'unset' | 'custom';
+
+export const PAGE_LADDER_KEYS = ['p1500', 'p1200', 'p900', 'p500', 'p200'] as const;
+export const DEFAULT_PAGE_LADDER_KEY: PageLadderKey = 'p1200';
 
 export interface PageLadderPreset {
   label: string;
@@ -24,56 +25,47 @@ export interface PageLadderPreset {
 }
 
 export const PAGE_LADDER_PRESETS: Record<PageLadderKey, PageLadderPreset> = {
-  'p50-100': {
-    label: '约50-100页',
-    description: '2.5 - 5 万字',
-    options: { minimumWords: 25000, maximumWords: 50000, sectionWords: 500, strictSectionWords: false },
+  p1500: {
+    label: '1500页',
+    description: '70 - 80 万字（约 1400 - 1600 页）',
+    options: { minimumWords: 700000, maximumWords: 800000, sectionWords: 1800, strictSectionWords: false },
   },
-  'p100-200': {
-    label: '约100-200页',
-    description: '5 - 10 万字',
-    options: { minimumWords: 50000, maximumWords: 100000, sectionWords: 800, strictSectionWords: false },
+  p1200: {
+    label: '1200页',
+    description: '55 - 65 万字（约 1100 - 1300 页）',
+    options: { minimumWords: 550000, maximumWords: 650000, sectionWords: 1800, strictSectionWords: false },
   },
-  'p200-350': {
-    label: '约200-350页',
-    description: '10 - 17.5 万字',
-    options: { minimumWords: 100000, maximumWords: 175000, sectionWords: 1400, strictSectionWords: false },
+  p900: {
+    label: '900页',
+    description: '40 - 50 万字（约 800 - 1000 页）',
+    options: { minimumWords: 400000, maximumWords: 500000, sectionWords: 1800, strictSectionWords: false },
   },
-  'p350-500': {
-    label: '约350-500页',
-    description: '17.5 - 25 万字',
-    options: { minimumWords: 175000, maximumWords: 250000, sectionWords: 1800, strictSectionWords: false },
+  p500: {
+    label: '500页',
+    description: '20 - 30 万字（约 400 - 600 页）',
+    options: { minimumWords: 200000, maximumWords: 300000, sectionWords: 1800, strictSectionWords: false },
   },
-  'p500-800': {
-    label: '约500-800页',
-    description: '25 - 40 万字',
-    options: { minimumWords: 250000, maximumWords: 400000, sectionWords: 1800, strictSectionWords: false },
-  },
-  'p800-1200': {
-    label: '约800-1200页',
-    description: '40 - 60 万字',
-    options: { minimumWords: 400000, maximumWords: 600000, sectionWords: 1800, strictSectionWords: false },
-  },
-  'p1200-1500': {
-    label: '约1200-1500页',
-    description: '60 - 75 万字',
-    options: { minimumWords: 600000, maximumWords: 750000, sectionWords: 1800, strictSectionWords: false },
+  p200: {
+    label: '200页',
+    description: '5 - 15 万字（约 100 - 300 页）',
+    options: { minimumWords: 50000, maximumWords: 150000, sectionWords: 1800, strictSectionWords: false },
   },
 };
 
 export const QUICK_CONFIG_STORAGE_KEY = 'yibiao.technical-plan.step01.quick-config-expanded';
+const WORDS_PER_PAGE = 500;
 
 const DEFAULT_HTML_IMAGE_TYPES = '甘特图、进度网络图、组织架构图、泳道图、RACI 职责矩阵、风险矩阵、系统架构与拓扑图、WBS 工作分解结构图、鱼骨图、柱状图、折线图、饼图';
 
 export const DEFAULT_CONTENT_GENERATION_OPTIONS: ContentGenerationOptions = {
-  imagePreset: 'basic',
-  useAiImages: false,
-  maxAiImages: 0,
+  imagePreset: 'enhanced',
+  useAiImages: true,
+  maxAiImages: 10,
   useMermaidImages: true,
   useAiRedesignForMermaid: false,
-  maxMermaidImages: 5,
-  useHtmlImages: false,
-  maxHtmlImages: 0,
+  maxMermaidImages: 8,
+  useHtmlImages: true,
+  maxHtmlImages: 8,
   htmlImageTypes: DEFAULT_HTML_IMAGE_TYPES,
   tableRequirement: 'heavy',
   enableConsistencyAudit: true,
@@ -98,15 +90,54 @@ export function resolvePageLadderKey(options: OutlineWordControlOptions): PageLa
   if (
     options.minimumWords === 0
     && options.maximumWords === 0
-    && options.sectionWords === 0
-    && options.strictSectionWords === false
   ) {
-    return 'unset';
+    return DEFAULT_PAGE_LADDER_KEY;
   }
 
   const match = (Object.entries(PAGE_LADDER_PRESETS) as Array<[PageLadderKey, PageLadderPreset]>)
     .find(([, preset]) => sameWordControlOptions(options, preset.options));
   return match?.[0] || 'custom';
+}
+
+export function createCustomPageOptions(pageCount: number): OutlineWordControlOptions {
+  const normalizedPageCount = Math.max(1, Math.round(Number(pageCount) || 1));
+  const words = normalizedPageCount * WORDS_PER_PAGE;
+  return {
+    minimumWords: words,
+    maximumWords: words,
+    sectionWords: 1800,
+    strictSectionWords: false,
+  };
+}
+
+export function isValidCustomPageCount(value: unknown) {
+  const numeric = typeof value === 'number' || typeof value === 'string' ? Number(value) : Number.NaN;
+  return Number.isInteger(numeric) && numeric > 0;
+}
+
+export function resolveCustomPageCount(options: OutlineWordControlOptions): number | null {
+  if (
+    options.minimumWords <= 0
+    || options.maximumWords <= 0
+    || options.minimumWords !== options.maximumWords
+    || options.minimumWords % WORDS_PER_PAGE !== 0
+  ) {
+    return null;
+  }
+  return options.minimumWords / WORDS_PER_PAGE;
+}
+
+export function resolveCustomPageDraft(options: OutlineWordControlOptions, currentDraft = ''): string {
+  const persistedPageCount = resolveCustomPageCount(options);
+  if (persistedPageCount !== null) {
+    return String(persistedPageCount);
+  }
+  const preset = (Object.entries(PAGE_LADDER_PRESETS) as Array<[PageLadderKey, PageLadderPreset]>)
+    .find(([, definition]) => sameWordControlOptions(options, definition.options));
+  if (preset) {
+    return preset[0].slice(1);
+  }
+  return isValidCustomPageCount(currentDraft) ? String(Number(currentDraft)) : '';
 }
 
 export function normalizeTableRequirement(value: unknown): ContentTableRequirement {
@@ -173,6 +204,10 @@ export function isQuickConfigLocked(status?: BackgroundTaskStatus) {
   return status === 'running' || status === 'pausing' || status === 'paused';
 }
 
+export function isQuickConfigOptionLocked(status?: BackgroundTaskStatus) {
+  return status === 'running' || status === 'pausing';
+}
+
 interface QuickConfigReadinessInput {
   pageLadder: PageLadderState;
   bidSectionMode: BidSectionMode;
@@ -192,12 +227,6 @@ export function getQuickConfigMissingItems({
   }
   if (pageLadder === 'unset') {
     missingItems.push('标书篇幅');
-  }
-  if (!contentGenerationOptions || contentGenerationOptions.tableRequirement === undefined) {
-    missingItems.push('表格密度');
-  }
-  if (!contentGenerationOptions || !contentGenerationOptions.imagePreset) {
-    missingItems.push('图片模式');
   }
   return missingItems;
 }

@@ -3,7 +3,7 @@ const path = require('node:path');
 const Database = require('better-sqlite3');
 const { getWorkspaceDatabasePath } = require('../utils/paths.cjs');
 
-const schemaVersion = 32;
+const schemaVersion = 33;
 
 function safeProjectTablePart(projectId) {
   return String(projectId || '')
@@ -747,6 +747,54 @@ function createBidProjectSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_bid_project_duplicate_pair
       ON bid_project_duplicate_results(left_project_id, right_project_id, updated_at DESC);
   `);
+}
+
+function ensureBidProjectDuplicateMatches(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS bid_project_duplicate_matches (
+      result_id TEXT NOT NULL,
+      match_index INTEGER NOT NULL,
+      match_id TEXT,
+      match_json TEXT NOT NULL,
+      PRIMARY KEY (result_id, match_index),
+      FOREIGN KEY (result_id) REFERENCES bid_project_duplicate_results(result_id) ON DELETE CASCADE
+    );
+  `);
+
+  const rows = db.prepare(`
+    SELECT result_id, matches_json
+    FROM bid_project_duplicate_results
+  `).all();
+  const hasRows = db.prepare(`
+    SELECT 1
+    FROM bid_project_duplicate_matches
+    WHERE result_id = ?
+    LIMIT 1
+  `);
+  const insertMatch = db.prepare(`
+    INSERT OR IGNORE INTO bid_project_duplicate_matches (
+      result_id, match_index, match_id, match_json
+    ) VALUES (?, ?, ?, ?)
+  `);
+
+  for (const row of rows) {
+    if (hasRows.get(row.result_id)) continue;
+    let matches = [];
+    try {
+      const parsed = JSON.parse(row.matches_json || '[]');
+      matches = Array.isArray(parsed) ? parsed : [];
+    } catch {
+      matches = [];
+    }
+    matches.forEach((match, index) => {
+      insertMatch.run(
+        row.result_id,
+        index,
+        match && typeof match === 'object' ? String(match.id || '') || null : null,
+        JSON.stringify(match),
+      );
+    });
+  }
 }
 
 function addKnowledgeDocumentSortOrder(db) {
@@ -1542,6 +1590,11 @@ const schemaHealthTableGroups = [
     tables: ['export_template_seeds'],
     repair: createExportTemplateSeedSchema,
   },
+  {
+    version: 33,
+    tables: ['bid_project_duplicate_matches'],
+    repair: ensureBidProjectDuplicateMatches,
+  },
 ];
 
 function removeKnowledgeMigrationMeta(db) {
@@ -1973,6 +2026,11 @@ const migrations = [
     version: 32,
     description: '知识库文件夹新增固定分类',
     up: addKnowledgeFolderCatalog,
+  },
+  {
+    version: 33,
+    description: '查重结果匹配组按行存储以支持分页读取',
+    up: ensureBidProjectDuplicateMatches,
   },
 ];
 

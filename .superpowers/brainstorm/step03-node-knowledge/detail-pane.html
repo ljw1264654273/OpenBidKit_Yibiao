@@ -1,0 +1,240 @@
+<style>
+  :root {
+    color-scheme: light;
+    --ink: #172033;
+    --muted: #718096;
+    --line: #e5eaf1;
+    --surface: #ffffff;
+    --soft: #f6f8fb;
+    --blue: #2174fd;
+    --blue-soft: #eef5ff;
+    --green: #23804c;
+    --green-soft: #eaf8ef;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    padding: 30px;
+    background: #edf1f6;
+    color: var(--ink);
+    font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+  }
+  .window {
+    width: min(1180px, 100%);
+    min-height: 720px;
+    margin: 0 auto;
+    overflow: hidden;
+    background: var(--surface);
+    border: 1px solid #d8e0ea;
+    box-shadow: 0 22px 60px rgba(27, 47, 79, .14);
+  }
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 64px;
+    padding: 0 22px;
+    border-bottom: 1px solid var(--line);
+  }
+  .brand { font-size: 16px; font-weight: 800; }
+  .step { color: var(--muted); font-size: 12px; }
+  .workspace {
+    display: grid;
+    grid-template-columns: 1.05fr 1.15fr .95fr;
+    min-height: 654px;
+  }
+  .pane { min-width: 0; border-right: 1px solid var(--line); }
+  .pane:last-child { border-right: 0; }
+  .pane-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 50px;
+    padding: 0 16px;
+    border-bottom: 1px solid var(--line);
+  }
+  .pane-head strong { font-size: 14px; }
+  .pane-head span { color: var(--muted); font-size: 12px; }
+  .source {
+    padding: 18px;
+    color: #5c6879;
+    line-height: 1.8;
+    font-size: 13px;
+    background: #fbfcfe;
+  }
+  .source h3 { margin: 0 0 14px; color: var(--ink); font-size: 16px; }
+  .source p { margin: 0 0 12px; }
+  .tree { padding: 12px 0; }
+  .tree-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 42px;
+    padding: 0 16px;
+    border-bottom: 1px solid #f0f3f7;
+    font-size: 13px;
+  }
+  .tree-row.indent { padding-left: 38px; }
+  .tree-row.active {
+    color: var(--blue);
+    font-weight: 700;
+    background: var(--blue-soft);
+    box-shadow: inset 3px 0 0 var(--blue);
+  }
+  .tree-mark { color: var(--muted); font-size: 12px; }
+  .detail { background: #fff; }
+  .detail-body { padding: 18px; }
+  .detail-title { margin: 0; font-size: 20px; }
+  .detail-description { margin: 8px 0 16px; color: var(--muted); font-size: 13px; line-height: 1.6; }
+  .detail-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
+  button {
+    min-height: 32px;
+    padding: 6px 11px;
+    color: var(--ink);
+    font: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    background: #fff;
+    border: 1px solid #d8e0ea;
+    border-radius: 5px;
+  }
+  button.primary { color: #fff; background: var(--blue); border-color: var(--blue); }
+  button.link { color: var(--blue); border-color: transparent; background: transparent; padding-left: 0; }
+  .section {
+    margin-top: 16px;
+    border-top: 1px solid var(--line);
+    padding-top: 15px;
+  }
+  .section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .section-head strong { font-size: 13px; }
+  .section-head span { color: var(--muted); font-size: 12px; }
+  .inherit-note {
+    margin-top: 10px;
+    padding: 10px 11px;
+    color: #456078;
+    font-size: 12px;
+    line-height: 1.5;
+    background: #f4f8fc;
+    border: 1px solid #e1eaf3;
+    border-radius: 5px;
+  }
+  .doc {
+    display: grid;
+    grid-template-columns: 22px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+    min-height: 42px;
+    margin-top: 8px;
+    padding: 7px 9px;
+    background: var(--soft);
+    border: 1px solid var(--line);
+    border-radius: 5px;
+  }
+  .folder { color: #d68b14; font-size: 16px; }
+  .doc strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+  .doc small { color: var(--green); font-size: 11px; }
+  .modal {
+    position: fixed;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    background: rgba(19, 31, 49, .26);
+  }
+  .dialog {
+    width: min(560px, 100%);
+    padding: 22px;
+    background: #fff;
+    border: 1px solid #d9e1eb;
+    box-shadow: 0 24px 70px rgba(17, 31, 54, .24);
+  }
+  .dialog h2 { margin: 0; font-size: 18px; }
+  .dialog p { margin: 7px 0 18px; color: var(--muted); font-size: 12px; }
+  label { display: grid; gap: 6px; margin-bottom: 12px; color: #526176; font-size: 12px; font-weight: 700; }
+  input {
+    min-height: 36px;
+    padding: 7px 10px;
+    font: inherit;
+    border: 1px solid #cfd8e4;
+    border-radius: 5px;
+  }
+  .drop {
+    display: grid;
+    place-items: center;
+    min-height: 120px;
+    margin-top: 6px;
+    color: var(--blue);
+    background: var(--blue-soft);
+    border: 1px dashed #9dbcf5;
+    border-radius: 5px;
+    text-align: center;
+    line-height: 1.7;
+    font-size: 13px;
+  }
+  .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+</style>
+
+<div class="window">
+  <div class="topbar">
+    <div class="brand">易标投标工具箱</div>
+    <div class="step">STEP 03 / 目录生成</div>
+  </div>
+  <div class="workspace">
+    <section class="pane source">
+      <h3>标书原文</h3>
+      <p>3.1 项目总体实施方案</p>
+      <p>投标人应结合项目特点，对实施组织、质量控制和进度安排进行说明。</p>
+      <p>方案应具有可操作性，并能体现对本项目重点难点的理解。</p>
+    </section>
+    <section class="pane">
+      <div class="pane-head"><strong>目录结构</strong><span>已生成 8 项</span></div>
+      <div class="tree">
+        <div class="tree-row"><span class="tree-mark">▾</span><strong>1 项目总体实施方案</strong></div>
+        <div class="tree-row indent"><span class="tree-mark">▸</span><span>1.1 项目理解</span></div>
+        <div class="tree-row indent active"><span class="tree-mark">▾</span><span>1.2 实施组织与管理</span></div>
+        <div class="tree-row indent"><span class="tree-mark">▸</span><span>1.3 质量保障措施</span></div>
+        <div class="tree-row"><span class="tree-mark">▾</span><strong>2 售后服务方案</strong></div>
+        <div class="tree-row indent"><span class="tree-mark">▸</span><span>2.1 服务响应机制</span></div>
+      </div>
+    </section>
+    <aside class="detail">
+      <div class="pane-head"><strong>目录项详情</strong><span>1.2</span></div>
+      <div class="detail-body">
+        <h2 class="detail-title">实施组织与管理</h2>
+        <p class="detail-description">说明项目组织架构、岗位职责、协同机制和现场管理安排。</p>
+        <div class="detail-actions">
+          <button class="primary">新增知识库</button>
+          <button>编辑</button>
+          <button>添加子目录</button>
+        </div>
+        <div class="section">
+          <div class="section-head"><strong>当前目录知识库</strong><span>2 个文档</span></div>
+          <div class="inherit-note">本目录可使用父级目录关联的知识库。子目录默认继承，也可以单独增加资料。</div>
+          <div class="doc"><span class="folder">▰</span><strong>项目实施组织方案.docx</strong><small>已完成</small></div>
+          <div class="doc"><span class="folder">▰</span><strong>现场管理制度.pdf</strong><small>已完成</small></div>
+          <button class="link">管理已关联知识库</button>
+        </div>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<div class="modal">
+  <div class="dialog">
+    <h2>新增知识库</h2>
+    <p>为“实施组织与管理”添加专属参考资料。上传并处理完成后，将自动关联到当前目录。</p>
+    <label>
+      知识库文件夹名称
+      <input value="实施组织与管理" />
+    </label>
+    <label>
+      上传知识库文档
+      <div class="drop">点击选择文档，或将文件拖入此处<br /><small>支持 Word、PDF、Markdown、Excel 等格式</small></div>
+    </label>
+    <div class="dialog-actions">
+      <button>取消</button>
+      <button class="primary">创建并关联</button>
+    </div>
+  </div>
+</div>

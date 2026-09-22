@@ -16,10 +16,13 @@ import type {
 interface BidProjectDuplicateResultDialogProps {
   open: boolean;
   result: BidContentDuplicateResult | null;
+  resultLoading?: boolean;
+  error?: string | null;
   leftProject: BidProject | null;
   rightProject: BidProject | null;
   onOpenChange: (open: boolean) => void;
   onResultChange: (result: BidContentDuplicateResult) => void;
+  onLoadPage: (offset: number) => Promise<void>;
   onRecompare: () => Promise<void>;
 }
 
@@ -38,10 +41,13 @@ function getInitialTarget(match: BidContentDuplicateMatch): Exclude<BidContentDu
 function BidProjectDuplicateResultDialog({
   open,
   result,
+  resultLoading = false,
+  error = null,
   leftProject,
   rightProject,
   onOpenChange,
   onResultChange,
+  onLoadPage,
   onRecompare,
 }: BidProjectDuplicateResultDialogProps) {
   const { showToast } = useToast();
@@ -61,9 +67,16 @@ function BidProjectDuplicateResultDialog({
     setErrors({});
     setMeta({});
     setActiveMatchId(result.matches[0]?.id || null);
-  }, [result?.resultId]);
+  }, [result?.resultId, result?.offset]);
 
   const checkedMatches = useMemo(() => result?.matches || [], [result]);
+  const currentOffset = result?.offset || 0;
+  const currentLimit = result?.limit || 20;
+  const totalMatches = result?.totalMatches ?? result?.matches.length ?? 0;
+  const currentPage = totalMatches > 0 ? Math.floor(currentOffset / currentLimit) + 1 : 1;
+  const pageCount = Math.max(1, Math.ceil(totalMatches / currentLimit));
+  const canGoPrevious = currentOffset > 0;
+  const canGoNext = Boolean(result?.hasMore);
 
   const focusMatch = (matchId: string) => {
     setActiveMatchId(matchId);
@@ -132,6 +145,8 @@ function BidProjectDuplicateResultDialog({
         decision: 'rewritten',
         targetSide,
         rewriteDraft: draft.trim(),
+        offset: currentOffset,
+        limit: currentLimit,
       });
       onResultChange(updated);
       showToast(`已替换${target.projectLabel}正文，正在重新查重`, 'success');
@@ -151,7 +166,11 @@ function BidProjectDuplicateResultDialog({
     setErrors((previous) => ({ ...previous, [match.id]: '' }));
     try {
       const updated = await bidProjectStorage.updateDuplicateMatchDecision(
-        buildIgnoredDecisionPatch(result.resultId || '', match.id),
+        {
+          ...buildIgnoredDecisionPatch(result.resultId || '', match.id),
+          offset: currentOffset,
+          limit: currentLimit,
+        },
       );
       onResultChange(updated);
       showToast('已标记为无需改写', 'success');
@@ -177,15 +196,47 @@ function BidProjectDuplicateResultDialog({
 
   return (
     <AppDialog
-      open={open && Boolean(result && leftProject && rightProject)}
-      onOpenChange={onOpenChange}
+      open={open && Boolean(leftProject && rightProject)}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen && resultLoading) return;
+        onOpenChange(nextOpen);
+      }}
       cardClassName="bid-project-duplicate-dialog-card"
       kicker="同源正文对比查重"
       title={leftProject && rightProject ? `${leftProject.projectName} / ${rightProject.projectName}` : '正文对比查重'}
-      description="两侧正文仅用于定位重复内容。AI 改写只生成当前组草稿，确认替换后才会写回目标文件。"
-      actions={<button type="button" className="secondary-action" onClick={() => onOpenChange(false)}>关闭</button>}
+      description="图片块不参与文字查重；完全一致句子和相似段落仅用于提示人工审核。AI 改写只生成当前组草稿，确认替换后才会写回目标文件。"
+      actions={(
+        <>
+          <button
+            type="button"
+            className="secondary-action"
+            onClick={() => { void onRecompare(); }}
+            disabled={resultLoading || !leftProject || !rightProject}
+          >
+            {resultLoading ? '重新对比中…' : '重新对比'}
+          </button>
+          <button
+            type="button"
+            className="secondary-action"
+            onClick={() => onOpenChange(false)}
+            disabled={resultLoading}
+          >
+            关闭
+          </button>
+        </>
+      )}
     >
-      {result ? (
+      {resultLoading ? (
+        <div className="bid-project-duplicate-dialog-state" role="status">
+          <strong>正在读取查重结果</strong>
+          <span>正在从本机工作区加载重复段落，请稍候。</span>
+        </div>
+      ) : error ? (
+        <div className="bid-project-duplicate-dialog-state is-error" role="alert">
+          <strong>查重结果读取失败</strong>
+          <span>{error}</span>
+        </div>
+      ) : result ? (
         <div className="bid-project-duplicate-dialog">
           <div className="bid-project-duplicate-result-overview">
             <div>
@@ -201,10 +252,37 @@ function BidProjectDuplicateResultDialog({
               <strong>{Math.round(result.summary.maxSimilarity * 100)}%</strong>
             </div>
             <div>
+              <span>完全一致句子</span>
+              <strong>{result.summary.exactSentenceCount || 0}</strong>
+            </div>
+            <div>
               <span>判定阈值</span>
               <strong>{Math.round((result.threshold || result.summary.threshold || 0) * 100)}%</strong>
             </div>
           </div>
+          {totalMatches > 0 ? (
+            <div className="bid-project-result-pagination">
+              <span>共 {totalMatches} 组，当前第 {currentPage} / {pageCount} 页</span>
+              <div>
+                <button
+                  type="button"
+                  className="secondary-action"
+                  onClick={() => { void onLoadPage(Math.max(0, currentOffset - currentLimit)); }}
+                  disabled={!canGoPrevious || resultLoading}
+                >
+                  上一页
+                </button>
+                <button
+                  type="button"
+                  className="secondary-action"
+                  onClick={() => { void onLoadPage(currentOffset + currentLimit); }}
+                  disabled={!canGoNext || resultLoading}
+                >
+                  下一页
+                </button>
+              </div>
+            </div>
+          ) : null}
           {checkedMatches.length === 0 ? (
             <div className="bid-project-duplicate-empty">
               <strong>暂未发现需要处理的重复内容</strong>
@@ -217,6 +295,7 @@ function BidProjectDuplicateResultDialog({
                 const target = targetSide === 'left' ? match.leftParagraph.text : match.rightParagraph.text;
                 const reference = targetSide === 'left' ? match.rightParagraph.text : match.leftParagraph.text;
                 const ignored = match.decision === 'ignored';
+                const exactSentences = match.exactSentences || [];
                 return (
                   <article
                     className={`bid-project-match${activeMatchId === match.id ? ' is-active' : ''}`}
@@ -226,7 +305,11 @@ function BidProjectDuplicateResultDialog({
                     <div className="bid-project-match-heading">
                       <div>
                         <span>重复组 {index + 1}</span>
-                        <strong>相似度 {Math.round(match.similarity * 100)}%</strong>
+                        <strong>
+                          {exactSentences.length
+                            ? `完全一致句子 ${exactSentences.length} 条${match.matchType === 'mixed' ? ` · 段落相似度 ${Math.round(match.similarity * 100)}%` : ''}`
+                            : `相似度 ${Math.round(match.similarity * 100)}%`}
+                        </strong>
                       </div>
                       {ignored ? <em>已标记无需改写</em> : null}
                     </div>
@@ -240,6 +323,17 @@ function BidProjectDuplicateResultDialog({
                         <p>{match.rightParagraph.text}</p>
                       </button>
                     </div>
+                    {exactSentences.length > 0 ? (
+                      <div className="bid-project-exact-sentences">
+                        <strong>发现完全一致句子（忽略空格、换行和标点差异），请人工审核</strong>
+                        {exactSentences.map((sentence) => (
+                          <div key={`${sentence.normalized}-${sentence.left}-${sentence.right}`}>
+                            <span>左侧：{sentence.left}</span>
+                            <span>右侧：{sentence.right}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
                     <div className="bid-project-match-workbench">
                       <div className="bid-project-match-instruction">
                         <strong>{match.suggestion.title}</strong>
@@ -302,12 +396,14 @@ function BidProjectDuplicateResultDialog({
                         <div className="bid-project-ignored-row">
                           <span>已保留人工判断，不修改任何正文。</span>
                           <button type="button" className="text-button" onClick={() => {
-                            void bidProjectStorage.updateDuplicateMatchDecision({
-                              resultId: result.resultId || '',
-                              matchId: match.id,
-                              decision: 'pending',
-                              targetSide: 'none',
-                            }).then(onResultChange).catch((error) => {
+                              void bidProjectStorage.updateDuplicateMatchDecision({
+                                resultId: result.resultId || '',
+                                matchId: match.id,
+                                decision: 'pending',
+                                targetSide: 'none',
+                                offset: currentOffset,
+                                limit: currentLimit,
+                              }).then(onResultChange).catch((error) => {
                               showToast(error instanceof Error ? error.message : '恢复处理状态失败', 'error');
                             });
                           }}>恢复处理</button>

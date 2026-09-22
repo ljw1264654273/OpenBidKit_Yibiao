@@ -202,6 +202,14 @@ function createBidProjectStore({ app, db }) {
       FOREIGN KEY (left_project_id) REFERENCES bid_projects(project_id) ON DELETE CASCADE,
       FOREIGN KEY (right_project_id) REFERENCES bid_projects(project_id) ON DELETE CASCADE
     );
+    CREATE TABLE IF NOT EXISTS bid_project_duplicate_matches (
+      result_id TEXT NOT NULL,
+      match_index INTEGER NOT NULL,
+      match_id TEXT,
+      match_json TEXT NOT NULL,
+      PRIMARY KEY (result_id, match_index),
+      FOREIGN KEY (result_id) REFERENCES bid_project_duplicate_results(result_id) ON DELETE CASCADE
+    );
   `);
 
   function listProjects({ query = '', status = 'all', type = 'all' } = {}) {
@@ -393,6 +401,26 @@ function createBidProjectStore({ app, db }) {
     return db.prepare('SELECT * FROM bid_projects WHERE source_group_id = ? ORDER BY source_sequence ASC').all(project.sourceGroupId).map(toProject);
   }
 
+  function replaceDuplicateMatchRows(resultId, matches) {
+    db.prepare(`
+      DELETE FROM bid_project_duplicate_matches
+      WHERE result_id = ?
+    `).run(resultId);
+    const insertMatch = db.prepare(`
+      INSERT INTO bid_project_duplicate_matches (
+        result_id, match_index, match_id, match_json
+      ) VALUES (?, ?, ?, ?)
+    `);
+    matches.forEach((match, index) => {
+      insertMatch.run(
+        resultId,
+        index,
+        match && typeof match === 'object' ? String(match.id || '') || null : null,
+        JSON.stringify(match),
+      );
+    });
+  }
+
   function saveDuplicateResult(result) {
     const timestamp = now();
     const resultId = result.resultId || crypto.randomUUID();
@@ -429,39 +457,59 @@ function createBidProjectStore({ app, db }) {
       ...(result.summary && typeof result.summary === 'object' ? result.summary : {}),
       threshold,
     };
-    db.prepare(`
-      INSERT INTO bid_project_duplicate_results (
-        result_id, left_project_id, right_project_id, sensitivity, status,
-        summary_json, matches_json, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(result_id) DO UPDATE SET
-        sensitivity = excluded.sensitivity,
-        status = excluded.status,
-        summary_json = excluded.summary_json,
-        matches_json = excluded.matches_json,
-        updated_at = excluded.updated_at
-    `).run(
-      resultId,
-      result.leftProjectId,
-      result.rightProjectId,
-      sensitivity,
-      result.status || 'success',
-      JSON.stringify(summary),
-      JSON.stringify(matches),
-      result.createdAt || timestamp,
-      timestamp,
-    );
+    const persist = db.transaction(() => {
+      db.prepare(`
+        DELETE FROM bid_project_duplicate_results
+        WHERE result_id <> @result_id
+          AND (
+            (left_project_id = @left_project_id AND right_project_id = @right_project_id)
+            OR (left_project_id = @right_project_id AND right_project_id = @left_project_id)
+          )
+      `).run({
+        result_id: resultId,
+        left_project_id: result.leftProjectId,
+        right_project_id: result.rightProjectId,
+      });
+      db.prepare(`
+        INSERT INTO bid_project_duplicate_results (
+          result_id, left_project_id, right_project_id, sensitivity, status,
+          summary_json, matches_json, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(result_id) DO UPDATE SET
+          sensitivity = excluded.sensitivity,
+          status = excluded.status,
+          summary_json = excluded.summary_json,
+          matches_json = excluded.matches_json,
+          updated_at = excluded.updated_at
+      `).run(
+        resultId,
+        result.leftProjectId,
+        result.rightProjectId,
+        sensitivity,
+        result.status || 'success',
+        JSON.stringify(summary),
+        JSON.stringify(matches),
+        result.createdAt || timestamp,
+        timestamp,
+      );
+      replaceDuplicateMatchRows(resultId, matches);
+    });
+    persist();
     return resultId;
   }
 
   function loadDuplicateResult(resultId) {
     const row = db.prepare('SELECT * FROM bid_project_duplicate_results WHERE result_id = ?').get(String(resultId || ''));
     if (!row) return null;
+    return buildDuplicateResult(row, parseJson(row.matches_json, []));
+  }
+
+  function buildDuplicateResult(row, matches, page = {}) {
     const summary = parseJson(row.summary_json, {});
     const threshold = Number.isFinite(Number(summary.threshold))
       ? Number(summary.threshold)
       : fallbackDuplicateThreshold(row.sensitivity);
-    return {
+    const result = {
       resultId: row.result_id,
       leftProjectId: row.left_project_id,
       rightProjectId: row.right_project_id,
@@ -469,12 +517,63 @@ function createBidProjectStore({ app, db }) {
       status: row.status,
       threshold,
       summary: { ...summary, threshold },
-      matches: parseJson(row.matches_json, []),
+      matches,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       leftProject: getProject(row.left_project_id),
       rightProject: getProject(row.right_project_id),
     };
+    if (Object.prototype.hasOwnProperty.call(page, 'totalMatches')) {
+      result.totalMatches = page.totalMatches;
+      result.offset = page.offset;
+      result.limit = page.limit;
+      result.hasMore = page.hasMore;
+    }
+    return result;
+  }
+
+  function loadDuplicateResultPage(resultId, offset = 0, limit = 20) {
+    const id = String(resultId || '');
+    const row = db.prepare(`
+      SELECT
+        result_id,
+        left_project_id,
+        right_project_id,
+        sensitivity,
+        status,
+        summary_json,
+        created_at,
+        updated_at
+      FROM bid_project_duplicate_results
+      WHERE result_id = ?
+    `).get(id);
+    if (!row) return null;
+
+    const normalizedOffset = Math.max(0, Number.isFinite(Number(offset)) ? Math.floor(Number(offset)) : 0);
+    const normalizedLimit = Math.min(
+      50,
+      Math.max(1, Number.isFinite(Number(limit)) ? Math.floor(Number(limit)) : 20),
+    );
+    const count = Number(db.prepare(`
+      SELECT COUNT(*) AS total_matches
+      FROM bid_project_duplicate_matches
+      WHERE result_id = ?
+    `).get(id)?.total_matches || 0);
+    const matches = db.prepare(`
+      SELECT match_json
+      FROM bid_project_duplicate_matches
+      WHERE result_id = ?
+      ORDER BY match_index ASC
+      LIMIT ? OFFSET ?
+    `).all(id, normalizedLimit, normalizedOffset)
+      .map((item) => parseJson(item.match_json, null))
+      .filter(Boolean);
+    return buildDuplicateResult(row, matches, {
+      totalMatches: count,
+      offset: normalizedOffset,
+      limit: normalizedLimit,
+      hasMore: normalizedOffset + matches.length < count,
+    });
   }
 
   function listRecentDuplicateSummaries(projectIds = []) {
@@ -484,7 +583,13 @@ function createBidProjectStore({ app, db }) {
     const params = Object.fromEntries(ids.map((id, index) => [`project_${index}`, id]));
     const rows = db.prepare(`
       SELECT
-        r.*,
+        r.result_id,
+        r.left_project_id,
+        r.right_project_id,
+        r.sensitivity,
+        r.summary_json,
+        r.created_at,
+        r.updated_at,
         lp.project_name AS left_project_name,
         rp.project_name AS right_project_name
       FROM bid_project_duplicate_results r
@@ -550,7 +655,15 @@ function createBidProjectStore({ app, db }) {
     return row ? loadDuplicateResult(row.result_id) : null;
   }
 
-  function updateDuplicateMatchDecision({ resultId, matchId, decision, targetSide = 'none', rewriteDraft } = {}) {
+  function updateDuplicateMatchDecision({
+    resultId,
+    matchId,
+    decision,
+    targetSide = 'none',
+    rewriteDraft,
+    offset,
+    limit,
+  } = {}) {
     const result = loadDuplicateResult(resultId);
     if (!result) throw new Error('未找到查重结果');
     const normalizedDecision = normalizeDuplicateDecision(decision);
@@ -581,12 +694,18 @@ function createBidProjectStore({ app, db }) {
       }
       return next;
     });
-    db.prepare(`
-      UPDATE bid_project_duplicate_results
-      SET matches_json = ?
-      WHERE result_id = ?
-    `).run(JSON.stringify(matches), String(resultId || ''));
-    return loadDuplicateResult(resultId);
+    const persist = db.transaction(() => {
+      db.prepare(`
+        UPDATE bid_project_duplicate_results
+        SET matches_json = ?
+        WHERE result_id = ?
+      `).run(JSON.stringify(matches), String(resultId || ''));
+      replaceDuplicateMatchRows(String(resultId || ''), matches);
+    });
+    persist();
+    return Number.isFinite(Number(offset))
+      ? loadDuplicateResultPage(resultId, offset, limit)
+      : loadDuplicateResult(resultId);
   }
 
   return {
@@ -599,6 +718,7 @@ function createBidProjectStore({ app, db }) {
     listSourceGroupProjects,
     loadLatestDuplicateResult,
     loadDuplicateResult,
+    loadDuplicateResultPage,
     replaceProjectSourceFiles,
     saveDuplicateResult,
     updateDuplicateMatchDecision,

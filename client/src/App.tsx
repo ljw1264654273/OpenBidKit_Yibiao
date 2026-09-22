@@ -1,20 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import AppRouter from './app/AppRouter';
 import GpuHardwareAccelerationPrompt from './app/GpuHardwareAccelerationPrompt';
-import PluginUpdateNotifier from './app/PluginUpdateNotifier';
 import RequiredOnlineServicesPrompt from './app/RequiredOnlineServicesPrompt';
 import AppShell from './components/AppShell';
 import { trackAppOpen, trackConfigUsage, trackPageView } from './shared/analytics/analytics';
 import type { SectionId } from './shared/types/navigation';
 import { onAppNavigation } from './shared/navigation/appNavigation';
-
-function isDeveloperSection(section: SectionId) {
-  return section.startsWith('developer-');
-}
-
-function isManagedWorkbenchSection(section: SectionId) {
-  return section === 'technical-plan' || section === 'existing-plan-expansion' || section === 'feasibility-report';
-}
+import type { BidProject } from './features/bid-project/types';
+import {
+  getMenuNavigationDecision,
+  getProjectSection,
+} from './app/projectNavigation';
 
 function App() {
   const [activeSection, setActiveSection] = useState<SectionId>('bid-projects');
@@ -35,23 +31,28 @@ function App() {
 
   useEffect(() => {
     trackPageView(activeSection);
-    if (isManagedWorkbenchSection(activeSection)) return;
-    void window.yibiao?.ui?.setCurrentView({ section: activeSection });
   }, [activeSection]);
 
   useEffect(() => {
-    if (!developerMode && isDeveloperSection(activeSection)) {
+    if (!developerMode && activeSection.startsWith('developer-')) {
       setActiveSection('bid-projects');
     }
   }, [activeSection, developerMode]);
 
   const requestSectionChange = useCallback(async (section: SectionId) => {
-    if (section === activeSection) {
+    const decision = getMenuNavigationDecision({
+      activeSection,
+      requestedSection: section,
+      activeProjectId,
+    });
+    if (!decision.shouldNavigate) {
       return;
     }
-    const allowed = await (leaveGuardRef.current?.(section) ?? Promise.resolve(true));
+    const allowed = section === activeSection
+      ? true
+      : await (leaveGuardRef.current?.(section) ?? Promise.resolve(true));
     if (allowed) {
-      if (activeProjectId && !isManagedWorkbenchSection(section)) {
+      if (decision.shouldCloseActiveProject && activeProjectId) {
         await window.yibiao?.bidProject.close(activeProjectId).catch(() => undefined);
         setActiveProjectId(null);
       }
@@ -59,13 +60,18 @@ function App() {
     }
   }, [activeProjectId, activeSection]);
 
+  const openProject = useCallback(async (project: BidProject) => {
+    await window.yibiao?.bidProject.open(project.projectId);
+    setActiveProjectId(project.projectId);
+    setActiveSection(getProjectSection(project.projectType));
+  }, []);
+
   useEffect(() => onAppNavigation(({ section }) => { void requestSectionChange(section); }), [requestSectionChange]);
 
   return (
     <>
       <GpuHardwareAccelerationPrompt />
       <RequiredOnlineServicesPrompt />
-      <PluginUpdateNotifier />
       <AppShell
         activeSection={activeSection}
         developerMode={developerMode}
@@ -78,6 +84,7 @@ function App() {
           onDeveloperModeChange={setDeveloperMode}
           onSectionChange={(section) => { void requestSectionChange(section); }}
           onProjectChange={setActiveProjectId}
+          onProjectOpen={openProject}
           registerLeaveGuard={(guard) => {
             leaveGuardRef.current = guard;
           }}

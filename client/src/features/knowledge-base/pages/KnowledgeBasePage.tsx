@@ -2,7 +2,7 @@ import { Profiler, startTransition, useEffect, useLayoutEffect, useMemo, useRef,
 import * as Dialog from '@radix-ui/react-dialog';
 import { trackPageView } from '../../../shared/analytics/analytics';
 import { AppDialog, InlineSpinner, isLibreOfficeRequiredMessage, MarkdownFullscreenViewer, MarkdownRenderer, ProgressBar, useDocumentParseNotice, useToast } from '../../../shared/ui';
-import { getKnowledgeBaseCatalogItem, type KnowledgeBaseId } from '../knowledgeBaseCatalog';
+import { KNOWLEDGE_BASE_CATALOG, getKnowledgeBaseCatalogItem, type KnowledgeBaseId } from '../knowledgeBaseCatalog';
 import type { KnowledgeAnalysisSnapshot, KnowledgeBaseEvent, KnowledgeBaseIndex, KnowledgeDocument, KnowledgeItem } from '../types';
 
 declare global {
@@ -356,6 +356,12 @@ function KnowledgeBasePage({ knowledgeBaseId }: KnowledgeBasePageProps) {
   const [showCreateFolder, setShowCreateFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
   const [creatingFolder, setCreatingFolder] = useState(false);
+  const [moveDocumentTarget, setMoveDocumentTarget] = useState<KnowledgeDocument | null>(null);
+  const [moveIndex, setMoveIndex] = useState<KnowledgeBaseIndex>(emptyIndex);
+  const [moveTargetKnowledgeBaseId, setMoveTargetKnowledgeBaseId] = useState<KnowledgeBaseId>(knowledgeBaseId);
+  const [moveTargetFolderId, setMoveTargetFolderId] = useState('');
+  const [moveIndexLoading, setMoveIndexLoading] = useState(false);
+  const [movingDocument, setMovingDocument] = useState(false);
   const [retryingDocumentIds, setRetryingDocumentIds] = useState<Set<string>>(() => new Set());
   const [visibleDocumentCount, setVisibleDocumentCount] = useState(documentRenderBatchSize);
   const [dragPayload, setDragPayload] = useState<KnowledgeDragPayload | null>(null);
@@ -809,6 +815,60 @@ function KnowledgeBasePage({ knowledgeBaseId }: KnowledgeBasePageProps) {
     }
   };
 
+  const openMoveDocumentDialog = async (document: KnowledgeDocument) => {
+    if (!canMoveKnowledgeDocument(document)) {
+      showToast('文档正在处理中，请完成后再移动', 'info');
+      return;
+    }
+    setMoveDocumentTarget(document);
+    setMoveTargetKnowledgeBaseId(document.knowledge_base_id || knowledgeBaseId);
+    setMoveTargetFolderId('');
+    setMoveIndexLoading(true);
+    try {
+      const data = await knowledgeBaseApi?.list({ allKnowledgeBases: true });
+      if (!data) throw new Error('读取目标知识库失败');
+      setMoveIndex(data);
+      const firstTargetFolder = data.folders.find((folder) => (
+        folder.knowledge_base_id === (document.knowledge_base_id || knowledgeBaseId)
+        && folder.id !== document.folder_id
+      ));
+      setMoveTargetFolderId(firstTargetFolder?.id || '');
+    } catch (error) {
+      setMoveDocumentTarget(null);
+      showToast(error instanceof Error ? error.message : '读取目标知识库失败', 'error');
+    } finally {
+      setMoveIndexLoading(false);
+    }
+  };
+
+  const moveTargetFolders = moveIndex.folders.filter((folder) => (
+    folder.knowledge_base_id === moveTargetKnowledgeBaseId
+    && folder.id !== moveDocumentTarget?.folder_id
+  ));
+
+  const moveDocument = async () => {
+    if (!moveDocumentTarget || !moveTargetFolderId) {
+      showToast('请选择目标文件夹', 'info');
+      return;
+    }
+    setMovingDocument(true);
+    try {
+      const result = await knowledgeBaseApi?.moveDocument(moveDocumentTarget.id, moveTargetFolderId, null, 'after');
+      if (!result?.success) {
+        throw new Error(result?.message || '移动文档失败');
+      }
+      const data = await knowledgeBaseApi?.list({ knowledgeBaseId });
+      if (!data) throw new Error('文档已移动，但读取当前知识库失败');
+      applyKnowledgeIndex(data);
+      setMoveDocumentTarget(null);
+      showToast(result.message || '文档已移动', 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '移动文档失败', 'error');
+    } finally {
+      setMovingDocument(false);
+    }
+  };
+
   const finishActiveViewerTrace = (reason: string, payload: Record<string, unknown> = {}) => {
     finishRenderDebugTrace(viewerTraceRef.current, reason, payload);
     viewerTraceRef.current = null;
@@ -1126,6 +1186,14 @@ function KnowledgeBasePage({ knowledgeBaseId }: KnowledgeBasePageProps) {
                       {developerMode && <button type="button" onClick={() => void openDocument(document, 'analysis')} disabled={!canOpenAnalysis(document)}>分析调试</button>}
                       <button type="button" onClick={() => void openDocument(document, 'items')} disabled={document.status !== 'success'}>查看条目</button>
                       <button type="button" onClick={() => void openDocument(document, 'markdown')} disabled={!canOpenMarkdown(document)}>查看 Markdown</button>
+                      <button
+                        type="button"
+                        onClick={() => { void openMoveDocumentDialog(document); }}
+                        disabled={!canMoveKnowledgeDocument(document) || dragSaving}
+                        title={canMoveKnowledgeDocument(document) ? '移动到其他知识库文件夹' : '处理中，暂不可移动'}
+                      >
+                        移动到
+                      </button>
                       {document.status === 'error' && (
                         <button type="button" className="is-retry" onClick={() => void retryDocument(document)} disabled={retrying}>
                           {retrying ? '重试中...' : '重试'}
@@ -1171,6 +1239,58 @@ function KnowledgeBasePage({ knowledgeBaseId }: KnowledgeBasePageProps) {
           </>
         )}
       />
+      <AppDialog
+        open={Boolean(moveDocumentTarget)}
+        onOpenChange={(open) => !open && !movingDocument && setMoveDocumentTarget(null)}
+        kicker="知识库"
+        title={`移动文档“${moveDocumentTarget?.file_name || ''}”`}
+        description="文档编号、原始文件、Markdown、知识条目和已有直接引用都会保留。"
+        cardClassName="knowledge-move-dialog"
+        preventClose={movingDocument}
+        actions={(
+          <>
+            <button type="button" className="secondary-action" onClick={() => setMoveDocumentTarget(null)} disabled={movingDocument}>取消</button>
+            <button type="button" className="primary-action" onClick={() => { void moveDocument(); }} disabled={movingDocument || moveIndexLoading || !moveTargetFolderId}>
+              {movingDocument ? '移动中...' : '确认移动'}
+            </button>
+          </>
+        )}
+      >
+        {moveIndexLoading ? (
+          <div className="knowledge-empty-box">正在读取目标文件夹...</div>
+        ) : (
+          <div className="knowledge-move-form">
+            <label>
+              <span>目标知识库</span>
+              <select
+                value={moveTargetKnowledgeBaseId}
+                onChange={(event) => {
+                  const nextKnowledgeBaseId = event.target.value as KnowledgeBaseId;
+                  setMoveTargetKnowledgeBaseId(nextKnowledgeBaseId);
+                  const nextFolder = moveIndex.folders.find((folder) => (
+                    folder.knowledge_base_id === nextKnowledgeBaseId
+                    && folder.id !== moveDocumentTarget?.folder_id
+                  ));
+                  setMoveTargetFolderId(nextFolder?.id || '');
+                }}
+                disabled={movingDocument}
+              >
+                {KNOWLEDGE_BASE_CATALOG.map((item) => (
+                  <option value={item.id} key={item.id}>{item.label}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>目标文件夹</span>
+              <select value={moveTargetFolderId} onChange={(event) => setMoveTargetFolderId(event.target.value)} disabled={movingDocument}>
+                <option value="">请选择目标文件夹</option>
+                {moveTargetFolders.map((folder) => <option value={folder.id} key={folder.id}>{folder.name}</option>)}
+              </select>
+            </label>
+            {!moveTargetFolders.length && <p className="knowledge-move-hint">当前分类暂无可用目标文件夹，请先创建文件夹。</p>}
+          </div>
+        )}
+      </AppDialog>
     </>
   );
 }

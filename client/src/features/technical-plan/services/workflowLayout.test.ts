@@ -396,32 +396,57 @@ test('选择标书正文阅读器把长内容限制在内部滚动区域', () =>
 test('STEP 01 以解析为主并把快速配置折叠成可展开摘要', () => {
   const source = readFileSync(new URL('../pages/DocumentAnalysisPage.tsx', import.meta.url), 'utf8');
   const quickConfig = readFileSync(new URL('./quickConfig.ts', import.meta.url), 'utf8');
+  const css = readFileSync(new URL('../../../styles/feature-technical-plan.css', import.meta.url), 'utf8');
 
   assert.doesNotMatch(source, /quick-config-grid/);
   assert.match(source, /quick-config-collapsible/);
   assert.match(source, /aria-expanded=\{quickConfigExpanded\}/);
   assert.match(source, /localStorage\.getItem\(QUICK_CONFIG_STORAGE_KEY\)[\s\S]*storedValue !== 'false'/);
   assert.match(source, /localStorage/);
-  assert.match(quickConfig, /约50-100页/);
-  assert.match(quickConfig, /约1200-1500页/);
+  assert.match(quickConfig, /1500页/);
+  assert.match(quickConfig, /1200页/);
+  assert.match(quickConfig, /900页/);
+  assert.match(quickConfig, /500页/);
+  assert.match(quickConfig, /200页/);
+  assert.doesNotMatch(quickConfig, /p1000|label:\s*'1000页'/);
+  assert.doesNotMatch(quickConfig, /p800|label:\s*'800页'/);
+  assert.match(source, /自定义/);
+  assert.match(source, /type="number"/);
+  assert.match(source, /useState\(''\)/);
+  assert.match(source, /const \[customPageSelected, setCustomPageSelected\] = useState\(false\)/);
+  assert.match(source, /const activePageOption = customPageSelected \? 'custom' : pageLadderKey/);
+  assert.match(source, /const isCustomPageActive = activePageOption === 'custom'/);
+  assert.match(source, /const isActive = activePageOption === key/);
+  assert.match(source, /onClick=\{selectCustomPage\}/);
+  assert.match(source, /onCustomPageStateChange\?:/);
+  assert.match(source, /if \(!isValidCustomPageCount\(value\)\) return;/);
+  assert.doesNotMatch(source, /showToast\('请输入大于 0 的整数页数', 'error'\)/);
+  assert.match(quickConfig, /DEFAULT_PAGE_LADDER_KEY:\s*PageLadderKey\s*=\s*'p1200'/);
+  assert.match(css, /\.quick-config-custom-page input\s*\{[^}]*background:\s*var\(--yb-border-soft\);[^}]*border:\s*1px solid var\(--yb-border\);/s);
   assert.doesNotMatch(source, /默认（不控制）/);
   assert.match(source, /isQuickConfigLocked/);
   assert.match(source, /checkBidSections/);
   assert.match(source, /sectionDetectionRequestRef/);
 });
 
-test('STEP 01 图片设置只提供四种图片模式并显示中文摘要', () => {
+test('STEP 01 图片设置提供三种图片模式并显示中文说明', () => {
   const source = readFileSync(new URL('../pages/DocumentAnalysisPage.tsx', import.meta.url), 'utf8');
   const imageConfig = readFileSync(new URL('./imageConfig.ts', import.meta.url), 'utf8');
+  const css = readFileSync(new URL('../../../styles/feature-technical-plan.css', import.meta.url), 'utf8');
 
   assert.match(source, /IMAGE_PRESET_LABELS/);
   assert.match(source, /applyImagePreset/);
-  assert.match(imageConfig, /增强图文/);
   assert.match(imageConfig, /丰富图文/);
   assert.match(imageConfig, /基础配图/);
   assert.match(imageConfig, /纯文字/);
-  assert.match(imageConfig, /自定义/);
+  assert.match(imageConfig, /适量实拍图、PPT 插图、页面丰富/);
+  assert.match(imageConfig, /适量流程图配图，内容简洁清晰/);
+  assert.match(imageConfig, /无配图，仅文字方案/);
   assert.match(source, /role="radiogroup" aria-label="图片模式"/);
+  assert.match(source, /QUICK_CONFIG_IMAGE_OPTIONS/);
+  assert.match(css, /\.quick-config-image-options\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/s);
+  assert.match(source, /preset === 'enhanced'/);
+  assert.doesNotMatch(source, /\['enhanced', 'rich', 'basic', 'text-only'\]/);
   assert.doesNotMatch(source, /\['useAiImages', 'AI 配图'\]/);
   assert.doesNotMatch(source, /\['useMermaidImages', 'Mermaid 图'\]/);
   assert.doesNotMatch(source, /\['useHtmlImages', 'HTML 图'\]/);
@@ -451,6 +476,8 @@ test('STEP 01 下一步受快速配置完成状态控制', () => {
   assert.match(home, /isQuickConfigComplete/);
   assert.match(home, /state\.step === 'document-analysis' && !quickConfigComplete/);
   assert.match(home, /quickConfigMissingItems/);
+  assert.match(home, /state\.step === 'document-analysis'[\s\S]*customPageState\.selected[\s\S]*!isValidCustomPageCount\(customPageState\.draft\)/);
+  assert.match(home, /showToast\('请输入大于 0 的整数页数', 'error'\)/);
 });
 
 test('项目状态栏承载流程导航且不再渲染底部悬浮工具条', () => {
@@ -604,6 +631,49 @@ test('目录详情提供 AI 添加子目录并直接使用 add-child 持久化',
   const aiChildrenBoxIndex = source.indexOf('className="outline-ai-children-box"');
   assert.ok(detailActionIndex > -1 && aiChildrenBoxIndex > detailActionIndex, 'AI 子目录填写区应在详情按钮下方展开');
   assert.match(css, /\.outline-workspace-shell \.outline-detail-actions button\s*\{[^}]*min-height:\s*30px;[^}]*padding:\s*6px 10px;[^}]*font-size:\s*12px;/s);
+});
+
+test('STEP 03 知识库操作按一级知识库、目录、文档三级级联', () => {
+  const source = readFileSync(new URL('../pages/OutlineEditPage.tsx', import.meta.url), 'utf8');
+  const selection = readFileSync(new URL('./nodeKnowledgeSelection.ts', import.meta.url), 'utf8');
+  const css = readFileSync(new URL('../../../styles/feature-technical-plan.css', import.meta.url), 'utf8');
+
+  assert.match(source, /nodeKnowledgeDialogMode/);
+  assert.match(source, /<span>一级知识库<\/span>[\s\S]*请选择一级知识库/);
+  assert.match(source, /handleNodeKnowledgeBaseChange/);
+  assert.match(source, /setNodeKnowledgeFolderId\(''\)[\s\S]*setDraftNodeKnowledgeDocumentIds\(\[\]\)/);
+  assert.match(source, /<span>目录<\/span>[\s\S]*请选择目录/);
+  assert.match(source, /getFoldersForKnowledgeBase\(knowledgeIndex, nodeKnowledgeBaseId\)/);
+  assert.match(source, /getDocumentsForFolder\(knowledgeIndex, nodeKnowledgeFolderId\)/);
+
+  const createDialog = source.slice(
+    source.indexOf("nodeKnowledgeDialogMode === 'create'"),
+    source.indexOf("nodeKnowledgeDialogMode === 'link'"),
+  );
+  assert.match(createDialog, /\+ 新建目录/);
+  assert.match(createDialog, /createNodeKnowledgeFolder/);
+  assert.match(source, /createFolder\(folderName, nodeKnowledgeBaseId\)/);
+  assert.match(source, /uploadDocuments\(folderId\)/);
+  assert.match(source, /saveNodeKnowledgeLinks\(selectedItem\.id, nextFolderIds, selectedDirectKnowledgeDocumentIds\)/);
+
+  const linkDialog = source.slice(
+    source.indexOf("nodeKnowledgeDialogMode === 'link' && nodeKnowledgeFolderId"),
+    source.indexOf('<div className="content-regenerate-actions">'),
+  );
+  assert.match(linkDialog, /nodeKnowledgeDocuments\.map/);
+  assert.match(linkDialog, /document\.status|file_name/);
+  assert.match(linkDialog, /toggleDraftNodeKnowledgeDocument/);
+  assert.match(source, /mergeFolderDocumentSelection\([\s\S]*nodeKnowledgeFolderId[\s\S]*selectedDirectKnowledgeDocumentIds[\s\S]*draftNodeKnowledgeDocumentIds/);
+  assert.match(source, /setDraftNodeKnowledgeDocumentIds\(selectedDirectKnowledgeDocumentIds\.filter/);
+  assert.match(source, /disabled=\{savingNodeKnowledge \|\| !nodeKnowledgeFolderId\}/);
+  assert.match(selection, /if \(!folderId\) return \[\];[\s\S]*getDocumentsForFolder/);
+  assert.match(selection, /if \(!folderId\) \{[\s\S]*return \[\];[\s\S]*\}/);
+  assert.match(selection, /document\.status === 'success'/);
+
+  assert.match(css, /\.outline-node-knowledge-flow-dialog\s*\{[^}]*max-height:\s*min\(720px,\s*calc\(100vh - 40px\)\)/s);
+  assert.match(css, /\.outline-node-knowledge-document-list\s*\{[^}]*max-height:\s*300px;[^}]*overflow:\s*auto;/s);
+  assert.match(css, /\.outline-node-knowledge-actions\s*\{[^}]*display:\s*grid;[^}]*justify-items:\s*end;/s);
+  assert.match(css, /\.outline-workspace-shell \.outline-detail-actions button\s*\{[^}]*min-height:\s*30px;[^}]*padding:\s*6px 10px;/s);
 });
 
 test('其余活动步骤沿用两行摘要和紧凑命令栏标准', () => {

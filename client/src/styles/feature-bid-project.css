@@ -171,6 +171,27 @@
 .bid-project-status.is-failed { color: #cb3b42; }
 .bid-project-loading { padding: 40px; color: #7a899a; text-align: center; }
 
+.bid-project-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-top: 1px solid #edf1f5;
+  color: #7a899a;
+  font-size: 12px;
+}
+
+.bid-project-pagination-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.bid-project-pagination-actions button {
+  min-height: 32px;
+  padding: 0 12px;
+}
+
 .bid-project-compare-bar {
   display: grid;
   grid-template-columns: minmax(190px, .8fr) minmax(360px, 1.5fr) auto;
@@ -286,9 +307,32 @@
   gap: 12px;
 }
 
+.bid-project-duplicate-dialog-state {
+  display: grid;
+  min-height: 150px;
+  align-content: center;
+  justify-items: center;
+  gap: 8px;
+  color: #71839a;
+  text-align: center;
+}
+
+.bid-project-duplicate-dialog-state strong {
+  color: #244568;
+  font-size: 16px;
+}
+
+.bid-project-duplicate-dialog-state span {
+  line-height: 1.7;
+}
+
+.bid-project-duplicate-dialog-state.is-error strong {
+  color: #b43b43;
+}
+
 .bid-project-duplicate-result-overview {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 10px;
   flex: 0 0 auto;
   padding: 11px 12px;
@@ -307,6 +351,25 @@
   color: #244568;
   font-size: 16px;
   font-variant-numeric: tabular-nums;
+}
+
+.bid-project-result-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: #71839a;
+  font-size: 12px;
+}
+
+.bid-project-result-pagination > div {
+  display: flex;
+  gap: 8px;
+}
+
+.bid-project-result-pagination button {
+  min-height: 32px;
+  padding: 0 12px;
 }
 
 .bid-project-match-list {
@@ -392,6 +455,31 @@
   overflow-wrap: anywhere;
   line-height: 1.7;
   white-space: pre-wrap;
+}
+
+.bid-project-exact-sentences {
+  display: grid;
+  gap: 7px;
+  padding: 10px 12px;
+  border-left: 3px solid #d78b17;
+  background: #fff8e8;
+  color: #765417;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.bid-project-exact-sentences strong {
+  color: #8a5b00;
+  font-size: 12px;
+}
+
+.bid-project-exact-sentences div {
+  display: grid;
+  gap: 2px;
+}
+
+.bid-project-exact-sentences span {
+  overflow-wrap: anywhere;
 }
 .bid-project-match.is-active .bid-project-match-side { border-left-color: #216eea; background: #eef5ff; }
 .bid-project-match.is-active .bid-project-match-side span { color: #216eea; }
@@ -608,6 +696,7 @@
   .bid-project-row { grid-template-columns: minmax(0, 1fr) auto; gap: 7px 12px; }
   .bid-project-row-type, .bid-project-row-time { display: none; }
   .bid-project-row-actions { grid-column: 2; grid-row: 1 / span 2; }
+  .bid-project-pagination { align-items: flex-start; flex-direction: column; }
   .bid-project-compare-bar { grid-template-columns: 1fr; gap: 12px; }
   .bid-project-compare-actions { justify-content: flex-start; }
   .bid-project-context-bar { grid-template-columns: 1fr auto; }

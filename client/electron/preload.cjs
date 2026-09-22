@@ -32,11 +32,6 @@ const bridge = {
     ipcRenderer.on('app:update-error', listener);
     return () => ipcRenderer.removeListener('app:update-error', listener);
   },
-  onPluginUpdatesAvailable: (callback) => {
-    const listener = (_event, payload) => callback(payload);
-    ipcRenderer.on('plugins:updates-available', listener);
-    return () => ipcRenderer.removeListener('plugins:updates-available', listener);
-  },
   database: {
     getStatus: () => ipcRenderer.invoke('workspace-database:get-status'),
     onStatus: (callback) => {
@@ -44,9 +39,6 @@ const bridge = {
       ipcRenderer.on('workspace-database:status', listener);
       return () => ipcRenderer.removeListener('workspace-database:status', listener);
     },
-  },
-  ui: {
-    setCurrentView: (view) => ipcRenderer.invoke('ui:set-current-view', view),
   },
   config: {
     load: () => ipcRenderer.invoke('config:load'),
@@ -181,12 +173,11 @@ const bridge = {
     readTenderSourceMarkdown: (payload) => ipcRenderer.invoke('technical-plan:read-tender-source-markdown', payload),
     readOriginalPlanMarkdown: (payload) => ipcRenderer.invoke('technical-plan:read-original-plan-markdown', payload),
     updateStep: (payload) => ipcRenderer.invoke('technical-plan:update-step', payload),
-    setWorkflowKind: (payload) => ipcRenderer.invoke('technical-plan:set-workflow-kind', payload),
-    switchWorkflowKind: (payload) => ipcRenderer.invoke('technical-plan:switch-workflow-kind', payload),
     saveBidAnalysisConfig: (payload) => ipcRenderer.invoke('technical-plan:save-bid-analysis-config', payload),
     saveOutlineConfig: (payload) => ipcRenderer.invoke('technical-plan:save-outline-config', payload),
     saveOutlineSelection: (payload) => ipcRenderer.invoke('tasks:confirm-outline-selection', payload),
     saveOutline: (outlineData) => ipcRenderer.invoke('technical-plan:save-outline', outlineData),
+    saveOutlineNodeKnowledge: (payload) => ipcRenderer.invoke('technical-plan:save-outline-node-knowledge', payload),
     saveGlobalFactsConfig: (payload) => ipcRenderer.invoke('technical-plan:save-global-facts-config', payload),
     saveGlobalFacts: (payload) => ipcRenderer.invoke('technical-plan:save-global-facts', payload),
     saveContentGenerationOptions: (payload) => ipcRenderer.invoke('technical-plan:save-content-generation-options', payload),
@@ -219,10 +210,14 @@ const bridge = {
     prepareImport: (filePaths) => ipcRenderer.invoke('bid-project:prepare-import', filePaths),
     confirmImport: (token, options) => ipcRenderer.invoke('bid-project:confirm-import', token, options),
     discardImport: (token) => ipcRenderer.invoke('bid-project:discard-import', token),
+    prepareExpansionImport: (payload) => ipcRenderer.invoke('bid-project:prepare-expansion-import', payload),
+    confirmExpansionImport: (token, options) => ipcRenderer.invoke('bid-project:confirm-expansion-import', token, options),
+    discardExpansionImport: (token) => ipcRenderer.invoke('bid-project:discard-expansion-import', token),
     readContent: (projectId) => ipcRenderer.invoke('bid-project:read-content', projectId),
     compareContent: (payload) => ipcRenderer.invoke('bid-project:compare-content', payload),
     listRecentDuplicateSummaries: (projectIds) => ipcRenderer.invoke('bid-project:recent-duplicate-summaries', projectIds),
     loadDuplicateResult: (resultId) => ipcRenderer.invoke('bid-project:load-duplicate-result', resultId),
+    loadDuplicateResultPage: (resultId, offset, limit) => ipcRenderer.invoke('bid-project:load-duplicate-result-page', resultId, offset, limit),
     loadLatestDuplicateResult: (projectId) => ipcRenderer.invoke('bid-project:load-latest-duplicate-result', projectId),
     updateDuplicateMatchDecision: (payload) => ipcRenderer.invoke('bid-project:update-duplicate-match-decision', payload),
     rewriteDuplicateMatch: (payload) => ipcRenderer.invoke('bid-project:rewrite-duplicate-match', payload),
@@ -307,21 +302,6 @@ const bridge = {
   },
   systemFonts: {
     list: () => ipcRenderer.invoke('system-fonts:list'),
-  },
-  plugins: {
-    getAvailablePlugins: () => ipcRenderer.invoke('plugins:getAvailablePlugins'),
-    install: (pluginId) => ipcRenderer.invoke('plugins:install', pluginId),
-    installOffline: () => ipcRenderer.invoke('plugins:installOffline'),
-    uninstall: (pluginId) => ipcRenderer.invoke('plugins:uninstall', pluginId),
-    enable: (pluginId) => ipcRenderer.invoke('plugins:enable', pluginId),
-    disable: (pluginId) => ipcRenderer.invoke('plugins:disable', pluginId),
-    update: (pluginId) => ipcRenderer.invoke('plugins:update', pluginId),
-    checkUpdates: () => ipcRenderer.invoke('plugins:checkUpdates'),
-    updateAll: () => ipcRenderer.invoke('plugins:updateAll'),
-    openConfig: (pluginId) => ipcRenderer.invoke('plugins:openConfig', pluginId),
-    refreshMarket: () => ipcRenderer.invoke('plugins:refreshMarket'),
-    clearUpdateFailedState: (pluginId) => ipcRenderer.invoke('plugins:clearUpdateFailedState', pluginId),
-    notifyEvent: (pluginId, event, payload) => ipcRenderer.invoke('plugins:notify-event', pluginId, event, payload),
   },
 };
 
