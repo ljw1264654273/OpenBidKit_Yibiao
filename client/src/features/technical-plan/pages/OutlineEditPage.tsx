@@ -2465,15 +2465,17 @@ function OutlineEditPage({
                         + 新建目录
                       </button>
                       {nodeKnowledgeFolderMode === 'new' && (
-                        <div className="outline-node-knowledge-field">
-                          <span>目录名称</span>
-                          <input
-                            value={nodeKnowledgeFolderName}
-                            onChange={(event) => setNodeKnowledgeFolderName(event.target.value)}
-                            disabled={savingNodeKnowledge}
-                            placeholder="请输入目录名称"
-                            aria-label="目录名称"
-                          />
+                        <div className="outline-node-knowledge-inline-create">
+                          <label className="outline-node-knowledge-field">
+                            <span>目录名称</span>
+                            <input
+                              value={nodeKnowledgeFolderName}
+                              onChange={(event) => setNodeKnowledgeFolderName(event.target.value)}
+                              disabled={savingNodeKnowledge}
+                              placeholder="请输入目录名称"
+                              aria-label="目录名称"
+                            />
+                          </label>
                           <button
                             type="button"
                             className="secondary-action"
@@ -2512,7 +2514,7 @@ function OutlineEditPage({
                       {loadingKnowledge ? (
                         <div className="outline-knowledge-empty compact">正在读取知识库...</div>
                       ) : nodeKnowledgeDocuments.length ? (
-                        <div className="outline-knowledge-document-list compact">
+                        <div className="outline-node-knowledge-document-list outline-knowledge-document-list compact">
                           {nodeKnowledgeDocuments.map((document) => {
                             const selected = draftNodeKnowledgeDocumentIds.includes(document.id);
                             return (
