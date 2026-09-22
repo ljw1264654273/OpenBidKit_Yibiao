@@ -2472,6 +2472,7 @@ function OutlineEditPage({
                             onChange={(event) => setNodeKnowledgeFolderName(event.target.value)}
                             disabled={savingNodeKnowledge}
                             placeholder="请输入目录名称"
+                            aria-label="目录名称"
                           />
                           <button
                             type="button"
@@ -2496,8 +2497,9 @@ function OutlineEditPage({
                         className="primary-action"
                         onClick={() => { void uploadNodeKnowledgeDocuments(); }}
                         disabled={savingNodeKnowledge}
+                        aria-busy={savingNodeKnowledge}
                       >
-                        选择并上传文档
+                        {savingNodeKnowledge ? '正在上传...' : '选择并上传文档'}
                       </button>
                     </div>
                   )}
@@ -2544,7 +2546,7 @@ function OutlineEditPage({
                   type="button"
                   className="primary-action"
                   onClick={() => { void saveNodeKnowledgeDocuments(); }}
-                  disabled={savingNodeKnowledge || !nodeKnowledgeFolderId || draftNodeKnowledgeDocumentIds.length === 0}
+                  disabled={savingNodeKnowledge || !nodeKnowledgeFolderId}
                 >
                   {savingNodeKnowledge ? '正在保存...' : '保存关联'}
                 </button>
