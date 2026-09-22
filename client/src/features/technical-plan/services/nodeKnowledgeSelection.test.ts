@@ -82,3 +82,10 @@ test('未知目录不改变已有关联', () => {
     ['provincial-ready'],
   );
 });
+
+test('空目录 ID 返回空数组', () => {
+  assert.deepEqual(
+    mergeFolderDocumentSelection(index, '', ['provincial-ready'], ['doc-a-success-1']),
+    [],
+  );
+});

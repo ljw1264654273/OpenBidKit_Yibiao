@@ -17,6 +17,10 @@ export function mergeFolderDocumentSelection(
   currentDocumentIds: string[],
   selectedDocumentIds: string[],
 ): string[] {
+  if (!folderId) {
+    return [];
+  }
+
   const folderDocumentIds = new Set(index.documents
     .filter((document) => document.folder_id === folderId)
     .map((document) => document.id));
