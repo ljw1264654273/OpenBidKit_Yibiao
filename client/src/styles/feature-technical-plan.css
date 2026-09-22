@@ -4686,7 +4686,17 @@
 .outline-knowledge-document.compact small {
   color: var(--yb-text-muted);
   font-size: 12px;
+}
+
+.outline-knowledge-folder-head.compact small {
   white-space: nowrap;
+}
+
+.outline-knowledge-document.compact small {
+  min-width: 0;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .outline-knowledge-folder-actions {
@@ -6141,7 +6151,7 @@
   gap: 14px;
   padding: 20px;
   overflow: hidden;
-  background: #ffffff;
+  background: var(--yb-surface);
   border: 1px solid var(--yb-border-soft);
   border-radius: var(--yb-radius-lg);
   box-shadow: var(--yb-shadow-lg);
@@ -6208,9 +6218,9 @@
   padding: 8px 10px;
   color: var(--yb-text);
   font: inherit;
-  background: var(--yb-surface);
+  background-color: var(--yb-surface);
   border: 1px solid var(--yb-border-soft);
-  border-radius: var(--technical-workbench-control-radius);
+  border-radius: var(--yb-radius-sm);
   outline: none;
 }
 
@@ -6241,7 +6251,7 @@
   color: var(--yb-text-soft);
   background: var(--yb-surface);
   border: 1px solid var(--yb-border-soft);
-  border-radius: var(--technical-workbench-control-radius);
+  border-radius: var(--yb-radius-sm);
 }
 
 .outline-node-knowledge-summary strong,
