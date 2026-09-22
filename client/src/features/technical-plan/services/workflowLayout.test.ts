@@ -341,7 +341,7 @@ test('正文生成把导出 Word 放在上一步后面且不再渲染悬浮工�
   const navigationEnd = homeSource.indexOf('return (', navigationStart);
   const navigationSource = homeSource.slice(navigationStart, navigationEnd);
 
-  assert.match(navigationSource, /\?\s*\[previousStepAction,\s*exportWordAction\]/);
+  assert.match(navigationSource, /\?\s*\[homeAction,\s*previousStepAction,\s*exportWordAction\]/);
   assert.doesNotMatch(homeSource, /<FloatingToolbar/);
   assert.doesNotMatch(homeSource, /toolbarGroups/);
 });
