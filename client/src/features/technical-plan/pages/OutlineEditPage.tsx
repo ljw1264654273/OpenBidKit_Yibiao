@@ -477,6 +477,8 @@ function OutlineEditPage({
   const sortingSelectedItemIdRef = useRef<string | null>(null);
   const sortingExpandedItemsRef = useRef<Set<string>>(new Set());
   const shownTaskErrorIdRef = useRef<string | null>(null);
+  const knowledgeIndexLoadedRef = useRef(false);
+  const knowledgeIndexLoadPromiseRef = useRef<Promise<void> | null>(null);
   const { showToast } = useToast();
   const { showDocumentParseNotice } = useDocumentParseNotice();
   const activeOutlineData = sorting ? draftOutlineData : outlineData;
@@ -551,6 +553,12 @@ function OutlineEditPage({
     });
     return items;
   }, [knowledgeIndex.documents, selectedItemPath]);
+  const hasNodeKnowledgeReferences = Boolean(
+    selectedDirectKnowledgeFolderIds.length
+    || selectedInheritedKnowledgeFolders.length
+    || selectedDirectKnowledgeDocumentIds.length
+    || selectedInheritedKnowledgeDocuments.length,
+  );
   const taskRunning = task?.status === 'running';
   const taskFailed = task?.status === 'error';
   const outlineSelection = task?.stats?.outline_selection;
@@ -560,7 +568,7 @@ function OutlineEditPage({
   const isExpansionWorkflow = workflowKind === 'existing-plan-expansion';
   const knowledgePickingDisabled = generating;
   const contentMutationLocked = contentTaskStatus === 'running' || contentTaskStatus === 'pausing' || contentTaskStatus === 'paused';
-  const outlineMutationLocked = generating || contentMutationLocked || savingSort || aiAdjustmentRunning;
+  const outlineMutationLocked = generating || contentMutationLocked || savingSort || aiAdjustmentRunning || savingNodeKnowledge;
   const progressLogs = task?.logs || [];
   const latestLog = progressLogs[progressLogs.length - 1];
   const progress = generating
@@ -822,28 +830,37 @@ function OutlineEditPage({
   }, []);
 
   useEffect(() => {
-    const hasNodeKnowledge = Boolean(
-      selectedDirectKnowledgeFolderIds.length
-      || selectedInheritedKnowledgeFolders.length
-      || selectedDirectKnowledgeDocumentIds.length
-      || selectedInheritedKnowledgeDocuments.length,
-    );
-    if (!hasNodeKnowledge || knowledgeIndex.folders.length) return;
+    if (!hasNodeKnowledgeReferences || knowledgeIndexLoadedRef.current || knowledgeIndexLoadPromiseRef.current) return;
     void loadKnowledgeIndex();
-  }, [knowledgeIndex.folders.length, selectedDirectKnowledgeDocumentIds.length, selectedDirectKnowledgeFolderIds.length, selectedInheritedKnowledgeDocuments.length, selectedInheritedKnowledgeFolders.length]);
+  }, [hasNodeKnowledgeReferences]);
 
   const loadKnowledgeIndex = async () => {
+    if (knowledgeIndexLoadPromiseRef.current) {
+      return knowledgeIndexLoadPromiseRef.current;
+    }
+    const loadPromise = (async () => {
+      try {
+        setLoadingKnowledge(true);
+        const data = await window.yibiao?.knowledgeBase.list({ allKnowledgeBases: true });
+        setKnowledgeIndex(data || emptyKnowledgeIndex);
+        setExpandedKnowledgeFolderIds(getInitialExpandedKnowledgeFolders(data || emptyKnowledgeIndex));
+        knowledgeIndexLoadedRef.current = true;
+      } catch (error) {
+        knowledgeIndexLoadedRef.current = false;
+        showToast(error instanceof Error ? error.message : '读取知识库失败', 'error');
+        setKnowledgeIndex(emptyKnowledgeIndex);
+        setExpandedKnowledgeFolderIds(new Set());
+      } finally {
+        setLoadingKnowledge(false);
+      }
+    })();
+    knowledgeIndexLoadPromiseRef.current = loadPromise;
     try {
-      setLoadingKnowledge(true);
-      const data = await window.yibiao?.knowledgeBase.list({ allKnowledgeBases: true });
-      setKnowledgeIndex(data || emptyKnowledgeIndex);
-      setExpandedKnowledgeFolderIds(getInitialExpandedKnowledgeFolders(data || emptyKnowledgeIndex));
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : '读取知识库失败', 'error');
-      setKnowledgeIndex(emptyKnowledgeIndex);
-      setExpandedKnowledgeFolderIds(new Set());
+      await loadPromise;
     } finally {
-      setLoadingKnowledge(false);
+      if (knowledgeIndexLoadPromiseRef.current === loadPromise) {
+        knowledgeIndexLoadPromiseRef.current = null;
+      }
     }
   };
 
