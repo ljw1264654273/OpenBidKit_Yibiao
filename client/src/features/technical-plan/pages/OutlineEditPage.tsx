@@ -2,9 +2,11 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, DragEvent, PointerEvent as ReactPointerEvent } from 'react';
 import { trackConfigUsage } from '../../../shared/analytics/analytics';
-import { AppSwitch, ProgressBar, useToast } from '../../../shared/ui';
+import { AppSwitch, isLibreOfficeRequiredMessage, ProgressBar, useDocumentParseNotice, useToast } from '../../../shared/ui';
 import type { BackgroundTaskState, OutlineSelectionItem, RemoteKnowledgeScope, SaveOutlineRequest, SaveOutlineSelectionRequest, ScoreCoverageRecord, TechnicalPlanWorkflowKind } from '../types';
-import type { KnowledgeBaseIndex, KnowledgeDocument } from '../../knowledge-base/types';
+import type { KnowledgeBaseIndex, KnowledgeDocument, KnowledgeFolder } from '../../knowledge-base/types';
+import type { KnowledgeBaseId } from '../../knowledge-base/knowledgeBaseCatalog';
+import { KNOWLEDGE_BASE_CATALOG, getKnowledgeBaseCatalogItem } from '../../knowledge-base/knowledgeBaseCatalog';
 import { OUTLINE_CONTENT_MODE_LABELS } from '../../../shared/types';
 import type { OutlineContentMode, OutlineData, OutlineExpansionMode, OutlineItem, OutlineMode, OutlineWordControlOptions } from '../../../shared/types';
 import type { ExportFormatConfig } from '../../../shared/types/exportFormat';
@@ -17,6 +19,7 @@ import type { TenderSourcePanelProps } from '../components/TenderSourcePanel';
 import { formatKnowledgeReferenceSummary, isRemoteScopeStale } from '../remoteKnowledgeSelection';
 import { canAddOutlineChild } from '../services/outlineDepth';
 import { collectOutlineSourceRecords } from '../services/outlineSourceMatcher';
+import { getDocumentsForFolder, getFoldersForKnowledgeBase, mergeFolderDocumentSelection } from '../services/nodeKnowledgeSelection';
 
 interface OutlineEditPageProps {
   projectId?: string;
@@ -38,6 +41,7 @@ interface OutlineEditPageProps {
   aiAdjustmentRunning?: boolean;
   onOutlineConfigChange: (config: { referenceKnowledgeDocumentIds: string[]; remoteKnowledgeScopes: RemoteKnowledgeScope[]; outlineMode: OutlineMode; outlineExpansionMode: OutlineExpansionMode; wordControlOptions: OutlineWordControlOptions }) => Promise<void>;
   onOutlineSaved: (request: SaveOutlineRequest) => Promise<void>;
+  onOutlineNodeKnowledgeSaved: (nodeId: string, knowledgeFolderIds: string[], knowledgeDocumentIds: string[]) => Promise<void>;
   onOutlineSelectionSaved: (request: SaveOutlineSelectionRequest) => Promise<void>;
   onOpenBidTemplate?: () => Promise<void>;
   bidTemplateExists?: boolean;
@@ -51,6 +55,8 @@ interface OutlineSortGuard {
 }
 
 type OutlineWorkspacePane = 'source' | 'tree' | 'detail';
+type NodeKnowledgeDialogMode = 'create' | 'link';
+type NodeKnowledgeFolderMode = 'existing' | 'new';
 type OutlineSourceSnapshot = Pick<TenderSourcePanelProps, 'selectedItem' | 'outline' | 'coverageRecords'>;
 
 interface RenumberResult {
@@ -356,6 +362,24 @@ function findOutlineItem(items: OutlineItem[], itemId: string): OutlineItem | nu
   return null;
 }
 
+function findOutlinePath(items: OutlineItem[], itemId: string, path: OutlineItem[] = []): OutlineItem[] | null {
+  for (const item of items) {
+    const nextPath = [...path, item];
+    if (item.id === itemId) {
+      return nextPath;
+    }
+    const childPath = item.children ? findOutlinePath(item.children, itemId, nextPath) : null;
+    if (childPath) {
+      return childPath;
+    }
+  }
+  return null;
+}
+
+function uniqueIds(ids: string[]) {
+  return [...new Set(ids.map((id) => id.trim()).filter(Boolean))];
+}
+
 function getInitialExpandedKnowledgeFolders(index: KnowledgeBaseIndex) {
   const firstAvailableFolder = index.folders.find((folder) => (
     index.documents.some((document) => document.folder_id === folder.id && document.status === 'success')
@@ -387,6 +411,7 @@ function OutlineEditPage({
   aiAdjustmentRunning = false,
   onOutlineConfigChange,
   onOutlineSaved,
+  onOutlineNodeKnowledgeSaved,
   onOutlineSelectionSaved,
   onOpenBidTemplate,
   bidTemplateExists = false,
@@ -420,6 +445,14 @@ function OutlineEditPage({
   const [expandedKnowledgeFolderIds, setExpandedKnowledgeFolderIds] = useState<Set<string>>(new Set());
   const [knowledgeIndex, setKnowledgeIndex] = useState<KnowledgeBaseIndex>(emptyKnowledgeIndex);
   const [loadingKnowledge, setLoadingKnowledge] = useState(false);
+  const [nodeKnowledgeDialogMode, setNodeKnowledgeDialogMode] = useState<NodeKnowledgeDialogMode | null>(null);
+  const [nodeKnowledgeBaseId, setNodeKnowledgeBaseId] = useState<KnowledgeBaseId | ''>('');
+  const [nodeKnowledgeFolderId, setNodeKnowledgeFolderId] = useState('');
+  const [nodeKnowledgeFolderMode, setNodeKnowledgeFolderMode] = useState<NodeKnowledgeFolderMode>('existing');
+  const [nodeKnowledgeFolderName, setNodeKnowledgeFolderName] = useState('');
+  const [draftNodeKnowledgeDocumentIds, setDraftNodeKnowledgeDocumentIds] = useState<string[]>([]);
+  const [nodeKnowledgeCreatedFolderId, setNodeKnowledgeCreatedFolderId] = useState<string | null>(null);
+  const [savingNodeKnowledge, setSavingNodeKnowledge] = useState(false);
   const [localStartAt, setLocalStartAt] = useState<number | null>(null);
   const [nowTick, setNowTick] = useState(() => Date.now());
   const [sorting, setSorting] = useState(false);
@@ -445,8 +478,10 @@ function OutlineEditPage({
   const sortingExpandedItemsRef = useRef<Set<string>>(new Set());
   const shownTaskErrorIdRef = useRef<string | null>(null);
   const { showToast } = useToast();
+  const { showDocumentParseNotice } = useDocumentParseNotice();
   const activeOutlineData = sorting ? draftOutlineData : outlineData;
   const selectedItem = activeOutlineData && selectedItemId ? findOutlineItem(activeOutlineData.outline, selectedItemId) : null;
+  const selectedItemPath = activeOutlineData && selectedItemId ? findOutlinePath(activeOutlineData.outline, selectedItemId) : null;
   const persistedOutline = outlineData?.outline || emptyOutline;
   const coverageRecords = task?.stats?.score_coverage_map?.records || emptyCoverageRecords;
   const sourceSnapshot = sorting && sortingSourceSnapshot
@@ -466,6 +501,56 @@ function OutlineEditPage({
   const selectedSourceCount = useMemo(() => sourceSnapshot.selectedItem
     ? collectOutlineSourceRecords(sourceSnapshot.outline, sourceSnapshot.selectedItem.id, sourceSnapshot.coverageRecords).tenderRecords.length
     : 0, [sourceSnapshot.coverageRecords, sourceSnapshot.outline, sourceSnapshot.selectedItem]);
+  const knowledgeFolderById = useMemo(() => new Map(knowledgeIndex.folders.map((folder) => [folder.id, folder])), [knowledgeIndex.folders]);
+  const knowledgeDocumentsByFolderId = useMemo(() => {
+    const map = new Map<string, KnowledgeDocument[]>();
+    knowledgeIndex.documents.forEach((document) => {
+      const list = map.get(document.folder_id) || [];
+      list.push(document);
+      map.set(document.folder_id, list);
+    });
+    return map;
+  }, [knowledgeIndex.documents]);
+  const selectedDirectKnowledgeFolderIds = useMemo(() => uniqueIds(selectedItem?.knowledge_folder_ids || []), [selectedItem]);
+  const selectedDirectKnowledgeDocumentIds = useMemo(() => uniqueIds(selectedItem?.knowledge_document_ids || []), [selectedItem]);
+  const nodeKnowledgeFolders = useMemo(
+    () => getFoldersForKnowledgeBase(knowledgeIndex, nodeKnowledgeBaseId),
+    [knowledgeIndex, nodeKnowledgeBaseId],
+  );
+  const nodeKnowledgeDocuments = useMemo(
+    () => getDocumentsForFolder(knowledgeIndex, nodeKnowledgeFolderId),
+    [knowledgeIndex, nodeKnowledgeFolderId],
+  );
+  const nodeKnowledgeDialogOpen = nodeKnowledgeDialogMode !== null;
+  const nodeKnowledgeCreateDialogOpen = nodeKnowledgeDialogOpen && nodeKnowledgeDialogMode === 'create';
+  const nodeKnowledgeDocumentDialogOpen = nodeKnowledgeDialogMode === 'link';
+  const selectedInheritedKnowledgeFolders = useMemo(() => {
+    const ancestors = selectedItemPath?.slice(0, -1) || [];
+    const items: Array<{ folderId: string; sourceTitle: string; folder?: KnowledgeFolder }> = [];
+    const seen = new Set<string>();
+    ancestors.forEach((item) => {
+      uniqueIds(item.knowledge_folder_ids || []).forEach((folderId) => {
+        if (seen.has(folderId)) return;
+        seen.add(folderId);
+        items.push({ folderId, sourceTitle: item.title || item.id, folder: knowledgeFolderById.get(folderId) });
+      });
+    });
+    return items;
+  }, [knowledgeFolderById, selectedItemPath]);
+  const selectedInheritedKnowledgeDocuments = useMemo(() => {
+    const ancestors = selectedItemPath?.slice(0, -1) || [];
+    const items: Array<{ documentId: string; sourceTitle: string; document?: KnowledgeDocument }> = [];
+    const documentById = new Map(knowledgeIndex.documents.map((document) => [document.id, document]));
+    const seen = new Set<string>();
+    ancestors.forEach((item) => {
+      uniqueIds(item.knowledge_document_ids || []).forEach((documentId) => {
+        if (seen.has(documentId)) return;
+        seen.add(documentId);
+        items.push({ documentId, sourceTitle: item.title || item.id, document: documentById.get(documentId) });
+      });
+    });
+    return items;
+  }, [knowledgeIndex.documents, selectedItemPath]);
   const taskRunning = task?.status === 'running';
   const taskFailed = task?.status === 'error';
   const outlineSelection = task?.stats?.outline_selection;
@@ -720,10 +805,37 @@ function OutlineEditPage({
     void loadKnowledgeIndex();
   }, [generationDialogOpen, isExpansionWorkflow, outlineMode, outlineExpansionMode, outlineWordControlOptions, referenceKnowledgeDocumentIds, remoteKnowledgeScopes]);
 
+  useEffect(() => {
+    const unsubscribe = window.yibiao?.knowledgeBase.onEvent((event) => {
+      if (!event?.document) return;
+      setKnowledgeIndex((prev) => {
+        const existingIndex = prev.documents.findIndex((document) => document.id === event.document.id);
+        if (existingIndex >= 0) {
+          const documents = [...prev.documents];
+          documents[existingIndex] = event.document;
+          return { ...prev, documents };
+        }
+        return { ...prev, documents: [...prev.documents, event.document] };
+      });
+    });
+    return () => unsubscribe?.();
+  }, []);
+
+  useEffect(() => {
+    const hasNodeKnowledge = Boolean(
+      selectedDirectKnowledgeFolderIds.length
+      || selectedInheritedKnowledgeFolders.length
+      || selectedDirectKnowledgeDocumentIds.length
+      || selectedInheritedKnowledgeDocuments.length,
+    );
+    if (!hasNodeKnowledge || knowledgeIndex.folders.length) return;
+    void loadKnowledgeIndex();
+  }, [knowledgeIndex.folders.length, selectedDirectKnowledgeDocumentIds.length, selectedDirectKnowledgeFolderIds.length, selectedInheritedKnowledgeDocuments.length, selectedInheritedKnowledgeFolders.length]);
+
   const loadKnowledgeIndex = async () => {
     try {
       setLoadingKnowledge(true);
-      const data = await window.yibiao?.knowledgeBase.list();
+      const data = await window.yibiao?.knowledgeBase.list({ allKnowledgeBases: true });
       setKnowledgeIndex(data || emptyKnowledgeIndex);
       setExpandedKnowledgeFolderIds(getInitialExpandedKnowledgeFolders(data || emptyKnowledgeIndex));
     } catch (error) {
@@ -930,6 +1042,250 @@ function OutlineEditPage({
     if (generating) return '目录生成任务正在运行，当前目录暂不可编辑';
     if (contentMutationLocked) return '正文生成任务正在运行或暂停中，请结束后再调整目录';
     return '';
+  };
+
+  const resetNodeKnowledgeDialog = () => {
+    setNodeKnowledgeDialogMode(null);
+    setNodeKnowledgeBaseId('');
+    setNodeKnowledgeFolderId('');
+    setNodeKnowledgeFolderMode('existing');
+    setNodeKnowledgeFolderName('');
+    setDraftNodeKnowledgeDocumentIds([]);
+    setNodeKnowledgeCreatedFolderId(null);
+  };
+
+  const openNodeKnowledgeDialog = () => {
+    if (!selectedItem) return;
+    if (sorting) {
+      showToast('请先保存当前目录排序', 'info');
+      return;
+    }
+    const lockMessage = getMutationLockMessage();
+    if (lockMessage) {
+      showToast(lockMessage, 'info');
+      return;
+    }
+    resetNodeKnowledgeDialog();
+    setNodeKnowledgeDialogMode('create');
+    setNodeKnowledgeFolderMode('new');
+    setNodeKnowledgeFolderName(`${selectedItem.title || selectedItem.id} 知识库`);
+    void loadKnowledgeIndex();
+  };
+
+  const handleNodeKnowledgeBaseChange = (knowledgeBaseId: KnowledgeBaseId | '') => {
+    setNodeKnowledgeBaseId(knowledgeBaseId);
+    setNodeKnowledgeFolderId('');
+    setNodeKnowledgeFolderName('');
+    setDraftNodeKnowledgeDocumentIds([]);
+    setNodeKnowledgeCreatedFolderId(null);
+  };
+
+  const handleNodeKnowledgeFolderChange = (folderId: string) => {
+    if (folderId && !nodeKnowledgeFolders.some((folder) => folder.id === folderId)) {
+      return;
+    }
+    setNodeKnowledgeFolderMode('existing');
+    setNodeKnowledgeFolderId(folderId);
+    setNodeKnowledgeFolderName('');
+    setNodeKnowledgeCreatedFolderId(null);
+    if (nodeKnowledgeDialogMode !== 'link') {
+      setDraftNodeKnowledgeDocumentIds([]);
+      return;
+    }
+    const folderDocumentIds = new Set(getDocumentsForFolder(knowledgeIndex, folderId).map((document) => document.id));
+    setDraftNodeKnowledgeDocumentIds(selectedDirectKnowledgeDocumentIds.filter((documentId) => folderDocumentIds.has(documentId)));
+  };
+
+  const handleNodeKnowledgeFolderModeChange = (mode: NodeKnowledgeFolderMode) => {
+    setNodeKnowledgeFolderMode(mode);
+    setNodeKnowledgeFolderId(mode === 'new' ? nodeKnowledgeCreatedFolderId || '' : '');
+    setDraftNodeKnowledgeDocumentIds([]);
+    if (mode === 'existing') {
+      setNodeKnowledgeFolderName('');
+      setNodeKnowledgeCreatedFolderId(null);
+    }
+  };
+
+  const saveNodeKnowledgeLinks = async (nodeId: string, folderIds: string[], documentIds: string[]) => {
+    await onOutlineNodeKnowledgeSaved(nodeId, uniqueIds(folderIds), uniqueIds(documentIds));
+  };
+
+  const createNodeKnowledgeFolder = async () => {
+    if (!selectedItem) return;
+    const folderName = nodeKnowledgeFolderName.trim();
+    if (!folderName) {
+      showToast('请填写知识库名称', 'info');
+      return;
+    }
+    const lockMessage = getMutationLockMessage();
+    if (lockMessage) {
+      showToast(lockMessage, 'info');
+      return;
+    }
+    if (!nodeKnowledgeBaseId) {
+      showToast('请选择一级知识库', 'info');
+      return;
+    }
+    if (nodeKnowledgeFolderMode !== 'new') {
+      showToast('请选择新建目录', 'info');
+      return;
+    }
+
+    setSavingNodeKnowledge(true);
+    try {
+      const folder = await window.yibiao?.knowledgeBase.createFolder(folderName, nodeKnowledgeBaseId);
+      if (!folder?.id) {
+        throw new Error('创建知识库文件夹失败');
+      }
+      setKnowledgeIndex((prev) => ({
+        ...prev,
+        folders: [...prev.folders.filter((candidate) => candidate.id !== folder.id), folder],
+      }));
+      setNodeKnowledgeFolderMode('existing');
+      setNodeKnowledgeFolderId(folder.id);
+      setNodeKnowledgeCreatedFolderId(folder.id);
+      setDraftNodeKnowledgeDocumentIds([]);
+      showToast('知识库目录已创建，请选择文件上传', 'success');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '新增知识库失败';
+      if (isLibreOfficeRequiredMessage(message)) {
+        showDocumentParseNotice(message);
+      } else {
+        showToast(message, 'error');
+      }
+    } finally {
+      setSavingNodeKnowledge(false);
+    }
+  };
+
+  const uploadNodeKnowledgeDocuments = async () => {
+    if (!selectedItem || !nodeKnowledgeFolderId) return;
+    const lockMessage = getMutationLockMessage();
+    if (lockMessage) {
+      showToast(lockMessage, 'info');
+      return;
+    }
+
+    const folderId = nodeKnowledgeFolderId;
+    const isCreatedFolder = nodeKnowledgeCreatedFolderId === folderId;
+    setSavingNodeKnowledge(true);
+    try {
+      const uploadResult = await window.yibiao?.knowledgeBase.uploadDocuments(folderId);
+      const message = uploadResult?.message || '未上传知识库文档';
+      const cancelled = message === '已取消选择';
+      if (!uploadResult?.success && !cancelled) {
+        showToast(message, 'info');
+        return;
+      }
+      if (cancelled && !isCreatedFolder) {
+        showToast('已取消上传文档', 'info');
+        return;
+      }
+
+      const nextFolderIds = uniqueIds([...selectedDirectKnowledgeFolderIds, folderId]);
+      await saveNodeKnowledgeLinks(selectedItem.id, nextFolderIds, selectedDirectKnowledgeDocumentIds);
+      if (uploadResult?.success) {
+        await loadKnowledgeIndex();
+        resetNodeKnowledgeDialog();
+        showToast(uploadResult.message || '知识库文档已加入处理队列', 'success');
+      } else {
+        resetNodeKnowledgeDialog();
+        showToast('已保留空知识库关联，可稍后到知识库模块上传文档', 'info');
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '上传知识库文档失败';
+      if (isLibreOfficeRequiredMessage(message)) {
+        showDocumentParseNotice(message);
+      } else {
+        showToast(message, 'error');
+      }
+    } finally {
+      setSavingNodeKnowledge(false);
+    }
+  };
+
+  const unlinkNodeKnowledgeFolder = async (folderId: string) => {
+    if (!selectedItem || sorting) return;
+    const lockMessage = getMutationLockMessage();
+    if (lockMessage) {
+      showToast(lockMessage, 'info');
+      return;
+    }
+    try {
+      setSavingNodeKnowledge(true);
+      await saveNodeKnowledgeLinks(selectedItem.id, selectedDirectKnowledgeFolderIds.filter((id) => id !== folderId), selectedDirectKnowledgeDocumentIds);
+      showToast('已解除当前目录项的知识库关联', 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '解除知识库关联失败', 'error');
+    } finally {
+      setSavingNodeKnowledge(false);
+    }
+  };
+
+  const openNodeKnowledgeDocumentDialog = () => {
+    if (!selectedItem) return;
+    if (sorting) {
+      showToast('请先保存当前目录排序', 'info');
+      return;
+    }
+    const lockMessage = getMutationLockMessage();
+    if (lockMessage) {
+      showToast(lockMessage, 'info');
+      return;
+    }
+    resetNodeKnowledgeDialog();
+    setNodeKnowledgeDialogMode('link');
+    setNodeKnowledgeFolderMode('existing');
+    void loadKnowledgeIndex();
+  };
+
+  const toggleDraftNodeKnowledgeDocument = (documentId: string) => {
+    if (!nodeKnowledgeDocuments.some((document) => document.id === documentId)) {
+      return;
+    }
+    setDraftNodeKnowledgeDocumentIds((prev) => (
+      prev.includes(documentId)
+        ? prev.filter((id) => id !== documentId)
+        : [...prev, documentId]
+    ));
+  };
+
+  const saveNodeKnowledgeDocuments = async () => {
+    if (!selectedItem || !nodeKnowledgeFolderId) return;
+    try {
+      setSavingNodeKnowledge(true);
+      const nextDocumentIds = mergeFolderDocumentSelection(
+        knowledgeIndex,
+        nodeKnowledgeFolderId,
+        selectedDirectKnowledgeDocumentIds,
+        draftNodeKnowledgeDocumentIds,
+      );
+      await saveNodeKnowledgeLinks(selectedItem.id, selectedDirectKnowledgeFolderIds, nextDocumentIds);
+      resetNodeKnowledgeDialog();
+      showToast('已关联知识库文档', 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '保存知识库文档关联失败', 'error');
+    } finally {
+      setSavingNodeKnowledge(false);
+    }
+  };
+
+  const unlinkNodeKnowledgeDocument = async (documentId: string) => {
+    if (!selectedItem || sorting) return;
+    const lockMessage = getMutationLockMessage();
+    if (lockMessage) {
+      showToast(lockMessage, 'info');
+      return;
+    }
+    try {
+      setSavingNodeKnowledge(true);
+      await saveNodeKnowledgeLinks(selectedItem.id, selectedDirectKnowledgeFolderIds, selectedDirectKnowledgeDocumentIds.filter((id) => id !== documentId));
+      showToast('已解除当前目录项的知识库文档关联', 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '解除知识库文档关联失败', 'error');
+    } finally {
+      setSavingNodeKnowledge(false);
+    }
   };
 
   const saveOutlineChange = async (outline: OutlineItem[], reason: SaveOutlineRequest['reason'], affectedNodeIds: string[] = []) => {
@@ -1439,6 +1795,115 @@ function OutlineEditPage({
     );
   };
 
+  const renderKnowledgeFolderChip = (folderId: string, inheritedFrom?: string) => {
+    const folder = knowledgeFolderById.get(folderId);
+    const documents = knowledgeDocumentsByFolderId.get(folderId) || [];
+    const successCount = documents.filter((document) => document.status === 'success').length;
+    const category = folder ? getKnowledgeBaseCatalogItem(folder.knowledge_base_id) : undefined;
+    return (
+      <div className={`outline-node-knowledge-item${inheritedFrom ? ' is-inherited' : ''}`} key={`${inheritedFrom || 'direct'}:${folderId}`}>
+        <div>
+          <strong title={folder?.name || folderId}>{folder?.name || '知识库文件夹'}</strong>
+          <small>{inheritedFrom ? `继承自：${inheritedFrom}` : '当前目录关联'} · {category?.label || '本地知识库'} / {successCount}/{documents.length} 个文档可用于生成</small>
+        </div>
+        {!inheritedFrom && (
+          <button
+            type="button"
+            className="text-button"
+            onClick={() => { void unlinkNodeKnowledgeFolder(folderId); }}
+            disabled={outlineMutationLocked || sorting || savingNodeKnowledge}
+          >
+            解除关联
+          </button>
+        )}
+      </div>
+    );
+  };
+
+  const renderKnowledgeDocumentChip = (documentId: string, inheritedFrom?: string) => {
+    const document = knowledgeIndex.documents.find((item) => item.id === documentId);
+    const folder = document ? knowledgeFolderById.get(document.folder_id) : undefined;
+    const category = folder ? getKnowledgeBaseCatalogItem(folder.knowledge_base_id) : undefined;
+    const statusText = document?.status === 'success' ? '可用于生成' : document?.status ? '处理中或不可用' : '文档未找到';
+    return (
+      <div className={`outline-node-knowledge-item${inheritedFrom ? ' is-inherited' : ''}`} key={`${inheritedFrom || 'direct'}:doc:${documentId}`}>
+        <div>
+          <strong title={document?.file_name || documentId}>{document?.file_name || '知识库文档'}</strong>
+          <small>{inheritedFrom ? `继承自：${inheritedFrom}` : '当前目录关联'} · {category?.label || '本地知识库'} / {folder?.name || '知识库'} · {statusText}</small>
+        </div>
+        {!inheritedFrom && (
+          <button
+            type="button"
+            className="text-button"
+            onClick={() => { void unlinkNodeKnowledgeDocument(documentId); }}
+            disabled={outlineMutationLocked || sorting || savingNodeKnowledge}
+          >
+            解除关联
+          </button>
+        )}
+      </div>
+    );
+  };
+
+  const renderNodeKnowledgeDocumentPicker = () => {
+    if (loadingKnowledge) {
+      return <div className="outline-knowledge-empty compact">正在读取知识库...</div>;
+    }
+    const availableDocuments = knowledgeIndex.documents.filter((document) => document.status === 'success');
+    if (!availableDocuments.length) {
+      return <div className="outline-knowledge-empty compact">暂无已完成的知识库文档，请先到知识库模块上传并处理完成。</div>;
+    }
+    const groups = KNOWLEDGE_BASE_CATALOG.flatMap((category) => {
+      const folders = knowledgeIndex.folders.flatMap((folder) => {
+        if (folder.knowledge_base_id !== category.id) return [];
+        const documents = availableDocuments.filter((document) => document.folder_id === folder.id);
+        return documents.length ? [{ folder, documents }] : [];
+      });
+      return folders.length ? [{ category, folders }] : [];
+    });
+    return (
+      <div className="outline-node-document-picker">
+        {groups.map(({ category, folders }) => (
+          <section className="outline-knowledge-category-group" key={category.id}>
+            <div className="outline-knowledge-category-head">
+              <strong>{category.label}</strong>
+              <small>{folders.reduce((count, group) => count + group.documents.length, 0)} 个可用文档</small>
+            </div>
+            {folders.map(({ folder, documents }) => (
+              <section className="outline-knowledge-folder compact" key={folder.id}>
+                <div className="outline-knowledge-folder-head compact">
+                  <div>
+                    <strong>{folder.name}</strong>
+                    <small>{documents.length} 个可用文档</small>
+                  </div>
+                </div>
+                <div className="outline-knowledge-document-list compact">
+                  {documents.map((document) => {
+                    const selected = draftNodeKnowledgeDocumentIds.includes(document.id);
+                    return (
+                      <label className={`outline-knowledge-document compact${selected ? ' is-selected' : ''}`} key={document.id}>
+                        <input
+                          type="checkbox"
+                          checked={selected}
+                          onChange={() => toggleDraftNodeKnowledgeDocument(document.id)}
+                          disabled={savingNodeKnowledge}
+                        />
+                        <span>
+                          <strong title={document.file_name}>{document.file_name}</strong>
+                          <small>{document.item_count} 条知识条目</small>
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </section>
+            ))}
+          </section>
+        ))}
+      </div>
+    );
+  };
+
   const renderKnowledgePicker = () => {
     if (loadingKnowledge) {
       return <div className="outline-knowledge-empty">正在读取知识库...</div>;
@@ -1456,6 +1921,10 @@ function OutlineEditPage({
       return documents.length ? [{ folder, documents }] : [];
     });
     const visibleDocumentCount = visibleFolders.reduce((total, group) => total + group.documents.length, 0);
+    const visibleCategories = KNOWLEDGE_BASE_CATALOG.flatMap((category) => {
+      const folders = visibleFolders.filter(({ folder }) => folder.knowledge_base_id === category.id);
+      return folders.length ? [{ category, folders }] : [];
+    });
 
     if (!availableDocuments.length) {
       return <div className="outline-knowledge-empty">暂无已完成的知识库文档，可先到知识库上传并处理完成后再选择。</div>;
@@ -1480,46 +1949,56 @@ function OutlineEditPage({
               <span>{visibleFolders.length} 个文件夹</span>
             </div>
             <div className="outline-knowledge-folder-list compact">
-              {visibleFolders.length ? visibleFolders.map(({ folder, documents }) => {
-                const expanded = keyword ? true : expandedKnowledgeFolderIds.has(folder.id);
-                const selectedCount = documents.filter((document) => draftKnowledgeDocumentIds.includes(document.id)).length;
+              {visibleCategories.length ? visibleCategories.map(({ category, folders }) => (
+                <section className="outline-knowledge-category-group" key={category.id}>
+                  <div className="outline-knowledge-category-head">
+                    <strong>{category.label}</strong>
+                    <small>{folders.length} 个文件夹</small>
+                  </div>
+                  {folders.map(({ folder, documents }) => {
+                    const expanded = keyword ? true : expandedKnowledgeFolderIds.has(folder.id);
+                    const selectedCount = documents.filter((document) => draftKnowledgeDocumentIds.includes(document.id)).length;
 
-                return (
-                  <section className="outline-knowledge-folder compact" key={folder.id}>
-                    <div className="outline-knowledge-folder-head compact">
-                      <button type="button" onClick={() => toggleKnowledgeFolder(folder.id)} disabled={Boolean(keyword)} aria-expanded={expanded}>
-                        <span>{expanded ? '▾' : '▸'}</span>
-                        <strong>{folder.name}</strong>
-                      </button>
-                      <small>{documents.length} 个 / 已选 {selectedCount}</small>
-                      <div className="outline-knowledge-folder-actions">
-                        <button type="button" onClick={() => selectFolderDocuments(documents)} disabled={knowledgePickingDisabled}>全选</button>
-                        <button type="button" onClick={() => clearFolderDocuments(documents)} disabled={knowledgePickingDisabled || !selectedCount}>取消</button>
-                      </div>
-                    </div>
-                    {expanded && (
-                      <div className="outline-knowledge-document-list compact">
-                        {documents.map((document) => {
-                          const selected = draftKnowledgeDocumentIds.includes(document.id);
+                    return (
+                      <section className="outline-knowledge-folder compact" key={folder.id}>
+                        <div className="outline-knowledge-folder-head compact">
+                          <button type="button" onClick={() => toggleKnowledgeFolder(folder.id)} disabled={Boolean(keyword)} aria-expanded={expanded}>
+                            <span>{expanded ? '▾' : '▸'}</span>
+                            <strong>{folder.name}</strong>
+                          </button>
+                          <small>{documents.length} 个 / 已选 {selectedCount}</small>
+                          <div className="outline-knowledge-folder-actions">
+                            <button type="button" onClick={() => selectFolderDocuments(documents)} disabled={knowledgePickingDisabled}>全选</button>
+                            <button type="button" onClick={() => clearFolderDocuments(documents)} disabled={knowledgePickingDisabled || !selectedCount}>取消</button>
+                          </div>
+                        </div>
+                        {expanded && (
+                          <div className="outline-knowledge-document-list compact">
+                            {documents.map((document) => {
+                              const selected = draftKnowledgeDocumentIds.includes(document.id);
 
-                          return (
-                            <label className={`outline-knowledge-document compact${selected ? ' is-selected' : ''}`} key={document.id}>
-                              <input
-                                type="checkbox"
-                                checked={selected}
-                                disabled={knowledgePickingDisabled}
-                                onChange={() => toggleDraftKnowledgeDocument(document)}
-                              />
-                              <strong title={document.file_name}>{document.file_name}</strong>
-                              <small>{document.item_count || 0} 条</small>
-                            </label>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </section>
-                );
-              }) : <div className="outline-knowledge-empty compact">没有匹配的知识库文档</div>}
+                              return (
+                                <label className={`outline-knowledge-document compact${selected ? ' is-selected' : ''}`} key={document.id}>
+                                  <input
+                                    type="checkbox"
+                                    checked={selected}
+                                    disabled={knowledgePickingDisabled}
+                                    onChange={() => toggleDraftKnowledgeDocument(document)}
+                                  />
+                                  <span>
+                                    <strong title={document.file_name}>{document.file_name}</strong>
+                                    <small>{document.item_count || 0} 条</small>
+                                  </span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </section>
+                    );
+                  })}
+                </section>
+              )) : <div className="outline-knowledge-empty compact">没有匹配的知识库文档</div>}
             </div>
           </div>
         </div>
@@ -1536,7 +2015,11 @@ function OutlineEditPage({
     return <aside className="outline-knowledge-selected-pane">
       <div className="outline-knowledge-pane-head"><strong>本次已选</strong><button type="button" onClick={() => { clearDraftKnowledgeDocuments(); setDraftRemoteKnowledgeScopes([]); }} disabled={knowledgePickingDisabled || !hasItems}>清空</button></div>
       {hasItems ? <div className="outline-knowledge-selected-list">
-        {localDocuments.map((doc) => <div className="outline-knowledge-selected-item" key={`local:${doc.id}`}><span className="outline-knowledge-badge">本地</span><strong title={doc.file_name}>{doc.file_name}</strong><button type="button" onClick={() => removeDraftKnowledgeDocument(doc.id)} disabled={knowledgePickingDisabled}>移除</button></div>)}
+        {localDocuments.map((doc) => {
+          const folder = knowledgeFolderById.get(doc.folder_id);
+          const category = folder ? getKnowledgeBaseCatalogItem(folder.knowledge_base_id) : undefined;
+          return <div className="outline-knowledge-selected-item" key={`local:${doc.id}`}><span className="outline-knowledge-badge">本地</span><strong title={doc.file_name}>{category?.label || '本地知识库'} / {folder?.name || '文件夹'} / {doc.file_name}</strong><button type="button" onClick={() => removeDraftKnowledgeDocument(doc.id)} disabled={knowledgePickingDisabled}>移除</button></div>;
+        })}
         {remoteItems.map((item) => <div className="outline-knowledge-selected-item" key={item.key}><span className="outline-knowledge-badge remote">远程</span><strong>{item.label}</strong><button type="button" onClick={() => setDraftRemoteKnowledgeScopes(draftRemoteKnowledgeScopes.flatMap((scope) => scope.knowledgeBaseId !== item.scopeId ? [scope] : scope.mode === 'all' || !item.documentId ? [] : [{ ...scope, documents: scope.documents.filter((doc) => doc.knowledgeId !== item.documentId) }].filter((scope) => scope.documents.length)))} disabled={knowledgePickingDisabled}>移除</button></div>)}
       </div> : <div className="outline-knowledge-empty compact">未选择知识库文档</div>}
     </aside>;
@@ -1850,6 +2333,42 @@ function OutlineEditPage({
                     >
                       已关联 {selectedSourceCount} 处原文
                     </button>
+                    <section className="outline-node-knowledge">
+                      <div className="outline-node-knowledge-head">
+                        <div>
+                          <strong>关联知识库</strong>
+                          <small>正文生成会参考当前目录及父目录知识库</small>
+                        </div>
+                        <div className="outline-detail-actions outline-node-knowledge-actions">
+                          <button
+                            type="button"
+                            className="secondary-action"
+                            onClick={openNodeKnowledgeDialog}
+                            disabled={outlineMutationLocked || sorting || savingNodeKnowledge}
+                          >
+                            新增知识库
+                          </button>
+                          <button
+                            type="button"
+                            className="secondary-action"
+                            onClick={openNodeKnowledgeDocumentDialog}
+                            disabled={outlineMutationLocked || sorting || savingNodeKnowledge}
+                          >
+                            关联文档
+                          </button>
+                        </div>
+                      </div>
+                      {selectedDirectKnowledgeFolderIds.length || selectedInheritedKnowledgeFolders.length || selectedDirectKnowledgeDocumentIds.length || selectedInheritedKnowledgeDocuments.length ? (
+                        <div className="outline-node-knowledge-list">
+                          {selectedDirectKnowledgeFolderIds.map((folderId) => renderKnowledgeFolderChip(folderId))}
+                          {selectedDirectKnowledgeDocumentIds.map((documentId) => renderKnowledgeDocumentChip(documentId))}
+                          {selectedInheritedKnowledgeFolders.map((item) => renderKnowledgeFolderChip(item.folderId, item.sourceTitle))}
+                          {selectedInheritedKnowledgeDocuments.map((item) => renderKnowledgeDocumentChip(item.documentId, item.sourceTitle))}
+                        </div>
+                      ) : (
+                        <div className="outline-node-knowledge-empty">当前目录未关联知识库。</div>
+                      )}
+                    </section>
                     <div className="outline-detail-actions">
                       <button type="button" className="primary-action" onClick={() => startEditing(selectedItem)} disabled={outlineMutationLocked || sorting}>编辑</button>
                       <button type="button" className="secondary-action" onClick={() => { void addChildItem(selectedItem.id); }} disabled={outlineMutationLocked || sorting || !canAddOutlineChild(selectedItem.id)}>添加子目录</button>
@@ -1905,6 +2424,62 @@ function OutlineEditPage({
           onConfirm={(items, selectedIds) => { void confirmOutlineSelection(items, selectedIds); }}
         />
       )}
+
+      <Dialog.Root open={nodeKnowledgeCreateDialogOpen} onOpenChange={(open) => !open && !savingNodeKnowledge && resetNodeKnowledgeDialog()}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="content-regenerate-modal" />
+          <Dialog.Content className="outline-node-knowledge-dialog">
+            <Dialog.Title>新增知识库</Dialog.Title>
+            <Dialog.Description>
+              为“{selectedItem?.title || '当前目录'}”创建知识库文件夹，后续正文生成会参考该目录及父目录关联的知识库内容。
+            </Dialog.Description>
+            <label className="outline-node-knowledge-field">
+              <span>知识库名称</span>
+              <input
+                value={nodeKnowledgeFolderName}
+                onChange={(event) => setNodeKnowledgeFolderName(event.target.value)}
+                disabled={savingNodeKnowledge}
+                autoFocus
+              />
+            </label>
+            <div className="content-regenerate-actions">
+              <Dialog.Close className="secondary-action" type="button" disabled={savingNodeKnowledge}>取消</Dialog.Close>
+              <button
+                type="button"
+                className="primary-action"
+                onClick={() => { void createNodeKnowledgeFolder(); }}
+                disabled={savingNodeKnowledge || !nodeKnowledgeFolderName.trim()}
+              >
+                {savingNodeKnowledge ? '正在创建...' : '创建并上传文档'}
+              </button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+
+      <Dialog.Root open={nodeKnowledgeDocumentDialogOpen} onOpenChange={(open) => !open && !savingNodeKnowledge && resetNodeKnowledgeDialog()}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="content-regenerate-modal" />
+          <Dialog.Content className="outline-node-knowledge-document-dialog">
+            <Dialog.Title>关联知识库文档</Dialog.Title>
+            <Dialog.Description>
+              为“{selectedItem?.title || '当前目录'}”选择已有知识库文档，后续正文生成会参考该目录及父目录关联的文档。
+            </Dialog.Description>
+            {renderNodeKnowledgeDocumentPicker()}
+            <div className="content-regenerate-actions">
+              <Dialog.Close className="secondary-action" type="button" disabled={savingNodeKnowledge}>取消</Dialog.Close>
+              <button
+                type="button"
+                className="primary-action"
+                onClick={() => { void saveNodeKnowledgeDocuments(); }}
+                disabled={savingNodeKnowledge}
+              >
+                {savingNodeKnowledge ? '正在保存...' : '保存关联'}
+              </button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
 
       <Dialog.Root open={generationDialogOpen} onOpenChange={setGenerationDialogOpen}>
         <Dialog.Portal>
