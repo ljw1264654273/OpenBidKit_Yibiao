@@ -479,6 +479,7 @@ function OutlineEditPage({
   const shownTaskErrorIdRef = useRef<string | null>(null);
   const knowledgeIndexLoadedRef = useRef(false);
   const knowledgeIndexLoadPromiseRef = useRef<Promise<void> | null>(null);
+  const knowledgeIndexRequestIdRef = useRef(0);
   const { showToast } = useToast();
   const { showDocumentParseNotice } = useDocumentParseNotice();
   const activeOutlineData = sorting ? draftOutlineData : outlineData;
@@ -834,24 +835,30 @@ function OutlineEditPage({
     void loadKnowledgeIndex();
   }, [hasNodeKnowledgeReferences]);
 
-  const loadKnowledgeIndex = async () => {
-    if (knowledgeIndexLoadPromiseRef.current) {
+  const loadKnowledgeIndex = async (options?: { force?: boolean }) => {
+    const force = options?.force === true;
+    if (!force && knowledgeIndexLoadPromiseRef.current) {
       return knowledgeIndexLoadPromiseRef.current;
     }
+    const requestId = ++knowledgeIndexRequestIdRef.current;
     const loadPromise = (async () => {
       try {
         setLoadingKnowledge(true);
         const data = await window.yibiao?.knowledgeBase.list({ allKnowledgeBases: true });
+        if (requestId !== knowledgeIndexRequestIdRef.current) return;
         setKnowledgeIndex(data || emptyKnowledgeIndex);
         setExpandedKnowledgeFolderIds(getInitialExpandedKnowledgeFolders(data || emptyKnowledgeIndex));
         knowledgeIndexLoadedRef.current = true;
       } catch (error) {
+        if (requestId !== knowledgeIndexRequestIdRef.current) return;
         knowledgeIndexLoadedRef.current = false;
         showToast(error instanceof Error ? error.message : '读取知识库失败', 'error');
         setKnowledgeIndex(emptyKnowledgeIndex);
         setExpandedKnowledgeFolderIds(new Set());
       } finally {
-        setLoadingKnowledge(false);
+        if (requestId === knowledgeIndexRequestIdRef.current) {
+          setLoadingKnowledge(false);
+        }
       }
     })();
     knowledgeIndexLoadPromiseRef.current = loadPromise;
@@ -1058,6 +1065,7 @@ function OutlineEditPage({
   const getMutationLockMessage = () => {
     if (generating) return '目录生成任务正在运行，当前目录暂不可编辑';
     if (contentMutationLocked) return '正文生成任务正在运行或暂停中，请结束后再调整目录';
+    if (savingNodeKnowledge) return '知识库关联正在保存，请完成后再生成目录';
     return '';
   };
 
@@ -1154,6 +1162,7 @@ function OutlineEditPage({
       if (!folder?.id) {
         throw new Error('创建知识库文件夹失败');
       }
+      await loadKnowledgeIndex({ force: true });
       setKnowledgeIndex((prev) => ({
         ...prev,
         folders: [...prev.folders.filter((candidate) => candidate.id !== folder.id), folder],
@@ -1202,7 +1211,7 @@ function OutlineEditPage({
       const nextFolderIds = uniqueIds([...selectedDirectKnowledgeFolderIds, folderId]);
       await saveNodeKnowledgeLinks(selectedItem.id, nextFolderIds, selectedDirectKnowledgeDocumentIds);
       if (uploadResult?.success) {
-        await loadKnowledgeIndex();
+        await loadKnowledgeIndex({ force: true });
         resetNodeKnowledgeDialog();
         showToast(uploadResult.message || '知识库文档已加入处理队列', 'success');
       } else {
@@ -2089,7 +2098,7 @@ function OutlineEditPage({
             type="button"
             className="outline-config-action"
             onClick={openGenerationDialog}
-            disabled={generating || sorting || contentMutationLocked || !projectOverview}
+            disabled={generating || sorting || contentMutationLocked || savingNodeKnowledge || !projectOverview}
             aria-label="打开目录生成配置"
             title="目录生成配置"
           >
@@ -2098,7 +2107,7 @@ function OutlineEditPage({
               <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.05.05a2 2 0 0 1-2.83 2.83l-.05-.05a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.04 1.56V21a2 2 0 0 1-4 0v-.08a1.7 1.7 0 0 0-1.04-1.56 1.7 1.7 0 0 0-1.87.34l-.05.05a2 2 0 0 1-2.83-2.83l.05-.05A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1.04H3a2 2 0 0 1 0-4h.08A1.7 1.7 0 0 0 4.6 8.93a1.7 1.7 0 0 0-.34-1.87l-.05-.05a2 2 0 0 1 2.83-2.83l.05.05a1.7 1.7 0 0 0 1.87.34A1.7 1.7 0 0 0 10 3.01V3a2 2 0 0 1 4 0v.08a1.7 1.7 0 0 0 1.04 1.56 1.7 1.7 0 0 0 1.87-.34l.05-.05a2 2 0 0 1 2.83 2.83l-.05.05a1.7 1.7 0 0 0-.34 1.87 1.7 1.7 0 0 0 1.56 1.04H21a2 2 0 0 1 0 4h-.08A1.7 1.7 0 0 0 19.4 15Z" />
             </svg>
           </button>
-          <button type="button" className="primary-action" onClick={openGenerationDialog} disabled={generating || sorting || contentMutationLocked || !projectOverview}>
+          <button type="button" className="primary-action" onClick={openGenerationDialog} disabled={generating || sorting || contentMutationLocked || savingNodeKnowledge || !projectOverview}>
             {generating ? 'AI 正在生成目录' : outlineData ? '重新生成目录' : '生成目录'}
           </button>
         </div>
@@ -2591,7 +2600,7 @@ function OutlineEditPage({
               <button type="button" className="secondary-action" onClick={() => { void saveOutlineConfig(); }} disabled={generating || contentMutationLocked || savingOutlineConfig}>
                 {savingOutlineConfig ? '正在保存...' : '保存配置'}
               </button>
-              <button type="button" className="primary-action" onClick={generateOutline} disabled={generating || contentMutationLocked || savingOutlineConfig || !projectOverview}>
+              <button type="button" className="primary-action" onClick={generateOutline} disabled={generating || contentMutationLocked || savingNodeKnowledge || savingOutlineConfig || !projectOverview}>
                 {outlineData ? '重新生成目录' : '开始生成'}
               </button>
             </div>
