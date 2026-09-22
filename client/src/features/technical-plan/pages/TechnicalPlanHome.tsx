@@ -9,7 +9,7 @@ import WordExportDialog from '../../export-format/components/WordExportDialog';
 import { useTechnicalPlanWorkflow } from '../hooks/useTechnicalPlanWorkflow';
 import { bidAnalysisTasks, getBidAnalysisTasks, isMissingBidAnalysisResult } from '../services/bidAnalysisWorkflow';
 import { trackPageView } from '../../../shared/analytics/analytics';
-import { AppDialog, ToolbarArrowLeftIcon, ToolbarArrowRightIcon, ToolbarDocumentIcon, useToast } from '../../../shared/ui';
+import { AppDialog, ToolbarArrowLeftIcon, ToolbarArrowRightIcon, ToolbarDocumentIcon, ToolbarHomeIcon, useToast } from '../../../shared/ui';
 import type { FloatingToolbarAction } from '../../../shared/ui';
 import type { BackgroundTaskState, BidAnalysisTasks, ContentGenerationOptions, GlobalFactGroupState, GlobalFactsMode, RemoteKnowledgeScope, SaveOutlineRequest, SaveOutlineSelectionRequest, TechnicalPlanState, TechnicalPlanStep, TechnicalPlanWorkflowKind } from '../types';
 import { DEFAULT_OUTLINE_WORD_CONTROL_OPTIONS } from '../../../shared/types';
@@ -235,6 +235,29 @@ function updateOutlineItemContent(items: OutlineItem[], itemId: string, content:
   });
 }
 
+function hasTechnicalPlanDownstreamData(state: TechnicalPlanState) {
+  const hasBidAnalysisData = Object.values(state.bidAnalysisTasks || {}).some((item) => (
+    Boolean(item?.content?.trim()) || item?.status === 'success'
+  ));
+  const hasOutlineData = Boolean(state.outlineData?.outline?.length);
+  const hasTasks = [
+    state.bidAnalysisTask,
+    state.outlineGenerationTask,
+    state.outlineAdjustmentTask,
+    state.globalFactsTask,
+    state.globalFactsAdjustmentTask,
+    state.contentGenerationTask,
+  ].some(Boolean);
+
+  return hasBidAnalysisData
+    || Boolean(state.projectOverview.trim() || state.techRequirements.trim())
+    || hasOutlineData
+    || state.globalFacts.length > 0
+    || Object.keys(state.contentGenerationSections || {}).length > 0
+    || Object.keys(state.contentGenerationPlans || {}).length > 0
+    || hasTasks;
+}
+
 function TechnicalPlanHome({ workflowKind, projectId, registerLeaveGuard, onSectionChange }: TechnicalPlanHomeProps) {
   const { hydrated, state, setState } = useTechnicalPlanWorkflow(projectId);
   const { showToast } = useToast();
@@ -299,6 +322,7 @@ function TechnicalPlanHome({ workflowKind, projectId, registerLeaveGuard, onSect
   const contentTaskStatus = state.contentGenerationTask?.status;
   const isContentGenerating = contentTaskStatus === 'running' || contentTaskStatus === 'pausing';
   const isContentPaused = contentTaskStatus === 'paused';
+  const hasDownstreamData = hasTechnicalPlanDownstreamData(state);
   const requiresOriginalPlan = workflowKind === 'existing-plan-expansion';
   const isNextDisabled = activeIndex >= steps.length - 1
     || (state.step === 'document-analysis' && (!state.tenderFile || (requiresOriginalPlan && !state.originalPlanFile) || !quickConfigComplete))
@@ -815,6 +839,17 @@ function TechnicalPlanHome({ workflowKind, projectId, registerLeaveGuard, onSect
     }
   };
 
+  const resetBidSectionDownstream = async () => {
+    const result = await window.yibiao?.tasks.resetBidSectionDownstream({ projectId });
+    if (!result?.success) {
+      throw new Error(result?.message || '重置当前标书失败');
+    }
+    const latestState = await window.yibiao?.technicalPlan.loadState(projectPayload);
+    if (latestState) {
+      setState((prev) => ({ ...prev, ...latestState }));
+    }
+  };
+
   const saveContentGenerationOptions = async (contentGenerationOptions: ContentGenerationOptions) => {
     const saved = await window.yibiao?.technicalPlan.saveContentGenerationOptions({ projectId, options: contentGenerationOptions });
     setState((prev) => ({ ...prev, ...(saved || {}), contentGenerationOptions }));
@@ -893,6 +928,14 @@ function TechnicalPlanHome({ workflowKind, projectId, registerLeaveGuard, onSect
   const outlineAdjustmentStatus = state.outlineAdjustmentTask?.status;
   const isOutlineAdjusting = outlineAdjustmentStatus === 'running' || outlineAdjustmentStatus === 'pausing';
   const isGlobalFactsGenerating = state.globalFactsTask?.status === 'running' || state.globalFactsTask?.status === 'pausing';
+  const homeAction: FloatingToolbarAction = {
+    id: 'home',
+    label: '首页',
+    icon: <ToolbarHomeIcon />,
+    disabled: activeIndex <= 0,
+    tooltip: activeIndex <= 0 ? '当前已经是第一步' : '回到选择标书',
+    onClick: () => { void switchStep(steps[0]); },
+  };
   const previousStepAction: FloatingToolbarAction = {
     id: 'previous-step',
     label: '上一步',
@@ -928,8 +971,8 @@ function TechnicalPlanHome({ workflowKind, projectId, registerLeaveGuard, onSect
     onClick: () => { setExportDialogOpen(true); },
   };
   const navigationActions = state.step === 'content-edit'
-    ? [previousStepAction, exportWordAction]
-    : [previousStepAction, nextStepAction];
+    ? [homeAction, previousStepAction, exportWordAction]
+    : [homeAction, previousStepAction, nextStepAction];
 
   return (
     <div className="page-stack technical-workbench">
@@ -983,6 +1026,7 @@ function TechnicalPlanHome({ workflowKind, projectId, registerLeaveGuard, onSect
           outlineWordControlOptions={state.outlineWordControlOptions}
           contentGenerationOptions={state.contentGenerationOptions}
           contentTaskStatus={state.contentGenerationTask?.status}
+          hasDownstreamData={hasDownstreamData}
           onFileImported={(nextState, markdown) => {
             tenderMarkdownRequestRef.current += 1;
             tenderMarkdownVersionRef.current = nextState.tenderFile ? nextState.tenderFile.contentHash || nextState.tenderFile.updatedAt : null;
@@ -1006,6 +1050,7 @@ function TechnicalPlanHome({ workflowKind, projectId, registerLeaveGuard, onSect
             });
           }}
           onContentGenerationOptionsChange={saveContentGenerationOptions}
+          onResetBidSectionDownstream={resetBidSectionDownstream}
           onCustomPageStateChange={handleCustomPageStateChange}
           onStateRefresh={async () => {
             const nextState = await window.yibiao?.technicalPlan.loadState(projectPayload);

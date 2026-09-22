@@ -80,8 +80,43 @@ async function runAssertions() {
   }
 }
 
+async function runResetAssertions() {
+  const userDataPath = fs.mkdtempSync(path.join(os.tmpdir(), 'yibiao-bid-section-reset-'));
+  let database;
+  try {
+    const app = createApp(userDataPath);
+    database = createSqliteDatabase(app);
+    const store = createStore(app, database.db, '# 招标文件\n正文');
+
+    await store.importTenderDocument(['fixture.md']);
+    store.updateTechnicalPlan({
+      bidAnalysisTasks: {
+        projectOverview: { id: 'projectOverview', status: 'success', content: '项目概况' },
+      },
+      outlineData: {
+        project_name: '测试项目',
+        outline: [{ id: '1', title: '第一章', content: '已生成正文' }],
+      },
+      globalFacts: [{ id: 'facts-1', title: '项目事实', content: '已保存事实' }],
+    });
+
+    store.resetBidSectionDownstream();
+    const state = store.loadTechnicalPlan();
+
+    assert.deepEqual(state.bidAnalysisTasks, {});
+    assert.equal(state.projectOverview, '');
+    assert.equal(state.outlineData, null);
+    assert.deepEqual(state.globalFacts, []);
+    assert.equal(state.bidSectionMode, 'single');
+    assert.equal(state.bidSectionExtractionStatus, 'idle');
+  } finally {
+    database?.close();
+    fs.rmSync(userDataPath, { recursive: true, force: true });
+  }
+}
+
 if (process.argv.includes('--electron-native')) {
-  runAssertions()
+  Promise.all([runAssertions(), runResetAssertions()])
     .catch((error) => {
       console.error(error);
       process.exitCode = 1;
@@ -94,5 +129,13 @@ if (process.argv.includes('--electron-native')) {
       timeout: 30000,
     });
     assert.equal(result.status, 0, `${result.stderr || result.stdout || 'Electron native bid section step test timed out'}`);
+  });
+
+  test('确认重置多标段识别前的下游数据后清空已生成内容', () => {
+    const result = spawnSync(require('electron'), ['--runAsNode', __filename, '--electron-native'], {
+      encoding: 'utf8',
+      timeout: 30000,
+    });
+    assert.equal(result.status, 0, `${result.stderr || result.stdout || 'Electron native bid section reset test timed out'}`);
   });
 }

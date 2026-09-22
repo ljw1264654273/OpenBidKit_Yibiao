@@ -488,10 +488,12 @@ test('项目状态栏承载流程导航且不再渲染底部悬浮工具条', ()
   assert.match(contextBar, /className="bid-project-context-actions"/);
   assert.match(contextBar, /navigationActions\.map/);
   assert.match(contextBar, /aria-label=\{action\.label\}/);
+  assert.match(home, /id:\s*'home'/);
+  assert.match(home, /label:\s*'首页'/);
+  assert.match(home, /switchStep\(steps\[0\]\)/);
   assert.doesNotMatch(home, /<FloatingToolbar/);
   assert.doesNotMatch(home, /const toolbarGroups =/);
   assert.doesNotMatch(home, /technical-plan-reset/);
-  assert.doesNotMatch(home, /id:\s*'home'/);
 });
 
 test('STEP 01 上传招标文件成功后重新展开快速配置', () => {
@@ -514,7 +516,7 @@ test('STEP 01 导入疑似多标段文件后自动启动已有 AI 标段识别�
   );
 });
 
-test('STEP 01 加载已有招标文件时也会自动启动多标段 AI 识别', () => {
+test('STEP 01 重新加载已有招标文件时不自动启动多标段 AI 识别', () => {
   const source = readFileSync(new URL('../pages/DocumentAnalysisPage.tsx', import.meta.url), 'utf8');
   const detectionEffect = source.slice(
     source.indexOf('window.yibiao?.technicalPlan.checkBidSections('),
@@ -523,8 +525,18 @@ test('STEP 01 加载已有招标文件时也会自动启动多标段 AI 识别',
 
   assert.match(
     detectionEffect,
-    /checkBidSections\(projectId \? \{ projectId \} : undefined\)\.then\(\(detection\) => \{[\s\S]*detection\?\.hasMultiple[\s\S]*startBidSectionExtraction\(\)/,
+    /checkBidSections\(projectId \? \{ projectId \} : undefined\)\.then\(\(detection\) => \{[\s\S]*detection\?\.hasMultiple/,
   );
+  assert.doesNotMatch(detectionEffect, /startBidSectionExtraction\(\)/);
+});
+
+test('STEP 01 重新识别或替换招标文件前要求确认重置下游信息', () => {
+  const source = readFileSync(new URL('../pages/DocumentAnalysisPage.tsx', import.meta.url), 'utf8');
+
+  assert.match(source, /hasDownstreamData/);
+  assert.match(source, /requestResetConfirmation/);
+  assert.match(source, /onResetBidSectionDownstream/);
+  assert.match(source, /确认重置并继续/);
 });
 
 test('STEP 02 使用第一步确定的投标范围，正文任务锁定解析入口', () => {

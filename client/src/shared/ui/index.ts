@@ -27,6 +27,7 @@ export {
   ToolbarArrowLeftIcon,
   ToolbarArrowRightIcon,
   ToolbarDocumentIcon,
+  ToolbarHomeIcon,
   ToolbarOutlineIcon,
   ToolbarSparkleIcon,
 } from './FloatingToolbar';

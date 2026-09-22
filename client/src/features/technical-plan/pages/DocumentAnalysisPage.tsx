@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { isLibreOfficeRequiredMessage, MarkdownFullscreenViewer, MarkdownRenderer, UploadBoard, UploadEmpty, UploadFilePill, UploadRow, useDocumentParseNotice, useToast } from '../../../shared/ui';
+import { AppDialog, isLibreOfficeRequiredMessage, MarkdownFullscreenViewer, MarkdownRenderer, UploadBoard, UploadEmpty, UploadFilePill, UploadRow, useDocumentParseNotice, useToast } from '../../../shared/ui';
 import type { FileParserProvider, OutlineWordControlOptions } from '../../../shared/types';
 import type {
   BackgroundTaskState,
@@ -40,6 +40,7 @@ import {
 } from '../services/quickConfig';
 
 type TechnicalPlanUploadBusy = 'tender' | 'originalPlan' | null;
+type PendingResetAction = () => Promise<void>;
 
 const parserLabels: Record<FileParserProvider, string> = {
   local: '本地解析',
@@ -87,10 +88,12 @@ interface DocumentAnalysisPageProps {
   outlineWordControlOptions: OutlineWordControlOptions;
   contentGenerationOptions?: ContentGenerationOptions;
   contentTaskStatus?: BackgroundTaskStatus;
+  hasDownstreamData: boolean;
   onFileImported: (state: TechnicalPlanState, markdown: string) => void;
   onOriginalPlanImported: (state: TechnicalPlanState, markdown: string) => void;
   onOutlineWordControlChange: (options: OutlineWordControlOptions) => Promise<void>;
   onContentGenerationOptionsChange: (options: ContentGenerationOptions) => Promise<void>;
+  onResetBidSectionDownstream: () => Promise<void>;
   onStateRefresh: () => Promise<void>;
   onCustomPageStateChange?: (state: { selected: boolean; draft: string }) => void;
 }
@@ -118,10 +121,12 @@ function DocumentAnalysisPage({
   outlineWordControlOptions,
   contentGenerationOptions,
   contentTaskStatus,
+  hasDownstreamData,
   onFileImported,
   onOriginalPlanImported,
   onOutlineWordControlChange,
   onContentGenerationOptionsChange,
+  onResetBidSectionDownstream,
   onStateRefresh,
   onCustomPageStateChange,
 }: DocumentAnalysisPageProps) {
@@ -147,6 +152,9 @@ function DocumentAnalysisPage({
   });
   const [documentContentExpanded, setDocumentContentExpanded] = useState(true);
   const [imageModelAvailable, setImageModelAvailable] = useState(false);
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
+  const [resetConfirming, setResetConfirming] = useState(false);
+  const pendingResetActionRef = useRef<PendingResetAction | null>(null);
   const sectionDetectionRequestRef = useRef(0);
   const detectedDocumentVersionRef = useRef<string | null>(null);
   const { showToast } = useToast();
@@ -168,6 +176,32 @@ function DocumentAnalysisPage({
   const contentTaskLocked = isQuickConfigLocked(contentTaskStatus);
   const quickConfigOptionLocked = isQuickConfigOptionLocked(contentTaskStatus);
   const tenderDocumentVersion = tenderFile?.contentHash || tenderFile?.updatedAt || tenderFiles.map((file) => `${file.id}:${file.contentHash || file.updatedAt}`).join('|') || null;
+
+  const requestResetConfirmation = (action: PendingResetAction) => {
+    if (!hasDownstreamData) {
+      void action().catch((error) => {
+        showToast(error instanceof Error ? error.message : '执行当前操作失败', 'error');
+      });
+      return;
+    }
+    pendingResetActionRef.current = action;
+    setResetConfirmOpen(true);
+  };
+
+  const confirmResetAndContinue = async () => {
+    const action = pendingResetActionRef.current;
+    if (!action || resetConfirming) return;
+    setResetConfirming(true);
+    try {
+      await action();
+      pendingResetActionRef.current = null;
+      setResetConfirmOpen(false);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '重置当前标书失败', 'error');
+    } finally {
+      setResetConfirming(false);
+    }
+  };
 
   useEffect(() => {
     setCustomPageDraft((currentDraft) => resolveCustomPageDraft(outlineWordControlOptions, currentDraft));
@@ -237,16 +271,6 @@ function DocumentAnalysisPage({
         hasMultiple,
         totalDeclared: detection?.totalDeclared ?? null,
       });
-      if (
-        hasMultiple
-        && bidSectionMode !== 'multiple'
-        && bidSectionExtractionStatus === 'idle'
-        && !sectionExtracting
-        && !tenderFile?.selectedSectionTitle
-      ) {
-        // 已有招标文件重新进入 STEP 01 时，也要前置执行原有 AI 标段识别。
-        void startBidSectionExtraction();
-      }
     }).catch((error) => {
       if (active && requestId === sectionDetectionRequestRef.current) {
         showToast(error instanceof Error ? error.message : '检测标段失败', 'error');
@@ -260,12 +284,8 @@ function DocumentAnalysisPage({
       }
     };
   }, [
-    bidSectionExtractionStatus,
-    bidSectionMode,
-    sectionExtracting,
     showToast,
     tenderDocumentVersion,
-    tenderFile?.selectedSectionTitle,
     tenderMarkdown,
     projectId,
   ]);
@@ -323,10 +343,17 @@ function DocumentAnalysisPage({
   const resolveDroppedFilePaths = (files: FileList) =>
     Array.from(files).map((file) => window.yibiao?.file.getPathForFile(file) || '').filter(Boolean);
 
-  const startBidSectionExtraction = async () => {
+  const startBidSectionExtraction = async (skipResetConfirmation = false) => {
     if (contentTaskLocked || sectionExtracting || sectionExtractionRunning) return;
+    if (!skipResetConfirmation && hasDownstreamData) {
+      requestResetConfirmation(() => startBidSectionExtraction(true));
+      return;
+    }
     setSectionExtracting(true);
     try {
+      if (hasDownstreamData) {
+        await onResetBidSectionDownstream();
+      }
       await window.yibiao?.tasks.startBidSectionExtraction({ projectId });
       showToast('多标段识别任务已在后台启动', 'success');
     } catch (error) {
@@ -336,9 +363,13 @@ function DocumentAnalysisPage({
     }
   };
 
-  const handleSectionSelect = async (sectionId: string) => {
+  const handleSectionSelect = async (sectionId: string, skipResetConfirmation = false) => {
     if (contentTaskLocked) {
       showToast('正文生成任务进行中，请等待任务结束后再调整投标范围', 'info');
+      return;
+    }
+    if (!skipResetConfirmation && hasDownstreamData) {
+      requestResetConfirmation(() => handleSectionSelect(sectionId, true));
       return;
     }
     const selectedSection = bidSections.find((section) => section.id === sectionId);
@@ -456,7 +487,11 @@ function DocumentAnalysisPage({
     }
   };
 
-  const importTenderDocument = async (filePaths?: string[]) => {
+  const importTenderDocument = async (filePaths?: string[], skipResetConfirmation = false) => {
+    if (!skipResetConfirmation && hasDownstreamData) {
+      requestResetConfirmation(() => importTenderDocument(filePaths, true));
+      return;
+    }
     try {
       setBusy('tender');
       const result = await window.yibiao?.technicalPlan.importTenderDocument({ projectId, filePaths });
@@ -492,7 +527,7 @@ function DocumentAnalysisPage({
       setBidSectionDetection(result.bidSectionDetection || null);
       if (result.bidSectionDetection?.hasMultiple) {
         // STEP 01 直接复用后续步骤已有的 AI 标段识别任务，完成后自动弹出投标范围选择。
-        void startBidSectionExtraction();
+        void startBidSectionExtraction(true);
       }
       const message = result.message || '招标文件已导入';
       showToast(message, resolveImportToastType(message, true));
@@ -508,7 +543,11 @@ function DocumentAnalysisPage({
     }
   };
 
-  const removeTenderDocument = async (sourceId: string) => {
+  const removeTenderDocument = async (sourceId: string, skipResetConfirmation = false) => {
+    if (!skipResetConfirmation && hasDownstreamData) {
+      requestResetConfirmation(() => removeTenderDocument(sourceId, true));
+      return;
+    }
     try {
       setBusy('tender');
       const result = await window.yibiao?.technicalPlan.removeTenderDocument({ projectId, sourceId });
@@ -984,6 +1023,23 @@ function DocumentAnalysisPage({
         busy={sectionExtracting}
         onSelect={(sectionId) => void handleSectionSelect(sectionId)}
         onCancel={handleSectionCancel}
+      />
+
+      <AppDialog
+        open={resetConfirmOpen}
+        onOpenChange={(open) => !resetConfirming && setResetConfirmOpen(open)}
+        kicker="重置当前标书"
+        title="继续操作前重置当前标书？"
+        description="当前标书已经存在招标解析、目录、全局事实或正文内容。继续后将清空这些下游信息，此操作不可撤销。"
+        preventClose={resetConfirming}
+        actions={(
+          <>
+            <button type="button" className="secondary-action" onClick={() => setResetConfirmOpen(false)} disabled={resetConfirming}>取消</button>
+            <button type="button" className="danger-action" onClick={() => { void confirmResetAndContinue(); }} disabled={resetConfirming}>
+              {resetConfirming ? '正在重置...' : '确认重置并继续'}
+            </button>
+          </>
+        )}
       />
     </div>
   );

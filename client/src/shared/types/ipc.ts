@@ -772,6 +772,7 @@ export interface YibiaoBridge {
   };
   tasks: {
     startBidSectionExtraction: (payload?: unknown) => Promise<unknown>;
+    resetBidSectionDownstream: (payload: { projectId?: string } | string) => Promise<{ success: boolean; message?: string }>;
     startBidAnalysis: (payload: unknown) => Promise<unknown>;
     startOutlineGeneration: (payload: StartOutlineGenerationPayload) => Promise<unknown>;
     suppressOutlineSelectionAutoConfirmation: (payload: { projectId?: string; taskId: string }) => Promise<{ success: boolean }>;

@@ -194,6 +194,16 @@ export function ToolbarArrowRightIcon() {
   );
 }
 
+export function ToolbarHomeIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round">
+      <path d="m4.5 10.5 7.5-6 7.5 6" />
+      <path d="M6.5 9.5v9h11v-9" />
+      <path d="M10 18.5v-5h4v5" />
+    </svg>
+  );
+}
+
 export function ToolbarDocumentIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">

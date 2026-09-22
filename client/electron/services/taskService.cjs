@@ -1604,26 +1604,18 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
         bidSections: [],
         bidSectionExtractionStatus: 'running',
         bidSectionExtractionError: undefined,
-        bidAnalysisTask: undefined,
-        bidAnalysisTasks: {},
-        bidAnalysisProgress: 0,
-        projectOverview: '',
-        techRequirements: '',
-        outlineData: null,
-        outlineWordControlSnapshot: undefined,
-        outlineGenerationTask: undefined,
-        outlineAdjustmentTask: undefined,
-        referenceKnowledgeDocumentIds: [],
-        globalFactsTask: undefined,
-        globalFactsAdjustmentTask: undefined,
-        globalFacts: [],
-        contentGenerationTask: undefined,
-        contentGenerationOptions: undefined,
-        contentGenerationSections: {},
-        contentGenerationPlans: {},
-        contentIllustrationPlan: undefined,
-        contentGenerationRuntime: undefined,
       });
+    },
+    async resetBidSectionDownstream(projectId) {
+      const resolvedProjectId = getProjectId({ projectId });
+      const store = resolvedProjectId
+        ? getProjectScopedTechnicalPlanStore(resolvedProjectId, '重置多标段识别前的下游数据').store
+        : technicalPlanStore;
+      if (resolvedProjectId) {
+        await cancelTechnicalPlanTasks('多标段识别前已确认重置当前标书下游数据', undefined, resolvedProjectId);
+      }
+      store.resetBidSectionDownstream();
+      return { success: true, message: '当前标书下游数据已重置' };
     },
     startBidAnalysis(payload) {
       return startManagedTask('bid-analysis', payload, runBidAnalysisTask);

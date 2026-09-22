@@ -268,6 +268,7 @@ const bridge = {
   },
   tasks: {
     startBidSectionExtraction: (payload) => ipcRenderer.invoke('tasks:start-bid-section-extraction', payload),
+    resetBidSectionDownstream: (payload) => ipcRenderer.invoke('tasks:reset-bid-section-downstream', payload),
     startBidAnalysis: (payload) => ipcRenderer.invoke('tasks:start-bid-analysis', payload),
     startOutlineGeneration: (payload) => ipcRenderer.invoke('tasks:start-outline-generation', payload),
     suppressOutlineSelectionAutoConfirmation: (payload) => ipcRenderer.invoke('tasks:suppress-outline-selection-auto-confirmation', payload),

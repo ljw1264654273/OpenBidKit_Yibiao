@@ -2931,14 +2931,14 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     transaction();
   }
 
-  function prepareBidSectionExtraction() {
+  function resetBidSectionDownstream() {
     const transaction = db.transaction(() => {
       clearDownstreamFromBidSectionChange();
       resetTenderWorkingCopyToOriginal();
       updateMeta({
-        bid_section_mode: 'multiple',
+        bid_section_mode: 'single',
         bid_sections_json: null,
-        bid_section_extraction_status: 'running',
+        bid_section_extraction_status: 'idle',
         bid_section_extraction_error: null,
         selected_section_id: null,
         selected_section_title: null,
@@ -3476,7 +3476,7 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     removeTenderDocument,
     importOriginalPlanDocument,
     checkBidSections,
-    prepareBidSectionExtraction,
+    resetBidSectionDownstream,
     selectBidSection,
     readTenderMarkdown,
     readTenderSourceMarkdown,

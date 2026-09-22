@@ -203,10 +203,6 @@ async function runBidSectionExtractionTask({ aiService, workspaceStore, updateTa
     throw new Error('请先上传招标文件，再进行多标段识别');
   }
 
-  if (typeof workspaceStore.prepareBidSectionExtraction === 'function') {
-    workspaceStore.prepareBidSectionExtraction();
-  }
-
   let logs = [];
   const log = (message, progress) => {
     logs = pushLog(logs, message);

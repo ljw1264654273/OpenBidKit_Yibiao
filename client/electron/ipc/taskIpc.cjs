@@ -5,6 +5,10 @@ function registerTaskIpc({ taskService }) {
     taskService.subscribe(event.sender);
     return taskService.startBidSectionExtraction(payload);
   });
+  ipcMain.handle('tasks:reset-bid-section-downstream', (event, payload) => {
+    taskService.subscribe(event.sender);
+    return taskService.resetBidSectionDownstream(payload?.projectId || payload);
+  });
   ipcMain.handle('tasks:start-bid-analysis', (event, payload) => {
     taskService.subscribe(event.sender);
     return taskService.startBidAnalysis(payload);
