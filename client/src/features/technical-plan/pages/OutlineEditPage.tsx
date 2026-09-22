@@ -525,9 +525,6 @@ function OutlineEditPage({
     () => getDocumentsForFolder(knowledgeIndex, nodeKnowledgeFolderId),
     [knowledgeIndex, nodeKnowledgeFolderId],
   );
-  const nodeKnowledgeDialogOpen = nodeKnowledgeDialogMode !== null;
-  const nodeKnowledgeCreateDialogOpen = nodeKnowledgeDialogOpen && nodeKnowledgeDialogMode === 'create';
-  const nodeKnowledgeDocumentDialogOpen = nodeKnowledgeDialogMode === 'link';
   const selectedInheritedKnowledgeFolders = useMemo(() => {
     const ancestors = selectedItemPath?.slice(0, -1) || [];
     const items: Array<{ folderId: string; sourceTitle: string; folder?: KnowledgeFolder }> = [];
@@ -1882,65 +1879,6 @@ function OutlineEditPage({
     );
   };
 
-  const renderNodeKnowledgeDocumentPicker = () => {
-    if (loadingKnowledge) {
-      return <div className="outline-knowledge-empty compact">正在读取知识库...</div>;
-    }
-    const availableDocuments = knowledgeIndex.documents.filter((document) => document.status === 'success');
-    if (!availableDocuments.length) {
-      return <div className="outline-knowledge-empty compact">暂无已完成的知识库文档，请先到知识库模块上传并处理完成。</div>;
-    }
-    const groups = KNOWLEDGE_BASE_CATALOG.flatMap((category) => {
-      const folders = knowledgeIndex.folders.flatMap((folder) => {
-        if (folder.knowledge_base_id !== category.id) return [];
-        const documents = availableDocuments.filter((document) => document.folder_id === folder.id);
-        return documents.length ? [{ folder, documents }] : [];
-      });
-      return folders.length ? [{ category, folders }] : [];
-    });
-    return (
-      <div className="outline-node-document-picker">
-        {groups.map(({ category, folders }) => (
-          <section className="outline-knowledge-category-group" key={category.id}>
-            <div className="outline-knowledge-category-head">
-              <strong>{category.label}</strong>
-              <small>{folders.reduce((count, group) => count + group.documents.length, 0)} 个可用文档</small>
-            </div>
-            {folders.map(({ folder, documents }) => (
-              <section className="outline-knowledge-folder compact" key={folder.id}>
-                <div className="outline-knowledge-folder-head compact">
-                  <div>
-                    <strong>{folder.name}</strong>
-                    <small>{documents.length} 个可用文档</small>
-                  </div>
-                </div>
-                <div className="outline-knowledge-document-list compact">
-                  {documents.map((document) => {
-                    const selected = draftNodeKnowledgeDocumentIds.includes(document.id);
-                    return (
-                      <label className={`outline-knowledge-document compact${selected ? ' is-selected' : ''}`} key={document.id}>
-                        <input
-                          type="checkbox"
-                          checked={selected}
-                          onChange={() => toggleDraftNodeKnowledgeDocument(document.id)}
-                          disabled={savingNodeKnowledge}
-                        />
-                        <span>
-                          <strong title={document.file_name}>{document.file_name}</strong>
-                          <small>{document.item_count} 条知识条目</small>
-                        </span>
-                      </label>
-                    );
-                  })}
-                </div>
-              </section>
-            ))}
-          </section>
-        ))}
-      </div>
-    );
-  };
-
   const renderKnowledgePicker = () => {
     if (loadingKnowledge) {
       return <div className="outline-knowledge-empty">正在读取知识库...</div>;
@@ -2462,57 +2400,155 @@ function OutlineEditPage({
         />
       )}
 
-      <Dialog.Root open={nodeKnowledgeCreateDialogOpen} onOpenChange={(open) => !open && !savingNodeKnowledge && resetNodeKnowledgeDialog()}>
+      <Dialog.Root
+        open={nodeKnowledgeDialogMode !== null}
+        onOpenChange={(open) => {
+          if (!open && !savingNodeKnowledge) {
+            resetNodeKnowledgeDialog();
+          }
+        }}
+      >
         <Dialog.Portal>
           <Dialog.Overlay className="content-regenerate-modal" />
-          <Dialog.Content className="outline-node-knowledge-dialog">
-            <Dialog.Title>新增知识库</Dialog.Title>
+          <Dialog.Content className="outline-node-knowledge-flow-dialog">
+            <Dialog.Title>
+              {nodeKnowledgeDialogMode === 'create' ? '新增知识库内容' : '关联知识库文档'}
+            </Dialog.Title>
             <Dialog.Description>
-              为“{selectedItem?.title || '当前目录'}”创建知识库文件夹，后续正文生成会参考该目录及父目录关联的知识库内容。
+              {nodeKnowledgeDialogMode === 'create'
+                ? '选择一级知识库和目录后上传文档，内容将关联到当前目录。'
+                : '选择一个目录后勾选需要用于正文生成的文档。'}
             </Dialog.Description>
-            <label className="outline-node-knowledge-field">
-              <span>知识库名称</span>
-              <input
-                value={nodeKnowledgeFolderName}
-                onChange={(event) => setNodeKnowledgeFolderName(event.target.value)}
-                disabled={savingNodeKnowledge}
-                autoFocus
-              />
-            </label>
-            <div className="content-regenerate-actions">
-              <Dialog.Close className="secondary-action" type="button" disabled={savingNodeKnowledge}>取消</Dialog.Close>
-              <button
-                type="button"
-                className="primary-action"
-                onClick={() => { void createNodeKnowledgeFolder(); }}
-                disabled={savingNodeKnowledge || !nodeKnowledgeFolderName.trim()}
-              >
-                {savingNodeKnowledge ? '正在创建...' : '创建并上传文档'}
-              </button>
-            </div>
-          </Dialog.Content>
-        </Dialog.Portal>
-      </Dialog.Root>
+            <div className="outline-node-knowledge-flow">
+              <label className="outline-node-knowledge-field">
+                <span>一级知识库</span>
+                <select
+                  value={nodeKnowledgeBaseId}
+                  onChange={(event) => handleNodeKnowledgeBaseChange(event.target.value as KnowledgeBaseId | '')}
+                  disabled={savingNodeKnowledge}
+                >
+                  <option value="">请选择一级知识库</option>
+                  {KNOWLEDGE_BASE_CATALOG.map((category) => (
+                    <option value={category.id} key={category.id}>{category.label}</option>
+                  ))}
+                </select>
+              </label>
 
-      <Dialog.Root open={nodeKnowledgeDocumentDialogOpen} onOpenChange={(open) => !open && !savingNodeKnowledge && resetNodeKnowledgeDialog()}>
-        <Dialog.Portal>
-          <Dialog.Overlay className="content-regenerate-modal" />
-          <Dialog.Content className="outline-node-knowledge-document-dialog">
-            <Dialog.Title>关联知识库文档</Dialog.Title>
-            <Dialog.Description>
-              为“{selectedItem?.title || '当前目录'}”选择已有知识库文档，后续正文生成会参考该目录及父目录关联的文档。
-            </Dialog.Description>
-            {renderNodeKnowledgeDocumentPicker()}
+              {nodeKnowledgeBaseId && (
+                <>
+                  {nodeKnowledgeFolders.length > 0 ? (
+                    <label className="outline-node-knowledge-field">
+                      <span>目录</span>
+                      <select
+                        value={nodeKnowledgeFolderMode === 'existing' ? nodeKnowledgeFolderId : ''}
+                        onChange={(event) => handleNodeKnowledgeFolderChange(event.target.value)}
+                        disabled={savingNodeKnowledge}
+                      >
+                        <option value="">请选择目录</option>
+                        {nodeKnowledgeFolders.map((folder) => (
+                          <option value={folder.id} key={folder.id}>{folder.name}</option>
+                        ))}
+                      </select>
+                    </label>
+                  ) : (
+                    <div className="outline-knowledge-empty compact">该一级知识库下暂无目录，请先在知识库模块创建目录。</div>
+                  )}
+
+                  {nodeKnowledgeDialogMode === 'create' && (
+                    <>
+                      <button
+                        type="button"
+                        className="text-button"
+                        onClick={() => handleNodeKnowledgeFolderModeChange('new')}
+                        disabled={savingNodeKnowledge}
+                      >
+                        + 新建目录
+                      </button>
+                      {nodeKnowledgeFolderMode === 'new' && (
+                        <div className="outline-node-knowledge-field">
+                          <span>目录名称</span>
+                          <input
+                            value={nodeKnowledgeFolderName}
+                            onChange={(event) => setNodeKnowledgeFolderName(event.target.value)}
+                            disabled={savingNodeKnowledge}
+                            placeholder="请输入目录名称"
+                          />
+                          <button
+                            type="button"
+                            className="secondary-action"
+                            onClick={() => { void createNodeKnowledgeFolder(); }}
+                            disabled={savingNodeKnowledge || !nodeKnowledgeFolderName.trim()}
+                          >
+                            {savingNodeKnowledge ? '正在创建...' : '创建目录'}
+                          </button>
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {nodeKnowledgeDialogMode === 'create' && nodeKnowledgeFolderId && nodeKnowledgeFolderMode === 'existing' && (
+                    <div className="outline-node-knowledge-flow-selection">
+                      <strong>
+                        {getKnowledgeBaseCatalogItem(nodeKnowledgeBaseId)?.label || '一级知识库'} / {nodeKnowledgeFolders.find((folder) => folder.id === nodeKnowledgeFolderId)?.name || '目录'}
+                      </strong>
+                      <button
+                        type="button"
+                        className="primary-action"
+                        onClick={() => { void uploadNodeKnowledgeDocuments(); }}
+                        disabled={savingNodeKnowledge}
+                      >
+                        选择并上传文档
+                      </button>
+                    </div>
+                  )}
+
+                  {nodeKnowledgeDialogMode === 'link' && nodeKnowledgeFolderId && (
+                    <div className="outline-node-knowledge-flow-selection">
+                      <strong>
+                        {getKnowledgeBaseCatalogItem(nodeKnowledgeBaseId)?.label || '一级知识库'} / {nodeKnowledgeFolders.find((folder) => folder.id === nodeKnowledgeFolderId)?.name || '目录'}
+                      </strong>
+                      {loadingKnowledge ? (
+                        <div className="outline-knowledge-empty compact">正在读取知识库...</div>
+                      ) : nodeKnowledgeDocuments.length ? (
+                        <div className="outline-knowledge-document-list compact">
+                          {nodeKnowledgeDocuments.map((document) => {
+                            const selected = draftNodeKnowledgeDocumentIds.includes(document.id);
+                            return (
+                              <label className={`outline-knowledge-document compact${selected ? ' is-selected' : ''}`} key={document.id}>
+                                <input
+                                  type="checkbox"
+                                  checked={selected}
+                                  onChange={() => toggleDraftNodeKnowledgeDocument(document.id)}
+                                  disabled={savingNodeKnowledge}
+                                />
+                                <span>
+                                  <strong title={document.file_name}>{document.file_name}</strong>
+                                  <small>{document.item_count} 条知识条目</small>
+                                </span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div className="outline-knowledge-empty compact">该目录暂无可用文档。</div>
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
             <div className="content-regenerate-actions">
-              <Dialog.Close className="secondary-action" type="button" disabled={savingNodeKnowledge}>取消</Dialog.Close>
-              <button
-                type="button"
-                className="primary-action"
-                onClick={() => { void saveNodeKnowledgeDocuments(); }}
-                disabled={savingNodeKnowledge}
-              >
-                {savingNodeKnowledge ? '正在保存...' : '保存关联'}
-              </button>
+              <button type="button" className="secondary-action" onClick={resetNodeKnowledgeDialog} disabled={savingNodeKnowledge}>取消</button>
+              {nodeKnowledgeDialogMode === 'link' && (
+                <button
+                  type="button"
+                  className="primary-action"
+                  onClick={() => { void saveNodeKnowledgeDocuments(); }}
+                  disabled={savingNodeKnowledge || !nodeKnowledgeFolderId || draftNodeKnowledgeDocumentIds.length === 0}
+                >
+                  {savingNodeKnowledge ? '正在保存...' : '保存关联'}
+                </button>
+              )}
             </div>
           </Dialog.Content>
         </Dialog.Portal>
