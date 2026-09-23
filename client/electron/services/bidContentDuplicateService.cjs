@@ -4,6 +4,11 @@ const sensitivityThresholds = Object.freeze({
   high: 0.76,
 });
 
+const minimumExactSentenceCharacters = 8;
+const exactSentenceRulesVersion = 2;
+const headingLikeEndingPattern = /(?:概况|目标|安排|措施|方案|承诺|分析|理解|认识|要求|内容|范围|依据|说明|清单|计划|组织|职责|制度|机制|标准|服务|保障|原则|思路|流程|体系|结构|情况|背景|意义|特点|概述|介绍|设计|规划|部署|分类|组成|功能|任务|条件|方式|方法|过程|结果|效果|建议|要点|重点|难点|问题|风险|响应|资源|进度|质量|安全|管理|控制)$/u;
+const sentencePredicatePattern = /(?:是|为|有|将|会|能|可|应|需|须|已|未|并|通过|按照|根据|确保|保证|完成|建立|开展|提供|负责|满足|实现|采用|包括|具有|形成|达到|提升|加强|制定|配置|落实|支持|使用|做到|具备|覆盖|用于|适用|保持|持续|及时|严格|能够|可以|需要|应当|必须|不得|完善|明确|有效|符合|执行|包含|构成|提出|采取|设置|承担|配备|协同)/u;
+
 const illustrationBlockPatterns = Object.freeze([
   /<!--\s*yibiao-illustration:start\b[\s\S]*?<!--\s*yibiao-illustration:end\s*-->/gi,
   /<!\s*yibiaoillustration:start\b[\s\S]*?<!\s*yibiaoillustration:end\s*>/gi,
@@ -124,7 +129,7 @@ function splitSentences(value) {
   const isDigit = (character) => Boolean(character && /[0-9]/.test(character));
   const isBoundary = (index) => {
     const character = text[index];
-    if ('。！？；!?;，,：:'.includes(character)) return true;
+    if ('。！？!?'.includes(character)) return true;
     if (character !== '.') return false;
     const previous = text[index - 1];
     const next = text[index + 1];
@@ -136,6 +141,7 @@ function splitSentences(value) {
       text.lastIndexOf('\t', index - 1),
     ) + 1;
     const token = text.slice(tokenStart, index + 1);
+    if (/^\d+\.$/u.test(token)) return false;
     if (/^(?:(?:[A-Za-z]\.){2,}|(?:Mr|Mrs|Ms|Dr|Prof|Sr|Jr|St|e\.g|i\.e)\.)$/i.test(token)) return false;
     return true;
   };
@@ -146,12 +152,6 @@ function splitSentences(value) {
   };
 
   for (let index = 0; index < text.length; index += 1) {
-    if (text[index] === '\n' || text[index] === '\r') {
-      push(index);
-      while (text[index + 1] === '\n' || text[index + 1] === '\r') index += 1;
-      start = index + 1;
-      continue;
-    }
     if (isBoundary(index)) push(index + 1);
   }
   push(text.length);
@@ -164,24 +164,44 @@ function isPureListMarker(value) {
   return /^(?:\d+\s*[.．、:：)]|[（(]\s*\d+\s*[）)]|[一二三四五六七八九十百千万零〇两]+\s*[、.．:：]|[（(]\s*[一二三四五六七八九十百千万零〇两]+\s*[）)])$/.test(text);
 }
 
+function hasSentenceTerminator(value) {
+  const text = normalizeParagraph(value).replace(/[\s"'“”‘’「」『』《》〈〉（），,、；;：:【】〔〕\[\]()]+$/u, '');
+  if (!text) return false;
+  if (/[。！？!?]$/u.test(text)) return true;
+  if (!text.endsWith('.')) return false;
+  return !/[（(【\[/\\]$/u.test(text.slice(0, -1));
+}
+
+function isHeadingLikeSentence(value) {
+  const text = normalizeParagraph(value);
+  if (!/[\u4e00-\u9fff]/u.test(text) || /[，,；;：:]/u.test(text)) return false;
+  const content = compactParagraph(text);
+  return headingLikeEndingPattern.test(content) && !sentencePredicatePattern.test(content);
+}
+
+function exactSentenceEntries(paragraph) {
+  return splitSentences(paragraph.text)
+    .filter((sentence) => (
+      hasSentenceTerminator(sentence)
+      && !isPureListMarker(sentence)
+      && !isHeadingLikeSentence(sentence)
+    ))
+    .map((sentence) => ({
+      sentence,
+      normalized: compactParagraph(sentence),
+    }))
+    .filter((entry) => entry.normalized.length >= minimumExactSentenceCharacters);
+}
+
 function collectExactSentenceMatches(leftParagraphs, rightParagraphs, leftExempt, rightExempt) {
   const rightSentencesByKey = new Map();
-  const rightParagraphsByKey = new Map();
   for (const rightParagraph of rightParagraphs) {
     const rightCompact = compactParagraph(rightParagraph.text);
     if (!rightCompact || rightExempt.has(rightCompact) || looksExemptParagraph(rightParagraph.text)) continue;
-    const rightSentences = splitSentences(rightParagraph.text)
-      .filter((sentence) => !isPureListMarker(sentence));
-    if (!rightSentences.length) continue;
-    const sameParagraphs = rightParagraphsByKey.get(rightCompact) || [];
-    sameParagraphs.push(rightParagraph);
-    rightParagraphsByKey.set(rightCompact, sameParagraphs);
-    rightSentences.forEach((sentence) => {
-      const normalized = compactParagraph(sentence);
-      if (!normalized) return;
-      const occurrences = rightSentencesByKey.get(normalized) || [];
-      occurrences.push({ paragraph: rightParagraph, sentence });
-      rightSentencesByKey.set(normalized, occurrences);
+    exactSentenceEntries(rightParagraph).forEach((entry) => {
+      const occurrences = rightSentencesByKey.get(entry.normalized) || [];
+      occurrences.push({ paragraph: rightParagraph, sentence: entry.sentence });
+      rightSentencesByKey.set(entry.normalized, occurrences);
     });
   }
 
@@ -189,11 +209,7 @@ function collectExactSentenceMatches(leftParagraphs, rightParagraphs, leftExempt
   for (const leftParagraph of leftParagraphs) {
     const leftCompact = compactParagraph(leftParagraph.text);
     if (!leftCompact || leftExempt.has(leftCompact) || looksExemptParagraph(leftParagraph.text)) continue;
-    const leftSentences = splitSentences(leftParagraph.text)
-      .filter((sentence) => !isPureListMarker(sentence));
-    const leftSentenceEntries = leftSentences
-      .map((sentence) => ({ sentence, normalized: compactParagraph(sentence) }))
-      .filter((entry) => entry.normalized);
+    const leftSentenceEntries = exactSentenceEntries(leftParagraph);
 
     for (const entry of leftSentenceEntries) {
       for (const occurrence of rightSentencesByKey.get(entry.normalized) || []) {
@@ -217,26 +233,36 @@ function collectExactSentenceMatches(leftParagraphs, rightParagraphs, leftExempt
         groups.set(groupKey, group);
       }
     }
-
-    for (const rightParagraph of rightParagraphsByKey.get(leftCompact) || []) {
-      const groupKey = `${leftParagraph.index}:${rightParagraph.index}`;
-      const group = groups.get(groupKey) || {
-        leftParagraph,
-        rightParagraph,
-        exactSentences: [],
-      };
-      const matchedText = group.exactSentences.map((item) => item.normalized).join('');
-      if (matchedText !== leftCompact) {
-        group.exactSentences.push({
-          normalized: leftCompact,
-          left: leftParagraph.text,
-          right: rightParagraph.text,
-        });
-      }
-      groups.set(groupKey, group);
-    }
   }
   return Array.from(groups.values());
+}
+
+function refreshExactSentenceMatches(matches) {
+  return (Array.isArray(matches) ? matches : []).flatMap((match) => {
+    if (!match || typeof match !== 'object') return [];
+    const groups = match.leftParagraph && match.rightParagraph
+      ? collectExactSentenceMatches(
+        [match.leftParagraph],
+        [match.rightParagraph],
+        new Set(),
+        new Set(),
+      )
+      : [];
+    const exactSentences = groups[0]?.exactSentences || [];
+    if (exactSentences.length) {
+      return [{
+        ...match,
+        exactSentences,
+        matchType: match.matchType === 'similar-paragraph' ? 'mixed' : (match.matchType || 'exact-sentence'),
+      }];
+    }
+    if (match.matchType === 'exact-sentence') return [];
+    const { exactSentences: _oldExactSentences, ...withoutExactSentences } = match;
+    return [{
+      ...withoutExactSentences,
+      ...(match.matchType === 'mixed' ? { matchType: 'similar-paragraph' } : {}),
+    }];
+  });
 }
 
 function makeNGramSet(value, size = 2) {
@@ -414,14 +440,17 @@ function compareBidContents({
 
 module.exports = {
   buildRewriteSuggestion,
+  collectExactSentenceMatches,
   compareBidContents,
   compactParagraph,
   editSimilarity,
+  exactSentenceRulesVersion,
   normalizeParagraph,
   removeIllustrationBlocks,
   replaceFirstTextOutsideIllustrationBlocks,
   replaceTextPreservingIllustrationBlocks,
   paragraphSimilarity,
+  refreshExactSentenceMatches,
   splitSentences,
   splitBidParagraphs,
 };

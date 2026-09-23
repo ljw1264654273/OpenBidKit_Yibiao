@@ -11,6 +11,10 @@ const {
   getWorkspaceTrashDir,
 } = require('../utils/paths.cjs');
 const { forceRemoveSync } = require('../utils/forceRemove.cjs');
+const {
+  exactSentenceRulesVersion,
+  refreshExactSentenceMatches,
+} = require('./bidContentDuplicateService.cjs');
 
 const duplicateSensitivityThresholds = Object.freeze({
   low: 0.56,
@@ -114,6 +118,29 @@ function mergeDuplicateMatchDecisions(previousResult, nextResult) {
       ...(previousMatch.rewrittenAt ? { rewrittenAt: previousMatch.rewrittenAt } : {}),
     };
   });
+}
+
+function summarizeDuplicateMatches(summary, matches) {
+  const list = Array.isArray(matches) ? matches : [];
+  return {
+    ...summary,
+    duplicateParagraphCount: list.length,
+    exactSentenceCount: list.reduce((count, match) => count + (Array.isArray(match?.exactSentences) ? match.exactSentences.length : 0), 0),
+    maxSimilarity: list.reduce((max, match) => Math.max(max, Number(match?.similarity || 0)), 0),
+    exactSentenceRulesVersion,
+  };
+}
+
+function prepareDuplicateResultForRead(row, matches) {
+  const summary = parseJson(row.summary_json, {});
+  if (Number(summary.exactSentenceRulesVersion) === exactSentenceRulesVersion) {
+    return { summary, matches: Array.isArray(matches) ? matches : [] };
+  }
+  const refreshedMatches = refreshExactSentenceMatches(matches);
+  return {
+    summary: summarizeDuplicateMatches(summary, refreshedMatches),
+    matches: refreshedMatches,
+  };
 }
 
 function normalizeProjectType(value) {
@@ -456,6 +483,7 @@ function createBidProjectStore({ app, db }) {
     const summary = {
       ...(result.summary && typeof result.summary === 'object' ? result.summary : {}),
       threshold,
+      exactSentenceRulesVersion,
     };
     const persist = db.transaction(() => {
       db.prepare(`
@@ -501,11 +529,12 @@ function createBidProjectStore({ app, db }) {
   function loadDuplicateResult(resultId) {
     const row = db.prepare('SELECT * FROM bid_project_duplicate_results WHERE result_id = ?').get(String(resultId || ''));
     if (!row) return null;
-    return buildDuplicateResult(row, parseJson(row.matches_json, []));
+    const prepared = prepareDuplicateResultForRead(row, parseJson(row.matches_json, []));
+    return buildDuplicateResult(row, prepared.matches, {}, prepared.summary);
   }
 
-  function buildDuplicateResult(row, matches, page = {}) {
-    const summary = parseJson(row.summary_json, {});
+  function buildDuplicateResult(row, matches, page = {}, summaryOverride) {
+    const summary = summaryOverride || parseJson(row.summary_json, {});
     const threshold = Number.isFinite(Number(summary.threshold))
       ? Number(summary.threshold)
       : fallbackDuplicateThreshold(row.sensitivity);
@@ -542,6 +571,7 @@ function createBidProjectStore({ app, db }) {
         sensitivity,
         status,
         summary_json,
+        matches_json,
         created_at,
         updated_at
       FROM bid_project_duplicate_results
@@ -554,26 +584,38 @@ function createBidProjectStore({ app, db }) {
       50,
       Math.max(1, Number.isFinite(Number(limit)) ? Math.floor(Number(limit)) : 20),
     );
-    const count = Number(db.prepare(`
-      SELECT COUNT(*) AS total_matches
-      FROM bid_project_duplicate_matches
-      WHERE result_id = ?
-    `).get(id)?.total_matches || 0);
-    const matches = db.prepare(`
-      SELECT match_json
-      FROM bid_project_duplicate_matches
-      WHERE result_id = ?
-      ORDER BY match_index ASC
-      LIMIT ? OFFSET ?
-    `).all(id, normalizedLimit, normalizedOffset)
-      .map((item) => parseJson(item.match_json, null))
-      .filter(Boolean);
+    const storedSummary = parseJson(row.summary_json, {});
+    const shouldRefresh = Number(storedSummary.exactSentenceRulesVersion) !== exactSentenceRulesVersion;
+    const allMatches = shouldRefresh
+      ? prepareDuplicateResultForRead(row, parseJson(row.matches_json, [])).matches
+      : null;
+    const count = shouldRefresh
+      ? allMatches.length
+      : Number(db.prepare(`
+        SELECT COUNT(*) AS total_matches
+        FROM bid_project_duplicate_matches
+        WHERE result_id = ?
+      `).get(id)?.total_matches || 0);
+    const matches = shouldRefresh
+      ? allMatches.slice(normalizedOffset, normalizedOffset + normalizedLimit)
+      : db.prepare(`
+        SELECT match_json
+        FROM bid_project_duplicate_matches
+        WHERE result_id = ?
+        ORDER BY match_index ASC
+        LIMIT ? OFFSET ?
+      `).all(id, normalizedLimit, normalizedOffset)
+        .map((item) => parseJson(item.match_json, null))
+        .filter(Boolean);
+    const summary = shouldRefresh
+      ? prepareDuplicateResultForRead(row, parseJson(row.matches_json, [])).summary
+      : storedSummary;
     return buildDuplicateResult(row, matches, {
       totalMatches: count,
       offset: normalizedOffset,
       limit: normalizedLimit,
       hasMore: normalizedOffset + matches.length < count,
-    });
+    }, summary);
   }
 
   function listRecentDuplicateSummaries(projectIds = []) {

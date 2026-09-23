@@ -492,6 +492,50 @@ test('falls back to sensitivity threshold for old rows and keeps disappeared mat
   }
 });
 
+test('refreshes legacy persisted exact sentences when loading a duplicate result', () => {
+  const { root, db, store } = createTestStore();
+  try {
+    const sourceFile = createSourceFile();
+    const left = store.createProject({ projectName: '历史左侧', sourceFile });
+    const right = store.createProject({ projectName: '历史右侧', sourceFile });
+    const legacyMatch = {
+      id: 'legacy-incomplete',
+      similarity: 1,
+      level: 'high',
+      matchType: 'exact-sentence',
+      leftParagraph: { index: 0, text: '制度要求：' },
+      rightParagraph: { index: 0, text: '制度要求：' },
+      exactSentences: [{ normalized: '制度要求', left: '制度要求：', right: '制度要求：' }],
+      suggestion: { title: '建议改写', reason: '重复', instruction: '重新组织' },
+    };
+    db.prepare(`
+      INSERT INTO bid_project_duplicate_results (
+        result_id, left_project_id, right_project_id, sensitivity, status,
+        summary_json, matches_json, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      'legacy-incomplete-result',
+      left.projectId,
+      right.projectId,
+      'medium',
+      'success',
+      JSON.stringify({ duplicateParagraphCount: 1, exactSentenceCount: 1, maxSimilarity: 1 }),
+      JSON.stringify([legacyMatch]),
+      '2026-09-14T00:00:00.000Z',
+      '2026-09-14T00:00:00.000Z',
+    );
+
+    const result = store.loadDuplicateResult('legacy-incomplete-result');
+    assert.deepEqual(result.matches, []);
+    assert.equal(result.summary.duplicateParagraphCount, 0);
+    assert.equal(result.summary.exactSentenceCount, 0);
+    assert.equal(result.summary.maxSimilarity, 0);
+  } finally {
+    db.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('assigns unique project source records when technical-plan source ids repeat', () => {
   const { root, db, store } = createTestStore();
   try {

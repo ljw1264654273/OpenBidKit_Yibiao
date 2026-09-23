@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 
 const {
   compareBidContents,
+  refreshExactSentenceMatches,
   splitBidParagraphs,
 } = require('./bidContentDuplicateService.cjs');
 
@@ -28,16 +29,16 @@ test('detects paragraph-level near duplicates after small edits and reordering',
   assert.ok(result.matches.some((match) => match.leftParagraph.index === 1 && match.rightParagraph.index === 0));
 });
 
-test('exempts tender quoted paragraphs while reporting short exact sentences', () => {
+test('exempts tender quoted paragraphs while reporting eligible exact sentences', () => {
   const tenderQuote = '招标文件原话：投标人应当遵守采购人发布的全部管理制度。';
   const result = compareBidContents({
     leftContent: [
-      '短句重复',
+      '本项目采用统一管理措施。',
       tenderQuote,
       '公司具备完善的项目管理体系、质量保障体系和售后服务体系，拥有相关资质与多年行业经验。',
     ].join('\n\n'),
     rightContent: [
-      '短句重复',
+      '本项目采用统一管理措施。',
       tenderQuote,
       '公司具备完善的项目管理体系、质量保障体系和售后服务体系，拥有相关资质与多年行业经验。',
     ].join('\n\n'),
@@ -48,7 +49,7 @@ test('exempts tender quoted paragraphs while reporting short exact sentences', (
   assert.equal(splitBidParagraphs('短句重复\n\n长段落').length, 2);
   assert.equal(result.summary.exactSentenceCount, 1);
   assert.equal(result.matches.length, 1);
-  assert.equal(result.matches[0].exactSentences[0].normalized, '短句重复');
+  assert.equal(result.matches[0].exactSentences[0].normalized, '本项目采用统一管理措施');
 });
 
 test('ignores complete illustration blocks when splitting bid paragraphs', () => {
@@ -102,20 +103,62 @@ test('ignores complete illustration blocks when splitting bid paragraphs', () =>
   ]);
 });
 
-test('reports a short exact sentence after ignoring whitespace and punctuation', () => {
+test('does not report a short phrase as an exact sentence', () => {
   const result = compareBidContents({
     leftContent: '质量第一。',
     rightContent: '质量第一！',
     sensitivity: 'high',
   });
 
-  assert.equal(result.summary.exactSentenceCount, 1);
-  assert.equal(result.matches.length, 1);
-  assert.equal(result.matches[0].matchType, 'exact-sentence');
-  assert.deepEqual(result.matches[0].exactSentences, [{
-    normalized: '质量第一',
-    left: '质量第一。',
-    right: '质量第一！',
+  assert.equal(result.summary.exactSentenceCount, 0);
+  assert.equal(result.matches.length, 0);
+});
+
+test('does not report the four known incomplete fragments as exact sentences', () => {
+  const result = compareBidContents({
+    leftContent: [
+      '制度要求：',
+      '不得打乱重分。',
+      '第二轮土地承包到期后再延长三十年，',
+      '无致命错误，',
+    ].join('\n\n'),
+    rightContent: [
+      '制度要求：',
+      '不得打乱重分：',
+      '第二轮土地承包到期后再延长三十年，',
+      '无致命错误，',
+    ].join('\n\n'),
+    sensitivity: 'high',
+  });
+
+  assert.equal(result.summary.exactSentenceCount, 0);
+  assert.equal(result.matches.length, 0);
+});
+
+test('refreshes persisted exact sentences with the current complete-sentence rules', () => {
+  const matches = refreshExactSentenceMatches([
+    {
+      id: 'old-incomplete',
+      matchType: 'exact-sentence',
+      leftParagraph: { index: 0, text: '制度要求：' },
+      rightParagraph: { index: 0, text: '制度要求：' },
+    },
+    {
+      id: 'old-mixed',
+      matchType: 'mixed',
+      leftParagraph: { index: 1, text: '本项目采用统一管理措施。制度要求：' },
+      rightParagraph: { index: 1, text: '本项目采用统一管理措施！制度要求：' },
+    },
+  ]);
+
+  assert.deepEqual(matches.map((match) => ({
+    id: match.id,
+    matchType: match.matchType,
+    exactSentences: (match.exactSentences || []).map((sentence) => sentence.normalized),
+  })), [{
+    id: 'old-mixed',
+    matchType: 'mixed',
+    exactSentences: ['本项目采用统一管理措施'],
   }]);
 });
 
@@ -130,16 +173,16 @@ test('does not report pure list markers as exact sentences', () => {
   assert.equal(result.matches.length, 0);
 });
 
-test('keeps numbered sentences with actual content in exact sentence matching', () => {
+test('keeps eligible numbered sentences in exact sentence matching', () => {
   const result = compareBidContents({
-    leftContent: '1. 项目概况。',
-    rightContent: '1、项目概况！',
+    leftContent: '1. 本项目建设目标明确。',
+    rightContent: '1、本项目建设目标明确！',
     sensitivity: 'high',
   });
 
   assert.equal(result.summary.exactSentenceCount, 1);
   assert.equal(result.matches.length, 1);
-  assert.equal(result.matches[0].exactSentences[0].normalized, '1项目概况');
+  assert.equal(result.matches[0].exactSentences[0].normalized, '1本项目建设目标明确');
 });
 
 test('reports exact sentences inside otherwise different paragraphs', () => {
@@ -156,7 +199,7 @@ test('reports exact sentences inside otherwise different paragraphs', () => {
   assert.match(result.matches[0].rightParagraph.text, /实施周期为30天/);
 });
 
-test('reports exact text when punctuation changes the sentence boundaries', () => {
+test('treats semicolons as in-sentence punctuation', () => {
   const result = compareBidContents({
     leftContent: '确保安全；保证质量。',
     rightContent: '确保安全保证质量。',
@@ -195,14 +238,100 @@ test('does not split decimal values into multiple exact sentences', () => {
 
 test('does not split common abbreviations into multiple exact sentences', () => {
   const result = compareBidContents({
-    leftContent: '按 U.S. 标准执行。后续安排。',
-    rightContent: '按 U.S. 标准执行！后续安排！',
+    leftContent: '按 U.S. 标准执行总体质量控制。后续安排。',
+    rightContent: '按 U.S. 标准执行总体质量控制！后续安排！',
     sensitivity: 'high',
   });
 
-  assert.equal(result.summary.exactSentenceCount, 2);
+  assert.equal(result.summary.exactSentenceCount, 1);
   assert.deepEqual(
     result.matches.flatMap((match) => match.exactSentences.map((sentence) => sentence.normalized)),
-    ['按us标准执行', '后续安排'],
+    ['按us标准执行总体质量控制'],
   );
+});
+
+test('does not count a shared clause when the complete sentences differ', () => {
+  const result = compareBidContents({
+    leftContent: '本项目应加强质量管理，确保按期完成。',
+    rightContent: '本项目将建立质量体系，确保按期完成。',
+    sensitivity: 'high',
+  });
+
+  assert.equal(result.summary.exactSentenceCount, 0);
+  assert.equal(result.matches.length, 0);
+});
+
+test('counts one complete sentence instead of each comma-separated clause', () => {
+  const result = compareBidContents({
+    leftContent: '本项目应加强质量管理，确保按期完成并满足验收要求。',
+    rightContent: '本项目应加强质量管理，确保按期完成并满足验收要求。',
+    sensitivity: 'high',
+  });
+
+  assert.equal(result.summary.exactSentenceCount, 1);
+  assert.equal(result.matches.length, 1);
+  assert.deepEqual(
+    result.matches[0].exactSentences.map((sentence) => sentence.normalized),
+    ['本项目应加强质量管理确保按期完成并满足验收要求'],
+  );
+});
+
+test('does not count an unpunctuated heading as an exact sentence', () => {
+  const result = compareBidContents({
+    leftContent: '项目概况',
+    rightContent: '项目概况',
+    sensitivity: 'high',
+  });
+
+  assert.equal(result.summary.exactSentenceCount, 0);
+  assert.equal(result.matches.length, 0);
+});
+
+test('does not count a long title-like noun phrase as an exact sentence', () => {
+  const result = compareBidContents({
+    leftContent: '项目实施目标及总体安排。',
+    rightContent: '项目实施目标及总体安排。',
+    sensitivity: 'high',
+  });
+
+  assert.equal(result.summary.exactSentenceCount, 0);
+  assert.equal(result.matches.length, 0);
+});
+
+test('uses the minimum effective character boundary for exact sentences', () => {
+  const shortResult = compareBidContents({
+    leftContent: '项目周期为三年。',
+    rightContent: '项目周期为三年！',
+    sensitivity: 'high',
+  });
+  const eligibleResult = compareBidContents({
+    leftContent: '项目周期为30天。',
+    rightContent: '项目周期为30天！',
+    sensitivity: 'high',
+  });
+
+  assert.equal(shortResult.summary.exactSentenceCount, 0);
+  assert.equal(eligibleResult.summary.exactSentenceCount, 1);
+});
+
+test('treats a line break as whitespace inside one complete sentence', () => {
+  const result = compareBidContents({
+    leftContent: '本项目将建立统一的项目管理机制，\n确保建设任务按期完成。',
+    rightContent: '本项目将建立统一的项目管理机制，确保建设任务按期完成！',
+    sensitivity: 'high',
+  });
+
+  assert.equal(result.summary.exactSentenceCount, 1);
+  assert.equal(result.matches[0].exactSentences[0].normalized, '本项目将建立统一的项目管理机制确保建设任务按期完成');
+});
+
+test('does not treat malformed terminal punctuation as a complete sentence', () => {
+  const result = compareBidContents({
+    leftContent: '矢量数据采用Shapefile（.',
+    rightContent: '矢量数据采用 Shapefile（.',
+    sensitivity: 'high',
+  });
+
+  assert.equal(result.summary.exactSentenceCount, 0);
+  assert.equal(result.matches.length, 0);
 });

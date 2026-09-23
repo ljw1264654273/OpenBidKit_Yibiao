@@ -204,7 +204,7 @@ function BidProjectDuplicateResultDialog({
       cardClassName="bid-project-duplicate-dialog-card"
       kicker="同源正文对比查重"
       title={leftProject && rightProject ? `${leftProject.projectName} / ${rightProject.projectName}` : '正文对比查重'}
-      description="图片块不参与文字查重；完全一致句子和相似段落仅用于提示人工审核。AI 改写只生成当前组草稿，确认替换后才会写回目标文件。"
+      description="图片块不参与文字查重；完全一致句子按完整句子判断，词语、短语和标题片段不计入；相似段落仅用于提示人工审核。AI 改写只生成当前组草稿，确认替换后才会写回目标文件。"
       actions={(
         <>
           <button
@@ -325,7 +325,7 @@ function BidProjectDuplicateResultDialog({
                     </div>
                     {exactSentences.length > 0 ? (
                       <div className="bid-project-exact-sentences">
-                        <strong>发现完全一致句子（忽略空格、换行和标点差异），请人工审核</strong>
+                        <strong>发现完整句子一致（忽略空格、换行和句末标点差异），请人工审核</strong>
                         {exactSentences.map((sentence) => (
                           <div key={`${sentence.normalized}-${sentence.left}-${sentence.right}`}>
                             <span>左侧：{sentence.left}</span>
