@@ -28,22 +28,20 @@ In `assertKnowledgeBaseCatalog()`, change only the five label expectations to:
 ['enterprise', '企业文档', 'enterprise-knowledge-base'],
 ```
 
-- [ ] **Step 2: Add focused menu behavior assertions**
+- [ ] **Step 2: Add focused menu source-contract assertions**
 
-Extend `client/src/app/menuConfig.test.ts` to load `appMenuItems` and assert the exact descriptions for the six local entries:
+Extend `client/src/app/menuConfig.test.ts` using its existing source-contract pattern. Assert that `menuConfig.ts` contains the exact six ID-to-description-base entries:
 
 ```ts
-[
-  ['document-knowledge-base', '管理文档资料、文件夹和可复用知识条目'],
-  ['national-standard-knowledge-base', '管理国标资料、文件夹和可复用知识条目'],
-  ['provincial-standard-knowledge-base', '管理省标资料、文件夹和可复用知识条目'],
-  ['municipal-standard-knowledge-base', '管理市标资料、文件夹和可复用知识条目'],
-  ['industry-standard-knowledge-base', '管理行业标资料、文件夹和可复用知识条目'],
-  ['enterprise-knowledge-base', '管理企业资料、文件夹和可复用知识条目'],
-]
+document: '文档',
+'national-standard': '国标',
+'provincial-standard': '省标',
+'municipal-standard': '市标',
+'industry-standard': '行业标',
+enterprise: '企业',
 ```
 
-The test should verify the exported menu behavior and should not require a particular mapping implementation.
+Also assert the description template `管理${knowledgeBaseDescriptionLabels[item.id]}资料、文件夹和可复用知识条目`, and assert the old `item.label.replace(/知识库$/, '')` expression is absent. This matches the repository's existing Node-compatible source test strategy and avoids adding a TypeScript loader solely for this rename.
 
 - [ ] **Step 3: Run the focused tests and verify RED**
 
