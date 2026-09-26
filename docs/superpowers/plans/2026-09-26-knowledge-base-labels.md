@@ -28,9 +28,22 @@ In `assertKnowledgeBaseCatalog()`, change only the five label expectations to:
 ['enterprise', '企业文档', 'enterprise-knowledge-base'],
 ```
 
-- [ ] **Step 2: Add focused menu source assertions**
+- [ ] **Step 2: Add focused menu behavior assertions**
 
-Extend `client/src/app/menuConfig.test.ts` to assert that the implementation contains explicit description bases for `national-standard`, `provincial-standard`, `municipal-standard`, `industry-standard`, and `enterprise`, and that it does not build descriptions with `item.label.replace(/知识库$/, '')`.
+Extend `client/src/app/menuConfig.test.ts` to load `appMenuItems` and assert the exact descriptions for the six local entries:
+
+```ts
+[
+  ['document-knowledge-base', '管理文档资料、文件夹和可复用知识条目'],
+  ['national-standard-knowledge-base', '管理国标资料、文件夹和可复用知识条目'],
+  ['provincial-standard-knowledge-base', '管理省标资料、文件夹和可复用知识条目'],
+  ['municipal-standard-knowledge-base', '管理市标资料、文件夹和可复用知识条目'],
+  ['industry-standard-knowledge-base', '管理行业标资料、文件夹和可复用知识条目'],
+  ['enterprise-knowledge-base', '管理企业资料、文件夹和可复用知识条目'],
+]
+```
+
+The test should verify the exported menu behavior and should not require a particular mapping implementation.
 
 - [ ] **Step 3: Run the focused tests and verify RED**
 
@@ -115,7 +128,7 @@ Replace the five old category display names in README and the listed historical 
 Run from the repository root:
 
 ```powershell
-rg -n --hidden --glob '!client/node_modules/**' --glob '!**/.git/**' --glob '!docs/superpowers/specs/2026-09-26-knowledge-base-labels-design.md' '国标知识库|国标数据库|省标知识库|省标数据库|市标知识库|市标数据库|行业标知识库|企业知识库' .
+rg -n --hidden --glob '!client/node_modules/**' --glob '!**/.git/**' --glob '!docs/superpowers/specs/2026-09-26-knowledge-base-labels-design.md' --glob '!docs/superpowers/plans/2026-09-26-knowledge-base-labels.md' '国标知识库|国标数据库|省标知识库|省标数据库|市标知识库|市标数据库|行业标知识库|企业知识库' .
 ```
 
 Expected: no output.
