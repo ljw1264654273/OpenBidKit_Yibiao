@@ -1,0 +1,371 @@
+<style>
+  .approach-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 18px;
+    margin-top: 22px;
+  }
+  .approach-card {
+    border: 1px solid #dbe3ef;
+    border-radius: 16px;
+    background: #fff;
+    overflow: hidden;
+    cursor: pointer;
+    transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease;
+  }
+  .approach-card:hover {
+    border-color: #6388c7;
+    box-shadow: 0 12px 28px rgba(35, 64, 109, .12);
+    transform: translateY(-2px);
+  }
+  .approach-card.selected {
+    border: 2px solid #315f9d;
+    box-shadow: 0 0 0 3px rgba(49, 95, 157, .12);
+  }
+  .mock-app {
+    height: 330px;
+    display: grid;
+    grid-template-columns: 31% 69%;
+    background: #f5f7fa;
+    border-bottom: 1px solid #e5e9f0;
+    color: #243248;
+    font-size: 11px;
+    overflow: hidden;
+  }
+  .mock-tree {
+    padding: 12px 8px;
+    border-right: 1px solid #dfe5ed;
+    background: #f8fafc;
+  }
+  .mock-tree-title {
+    font-weight: 700;
+    padding: 2px 6px 10px;
+  }
+  .tree-row {
+    padding: 8px 7px;
+    border-radius: 7px;
+    color: #657286;
+    margin-bottom: 3px;
+  }
+  .tree-row.active {
+    color: #1f4f8a;
+    background: #e8f0fb;
+    font-weight: 650;
+  }
+  .mock-editor {
+    position: relative;
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    background: white;
+  }
+  .editor-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 8px;
+    min-height: 52px;
+    padding: 10px 12px;
+    border-bottom: 1px solid #e3e7ee;
+  }
+  .editor-title strong {
+    display: block;
+    font-size: 12px;
+  }
+  .editor-title span {
+    display: block;
+    color: #8b95a5;
+    margin-top: 3px;
+  }
+  .actions {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    white-space: nowrap;
+  }
+  .mini-btn {
+    border: 1px solid #cbd4e0;
+    background: #fff;
+    color: #35445a;
+    border-radius: 6px;
+    padding: 5px 7px;
+    font-size: 10px;
+  }
+  .mini-btn.ai {
+    border-color: #5e82bd;
+    color: #234f88;
+    background: #edf4ff;
+    font-weight: 700;
+  }
+  .editor-toolbar {
+    padding: 7px 11px;
+    border-bottom: 1px solid #e5e8ee;
+    color: #737f90;
+  }
+  .paper {
+    position: relative;
+    flex: 1;
+    padding: 15px 18px;
+    line-height: 1.7;
+    color: #3d4858;
+    overflow: hidden;
+  }
+  .paper h4 {
+    margin: 0 0 9px;
+    font-size: 13px;
+    color: #27354a;
+  }
+  .paper p {
+    margin: 0 0 9px;
+  }
+  .selection {
+    background: #dcecff;
+    border-radius: 2px;
+  }
+  .caret {
+    display: inline-block;
+    width: 1.5px;
+    height: 14px;
+    vertical-align: -2px;
+    background: #2767b2;
+  }
+  .popover {
+    position: absolute;
+    top: 52px;
+    right: 12px;
+    width: 150px;
+    padding: 6px;
+    border: 1px solid #d8e0ea;
+    border-radius: 10px;
+    background: #fff;
+    box-shadow: 0 12px 28px rgba(30, 49, 76, .18);
+    z-index: 3;
+  }
+  .popover div {
+    padding: 8px;
+    border-radius: 7px;
+    font-weight: 620;
+  }
+  .popover div:first-child {
+    background: #edf4ff;
+    color: #275889;
+  }
+  .popover small {
+    display: block;
+    color: #8792a2;
+    font-weight: 400;
+    margin-top: 2px;
+  }
+  .floating-menu {
+    position: absolute;
+    left: 66px;
+    top: 112px;
+    z-index: 3;
+    display: flex;
+    padding: 4px;
+    gap: 3px;
+    border: 1px solid #d5deea;
+    border-radius: 9px;
+    background: #fff;
+    box-shadow: 0 10px 24px rgba(32, 54, 87, .2);
+  }
+  .floating-menu span {
+    padding: 5px 7px;
+    border-radius: 6px;
+    color: #35506f;
+  }
+  .floating-menu span:first-child {
+    background: #eaf2ff;
+    color: #24598f;
+  }
+  .modal {
+    position: absolute;
+    inset: 35px 18px 20px;
+    z-index: 4;
+    padding: 12px;
+    border: 1px solid #d8e0ea;
+    border-radius: 12px;
+    background: rgba(255,255,255,.98);
+    box-shadow: 0 14px 34px rgba(31, 48, 74, .21);
+  }
+  .tabs {
+    display: flex;
+    gap: 5px;
+    padding-bottom: 9px;
+    border-bottom: 1px solid #e3e8ef;
+  }
+  .tabs span {
+    padding: 5px 8px;
+    border-radius: 6px;
+    color: #6b788b;
+  }
+  .tabs span:first-child {
+    color: #24588e;
+    background: #eaf2ff;
+    font-weight: 700;
+  }
+  .field {
+    margin-top: 12px;
+    padding: 9px;
+    border: 1px solid #d6dee9;
+    border-radius: 8px;
+    color: #8a95a5;
+  }
+  .apply-row {
+    display: flex;
+    justify-content: flex-end;
+    gap: 6px;
+    margin-top: 12px;
+  }
+  .card-copy {
+    padding: 15px 16px 18px;
+  }
+  .card-copy h3 {
+    margin: 0 0 7px;
+    font-size: 17px;
+  }
+  .card-copy p {
+    min-height: 58px;
+    margin: 0;
+    color: #687589;
+    line-height: 1.55;
+  }
+  .recommend {
+    display: inline-block;
+    margin-bottom: 9px;
+    padding: 3px 8px;
+    border-radius: 999px;
+    color: #23568d;
+    background: #eaf2ff;
+    font-size: 11px;
+    font-weight: 700;
+  }
+  .tradeoff {
+    margin-top: 12px;
+    padding-top: 11px;
+    border-top: 1px solid #edf0f4;
+    font-size: 12px;
+    color: #58677b;
+  }
+  .note {
+    margin-top: 20px;
+    padding: 14px 16px;
+    border-left: 3px solid #557db8;
+    background: #f3f7fc;
+    color: #506078;
+    line-height: 1.6;
+  }
+  @media (max-width: 980px) {
+    .approach-grid { grid-template-columns: 1fr; }
+    .card-copy p { min-height: 0; }
+  }
+</style>
+
+<h2>“AI改写”入口采用哪种交互？</h2>
+<p class="subtitle">三种方案都把按钮放在“预览”旁边，并支持：光标续写、光标处插图、选区改写，以及结果预览后应用。</p>
+
+<div class="approach-grid">
+  <div class="approach-card option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="mock-app">
+      <div class="mock-tree">
+        <div class="mock-tree-title">标书目录</div>
+        <div class="tree-row">4.1 项目理解</div>
+        <div class="tree-row active">4.2 实施方案</div>
+        <div class="tree-row">4.3 质量保障</div>
+      </div>
+      <div class="mock-editor">
+        <div class="editor-head">
+          <div class="editor-title"><strong>4.2 实施方案</strong><span>正文内容</span></div>
+          <div class="actions">
+            <button class="mini-btn">预览</button><button class="mini-btn ai">AI改写 ▾</button>
+          </div>
+        </div>
+        <div class="editor-toolbar">B　I　H　❝　•　1.</div>
+        <div class="paper">
+          <h4>实施总体思路</h4>
+          <p>项目实施坚持统一规划、分步建设，确保各阶段工作有序衔接。<span class="caret"></span></p>
+          <p><span class="selection">建立覆盖需求确认、方案设计和成果验收的全过程管理机制。</span></p>
+        </div>
+        <div class="popover">
+          <div>续写正文<small>从当前光标继续</small></div>
+          <div>改写选中内容<small>已选中 27 字</small></div>
+          <div>插入图片<small>AI 生成 / 本地图片</small></div>
+        </div>
+      </div>
+    </div>
+    <div class="card-copy">
+      <span class="recommend">推荐方案</span>
+      <h3>A. 智能下拉菜单</h3>
+      <p>点击“AI改写”后根据光标或选区自动突出可用操作，再进入右侧抽屉完成指令与结果预览。</p>
+      <div class="tradeoff"><strong>优点：</strong>入口明确、学习成本低，不遮挡正文，适合现有 Markdown 编辑器。<br><strong>代价：</strong>比浮动工具条多一次点击。</div>
+    </div>
+  </div>
+
+  <div class="approach-card option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="mock-app">
+      <div class="mock-tree">
+        <div class="mock-tree-title">标书目录</div>
+        <div class="tree-row">4.1 项目理解</div>
+        <div class="tree-row active">4.2 实施方案</div>
+        <div class="tree-row">4.3 质量保障</div>
+      </div>
+      <div class="mock-editor">
+        <div class="editor-head">
+          <div class="editor-title"><strong>4.2 实施方案</strong><span>正文内容</span></div>
+          <div class="actions">
+            <button class="mini-btn">预览</button><button class="mini-btn ai">AI改写</button>
+          </div>
+        </div>
+        <div class="editor-toolbar">B　I　H　❝　•　1.</div>
+        <div class="paper">
+          <h4>实施总体思路</h4>
+          <p>项目实施坚持统一规划、分步建设，确保各阶段工作有序衔接。</p>
+          <p><span class="selection">建立覆盖需求确认、方案设计和成果验收的全过程管理机制。</span></p>
+          <div class="floating-menu"><span>AI 改写</span><span>扩写</span><span>插图</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="card-copy">
+      <h3>B. 选区浮动工具条</h3>
+      <p>选中文字后立刻在选区附近显示 AI 工具条；无选区时仍使用顶部“AI改写”按钮处理续写和插图。</p>
+      <div class="tradeoff"><strong>优点：</strong>选区改写最快，接近现代文档编辑器体验。<br><strong>代价：</strong>定位、滚动、全屏编辑和键盘操作更复杂，容易遮挡文字。</div>
+    </div>
+  </div>
+
+  <div class="approach-card option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="mock-app">
+      <div class="mock-tree">
+        <div class="mock-tree-title">标书目录</div>
+        <div class="tree-row">4.1 项目理解</div>
+        <div class="tree-row active">4.2 实施方案</div>
+        <div class="tree-row">4.3 质量保障</div>
+      </div>
+      <div class="mock-editor">
+        <div class="editor-head">
+          <div class="editor-title"><strong>4.2 实施方案</strong><span>正文内容</span></div>
+          <div class="actions">
+            <button class="mini-btn">预览</button><button class="mini-btn ai">AI改写</button>
+          </div>
+        </div>
+        <div class="paper">
+          <p>项目实施坚持统一规划、分步建设，确保各阶段工作有序衔接。</p>
+        </div>
+        <div class="modal">
+          <strong>AI 辅助编辑</strong>
+          <div class="tabs"><span>续写</span><span>改写</span><span>插入图片</span></div>
+          <div class="field">请描述希望补充的内容，例如：续写项目启动阶段的组织与交付安排</div>
+          <div class="apply-row"><button class="mini-btn">取消</button><button class="mini-btn ai">生成预览</button></div>
+        </div>
+      </div>
+    </div>
+    <div class="card-copy">
+      <h3>C. 统一功能弹窗</h3>
+      <p>点击按钮后始终打开一个包含“续写 / 改写 / 插图”三个页签的弹窗，所有设置集中展示。</p>
+      <div class="tradeoff"><strong>优点：</strong>实现与状态管理最稳定，功能容易扩展。<br><strong>代价：</strong>每次操作步骤最多，弹窗会切断编辑上下文。</div>
+    </div>
+  </div>
+</div>
+
+<div class="note">
+  我的建议是 <strong>A：智能下拉菜单 + 结果预览抽屉</strong>。它和当前第五步的顶部操作区、Markdown 编辑方式最一致，也能同时容纳 AI 生图、本地上传和粘贴图片，而不把复杂交互直接塞进正文区域。
+</div>

@@ -11,6 +11,7 @@ const sentencePredicatePattern = /(?:是|为|有|将|会|能|可|应|需|须|已
 
 const illustrationBlockPatterns = Object.freeze([
   /<!--\s*yibiao-illustration:start\b[\s\S]*?<!--\s*yibiao-illustration:end\s*-->/gi,
+  /<!--\s*yibiao-inline-image:start\b[\s\S]*?<!--\s*yibiao-inline-image:end\s*-->/gi,
   /<!\s*yibiaoillustration:start\b[\s\S]*?<!\s*yibiaoillustration:end\s*>/gi,
   /<!\s*yibiaofigurecaption\b[\s\S]*?(?:<!\s*)?yibiaoillustration:end\b(?:\s*(?:-->|>))?/gi,
 ]);

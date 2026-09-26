@@ -1126,18 +1126,117 @@ async function requestTextAi(app, config, requestBody, options = {}) {
   return requestTextAiNormal(app, config, requestBody, options);
 }
 
+function parseImageDataUrl(value) {
+  const match = String(value || '').trim().match(/^data:(image\/[a-z0-9.+-]+);base64,([\s\S]+)$/i);
+  if (!match) {
+    return null;
+  }
+
+  return {
+    b64_json: match[2].replace(/\s+/g, ''),
+    mime_type: match[1].toLowerCase(),
+  };
+}
+
+function isLikelyBase64Image(value) {
+  const normalized = String(value || '').trim().replace(/\s+/g, '');
+  return normalized.length > 0
+    && normalized.length % 4 === 0
+    && /^[A-Za-z0-9+/]+={0,2}$/.test(normalized);
+}
+
+function normalizeOpenAICompatibleImageItem(item, inheritedMimeType = 'image/png') {
+  if (typeof item === 'string') {
+    const value = item.trim();
+    const dataUrl = parseImageDataUrl(value);
+    if (dataUrl) {
+      return dataUrl;
+    }
+    if (/^https?:\/\//i.test(value)) {
+      return { url: value, mime_type: inheritedMimeType };
+    }
+    if (isLikelyBase64Image(value)) {
+      return { b64_json: value, mime_type: inheritedMimeType };
+    }
+    return null;
+  }
+
+  if (!item || typeof item !== 'object') {
+    return null;
+  }
+
+  const mimeType = String(
+    item.mime_type
+    || item.mimeType
+    || item.content_type
+    || item.contentType
+    || inheritedMimeType
+    || 'image/png',
+  ).trim() || 'image/png';
+
+  const directValues = [
+    ['b64_json', item.b64_json],
+    ['b64Json', item.b64Json],
+    ['image_data', item.image_data],
+    ['imageData', item.imageData],
+    ['base64', item.base64],
+    ['data', typeof item.data === 'string' ? item.data : null],
+    ['url', item.url],
+    ['image_url', item.image_url],
+    ['imageUrl', item.imageUrl],
+    ['image', item.image],
+  ];
+
+  for (const [field, rawValue] of directValues) {
+    if (rawValue === undefined || rawValue === null) {
+      continue;
+    }
+
+    const value = typeof rawValue === 'object' && rawValue !== null
+      ? rawValue.url || rawValue.href || rawValue.data || rawValue.value
+      : rawValue;
+    const normalized = normalizeOpenAICompatibleImageItem(value, mimeType);
+    if (!normalized) {
+      continue;
+    }
+
+    return {
+      ...normalized,
+      mime_type: normalized.mime_type || mimeType,
+    };
+  }
+
+  for (const nestedValue of [item.data, item.output, item.result, item.images, item.candidates, item.content]) {
+    if (Array.isArray(nestedValue)) {
+      for (const nestedItem of nestedValue) {
+        const normalized = normalizeOpenAICompatibleImageItem(nestedItem, mimeType);
+        if (normalized) {
+          return normalized;
+        }
+      }
+    } else {
+      const normalized = normalizeOpenAICompatibleImageItem(nestedValue, mimeType);
+      if (normalized) {
+        return normalized;
+      }
+    }
+  }
+
+  return null;
+}
+
 function appendOpenAICompatibleImageItem(state, item) {
-  const url = String(item?.url || '');
-  const b64Json = String(item?.b64_json || '');
-  if (!url && !b64Json) {
+  const normalized = normalizeOpenAICompatibleImageItem(item);
+  if (!normalized) {
     return;
   }
 
   state.images.push({
-    ...item,
-    url,
-    b64_json: b64Json,
-    mime_type: item?.mime_type || item?.mimeType || 'image/png',
+    ...(item && typeof item === 'object' ? item : {}),
+    ...normalized,
+    url: normalized.url || '',
+    b64_json: normalized.b64_json || '',
+    mime_type: normalized.mime_type || 'image/png',
   });
 }
 
@@ -1229,15 +1328,16 @@ async function requestOpenAICompatibleImageData(baseUrl, apiKey, requestBody, fa
 }
 
 async function createImageFromOpenAICompatibleItem(item, options = {}) {
-  if (item?.b64_json) {
+  const normalized = normalizeOpenAICompatibleImageItem(item);
+  if (normalized?.b64_json) {
     return {
-      buffer: Buffer.from(item.b64_json, 'base64'),
-      mime_type: item.mime_type || item.mimeType || 'image/png',
+      buffer: Buffer.from(normalized.b64_json, 'base64'),
+      mime_type: normalized.mime_type || 'image/png',
     };
   }
 
-  if (item?.url) {
-    return downloadImage(item.url, options);
+  if (normalized?.url) {
+    return downloadImage(normalized.url, options);
   }
 
   return null;

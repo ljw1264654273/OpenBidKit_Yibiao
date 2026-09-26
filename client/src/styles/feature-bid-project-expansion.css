@@ -1,5 +1,7 @@
 .expansion-create-page {
   display: grid;
+  width: 100%;
+  min-width: 0;
   height: 100%;
   min-height: 0;
   gap: 18px;

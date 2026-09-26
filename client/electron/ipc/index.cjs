@@ -25,6 +25,7 @@ const { createDeveloperExpansionReplaceTestService } = require('../services/deve
 const { createDuplicateCheckService } = require('../services/duplicateCheckService.cjs');
 const { createDuplicateCheckStore } = require('../services/duplicateCheckStore.cjs');
 const { createCheckResultExportService } = require('../services/checkResultExportService.cjs');
+const { createContentAiEditService } = require('../services/contentAiEditService.cjs');
 const { createExportService } = require('../services/exportService.cjs');
 const { createFileService } = require('../services/fileService.cjs');
 const { createKnowledgeBaseService } = require('../services/knowledgeBaseService.cjs');
@@ -122,6 +123,10 @@ const workspaceDatabaseChannels = [
   'technical-plan:save-global-facts',
   'technical-plan:save-content-generation-options',
   'technical-plan:save-chapter-content',
+  'technical-plan:ai-edit-content',
+  'technical-plan:generate-inline-image',
+  'technical-plan:import-inline-image',
+  'technical-plan:release-inline-image-candidate',
   'technical-plan:preview-illustration-review-item',
   'technical-plan:save-illustration-review-item',
   'technical-plan:adjust-illustration-review-item',
@@ -295,10 +300,16 @@ function registerWorkspaceDatabaseServices({ app, configStore, aiService, agentS
     duplicateCheckStore,
   });
   const taskService = createTaskService({ aiService, agentService, autoConfirmationService, technicalPlanStore, bidProjectManager, rejectionCheckStore, duplicateCheckStore, feasibilityReportStore, knowledgeBaseService, knowledgeReferenceService, remoteKnowledgeDecisionService, duplicateCheckService, openXmlHelperService });
+  const contentAiEditService = createContentAiEditService({
+    app,
+    aiService,
+    technicalPlanStore,
+    resolveTechnicalPlanStore: (payload) => bidProjectManager.getTechnicalPlanStore(payload?.projectId || payload?.project_id),
+  });
 
   clearWorkspaceDatabaseIpc();
   registerKnowledgeBaseIpc({ knowledgeBaseService });
-  registerTechnicalPlanIpc({ technicalPlanStore, bidProjectManager, taskService, remoteKnowledgeService, aiService });
+  registerTechnicalPlanIpc({ technicalPlanStore, bidProjectManager, taskService, remoteKnowledgeService, aiService, contentAiEditService });
   registerBidProjectIpc({
     app,
     ipcMain,

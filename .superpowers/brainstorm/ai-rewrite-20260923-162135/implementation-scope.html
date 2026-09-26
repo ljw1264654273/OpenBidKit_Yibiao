@@ -1,0 +1,124 @@
+<style>
+  .summary-grid { display:grid; grid-template-columns:1.1fr .9fr; gap:15px; margin-top:22px; }
+  .panel { padding:16px; border:1px solid #dce4ed; border-radius:13px; background:#fff; }
+  .panel h3 { margin:0 0 9px; color:#304862; font-size:16px; }
+  .panel p { margin:0; color:#6d7b90; font-size:11px; line-height:1.6; }
+  .component-map { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-top:14px; }
+  .component { padding:13px; border:1px solid #dfe6ee; border-radius:10px; background:#f8fafc; }
+  .component.new { border-color:#a9c4e3; background:#eef5fd; }
+  .component.extend { border-color:#b6d9c4; background:#f1faf5; }
+  .component strong { display:block; margin-bottom:5px; color:#34516f; font-size:12px; }
+  .component span { display:block; color:#708096; font-size:10.5px; line-height:1.5; }
+  .files { width:100%; margin-top:18px; border-collapse:separate; border-spacing:0; overflow:hidden; border:1px solid #dce4ed; border-radius:12px; background:#fff; font-size:11px; }
+  .files th,.files td { padding:10px 12px; border-bottom:1px solid #e8edf2; text-align:left; vertical-align:top; }
+  .files th { background:#f5f8fb; color:#53647a; }
+  .files tr:last-child td { border-bottom:0; }
+  .files td:first-child { width:31%; color:#304c6d; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:10px; }
+  .files td:nth-child(2) { width:12%; color:#315f99; font-weight:700; }
+  .files td:last-child { color:#68768a; line-height:1.55; }
+  .phases { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-top:18px; }
+  .phase { padding:14px; border:1px solid #dce4ed; border-radius:11px; background:#fff; }
+  .phase-num { display:flex; align-items:center; justify-content:center; width:27px; height:27px; border-radius:8px; background:#315f99; color:#fff; font-size:12px; font-weight:800; }
+  .phase h4 { margin:10px 0 6px; color:#334a67; font-size:13px; }
+  .phase p { margin:0; color:#6d7b90; font-size:10.5px; line-height:1.55; }
+  .checks { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:18px; }
+  .check-list { padding:15px; border:1px solid #dce4ed; border-radius:12px; background:#fff; }
+  .check-list h3 { margin:0 0 9px; font-size:15px; color:#324964; }
+  .check-list ul { margin:0; padding-left:18px; color:#617085; font-size:11px; line-height:1.75; }
+  .estimate { margin-top:18px; padding:16px 18px; border-left:3px solid #4e79b0; background:#f2f6fb; color:#4e6077; line-height:1.65; }
+  .estimate strong { color:#304c6c; }
+  .out { margin-top:14px; padding:14px 16px; border-left:3px solid #b47e2d; background:#fff8ea; color:#745b34; line-height:1.65; }
+  .approve {
+    margin-top:18px; padding:17px; border:1px solid #b6cee9; border-radius:12px;
+    background:linear-gradient(135deg,#eef5fd,#f8fbff); color:#3e5875; line-height:1.65;
+  }
+  @media(max-width:1050px) {
+    .summary-grid,.checks { grid-template-columns:1fr; }
+    .component-map,.phases { grid-template-columns:1fr 1fr; }
+  }
+</style>
+
+<h2>技术设计 3/3 · 组件、改动范围与验收</h2>
+<p class="subtitle">实施保持第五步现有布局和保存协议，不重构正文生成任务。共享编辑器只增加可选能力，其他页面默认行为不变。</p>
+
+<div class="summary-grid">
+  <section class="panel">
+    <h3>Renderer 组件边界</h3>
+    <p>ContentEditPage 负责编排当前章节、草稿和任务锁；AI 抽屉独立管理操作类型、指令、请求状态和候选结果；MarkdownEditor 只提供选择范围及焦点控制。</p>
+    <div class="component-map">
+      <div class="component extend"><strong>MarkdownEditor</strong><span>新增可选 onSelectionChange、selectionRequest 和 activeSurface 回调；不包含任何 AI 业务。</span></div>
+      <div class="component new"><strong>ContentAiRewriteMenu</strong><span>“AI改写”按钮及智能菜单，根据选区和光标启用不同操作。</span></div>
+      <div class="component new"><strong>ContentAiRewriteDrawer</strong><span>输入要求、图片来源、候选对比、应用、撤销和错误恢复。</span></div>
+    </div>
+  </section>
+  <section class="panel">
+    <h3>Main 服务边界</h3>
+    <p>新服务负责 Prompt、候选生成、图片资产落盘和标准图片块构建；IPC 只解析项目 Store 并转发，章节保存继续走原 Store。</p>
+    <div class="component-map">
+      <div class="component new"><strong>contentAiEditService</strong><span>局部改写、续写、AI 配图、图片导入及候选清理。</span></div>
+      <div class="component extend"><strong>technicalPlanIpc</strong><span>新增三个通道，并加入数据库就绪通道清单。</span></div>
+      <div class="component extend"><strong>aiService / Store</strong><span>复用模型队列与 saveChapterContent；不新增表和长期任务。</span></div>
+    </div>
+  </section>
+</div>
+
+<table class="files">
+  <thead><tr><th>文件</th><th>方式</th><th>主要改动</th></tr></thead>
+  <tbody>
+    <tr><td>src/shared/ui/MarkdownEditor.tsx</td><td>扩展</td><td>增加可选的字符选区上报、焦点恢复和普通/全屏编辑面同步；现有调用方无需修改。</td></tr>
+    <tr><td>src/features/technical-plan/components/ContentAiRewriteMenu.tsx</td><td>新增</td><td>顶部“AI改写”入口、操作可用状态和键盘导航。</td></tr>
+    <tr><td>src/features/technical-plan/components/ContentAiRewriteDrawer.tsx</td><td>新增</td><td>文本候选、图片候选、粘贴/拖放、加载、错误、应用和撤销 UI。</td></tr>
+    <tr><td>src/features/technical-plan/pages/ContentEditPage.tsx</td><td>接入</td><td>维护 selection snapshot、打开菜单/抽屉、应用候选到 draftContent，并沿用任务锁和保存流程。</td></tr>
+    <tr><td>src/styles/feature-technical-plan.css</td><td>扩展</td><td>按钮菜单、右侧抽屉、前后对比和图片上传区样式；复用现有 token。</td></tr>
+    <tr><td>electron/services/contentAiEditService.cjs</td><td>新增</td><td>Prompt、AI 文本生成、普通 AI 配图、本地图片复制、inline-image Markdown 块和候选文件清理。</td></tr>
+    <tr><td>electron/ipc/technicalPlanIpc.cjs</td><td>扩展</td><td>注册 ai-edit-content、generate-inline-image、import-inline-image。</td></tr>
+    <tr><td>electron/ipc/index.cjs</td><td>扩展</td><td>装配新服务，并将三个通道加入 workspaceDatabaseChannels。</td></tr>
+    <tr><td>electron/preload.cjs</td><td>扩展</td><td>向 Renderer 暴露三个 technicalPlan 方法。</td></tr>
+    <tr><td>src/shared/types/ipc.ts</td><td>扩展</td><td>补齐请求、候选结果、图片来源和错误结果类型。</td></tr>
+    <tr><td>src/shared/analytics/analytics.ts</td><td>扩展</td><td>记录操作类型、来源、结果和耗时，不记录正文、指令、文件名或路径。</td></tr>
+  </tbody>
+</table>
+
+<div class="phases">
+  <section class="phase"><div class="phase-num">1</div><h4>编辑器基础</h4><p>先完成选区状态、菜单入口和纯前端候选应用工具，并覆盖普通/全屏编辑。</p></section>
+  <section class="phase"><div class="phase-num">2</div><h4>文本 AI</h4><p>接入续写与选区改写，完成快照冲突、防重复请求、前后对比和撤销。</p></section>
+  <section class="phase"><div class="phase-num">3</div><h4>图片能力</h4><p>接入普通 AI 生图、本地选择、拖放和剪贴板，生成独立手工插图块。</p></section>
+  <section class="phase"><div class="phase-num">4</div><h4>联调收口</h4><p>验证预览、保存、重新打开、Word 导出、查重替换和两种技术方案入口。</p></section>
+</div>
+
+<div class="checks">
+  <section class="check-list">
+    <h3>自动测试</h3>
+    <ul>
+      <li>字符范围插入、替换、换行整理及草稿冲突检测的纯函数测试。</li>
+      <li>MarkdownEditor 普通/全屏选区同步与回调测试。</li>
+      <li>Main 服务 Prompt 输入、结构化结果、图片块和临时候选清理测试。</li>
+      <li>IPC 注册、preload 暴露及类型编译测试。</li>
+      <li>现有 workflowLayout 测试补充按钮、抽屉和任务锁断言。</li>
+    </ul>
+  </section>
+  <section class="check-list">
+    <h3>人工验收</h3>
+    <ul>
+      <li>中文正文首部、中间、末尾续写，空正文续写，以及选区替换。</li>
+      <li>AI 请求时继续输入，确认不会错位覆盖。</li>
+      <li>AI 图片、本地图片、拖入、Ctrl+V、取消候选和撤销应用。</li>
+      <li>应用后预览正确；保存并重启后正文和图片仍存在。</li>
+      <li>Word 导出包含图片与图注，图片路径不依赖外网。</li>
+      <li>普通技术方案和已有方案扩写入口都可使用。</li>
+      <li>running / pausing / paused 时全部相关入口正确禁用。</li>
+    </ul>
+  </section>
+</div>
+
+<div class="estimate">
+  <strong>可行性与工作量判断：</strong>属于中等规模功能。文本续写和选区改写风险较低；主要技术风险集中在共享编辑器的普通/全屏选区同步、图片候选生命周期，以及手工图片块对查重与后续自动配图的兼容。按上述四阶段拆分，可以逐步交付并在每阶段独立验证。
+</div>
+
+<div class="out">
+  <strong>第一版明确不做：</strong>富文本可视化编辑器替换、对多个章节批量改写、AI 操作历史长期持久化、后台跨页面继续运行、即时 Mermaid/PPT 图生成，以及对已插入图片的完整重绘审核。现有全文图片审核能力保持不变。
+</div>
+
+<div class="approve">
+  <strong>完整设计建议：</strong>采用“顶部智能菜单 + 右侧候选抽屉”；正文操作始终基于字符范围和草稿快照；结果先应用到草稿，再由用户保存；第一版覆盖续写、选区改写、普通 AI 配图、本地选择、拖放与粘贴图片。
+</div>

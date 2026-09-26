@@ -9,6 +9,56 @@ import type { ExportFormatConfig, ExportTemplateRecord } from './exportFormat';
 import type { OutlineData, OutlineExpansionMode, OutlineMode, OutlineWordControlOptions } from './outline';
 import type { BidContentDuplicateDecision, BidContentDuplicateResult, BidContentDuplicateRewriteRequest, BidContentDuplicateRewriteResult, BidContentDuplicateTargetSide, BidProject, BidProjectContent, BidProjectCreateOptions, BidProjectDuplicateSummary, BidProjectImportPreview, ExpansionProjectImportOptions, ExpansionProjectImportPreview } from '../../features/bid-project/types';
 
+export type ContentAiEditMode = 'rewrite' | 'continue';
+
+export interface ContentAiEditRequest {
+  projectId?: string;
+  nodeId: string;
+  nodeTitle: string;
+  nodeDescription?: string;
+  content: string;
+  selectionStart: number;
+  selectionEnd: number;
+  instruction: string;
+  mode: ContentAiEditMode;
+}
+
+export type ContentAiTextCandidate =
+  | { mode: 'rewrite'; replacementText: string }
+  | { mode: 'continue'; insertionText: string };
+
+export interface GenerateInlineImageRequest {
+  projectId?: string;
+  nodeId: string;
+  nodeTitle: string;
+  nodeDescription?: string;
+  content: string;
+  insertionOffset: number;
+  imageTitle: string;
+  imageDescription: string;
+  caption?: string;
+  style?: string;
+}
+
+export interface ImportInlineImageRequest {
+  projectId?: string;
+  source: {
+    filePath?: string;
+    dataUrl?: string;
+  };
+  imageTitle: string;
+  caption?: string;
+}
+
+export interface InlineImageCandidate {
+  candidateId: string;
+  assetUrl: string;
+  imageTitle: string;
+  caption: string;
+  markdown: string;
+  filePath?: string;
+}
+
 export interface TaskEventTask {
   task_id: string;
   type: string;
@@ -712,6 +762,10 @@ export interface YibiaoBridge {
     saveGlobalFacts: (payload: { projectId?: string; globalFacts: GlobalFactGroupState[] } | GlobalFactGroupState[]) => Promise<Partial<TechnicalPlanState>>;
     saveContentGenerationOptions: (payload: { projectId?: string; options: ContentGenerationOptions } | ContentGenerationOptions) => Promise<Partial<TechnicalPlanState>>;
     saveChapterContent: (payload: { projectId?: string; nodeId: string; content: string }) => Promise<Partial<TechnicalPlanState>>;
+    aiEditContent: (payload: ContentAiEditRequest) => Promise<ContentAiTextCandidate>;
+    generateInlineImage: (payload: GenerateInlineImageRequest) => Promise<InlineImageCandidate>;
+    importInlineImage: (payload: ImportInlineImageRequest) => Promise<InlineImageCandidate>;
+    releaseInlineImageCandidate: (payload: { projectId?: string; candidateId: string }) => Promise<{ success: boolean; released?: boolean; reason?: string }>;
     previewIllustrationReviewItem: (payload: { projectId?: string; itemId: string; code?: string }) => Promise<{ success: boolean; code?: string }>;
     saveIllustrationReviewItem: (payload: { projectId?: string; itemId: string; code?: string }) => Promise<Partial<TechnicalPlanState>>;
     adjustIllustrationReviewItem: (payload: { projectId?: string; itemId: string; code?: string; instruction: string; referenceImages?: Array<{ path?: string; dataUrl?: string }>; referenceImagePath?: string; referenceImageDataUrl?: string }) => Promise<Partial<TechnicalPlanState> & { code?: string; instruction?: string }>;

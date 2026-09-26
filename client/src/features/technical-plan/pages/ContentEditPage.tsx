@@ -1,7 +1,7 @@
 import * as Dialog from '@radix-ui/react-dialog';
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type CSSProperties, type PointerEvent, type ReactNode, type WheelEvent } from 'react';
 import { trackConfigUsage } from '../../../shared/analytics/analytics';
-import { AppSwitch, MarkdownEditor, MarkdownFullscreenViewer, MarkdownRenderer, useToast } from '../../../shared/ui';
+import { AppDialog, AppSwitch, MarkdownEditor, MarkdownFullscreenViewer, MarkdownRenderer, useToast, type MarkdownEditorSelection, type MarkdownEditorSelectionRequest } from '../../../shared/ui';
 import { OUTLINE_CONTENT_MODE_LABELS } from '../../../shared/types';
 import type { ClientConfig, ImageModelStatus, OutlineContentMode, OutlineData, OutlineItem, OutlineWordControlOptions } from '../../../shared/types';
 import { countReadableWords } from '../../../shared/utils/wordCount';
@@ -15,6 +15,17 @@ import mermaidImageExampleUrl from '../../../../assets/generate_img_example/merm
 import htmlImageExampleUrl from '../../../../assets/generate_img_example/html.png';
 import AdaptiveTwoPaneWorkspace, { type WorkspacePane } from '../components/AdaptiveTwoPaneWorkspace';
 import CompactTaskProgress from '../components/CompactTaskProgress';
+import ContentAiRewriteDrawer, { type ContentAiCandidate } from '../components/ContentAiRewriteDrawer';
+import ContentAiRewriteMenu, { type ContentAiRewriteMode } from '../components/ContentAiRewriteMenu';
+import {
+  applyContentAiTextCandidate,
+  createContentAiEditSnapshot,
+  findProtectedInlineImageRanges,
+  insertInlineImageBlock,
+  selectionIntersectsProtectedRange,
+  validateContentAiEditSnapshot,
+  type ContentAiEditSnapshot,
+} from '../services/contentAiEdit';
 import {
   DEFAULT_HTML_IMAGE_TYPES,
   normalizePersistedContentGenerationOptions,
@@ -349,6 +360,14 @@ function ContentEditPage({
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [draftContent, setDraftContent] = useState('');
+  const [editorSelection, setEditorSelection] = useState<MarkdownEditorSelection | null>(null);
+  const [editorSelectionRequest, setEditorSelectionRequest] = useState<MarkdownEditorSelectionRequest>();
+  const [aiEditMode, setAiEditMode] = useState<ContentAiRewriteMode | null>(null);
+  const [aiEditSnapshot, setAiEditSnapshot] = useState<ContentAiEditSnapshot | null>(null);
+  const [aiCandidate, setAiCandidate] = useState<ContentAiCandidate | null>(null);
+  const [aiCandidateBusy, setAiCandidateBusy] = useState(false);
+  const [aiEditError, setAiEditError] = useState('');
+  const [aiDiscardConfirmOpen, setAiDiscardConfirmOpen] = useState(false);
   const [requirementItem, setRequirementItem] = useState<OutlineItem | null>(null);
   const [regenerateRequirement, setRegenerateRequirement] = useState('');
   const [workspacePane, setWorkspacePane] = useState<WorkspacePane>('navigation');
@@ -380,6 +399,10 @@ function ContentEditPage({
   });
   const [illustrationPreviewDragging, setIllustrationPreviewDragging] = useState<IllustrationPreviewPane | null>(null);
   const illustrationPreviewDragRef = useRef<IllustrationPreviewDrag | null>(null);
+  const aiRequestIdRef = useRef(0);
+  const editorSelectionRequestIdRef = useRef(0);
+  const aiCandidateRef = useRef<ContentAiCandidate | null>(null);
+  const appliedInlineImageCandidateIdsRef = useRef(new Set<string>());
   const mermaidReferenceImagesRef = useRef<MermaidReferenceImage[]>([]);
   const revokeMermaidReferenceImage = (image: MermaidReferenceImage) => {
     URL.revokeObjectURL(image.previewUrl);
@@ -720,6 +743,252 @@ function ContentEditPage({
   const imageModelAvailable = imageModelStatus === 'available';
 
   const handlePreviewImage = useCallback((src: string, alt: string) => setPreviewImage({ src, alt }), []);
+  useEffect(() => {
+    aiCandidateRef.current = aiCandidate;
+  }, [aiCandidate]);
+
+  const releaseInlineImageCandidate = useCallback(async (candidateId: string) => {
+    if (!candidateId) return;
+    try {
+      await window.yibiao?.technicalPlan.releaseInlineImageCandidate({ projectId, candidateId });
+    } catch (error) {
+      console.warn('释放正文插图候选失败', error);
+    }
+  }, [projectId]);
+
+  const releaseAppliedInlineImageCandidates = useCallback(() => {
+    const candidateIds = [...appliedInlineImageCandidateIdsRef.current];
+    appliedInlineImageCandidateIdsRef.current.clear();
+    candidateIds.forEach((candidateId) => {
+      void releaseInlineImageCandidate(candidateId);
+    });
+  }, [releaseInlineImageCandidate]);
+
+  const clearAiEditState = useCallback((options: { releaseCandidate?: boolean } = {}) => {
+    const candidate = aiCandidateRef.current;
+    const candidateId = candidate && 'candidateId' in candidate ? candidate.candidateId : '';
+    if (options.releaseCandidate && candidateId && !appliedInlineImageCandidateIdsRef.current.has(candidateId)) {
+      void releaseInlineImageCandidate(candidateId);
+    }
+    aiRequestIdRef.current += 1;
+    setAiEditMode(null);
+    setAiEditSnapshot(null);
+    setAiCandidate(null);
+    aiCandidateRef.current = null;
+    setAiCandidateBusy(false);
+    setAiEditError('');
+    setAiDiscardConfirmOpen(false);
+  }, [releaseInlineImageCandidate]);
+
+  const requestCloseAiEdit = useCallback(() => {
+    if (aiCandidate) {
+      setAiDiscardConfirmOpen(true);
+      return;
+    }
+    clearAiEditState({ releaseCandidate: true });
+  }, [aiCandidate, clearAiEditState]);
+
+  const openAiEdit = useCallback((mode: ContentAiRewriteMode) => {
+    if (!selectedItem || !selectedIsLeaf || !editing || isPreviewing || taskBlocksGeneration) {
+      showToast(isPreviewing ? '请先切换到编辑模式' : '当前正文暂不能使用 AI 改写', 'info');
+      return;
+    }
+    if (!editorSelection) {
+      showToast('请先点击正文编辑区，确定光标或选区位置', 'info');
+      return;
+    }
+    const selectionStart = mode === 'image' ? editorSelection.end : editorSelection.start;
+    const selectionEnd = mode === 'image' ? editorSelection.end : editorSelection.end;
+    if (mode === 'rewrite') {
+      if (selectionStart === selectionEnd) {
+        showToast('请先选择需要改写的正文内容', 'info');
+        return;
+      }
+      if (selectionIntersectsProtectedRange(
+        { start: selectionStart, end: selectionEnd },
+        findProtectedInlineImageRanges(draftContent),
+      )) {
+        showToast('请选择不包含图片的纯正文内容', 'info');
+        return;
+      }
+    }
+    const snapshot = createContentAiEditSnapshot({
+      nodeId: selectedItem.id,
+      content: draftContent,
+      selectionStart,
+      selectionEnd,
+      surface: editorSelection.surface,
+    });
+    clearAiEditState({ releaseCandidate: true });
+    setAiEditMode(mode);
+    setAiEditSnapshot(snapshot);
+  }, [
+    clearAiEditState,
+    draftContent,
+    editing,
+    editorSelection,
+    isPreviewing,
+    selectedIsLeaf,
+    selectedItem,
+    showToast,
+    taskBlocksGeneration,
+  ]);
+
+  const generateAiTextCandidate = useCallback(async (instruction: string) => {
+    if (!aiEditSnapshot || !selectedItem || (aiEditMode !== 'rewrite' && aiEditMode !== 'continue')) return;
+    const requestId = ++aiRequestIdRef.current;
+    setAiCandidateBusy(true);
+    setAiEditError('');
+    try {
+      const candidate = await window.yibiao?.technicalPlan.aiEditContent({
+        projectId,
+        nodeId: selectedItem.id,
+        nodeTitle: selectedItem.title,
+        nodeDescription: selectedItem.description,
+        content: aiEditSnapshot.content,
+        selectionStart: aiEditSnapshot.selectionStart,
+        selectionEnd: aiEditSnapshot.selectionEnd,
+        instruction,
+        mode: aiEditMode,
+      });
+      if (requestId !== aiRequestIdRef.current || !candidate) return;
+      setAiCandidate(candidate);
+    } catch (error) {
+      if (requestId === aiRequestIdRef.current) setAiEditError(error instanceof Error ? error.message : 'AI 生成失败');
+    } finally {
+      if (requestId === aiRequestIdRef.current) setAiCandidateBusy(false);
+    }
+  }, [aiEditMode, aiEditSnapshot, projectId, selectedItem]);
+
+  const generateInlineImageCandidate = useCallback(async (input: { imageTitle: string; imageDescription: string; caption: string }) => {
+    if (!aiEditSnapshot || !selectedItem || aiEditMode !== 'image') return;
+    const previousCandidateId = aiCandidate && 'candidateId' in aiCandidate ? aiCandidate.candidateId : '';
+    const requestId = ++aiRequestIdRef.current;
+    setAiCandidateBusy(true);
+    setAiEditError('');
+    try {
+      const candidate = await window.yibiao?.technicalPlan.generateInlineImage({
+        projectId,
+        nodeId: selectedItem.id,
+        nodeTitle: selectedItem.title,
+        nodeDescription: selectedItem.description,
+        content: aiEditSnapshot.content,
+        insertionOffset: aiEditSnapshot.selectionEnd,
+        imageTitle: input.imageTitle,
+        imageDescription: input.imageDescription,
+        caption: input.caption,
+      });
+      if (requestId !== aiRequestIdRef.current || !candidate) {
+        if (candidate?.candidateId) void releaseInlineImageCandidate(candidate.candidateId);
+        return;
+      }
+      if (previousCandidateId) void releaseInlineImageCandidate(previousCandidateId);
+      setAiCandidate(candidate);
+    } catch (error) {
+      if (requestId === aiRequestIdRef.current) setAiEditError(error instanceof Error ? error.message : 'AI 图片生成失败');
+    } finally {
+      if (requestId === aiRequestIdRef.current) setAiCandidateBusy(false);
+    }
+  }, [aiCandidate, aiEditMode, aiEditSnapshot, projectId, releaseInlineImageCandidate, selectedItem]);
+
+  const importInlineImageCandidate = useCallback(async (
+    source: { filePath?: string; dataUrl?: string },
+    input: { imageTitle: string; caption: string },
+  ) => {
+    if (!aiEditSnapshot || aiEditMode !== 'image') return;
+    const previousCandidateId = aiCandidate && 'candidateId' in aiCandidate ? aiCandidate.candidateId : '';
+    const requestId = ++aiRequestIdRef.current;
+    setAiCandidateBusy(true);
+    setAiEditError('');
+    try {
+      const candidate = await window.yibiao?.technicalPlan.importInlineImage({
+        projectId,
+        source,
+        imageTitle: input.imageTitle,
+        caption: input.caption,
+      });
+      if (requestId !== aiRequestIdRef.current || !candidate) {
+        if (candidate?.candidateId) void releaseInlineImageCandidate(candidate.candidateId);
+        return;
+      }
+      if (previousCandidateId) void releaseInlineImageCandidate(previousCandidateId);
+      setAiCandidate(candidate);
+    } catch (error) {
+      if (requestId === aiRequestIdRef.current) setAiEditError(error instanceof Error ? error.message : '图片导入失败');
+    } finally {
+      if (requestId === aiRequestIdRef.current) setAiCandidateBusy(false);
+    }
+  }, [aiCandidate, aiEditMode, aiEditSnapshot, projectId, releaseInlineImageCandidate]);
+
+  const importInlineImageFile = useCallback((file: File, input: { imageTitle: string; caption: string }) => {
+    const filePath = window.yibiao?.file.getPathForFile(file);
+    if (!filePath) {
+      setAiEditError('无法读取本地图片路径');
+      return;
+    }
+    void importInlineImageCandidate({ filePath }, input);
+  }, [importInlineImageCandidate]);
+
+  const applyAiCandidate = useCallback((caption?: string) => {
+    if (!aiCandidate || !aiEditSnapshot || !selectedItem) return;
+    const validation = validateContentAiEditSnapshot({
+      currentNodeId: selectedItem.id,
+      currentContent: draftContent,
+      snapshot: aiEditSnapshot,
+    });
+    if (!validation.valid) {
+      setAiEditError(validation.message);
+      return;
+    }
+    let result;
+    let candidateId: string | undefined;
+    if ('assetUrl' in aiCandidate) {
+      candidateId = aiCandidate.candidateId;
+      const normalizedCaption = String(caption || aiCandidate.caption || aiCandidate.imageTitle).trim();
+      const markdown = [
+        `<!-- yibiao-inline-image:start id="${aiCandidate.candidateId}" -->`,
+        `![${aiCandidate.imageTitle}](${aiCandidate.assetUrl})`,
+        '',
+        `*<!-- yibiao-figure-caption -->${normalizedCaption}*`,
+        '<!-- yibiao-inline-image:end -->',
+      ].join('\n');
+      result = insertInlineImageBlock({
+        content: draftContent,
+        insertionOffset: aiEditSnapshot.selectionEnd,
+        markdown,
+      });
+      appliedInlineImageCandidateIdsRef.current.add(candidateId);
+    } else {
+      result = applyContentAiTextCandidate({
+        currentNodeId: selectedItem.id,
+        currentContent: draftContent,
+        snapshot: aiEditSnapshot,
+        mode: aiCandidate.mode,
+        candidateText: aiCandidate.mode === 'rewrite' ? aiCandidate.replacementText : aiCandidate.insertionText,
+      });
+    }
+    const before = draftContent;
+    setDraftContent(result.content);
+    setEditorSelectionRequest({
+      ...result.selection,
+      surface: aiEditSnapshot.surface,
+      requestId: `content-ai-${++editorSelectionRequestIdRef.current}`,
+    });
+    clearAiEditState();
+    showToast('已应用到草稿，保存后才会写入正文', 'success', {
+      duration: 6000,
+      actions: [{
+        label: '撤销本次应用',
+        onClick: async () => {
+          setDraftContent((current) => current === result.content ? before : current);
+          if (candidateId) {
+            appliedInlineImageCandidateIdsRef.current.delete(candidateId);
+            await releaseInlineImageCandidate(candidateId);
+          }
+        },
+      }],
+    });
+  }, [aiCandidate, aiEditSnapshot, clearAiEditState, draftContent, releaseInlineImageCandidate, selectedItem, showToast]);
 
   useEffect(() => {
     if (!outlineData?.outline?.length) {
@@ -764,6 +1033,14 @@ function ContentEditPage({
     mermaidReferenceImagesRef.current.forEach(revokeMermaidReferenceImage);
   }, []);
 
+  useEffect(() => () => {
+    const candidate = aiCandidateRef.current;
+    if (candidate && 'candidateId' in candidate && !appliedInlineImageCandidateIdsRef.current.has(candidate.candidateId)) {
+      void releaseInlineImageCandidate(candidate.candidateId);
+    }
+    releaseAppliedInlineImageCandidates();
+  }, [releaseAppliedInlineImageCandidates, releaseInlineImageCandidate]);
+
   useEffect(() => {
     window.yibiao?.config.load()
       .then((config) => {
@@ -786,10 +1063,13 @@ function ContentEditPage({
     if (!selectedItem || selectedItem.id === editingItemId) {
       return;
     }
+    clearAiEditState({ releaseCandidate: true });
+    releaseAppliedInlineImageCandidates();
     setEditingItemId(null);
     setIsPreviewing(false);
     setDraftContent('');
-  }, [editingItemId, selectedItem]);
+    setEditorSelection(null);
+  }, [clearAiEditState, editingItemId, releaseAppliedInlineImageCandidates, selectedItem]);
 
   const openGenerationDialog = async () => {
     if (!outlineData?.outline?.length) {
@@ -1428,16 +1708,24 @@ function ContentEditPage({
     setEditingItemId(selectedItem.id);
     setIsPreviewing(false);
     setDraftContent(selectedContent);
+    setEditorSelection(null);
+    appliedInlineImageCandidateIdsRef.current.clear();
   };
 
   const togglePreview = () => {
+    if (!isPreviewing) {
+      clearAiEditState({ releaseCandidate: true });
+    }
     setIsPreviewing((prev) => !prev);
   };
 
   const cancelEditingContent = () => {
+    clearAiEditState({ releaseCandidate: true });
+    releaseAppliedInlineImageCandidates();
     setEditingItemId(null);
     setIsPreviewing(false);
     setDraftContent('');
+    setEditorSelection(null);
   };
 
   const saveEditingContent = async () => {
@@ -1452,8 +1740,13 @@ function ContentEditPage({
 
     try {
       await onContentSaved(selectedItem, draftContent);
+      clearAiEditState();
+      const adoptedCandidateIds = [...appliedInlineImageCandidateIdsRef.current];
+      appliedInlineImageCandidateIdsRef.current.clear();
+      await Promise.all(adoptedCandidateIds.map((candidateId) => releaseInlineImageCandidate(candidateId)));
       setEditingItemId(null);
       setIsPreviewing(false);
+      setEditorSelection(null);
       showToast('正文已保存', 'success');
     } catch (error) {
       showToast(error instanceof Error ? error.message : '正文保存失败', 'error');
@@ -1682,6 +1975,11 @@ function ContentEditPage({
                   <button type="button" className={isPreviewing ? 'secondary-action' : 'primary-action'} onClick={togglePreview}>
                     {isPreviewing ? '编辑' : '预览'}
                   </button>
+                  <ContentAiRewriteMenu
+                    selection={editorSelection}
+                    disabled={isPreviewing || taskBlocksGeneration}
+                    onSelect={openAiEdit}
+                  />
                   <button type="button" className="primary-action" onClick={saveEditingContent} disabled={taskBlocksGeneration}>保存</button>
                   <button type="button" className="secondary-action" onClick={cancelEditingContent}>取消</button>
                 </>
@@ -1694,7 +1992,20 @@ function ContentEditPage({
           {selectedItem && selectedIsLeaf && editing && !isPreviewing ? (
             <MarkdownEditor
               value={draftContent}
-              onChange={setDraftContent}
+              onChange={(value) => {
+                setDraftContent(value);
+                if (aiCandidate) setAiEditError('正文已发生变化，请重新选择位置并生成');
+              }}
+              onSelectionChange={setEditorSelection}
+              selectionRequest={editorSelectionRequest}
+              toolbarEnd={(surface) => (
+                <ContentAiRewriteMenu
+                  selection={editorSelection?.surface === surface ? editorSelection : null}
+                  disabled={taskBlocksGeneration}
+                  compact
+                  onSelect={openAiEdit}
+                />
+              )}
               placeholder="输入 Markdown 正文..."
               disabled={taskBlocksGeneration}
             />
@@ -1730,6 +2041,37 @@ function ContentEditPage({
             </div>
           )}
           </article>
+        )}
+      />
+
+      <ContentAiRewriteDrawer
+        open={Boolean(aiEditMode && aiEditSnapshot)}
+        mode={aiEditMode}
+        chapterTitle={selectedItem ? `${selectedItem.id} ${selectedItem.title}` : ''}
+        snapshot={aiEditSnapshot}
+        candidate={aiCandidate}
+        busy={aiCandidateBusy}
+        error={aiEditError}
+        imageModelAvailable={imageModelAvailable}
+        onGenerateText={(instruction) => void generateAiTextCandidate(instruction)}
+        onGenerateImage={(input) => void generateInlineImageCandidate(input)}
+        onImportFile={importInlineImageFile}
+        onImportDataUrl={(dataUrl, input) => void importInlineImageCandidate({ dataUrl }, input)}
+        onApply={applyAiCandidate}
+        onDiscard={requestCloseAiEdit}
+      />
+
+      <AppDialog
+        open={aiDiscardConfirmOpen}
+        onOpenChange={(open) => !open && setAiDiscardConfirmOpen(false)}
+        kicker="放弃候选"
+        title="确定关闭 AI 改写？"
+        description="当前候选尚未应用到草稿，关闭后将释放候选图片或文本结果。"
+        actions={(
+          <>
+            <button type="button" className="secondary-action" onClick={() => setAiDiscardConfirmOpen(false)}>继续查看</button>
+            <button type="button" className="danger-action" onClick={() => clearAiEditState({ releaseCandidate: true })}>放弃候选</button>
+          </>
         )}
       />
 

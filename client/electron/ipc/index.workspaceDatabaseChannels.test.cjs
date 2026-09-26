@@ -15,3 +15,14 @@ test('workspace database lifecycle handlers include expansion import channels', 
     assert.match(channelBlock, new RegExp(`['"]${channel}['"]`), channel);
   }
 });
+
+test('workspace database lifecycle handlers include content AI edit channels', () => {
+  for (const channel of [
+    'technical-plan:ai-edit-content',
+    'technical-plan:generate-inline-image',
+    'technical-plan:import-inline-image',
+    'technical-plan:release-inline-image-candidate',
+  ]) {
+    assert.match(channelBlock, new RegExp(`['"]${channel}['"]`), channel);
+  }
+});

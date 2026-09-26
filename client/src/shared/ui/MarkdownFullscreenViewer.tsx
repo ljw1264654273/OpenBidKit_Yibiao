@@ -11,6 +11,7 @@ export interface MarkdownFullscreenViewerProps {
   buttonLabel?: string;
   disabled?: boolean;
   showFullscreen?: boolean;
+  fullscreenTriggerOnly?: boolean;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   fullscreenClassName?: string;
@@ -30,6 +31,7 @@ function MarkdownFullscreenViewer({
   buttonLabel = '全屏',
   disabled = false,
   showFullscreen = true,
+  fullscreenTriggerOnly = false,
   open: controlledOpen,
   onOpenChange,
   fullscreenClassName,
@@ -61,8 +63,10 @@ function MarkdownFullscreenViewer({
 
   return (
     <Dialog.Root open={open} onOpenChange={handleOpenChange}>
-      <div className="markdown-fullscreen-frame">
-        <div ref={contentRef} className={normalClassName} style={style}>{children}</div>
+      <div className={`markdown-fullscreen-frame${fullscreenTriggerOnly ? ' is-trigger-only' : ''}`}>
+        {!fullscreenTriggerOnly && (
+          <div ref={contentRef} className={normalClassName} style={style}>{children}</div>
+        )}
         {showFullscreen && (
           <Dialog.Trigger asChild>
             <button type="button" className="markdown-fullscreen-trigger" disabled={disabled} aria-label={buttonLabel} title={buttonLabel}>

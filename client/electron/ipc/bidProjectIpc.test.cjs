@@ -317,3 +317,27 @@ test('replace-content fallback never replaces text inside an illustration block'
   assert.match(saved.content, /改写后的正文。/);
   assert.match(saved.content, /<!-- yibiao-figure-caption -->重复句子/);
 });
+
+test('replace-content preserves inline image blocks as atomic content', async () => {
+  const { ipc, fixture } = registerForTest();
+  fixture.states[fixture.leftProject.projectId].outlineData.outline[0].content = [
+    '<!-- yibiao-inline-image:start id="inline-1" -->',
+    '![重复句子](yibiao-asset://generated-images/technical-plan/illustrations/inline-candidates/inline-1.png)',
+    '',
+    '*<!-- yibiao-figure-caption -->重复句子*',
+    '<!-- yibiao-inline-image:end -->',
+    '重复句子',
+  ].join('\n');
+
+  await ipc.handlers.get('bid-project:replace-content')({}, fixture.leftProject.projectId, {
+    nodeId: 'left-node',
+    oldText: '重复句子',
+    newText: '改写后的正文。',
+  });
+
+  const saved = fixture.getSavedChapterContent();
+  assert.match(saved.content, /<!-- yibiao-inline-image:start/);
+  assert.match(saved.content, /!\[重复句子\]/);
+  assert.match(saved.content, /<!-- yibiao-inline-image:end -->/);
+  assert.match(saved.content, /改写后的正文。/);
+});

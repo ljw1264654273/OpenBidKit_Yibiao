@@ -1,0 +1,199 @@
+<style>
+  .flow-shell { margin-top: 20px; }
+  .prototype {
+    display: grid;
+    grid-template-columns: 250px minmax(460px, 1fr) 350px;
+    height: 650px;
+    overflow: hidden;
+    border: 1px solid #dce3ed;
+    border-radius: 16px;
+    background: #f4f6f9;
+    box-shadow: 0 18px 44px rgba(32, 53, 83, .12);
+    color: #26364b;
+  }
+  .sidebar {
+    padding: 16px 11px;
+    border-right: 1px solid #dde4ed;
+    background: #f8fafc;
+  }
+  .side-head { display:flex; justify-content:space-between; padding: 0 8px 12px; font-size: 13px; }
+  .chapter { padding: 10px 9px; margin-bottom: 4px; border-radius: 8px; color:#677487; font-size:12px; }
+  .chapter.active { color:#234f86; background:#e8f1fc; font-weight:700; }
+  .chapter small { display:block; margin-top:4px; color:#8d99a9; font-weight:400; }
+  .workspace { display:flex; min-width:0; flex-direction:column; background:#fff; }
+  .workspace-head {
+    display:flex; align-items:flex-start; justify-content:space-between; gap:14px;
+    padding:16px 18px; border-bottom:1px solid #e3e8ef;
+  }
+  .workspace-head .kicker { color:#738197; font-size:10px; text-transform:uppercase; letter-spacing:.08em; }
+  .workspace-head h3 { margin:5px 0 4px; font-size:18px; }
+  .workspace-head p { margin:0; color:#8b96a5; font-size:11px; }
+  .action-row { display:flex; align-items:center; gap:7px; white-space:nowrap; }
+  .status { padding:5px 8px; border-radius:999px; background:#eaf7ef; color:#277148; font-size:10px; }
+  .btn { border:1px solid #ccd5e1; border-radius:7px; background:#fff; padding:7px 10px; color:#33445b; font-size:11px; }
+  .btn.primary { border-color:#315f99; background:#315f99; color:#fff; }
+  .btn.ai { border-color:#7b9bc6; background:#edf4fd; color:#25558b; font-weight:700; }
+  .editor-tools { display:flex; align-items:center; gap:15px; height:40px; padding:0 18px; border-bottom:1px solid #e5eaf0; color:#6e7c90; font-size:12px; }
+  .document {
+    position:relative; flex:1; padding:25px 38px 50px; overflow:auto; line-height:1.85; font-size:13px; color:#414d5e;
+  }
+  .document h4 { margin:0 0 14px; color:#26374e; font-size:16px; }
+  .document p { margin:0 0 13px; }
+  .selected-text { padding:1px 2px; border-radius:3px; background:#dcecff; }
+  .caret { display:inline-block; width:2px; height:16px; vertical-align:-3px; background:#286ab2; }
+  .menu {
+    position:absolute; top:65px; right:18px; z-index:4; width:225px; padding:7px;
+    border:1px solid #d6dfea; border-radius:11px; background:#fff;
+    box-shadow:0 14px 34px rgba(30, 50, 78, .2);
+  }
+  .menu-label { padding:6px 9px; color:#8a96a6; font-size:10px; }
+  .menu-item { display:flex; align-items:flex-start; gap:9px; padding:9px; border-radius:8px; font-size:12px; }
+  .menu-item.active { background:#edf4fd; color:#285786; }
+  .menu-item.disabled { color:#b0b8c4; }
+  .menu-icon { display:flex; flex:0 0 25px; align-items:center; justify-content:center; width:25px; height:25px; border-radius:7px; background:#e5eef9; font-size:12px; }
+  .menu-item strong { display:block; font-size:12px; }
+  .menu-item small { display:block; margin-top:2px; color:#8b96a5; line-height:1.4; }
+  .drawer {
+    display:flex; flex-direction:column; border-left:1px solid #dce3ec; background:#fbfcfe;
+  }
+  .drawer-head { display:flex; justify-content:space-between; gap:12px; padding:17px; border-bottom:1px solid #e2e7ee; }
+  .drawer-head strong { display:block; font-size:15px; }
+  .drawer-head small { display:block; margin-top:4px; color:#8894a5; }
+  .close { color:#8995a4; font-size:18px; }
+  .context-box { margin:14px 15px 0; padding:11px; border:1px solid #dce4ee; border-radius:9px; background:#fff; }
+  .context-box span { display:block; margin-bottom:6px; color:#7e8b9d; font-size:10px; }
+  .context-box p { margin:0; max-height:60px; overflow:hidden; color:#425167; font-size:11px; line-height:1.55; }
+  .drawer-body { flex:1; padding:14px 15px; overflow:auto; }
+  .field-label { display:block; margin:0 0 7px; color:#526176; font-size:11px; font-weight:700; }
+  .instruction { min-height:74px; padding:10px; border:1px solid #ccd6e2; border-radius:9px; background:#fff; color:#8a95a5; font-size:11px; line-height:1.55; }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:9px; }
+  .chip { padding:5px 8px; border:1px solid #d8e0e9; border-radius:999px; background:#fff; color:#617086; font-size:10px; }
+  .generate { width:100%; margin-top:13px; padding:9px; border:0; border-radius:8px; background:#315f99; color:white; font-size:12px; font-weight:700; }
+  .compare-label { margin:17px 0 8px; color:#526176; font-size:11px; font-weight:700; }
+  .compare { overflow:hidden; border:1px solid #dce4ed; border-radius:9px; background:#fff; }
+  .compare section { padding:10px; }
+  .compare section + section { border-top:1px solid #e6ebf1; }
+  .compare b { display:block; margin-bottom:5px; color:#748197; font-size:10px; }
+  .compare p { margin:0; font-size:11px; line-height:1.55; }
+  .compare .new { background:#f0f8f3; color:#335e45; }
+  .drawer-actions { display:flex; justify-content:flex-end; gap:7px; padding:13px 15px; border-top:1px solid #dfe5ec; background:#fff; }
+  .steps {
+    display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-top:18px;
+  }
+  .step {
+    padding:13px; border:1px solid #dfe5ed; border-radius:11px; background:#fff;
+  }
+  .step b { display:block; color:#315f99; font-size:12px; }
+  .step p { margin:6px 0 0; color:#6b788b; font-size:11px; line-height:1.5; }
+  .decision {
+    margin-top:18px; padding:16px; border-left:3px solid #4775af; background:#f2f6fb; color:#4f6076; line-height:1.65;
+  }
+  .scope-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:11px; margin-top:13px; }
+  .scope { padding:12px; border-radius:10px; background:#fff; border:1px solid #dce4ed; }
+  .scope strong { display:block; margin-bottom:5px; font-size:12px; color:#334a67; }
+  .scope span { color:#738096; font-size:11px; line-height:1.5; }
+  @media(max-width:1100px) {
+    .prototype { grid-template-columns: 190px minmax(400px,1fr) 300px; }
+    .steps,.scope-grid { grid-template-columns:1fr 1fr; }
+  }
+</style>
+
+<h2>方案 A · 完整交互原型</h2>
+<p class="subtitle">当前画面模拟：用户选中一段正文，点击“AI改写”，在右侧预览抽屉生成并确认结果。无选区时，同一入口会提供“从光标续写”和“在光标处插入图片”。</p>
+
+<div class="flow-shell">
+  <div class="prototype">
+    <aside class="sidebar">
+      <div class="side-head"><strong>标书目录</strong><span>12 个小节</span></div>
+      <div class="chapter">4.1 项目理解<small>已生成 · 1280 字</small></div>
+      <div class="chapter active">4.2 实施方案<small>已生成 · 2360 字</small></div>
+      <div class="chapter">4.3 进度计划<small>已生成 · 1560 字</small></div>
+      <div class="chapter">4.4 质量保障<small>已生成 · 1910 字</small></div>
+    </aside>
+
+    <main class="workspace">
+      <header class="workspace-head">
+        <div>
+          <span class="kicker">正文内容</span>
+          <h3>4.2 实施方案</h3>
+          <p>说明项目实施的总体思路、组织方式和阶段安排。</p>
+        </div>
+        <div class="action-row">
+          <span class="status">已生成</span>
+          <button class="btn">预览</button>
+          <button class="btn ai">AI改写 ▾</button>
+          <button class="btn primary">保存</button>
+          <button class="btn">取消</button>
+        </div>
+      </header>
+      <div class="editor-tools">B　I　H　❝　•　1. <span style="margin-left:auto;color:#98a2b0">已选中 34 字</span></div>
+      <article class="document">
+        <h4>一、实施总体思路</h4>
+        <p>本项目按照“统一规划、分步实施、风险可控、持续优化”的总体原则组织实施，建立项目经理负责制和跨专业协同机制。</p>
+        <p><span class="selected-text">项目团队将定期沟通项目进展，及时处理实施过程中出现的问题。</span></p>
+        <p>各阶段成果均执行内部审核、用户确认和问题闭环机制，保证交付成果符合招标文件及项目实际要求。<span class="caret"></span></p>
+        <h4>二、实施阶段划分</h4>
+        <p>项目划分为启动准备、需求确认、方案深化、部署实施、试运行和成果验收六个阶段。</p>
+
+        <div class="menu">
+          <div class="menu-label">基于当前选区</div>
+          <div class="menu-item active"><span class="menu-icon">✦</span><div><strong>改写选中内容</strong><small>优化表达、扩写、缩写或按要求重写</small></div></div>
+          <div class="menu-item"><span class="menu-icon">＋</span><div><strong>从光标处续写</strong><small>结合本章上下文继续补充正文</small></div></div>
+          <div class="menu-item"><span class="menu-icon">▧</span><div><strong>在光标处插入图片</strong><small>AI 生成、本地上传或粘贴图片</small></div></div>
+        </div>
+      </article>
+    </main>
+
+    <aside class="drawer">
+      <div class="drawer-head">
+        <div><strong>AI 改写</strong><small>4.2 实施方案 · 替换选区</small></div>
+        <span class="close">×</span>
+      </div>
+      <div class="context-box">
+        <span>当前选区 · 34 字</span>
+        <p>项目团队将定期沟通项目进展，及时处理实施过程中出现的问题。</p>
+      </div>
+      <div class="drawer-body">
+        <label class="field-label">改写要求</label>
+        <div class="instruction">请改得更专业、具体，补充沟通频率、责任人和问题闭环方式。</div>
+        <div class="chips">
+          <span class="chip">更专业</span><span class="chip">扩写</span><span class="chip">更简洁</span><span class="chip">增强可执行性</span>
+        </div>
+        <button class="generate">生成改写预览</button>
+
+        <div class="compare-label">修改前后对比</div>
+        <div class="compare">
+          <section>
+            <b>原文</b>
+            <p>项目团队将定期沟通项目进展，及时处理实施过程中出现的问题。</p>
+          </section>
+          <section class="new">
+            <b>AI 建议</b>
+            <p>项目经理每周组织项目例会，由各专业负责人汇报进度、风险与待协调事项；对发现的问题明确责任人、完成时限和验证标准，并通过问题台账持续跟踪至闭环。</p>
+          </section>
+        </div>
+      </div>
+      <footer class="drawer-actions">
+        <button class="btn">重新生成</button>
+        <button class="btn">放弃</button>
+        <button class="btn primary">应用到草稿</button>
+      </footer>
+    </aside>
+  </div>
+
+  <div class="steps">
+    <div class="step"><b>1. 捕获编辑位置</b><p>编辑器持续记录光标起止位置。切换到全屏编辑时使用同一套状态。</p></div>
+    <div class="step"><b>2. 智能呈现操作</b><p>有选区时优先“改写选中内容”；无选区时优先“从光标处续写”。</p></div>
+    <div class="step"><b>3. 生成候选</b><p>右侧抽屉保留正文上下文，AI 结果暂不写入当前草稿。</p></div>
+    <div class="step"><b>4. 应用到草稿</b><p>用户确认后按原始范围替换或插入；最后仍需点击页面“保存”。</p></div>
+  </div>
+
+  <div class="decision">
+    <strong>图片分支建议</strong>
+    <div class="scope-grid">
+      <div class="scope"><strong>AI 生成</strong><span>填写图片描述，可选择“配图 / 流程图 / PPT 图”，先预览候选，再插入标准 Markdown 图片块。</span></div>
+      <div class="scope"><strong>本地上传</strong><span>选择 PNG/JPG/WebP 等图片，复制到工作区图片目录，填写图名与图注后插入光标位置。</span></div>
+      <div class="scope"><strong>剪贴板粘贴</strong><span>抽屉打开时支持 Ctrl+V 读取剪贴板图片，预览确认后与本地上传走同一保存链路。</span></div>
+    </div>
+  </div>
+</div>

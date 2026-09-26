@@ -1,0 +1,114 @@
+<style>
+  .arch {
+    display:grid; grid-template-columns: 1fr 54px 1fr 54px 1fr; align-items:stretch;
+    gap:10px; margin-top:22px;
+  }
+  .lane {
+    padding:18px; border:1px solid #dce4ee; border-radius:14px; background:#fff;
+  }
+  .lane h3 { margin:0 0 6px; font-size:17px; color:#2b405b; }
+  .lane > p { margin:0 0 15px; color:#738196; font-size:12px; line-height:1.55; }
+  .unit {
+    margin-top:10px; padding:11px; border-radius:9px; background:#f5f8fc; border:1px solid #e3e9f1;
+  }
+  .unit strong { display:block; margin-bottom:4px; color:#345371; font-size:12px; }
+  .unit span { color:#718096; font-size:11px; line-height:1.5; }
+  .unit.new { border-color:#a9c3e2; background:#edf5ff; }
+  .unit.reuse { border-color:#b8ddc8; background:#f0faf4; }
+  .arrow { display:flex; align-items:center; justify-content:center; color:#6884a8; font-size:27px; }
+  .legend { display:flex; gap:14px; margin:15px 0 0; color:#66758a; font-size:11px; }
+  .dot { display:inline-block; width:9px; height:9px; margin-right:5px; border-radius:3px; }
+  .dot.new { background:#dbeaff; border:1px solid #8cadd2; }
+  .dot.reuse { background:#e6f6ed; border:1px solid #91c4a7; }
+  .flow {
+    display:grid; grid-template-columns:repeat(5,1fr); gap:10px; margin-top:18px;
+  }
+  .flow-step { position:relative; padding:13px; border:1px solid #dce4ed; border-radius:10px; background:#fff; }
+  .flow-step:not(:last-child)::after { content:"›"; position:absolute; right:-9px; top:34%; color:#7991ae; font-size:20px; z-index:2; }
+  .flow-step b { display:block; color:#315f99; font-size:12px; }
+  .flow-step p { margin:6px 0 0; color:#718095; font-size:11px; line-height:1.5; }
+  .assessment { display:grid; grid-template-columns:1.2fr .8fr; gap:14px; margin-top:18px; }
+  .box { padding:16px; border-radius:12px; border:1px solid #dce4ed; background:#fff; }
+  .box h3 { margin:0 0 10px; font-size:15px; }
+  .box ul { margin:0; padding-left:18px; color:#5e6e83; font-size:12px; line-height:1.75; }
+  .risk { margin-top:9px; padding:10px; border-radius:8px; background:#fff7e8; color:#7a5a22; font-size:11px; line-height:1.55; }
+  .decision {
+    margin-top:18px; padding:15px 17px; border-left:3px solid #4775af; background:#f2f6fb; color:#4f6076; line-height:1.65;
+  }
+  @media(max-width:1050px) {
+    .arch { grid-template-columns:1fr; }
+    .arrow { transform:rotate(90deg); min-height:30px; }
+    .flow { grid-template-columns:1fr; }
+    .flow-step:not(:last-child)::after { display:none; }
+    .assessment { grid-template-columns:1fr; }
+  }
+</style>
+
+<h2>技术设计 1/3 · 架构与可行性</h2>
+<p class="subtitle">结论：功能可行，且无需改变正文的权威存储结构。核心是扩展共享 MarkdownEditor 的“选择状态上报”能力，并新增一个面向局部正文编辑的 Main 服务。</p>
+
+<div class="arch">
+  <section class="lane">
+    <h3>Renderer · 编辑体验</h3>
+    <p>只处理交互状态和草稿，不直接调用模型或文件系统。</p>
+    <div class="unit new"><strong>MarkdownEditor 选择状态</strong><span>上报 selectionStart、selectionEnd、当前焦点编辑器及滚动状态；普通/全屏编辑保持同步。</span></div>
+    <div class="unit new"><strong>AiRewriteDrawer</strong><span>承载续写、选区改写、AI 生图、本地图片、粘贴图片和候选预览。</span></div>
+    <div class="unit reuse"><strong>ContentEditPage 草稿</strong><span>继续以 draftContent 为唯一未保存正文；应用候选只修改草稿，不立即持久化。</span></div>
+  </section>
+  <div class="arrow">→</div>
+  <section class="lane">
+    <h3>Preload / IPC · 薄协议</h3>
+    <p>新增少量命令，只注册与转发，不在层间重复业务校验。</p>
+    <div class="unit new"><strong>technicalPlan.aiEditContent</strong><span>输入章节、模式、正文、范围、指令；返回替换文本或插入文本。</span></div>
+    <div class="unit new"><strong>technicalPlan.generateInlineImage</strong><span>输入章节上下文、图片描述和类型；返回本地 asset URL。</span></div>
+    <div class="unit new"><strong>technicalPlan.importInlineImage</strong><span>接收本地路径或 data URL，将图片复制进工作区并返回 asset URL。</span></div>
+  </section>
+  <div class="arrow">→</div>
+  <section class="lane">
+    <h3>Main · 服务与持久化</h3>
+    <p>AI、图片与磁盘操作全部留在可信 Main 侧。</p>
+    <div class="unit new"><strong>contentAiEditService.cjs</strong><span>构建局部改写/续写 Prompt，调用 aiService，并使用已知范围组装候选结果。</span></div>
+    <div class="unit reuse"><strong>aiService.cjs</strong><span>复用文本队列、模型配置、失败处理、日志、Token 统计以及 generateImage。</span></div>
+    <div class="unit reuse"><strong>technicalPlanStore.cjs</strong><span>用户点击页面“保存”时仍走 saveChapterContent，写入 SQLite 并清空旧全文图片计划。</span></div>
+  </section>
+</div>
+
+<div class="legend">
+  <span><i class="dot new"></i>需要新增或扩展</span>
+  <span><i class="dot reuse"></i>直接复用现有能力</span>
+</div>
+
+<div class="flow">
+  <div class="flow-step"><b>捕获位置</b><p>用户点击按钮前记录光标或选区的字符范围。</p></div>
+  <div class="flow-step"><b>发送上下文</b><p>提交当前章节正文、标题、选区附近内容与用户指令。</p></div>
+  <div class="flow-step"><b>Main 生成候选</b><p>文本走模型队列；AI 图片走现有生图模型；本地图片复制到工作区。</p></div>
+  <div class="flow-step"><b>Renderer 预览</b><p>显示原文/候选对比或图片预览，不改草稿。</p></div>
+  <div class="flow-step"><b>应用并保存</b><p>按已记录范围更新 draftContent；用户最后点击“保存”写 SQLite。</p></div>
+</div>
+
+<div class="assessment">
+  <section class="box">
+    <h3>可直接复用的基础</h3>
+    <ul>
+      <li>MarkdownEditor 底层是 textarea，浏览器原生提供稳定的字符级光标和选区范围。</li>
+      <li>正文权威数据已经统一保存在 technical_plan_outline_nodes.content。</li>
+      <li>aiService 已具备文本请求、图片生成、队列、取消、日志和统计能力。</li>
+      <li>yibiao-asset 协议已经支持 generated-images 与 imported-images 的本地预览和 Word 导出。</li>
+      <li>手工正文保存本来就会让旧全文图片计划失效，符合局部 AI 编辑后的状态规则。</li>
+    </ul>
+  </section>
+  <section class="box">
+    <h3>需要重点处理的边界</h3>
+    <ul>
+      <li>AI 请求期间用户继续编辑，原 selection range 可能过期。</li>
+      <li>图片必须保存为本地资产，不能把 blob URL 或 file:// 写进正文。</li>
+      <li>不能把 AI 结果静默追加到末尾；必须严格按已知范围应用。</li>
+      <li>正文任务 running、pausing、paused 时保持现有编辑锁定。</li>
+    </ul>
+    <div class="risk"><strong>解决方式：</strong>请求时保存 draftContent 快照和范围；应用时若草稿已变化，则阻止覆盖并提示“正文已变化，请重新生成”。</div>
+  </section>
+</div>
+
+<div class="decision">
+  <strong>建议范围：</strong>第一版不增加新数据库表，也不把每次 AI 操作做成后台持久任务。操作只针对当前打开的小节，模型返回后在抽屉中等待用户确认；真正保存仍使用现有章节保存协议。这样改动面最小，也不会改变第五步正文生成任务的恢复与暂停机制。
+</div>

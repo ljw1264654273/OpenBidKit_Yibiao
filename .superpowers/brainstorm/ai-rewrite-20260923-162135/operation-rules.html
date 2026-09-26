@@ -1,0 +1,130 @@
+<style>
+  .ops { display:grid; grid-template-columns:repeat(3,1fr); gap:15px; margin-top:22px; }
+  .op { overflow:hidden; border:1px solid #dce4ed; border-radius:14px; background:#fff; }
+  .op-head { padding:15px 16px 12px; background:#f6f9fc; border-bottom:1px solid #e3e9f0; }
+  .op-head span { display:inline-block; padding:3px 8px; border-radius:999px; background:#e8f1fc; color:#2d5d94; font-size:10px; font-weight:700; }
+  .op-head h3 { margin:8px 0 4px; color:#2b405b; font-size:17px; }
+  .op-head p { margin:0; color:#738196; font-size:11px; line-height:1.5; }
+  .op-body { padding:14px 16px 16px; }
+  .rule { display:grid; grid-template-columns:62px 1fr; gap:9px; padding:8px 0; border-bottom:1px solid #edf1f5; }
+  .rule:last-child { border-bottom:0; }
+  .rule b { color:#66758a; font-size:10px; text-transform:uppercase; }
+  .rule span { color:#42536a; font-size:11px; line-height:1.55; }
+  .mini-editor { position:relative; margin-top:12px; padding:13px; border:1px solid #dce4ed; border-radius:9px; background:#fbfcfe; color:#49586b; font-size:11px; line-height:1.65; }
+  .sel { background:#dcecff; border-radius:2px; }
+  .caret { display:inline-block; width:2px; height:14px; vertical-align:-3px; background:#296ab2; }
+  .insert { display:block; margin:7px 0; padding:7px; border-left:3px solid #55906d; background:#eff8f2; color:#346046; }
+  .image-block { display:flex; align-items:center; justify-content:center; height:64px; margin:7px 0; border:1px dashed #84a8cc; border-radius:7px; background:#eef5fd; color:#37638e; font-weight:650; }
+  .state-table { width:100%; margin-top:18px; border-collapse:separate; border-spacing:0; overflow:hidden; border:1px solid #dce4ed; border-radius:12px; background:#fff; font-size:11px; }
+  .state-table th,.state-table td { padding:10px 12px; border-bottom:1px solid #e8edf2; text-align:left; vertical-align:top; }
+  .state-table th { background:#f5f8fb; color:#53647a; }
+  .state-table tr:last-child td { border-bottom:0; }
+  .state-table td:first-child { width:180px; color:#314c6b; font-weight:700; }
+  .state-table td { color:#647287; line-height:1.55; }
+  .image-section { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:18px; }
+  .panel { padding:15px; border:1px solid #dce4ed; border-radius:12px; background:#fff; }
+  .panel h3 { margin:0 0 9px; font-size:15px; color:#324964; }
+  .panel ul { margin:0; padding-left:18px; color:#627186; font-size:11px; line-height:1.75; }
+  .code {
+    margin-top:10px; padding:10px; overflow:auto; border-radius:8px; background:#202b39; color:#d7e4f3;
+    font:10px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace;
+  }
+  .scope-note { margin-top:18px; padding:15px 17px; border-left:3px solid #d1983c; background:#fff8ea; color:#735a32; line-height:1.65; }
+  .confirm { margin-top:16px; padding:15px 17px; border-left:3px solid #4775af; background:#f2f6fb; color:#4f6076; line-height:1.65; }
+  @media(max-width:1050px) {
+    .ops,.image-section { grid-template-columns:1fr; }
+  }
+</style>
+
+<h2>技术设计 2/3 · 操作规则与异常处理</h2>
+<p class="subtitle">三类操作都只生成候选，不自动保存。应用候选时严格使用请求发起时记录的草稿快照与字符范围，防止 AI 结果写错位置。</p>
+
+<div class="ops">
+  <section class="op">
+    <div class="op-head">
+      <span>无选区 · 光标定位</span>
+      <h3>从光标处续写</h3>
+      <p>结合本小节上下文继续写，不重写光标前后的原文。</p>
+    </div>
+    <div class="op-body">
+      <div class="mini-editor">各阶段成果均执行内部审核和用户确认。<span class="caret"></span><span class="insert">AI 候选插入到这里，不覆盖任何已有字符。</span>后续工作按照验收意见持续优化。</div>
+      <div class="rule"><b>输入</b><span>章节标题、描述、当前草稿、光标前后文、用户补充要求，以及 Main 侧已有项目事实。</span></div>
+      <div class="rule"><b>输出</b><span>只返回要插入的新 Markdown 正文，不返回章节标题、代码围栏或原文复述。</span></div>
+      <div class="rule"><b>应用</b><span>在 selectionStart 处插入，并自动补齐必要的段落换行；光标移动到新增内容末尾。</span></div>
+    </div>
+  </section>
+
+  <section class="op">
+    <div class="op-head">
+      <span>存在选区 · 精确替换</span>
+      <h3>改写选中内容</h3>
+      <p>选区是唯一可替换范围，选区之外的正文不交给模型改动。</p>
+    </div>
+    <div class="op-body">
+      <div class="mini-editor">项目团队将<span class="sel">定期沟通项目进展，及时处理出现的问题</span>，确保实施工作有序推进。</div>
+      <div class="rule"><b>输入</b><span>选中文字、前后文、章节目标及用户指令；快捷要求包含更专业、扩写、缩写和增强可执行性。</span></div>
+      <div class="rule"><b>输出</b><span>结构化返回 replacementText；右侧抽屉展示修改前后对比。</span></div>
+      <div class="rule"><b>应用</b><span>仅替换 selectionStart 到 selectionEnd。若选区包含图片保护块，则拒绝执行并提示仅选择正文文字。</span></div>
+    </div>
+  </section>
+
+  <section class="op">
+    <div class="op-head">
+      <span>光标锚点 · 图片块插入</span>
+      <h3>在当前位置插入图片</h3>
+      <p>AI 生成、本地选择和剪贴板粘贴最终使用同一正文图片块。</p>
+    </div>
+    <div class="op-body">
+      <div class="mini-editor">项目实施分为六个阶段。<span class="caret"></span><span class="image-block">项目实施阶段示意图</span>各阶段设置明确的交付成果。</div>
+      <div class="rule"><b>来源</b><span>AI 图片：填写图片描述；本地图片：文件选择或拖入；剪贴板：在抽屉中按 Ctrl+V。</span></div>
+      <div class="rule"><b>预览</b><span>先展示图片、图片标题和图注；用户可重新生成、重新选择或放弃。</span></div>
+      <div class="rule"><b>应用</b><span>插入独立 Markdown 图片块，不替换文字。存在选区时默认插在选区末尾。</span></div>
+    </div>
+  </section>
+</div>
+
+<table class="state-table">
+  <thead><tr><th>状态或异常</th><th>界面与处理规则</th></tr></thead>
+  <tbody>
+    <tr><td>当前处于预览模式</td><td>“AI改写”不可用，并提示先切换到编辑；因为预览页面没有稳定的字符光标。</td></tr>
+    <tr><td>正文任务运行、暂停中</td><td>沿用现有编辑锁定，AI改写、应用候选和章节保存全部禁用。</td></tr>
+    <tr><td>AI 请求期间草稿被修改</td><td>允许用户继续阅读，但应用时比较 draft 快照；不一致则拒绝覆盖并提示重新生成。</td></tr>
+    <tr><td>连续点击或重复请求</td><td>同一抽屉只允许一个运行请求；生成按钮进入加载态。新请求使用 requestId，迟到结果自动忽略。</td></tr>
+    <tr><td>模型调用失败</td><td>保留用户指令、选区和上下文，错误显示在抽屉内，并提供“重试”；不改变草稿。</td></tr>
+    <tr><td>图片模型未配置或不可用</td><td>只禁用“AI生成”，本地选择和粘贴仍可用，并给出可操作提示。</td></tr>
+    <tr><td>选区跨越图片块</td><td>不把图片 Markdown 交给模型，提示“请选择纯正文内容”；图片块按原子内容保护。</td></tr>
+    <tr><td>用户应用后反悔</td><td>应用成功 Toast 提供一次“撤销本次应用”；点击页面“取消”仍恢复进入编辑前的已保存正文。</td></tr>
+  </tbody>
+</table>
+
+<div class="image-section">
+  <section class="panel">
+    <h3>图片资产规则</h3>
+    <ul>
+      <li>AI 图片和本地图片统一复制到当前项目的 technical-plan 图片目录，不写入 blob URL 或 file://。</li>
+      <li>正文使用 yibiao-asset URL，现有 Markdown 预览和 Word 导出链路可直接读取。</li>
+      <li>用户放弃尚未应用的候选时立即删除临时图片；启动时可清理长期未引用的候选文件。</li>
+      <li>本地首版支持 PNG、JPG/JPEG 和 WebP；粘贴图片统一保存为 PNG。</li>
+    </ul>
+  </section>
+  <section class="panel">
+    <h3>独立的手工插图块</h3>
+    <ul>
+      <li>不复用“全文自动配图”的 yibiao-illustration 标记，避免后续重新编排图片时误删用户手工插图。</li>
+      <li>新增 yibiao-inline-image 标记，并在局部文本操作、查重替换和导出前处理中将其视为不可拆分块。</li>
+    </ul>
+    <div class="code">&lt;!-- yibiao-inline-image:start id="..." --&gt;
+![项目实施阶段示意图](yibiao-asset://generated-images/...)
+
+*&lt;!-- yibiao-figure-caption --&gt;项目实施阶段示意图*
+&lt;!-- yibiao-inline-image:end --&gt;</div>
+  </section>
+</div>
+
+<div class="scope-note">
+  <strong>首版范围建议：</strong>“AI生成图片”先聚焦普通 AI 配图；本地上传和粘贴完整支持。现有全文配图中的 Mermaid 流程图、PPT 图生成与审核流程保持不变。若把流程图/PPT 图也接入这个即时入口，会显著增加生成参数、审核状态和服务复用复杂度，可作为第二阶段扩展。
+</div>
+
+<div class="confirm">
+  <strong>埋点与隐私：</strong>新增操作类型、图片来源、成功/失败和耗时统计；不上传选中文字、用户指令、模型输出、文件名或本地路径，保持现有 Analytics 约束。
+</div>

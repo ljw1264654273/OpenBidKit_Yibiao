@@ -103,6 +103,25 @@ test('ignores complete illustration blocks when splitting bid paragraphs', () =>
   ]);
 });
 
+test('ignores complete inline image blocks when splitting bid paragraphs', () => {
+  const content = [
+    '正文段落一，保留在文字查重范围内。',
+    '',
+    '<!-- yibiao-inline-image:start id="inline-1" -->',
+    '![现场部署图](yibiao-asset://generated-images/technical-plan/illustrations/inline-candidates/inline-1.png)',
+    '',
+    '*<!-- yibiao-figure-caption -->现场部署图*',
+    '<!-- yibiao-inline-image:end -->',
+    '',
+    '正文段落二，手工插图内容不参与文字查重。',
+  ].join('\n');
+
+  assert.deepEqual(splitBidParagraphs(content).map((paragraph) => paragraph.text), [
+    '正文段落一，保留在文字查重范围内。',
+    '正文段落二，手工插图内容不参与文字查重。',
+  ]);
+});
+
 test('does not report a short phrase as an exact sentence', () => {
   const result = compareBidContents({
     leftContent: '质量第一。',

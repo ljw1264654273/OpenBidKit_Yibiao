@@ -81,6 +81,44 @@ test('第五步已生成状态悬停显示 AI 改写并直接打开改写弹窗'
   assert.doesNotMatch(css, /\.content-regenerate-popover/);
 });
 
+test('共享 Markdown 编辑器支持选择状态、范围恢复和工具栏扩展', () => {
+  const source = readFileSync(new URL('../../../shared/ui/MarkdownEditor.tsx', import.meta.url), 'utf8');
+
+  assert.match(source, /onSelectionChange\?:/);
+  assert.match(source, /selectionRequest\?:/);
+  assert.match(source, /toolbarEnd\?:/);
+  assert.match(source, /renderToolbarButtons\(textareaRef,\s*'inline'\)/);
+  assert.match(source, /renderToolbarButtons\(fullscreenTextareaRef,\s*'fullscreen'\)/);
+  assert.match(source, /selectionStart/);
+  assert.match(source, /selectionEnd/);
+  assert.match(source, /fullscreenTextareaRef/);
+});
+
+test('第五步正文编辑提供 AI 改写智能菜单和右侧候选抽屉', () => {
+  const pageSource = readFileSync(new URL('../pages/ContentEditPage.tsx', import.meta.url), 'utf8');
+  const menuSource = componentSource('ContentAiRewriteMenu');
+  const drawerSource = componentSource('ContentAiRewriteDrawer');
+  const css = readFileSync(new URL('../../../styles/feature-technical-plan.css', import.meta.url), 'utf8');
+
+  assert.match(pageSource, /ContentAiRewriteMenu/);
+  assert.match(pageSource, /ContentAiRewriteDrawer/);
+  assert.match(pageSource, /createContentAiEditSnapshot/);
+  assert.match(pageSource, /validateContentAiEditSnapshot/);
+  assert.match(pageSource, /selectionIntersectsProtectedRange/);
+  assert.match(pageSource, /releaseInlineImageCandidate/);
+  assert.match(pageSource, /toolbarEnd=/);
+  assert.match(menuSource, /改写选中内容/);
+  assert.match(menuSource, /从光标处续写/);
+  assert.match(menuSource, /在光标处插入图片/);
+  assert.match(drawerSource, /AI 生成/);
+  assert.match(drawerSource, /本地图片/);
+  assert.match(drawerSource, /剪贴板图片/);
+  assert.match(drawerSource, /onDrop/);
+  assert.match(drawerSource, /onPaste/);
+  assert.match(drawerSource, /应用到草稿/);
+  assert.match(css, /\.content-ai-rewrite-drawer/);
+});
+
 test('第五步正文预览统一普通正文并让正文层次字体字号服从模板', () => {
   const pageSource = readFileSync(new URL('../pages/ContentEditPage.tsx', import.meta.url), 'utf8');
   const css = readFileSync(new URL('../../../styles/feature-technical-plan.css', import.meta.url), 'utf8');
@@ -372,25 +410,22 @@ test('正文生成目录支持拖拽调宽并让长标题最多显示两行', ()
   assert.match(css, /\.content-outline-text strong\s*\{[^}]*display:\s*-webkit-box;[^}]*-webkit-line-clamp:\s*2;[^}]*\}/s);
 });
 
-test('选择标书使用局部紧凑上传样式并保留正文阅读器', () => {
+test('选择标书使用局部紧凑上传样式并把正文阅读器收敛为全屏查看入口', () => {
   const source = readFileSync(new URL('../pages/DocumentAnalysisPage.tsx', import.meta.url), 'utf8');
 
   assert.match(source, /<UploadBoard[^>]*className="technical-document-upload-board"/s);
   assert.match(source, /technical-document-reader-card analysis-markdown-card/);
   assert.match(source, /<MarkdownFullscreenViewer/);
+  assert.match(source, /fullscreenTriggerOnly/);
+  assert.match(source, /buttonLabel="全屏查看"/);
 });
 
-test('选择标书正文阅读器把长内容限制在内部滚动区域', () => {
+test('选择标书正文阅读器只保留全屏查看入口，不再内嵌长文滚动区', () => {
   const css = readFileSync(new URL('../../../styles/feature-technical-plan.css', import.meta.url), 'utf8');
 
-  assert.match(
-    css,
-    /\.technical-document-reader-content\s*\{[^}]*display:\s*grid;[^}]*grid-template-rows:\s*minmax\(0,\s*1fr\);[^}]*min-height:\s*0;[^}]*overflow:\s*hidden;/s,
-  );
-  assert.match(
-    css,
-    /\.technical-document-reader-content\s*>\s*\.markdown-fullscreen-frame\s*\{[^}]*height:\s*100%;[^}]*min-height:\s*0;/s,
-  );
+  assert.match(css, /\.technical-document-reader-card\.is-compact\s*\{[^}]*height:\s*auto;[^}]*align-self:\s*start;/s);
+  assert.match(css, /\.technical-document-reader-actions\s*\{/);
+  assert.match(css, /\.technical-document-reader-actions\s+\.markdown-fullscreen-frame\.is-trigger-only\s*\{/);
 });
 
 test('STEP 01 以解析为主并把快速配置折叠成可展开摘要', () => {
@@ -401,7 +436,7 @@ test('STEP 01 以解析为主并把快速配置折叠成可展开摘要', () => 
   assert.doesNotMatch(source, /quick-config-grid/);
   assert.match(source, /quick-config-collapsible/);
   assert.match(source, /aria-expanded=\{quickConfigExpanded\}/);
-  assert.match(source, /localStorage\.getItem\(QUICK_CONFIG_STORAGE_KEY\)[\s\S]*storedValue !== 'false'/);
+  assert.match(source, /localStorage\.getItem\(QUICK_CONFIG_STORAGE_KEY\)[\s\S]*storedValue === 'true'/);
   assert.match(source, /localStorage/);
   assert.match(quickConfig, /1500页/);
   assert.match(quickConfig, /1200页/);
@@ -452,22 +487,21 @@ test('STEP 01 图片设置提供三种图片模式并显示中文说明', () => 
   assert.doesNotMatch(source, /\['useHtmlImages', 'HTML 图'\]/);
 });
 
-test('STEP 01 快速配置和招标文件内容默认展开', () => {
+test('STEP 01 快速配置默认收起并收敛正文为全屏查看入口', () => {
   const source = readFileSync(new URL('../pages/DocumentAnalysisPage.tsx', import.meta.url), 'utf8');
 
-  assert.match(source, /useState\(\(\) => \{[\s\S]*QUICK_CONFIG_STORAGE_KEY[\s\S]*storedValue !== 'false'/);
-  assert.match(source, /const \[documentContentExpanded, setDocumentContentExpanded\] = useState\(true\)/);
-  assert.match(source, /aria-expanded=\{documentContentExpanded\}/);
-  assert.match(source, /if \(nextExpanded\) updateQuickConfigExpanded\(false\)/);
-  assert.match(source, /\{documentContentExpanded && \(/);
+  assert.match(source, /useState\(\(\) => \{[\s\S]*QUICK_CONFIG_STORAGE_KEY[\s\S]*storedValue === 'true'/);
+  assert.doesNotMatch(source, /const \[documentContentExpanded, setDocumentContentExpanded\] = useState\(true\)/);
+  assert.doesNotMatch(source, /aria-expanded=\{documentContentExpanded\}/);
+  assert.doesNotMatch(source, /toggleDocumentContent/);
+  assert.match(source, /fullscreenTriggerOnly/);
 });
 
-test('STEP 01 已确认投标范围不再显示重复提示条，展开文件内容会收起快速配置', () => {
+test('STEP 01 已确认投标范围不再显示重复提示条', () => {
   const source = readFileSync(new URL('../pages/DocumentAnalysisPage.tsx', import.meta.url), 'utf8');
 
   assert.match(source, /\{bidSectionDetection\?\.hasMultiple && !selectedSectionTitle && \(/);
   assert.doesNotMatch(source, /<strong>\{selectedSectionTitle \? '投标范围已确认'/);
-  assert.match(source, /const toggleDocumentContent = \(\) => \{[\s\S]*setDocumentContentExpanded\(nextExpanded\)[\s\S]*if \(nextExpanded\) updateQuickConfigExpanded\(false\)/);
 });
 
 test('STEP 01 下一步受快速配置完成状态控制', () => {
@@ -504,7 +538,7 @@ test('STEP 01 上传招标文件成功后重新展开快速配置', () => {
   );
 
   assert.match(importFlow, /onFileImported\(state, result\.markdown\);[\s\S]*updateQuickConfigExpanded\(true\)/);
-  assert.match(importFlow, /updateQuickConfigExpanded\(true\);[\s\S]*setDocumentContentExpanded\(true\)/);
+  assert.doesNotMatch(importFlow, /setDocumentContentExpanded\(true\)/);
 });
 
 test('STEP 01 导入疑似多标段文件后自动启动已有 AI 标段识别任务', () => {

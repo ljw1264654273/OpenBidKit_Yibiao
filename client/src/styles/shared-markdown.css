@@ -613,6 +613,18 @@
   min-height: 0;
 }
 
+.markdown-fullscreen-frame.is-trigger-only {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-height: 0;
+  overflow: visible;
+}
+
+.markdown-fullscreen-frame.is-trigger-only .markdown-fullscreen-trigger {
+  position: static;
+}
+
 .markdown-fullscreen-trigger {
   position: absolute;
   top: 10px;

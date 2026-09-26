@@ -38,7 +38,7 @@ async function convertMermaidIllustrationReviewItemForItem({ technicalPlanStore,
   return convertMermaidIllustrationReviewItem({ technicalPlanStore, aiService }, payload);
 }
 
-function registerTechnicalPlanIpc({ technicalPlanStore, bidProjectManager, taskService, remoteKnowledgeService, aiService }) {
+function registerTechnicalPlanIpc({ technicalPlanStore, bidProjectManager, taskService, remoteKnowledgeService, aiService, contentAiEditService }) {
   const resolveStore = (payload) => bidProjectManager?.getTechnicalPlanStore(payload?.projectId || payload?.project_id) || technicalPlanStore;
   ipcMain.handle('technical-plan:load-state', (_event, payload) => resolveStore(payload).loadTechnicalPlan());
   ipcMain.handle('technical-plan:import-tender-document', (_event, payload) => taskService.importTenderDocument(payload?.filePaths || payload, payload?.projectId));
@@ -59,6 +59,10 @@ function registerTechnicalPlanIpc({ technicalPlanStore, bidProjectManager, taskS
   ipcMain.handle('technical-plan:save-global-facts', (_event, payload) => resolveStore(payload).saveGlobalFacts(payload?.globalFacts || payload));
   ipcMain.handle('technical-plan:save-content-generation-options', (_event, payload) => resolveStore(payload).saveContentGenerationOptions(payload?.options || payload));
   ipcMain.handle('technical-plan:save-chapter-content', (_event, payload) => resolveStore(payload).saveChapterContent(payload));
+  ipcMain.handle('technical-plan:ai-edit-content', (_event, payload) => contentAiEditService.aiEditContent(payload));
+  ipcMain.handle('technical-plan:generate-inline-image', (_event, payload) => contentAiEditService.generateInlineImage(payload));
+  ipcMain.handle('technical-plan:import-inline-image', (_event, payload) => contentAiEditService.importInlineImage(payload));
+  ipcMain.handle('technical-plan:release-inline-image-candidate', (_event, payload) => contentAiEditService.releaseInlineImageCandidate(payload));
   ipcMain.handle('technical-plan:preview-illustration-review-item', (_event, payload) => previewIllustrationReviewItem({ technicalPlanStore: resolveStore(payload) }, payload));
   ipcMain.handle('technical-plan:save-illustration-review-item', (_event, payload) => saveIllustrationReviewItem({ technicalPlanStore: resolveStore(payload) }, payload));
   ipcMain.handle('technical-plan:adjust-illustration-review-item', (_event, payload) => adjustIllustrationReviewItem({ technicalPlanStore: resolveStore(payload), aiService }, payload));

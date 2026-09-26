@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AppDialog, isLibreOfficeRequiredMessage, MarkdownFullscreenViewer, MarkdownRenderer, UploadBoard, UploadEmpty, UploadFilePill, UploadRow, useDocumentParseNotice, useToast } from '../../../shared/ui';
-import type { FileParserProvider, OutlineWordControlOptions } from '../../../shared/types';
+import type { OutlineWordControlOptions } from '../../../shared/types';
 import type {
   BackgroundTaskState,
   BackgroundTaskStatus,
@@ -41,12 +41,6 @@ import {
 
 type TechnicalPlanUploadBusy = 'tender' | 'originalPlan' | null;
 type PendingResetAction = () => Promise<void>;
-
-const parserLabels: Record<FileParserProvider, string> = {
-  local: '本地解析',
-  'mineru-accurate-api': 'MinerU 精准解析 API',
-  'mineru-agent-api': 'MinerU-Agent 轻量解析 API',
-};
 
 function resolveImportToastType(message: string, success: boolean) {
   if (message.includes('失败')) return 'error' as const;
@@ -130,7 +124,6 @@ function DocumentAnalysisPage({
   onStateRefresh,
   onCustomPageStateChange,
 }: DocumentAnalysisPageProps) {
-  const [configuredParserLabel, setConfiguredParserLabel] = useState(parserLabels.local);
   const [busy, setBusy] = useState<TechnicalPlanUploadBusy>(null);
   const [activeDocumentTab, setActiveDocumentTab] = useState('tender');
   const [tenderSourceMarkdowns, setTenderSourceMarkdowns] = useState<Record<string, string>>({});
@@ -145,12 +138,11 @@ function DocumentAnalysisPage({
   const [quickConfigExpanded, setQuickConfigExpanded] = useState(() => {
     try {
       const storedValue = window.localStorage.getItem(QUICK_CONFIG_STORAGE_KEY);
-      return storedValue !== 'false';
+      return storedValue === 'true';
     } catch {
-      return true;
+      return false;
     }
   });
-  const [documentContentExpanded, setDocumentContentExpanded] = useState(true);
   const [imageModelAvailable, setImageModelAvailable] = useState(false);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   const [resetConfirming, setResetConfirming] = useState(false);
@@ -226,7 +218,7 @@ function DocumentAnalysisPage({
   useEffect(() => {
     let mounted = true;
 
-    const loadParserConfig = async () => {
+    const loadImageModelConfig = async () => {
       if (!window.yibiao) {
         return;
       }
@@ -234,15 +226,14 @@ function DocumentAnalysisPage({
       try {
         const config = await window.yibiao.config.load();
         if (mounted) {
-          setConfiguredParserLabel(parserLabels[config.components?.file_parser?.provider] || parserLabels.local);
           setImageModelAvailable(config.image_model?.status === 'available');
         }
       } catch (error) {
-        showToast(error instanceof Error ? error.message : '读取文件解析配置失败', 'error');
+        showToast(error instanceof Error ? error.message : '读取图片模型配置失败', 'error');
       }
     };
 
-    loadParserConfig();
+    loadImageModelConfig();
 
     return () => {
       mounted = false;
@@ -514,7 +505,6 @@ function DocumentAnalysisPage({
       const state = await window.yibiao.technicalPlan.loadState({ projectId });
       onFileImported(state, result.markdown);
       updateQuickConfigExpanded(true);
-      setDocumentContentExpanded(true);
       detectedDocumentVersionRef.current = state.tenderFile
         ? state.tenderFile.contentHash || state.tenderFile.updatedAt
         : null;
@@ -643,11 +633,6 @@ function DocumentAnalysisPage({
       // localStorage 不可用时仍保持当前页面内的折叠状态。
     }
   };
-  const toggleDocumentContent = () => {
-    const nextExpanded = !documentContentExpanded;
-    setDocumentContentExpanded(nextExpanded);
-    if (nextExpanded) updateQuickConfigExpanded(false);
-  };
   const openSectionSelector = () => {
     if (contentTaskLocked) {
       showToast('正文生成任务进行中，请等待任务结束后再调整投标范围', 'info');
@@ -669,9 +654,6 @@ function DocumentAnalysisPage({
     : activeTenderSource
       ? tenderSourceMarkdowns[activeTenderSource.id] || ''
       : tenderMarkdown;
-  const readerEmptyText = visibleDocumentTab === 'originalPlan'
-    ? '请上传一份已经写好的技术方案，页面会在这里展示解析后的 Markdown 正文。'
-    : '当前步骤只负责把招标文件解析成 Markdown。下一步再基于这里的 Markdown 内容进行 AI 标书理解。';
   const documentTabs = [
     ...(tenderFiles.length ? tenderFiles.map((file, index) => ({ id: `tender:${file.id}`, label: `招标文件${index + 1}` })) : [{ id: 'tender', label: '招标文件' }]),
     ...(isExpansionWorkflow ? [{ id: 'originalPlan', label: '原方案' }] : []),
@@ -685,7 +667,6 @@ function DocumentAnalysisPage({
         className="technical-document-upload-board"
         kicker="STEP 01"
         title="选择标书"
-        subtitle={`默认解析方案：${configuredParserLabel}`}
       >
         <UploadRow
           index="01"
@@ -972,7 +953,7 @@ function DocumentAnalysisPage({
       )}
 
       <section
-        className={`technical-document-reader-card analysis-markdown-card${documentContentExpanded ? ' is-expanded' : ' is-collapsed'}`}
+        className="technical-document-reader-card analysis-markdown-card is-compact"
         role={hasDocumentTabs ? 'tabpanel' : undefined}
         id={hasDocumentTabs ? `technical-document-panel-${activeDocumentTab}` : undefined}
         aria-labelledby={hasDocumentTabs ? `document-switch-tab-${activeDocumentTab}` : undefined}
@@ -982,39 +963,23 @@ function DocumentAnalysisPage({
             <strong>{documentLabels[visibleDocumentTab]}内容</strong>
             <span>{activeFile ? `${activeFile.fileName} · ${activeFile.markdownChars} 字` : '等待上传'}</span>
           </div>
-          <button
-            type="button"
-            className="outline-config-action technical-document-reader-toggle"
-            aria-expanded={documentContentExpanded}
-            aria-controls="technical-document-reader-content"
-            onClick={toggleDocumentContent}
-            title={documentContentExpanded ? `收起${documentLabels[visibleDocumentTab]}内容` : `展开${documentLabels[visibleDocumentTab]}内容`}
-          >
-            {documentContentExpanded ? '收起' : '展开'}
-          </button>
-        </div>
-
-        {documentContentExpanded && (
-          <div id="technical-document-reader-content" className="technical-document-reader-content">
-            {activeTenderSourceLoading ? (
-              <div className="markdown-empty-state">
-                <strong>正在读取招标文件正文...</strong>
-                <p>文件较大时需要稍等片刻。</p>
-              </div>
-            ) : activeMarkdown ? (
-              <MarkdownFullscreenViewer title={`${documentLabels[visibleDocumentTab]}全屏预览`}>
-                <MarkdownRenderer>
-                  {activeMarkdown}
-                </MarkdownRenderer>
-              </MarkdownFullscreenViewer>
-            ) : (
-              <div className="markdown-empty-state">
-                <strong>尚未导入{documentLabels[visibleDocumentTab]}</strong>
-                <p>{readerEmptyText}</p>
-              </div>
+          <div className="technical-document-reader-actions">
+            {activeTenderSourceLoading && <span className="technical-document-reader-loading">正在读取正文...</span>}
+            {!activeTenderSourceLoading && !activeMarkdown && (
+              <span className="technical-document-reader-empty">{activeFile ? '正文尚未解析完成' : `尚未导入${documentLabels[visibleDocumentTab]}`}</span>
             )}
+            <MarkdownFullscreenViewer
+              title={`${documentLabels[visibleDocumentTab]}全屏查看`}
+              buttonLabel="全屏查看"
+              fullscreenTriggerOnly
+              disabled={!activeMarkdown || Boolean(activeTenderSourceLoading)}
+            >
+              <MarkdownRenderer>
+                {activeMarkdown}
+              </MarkdownRenderer>
+            </MarkdownFullscreenViewer>
           </div>
-        )}
+        </div>
       </section>
 
       <BidSectionSelectorDialog

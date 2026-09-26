@@ -15,7 +15,7 @@ export type { DetailHelpLinkProps } from './DetailHelpLink';
 export { default as InputWithAction } from './InputWithAction';
 export type { InputWithActionProps } from './InputWithAction';
 export { default as MarkdownEditor } from './MarkdownEditor';
-export type { MarkdownEditorProps } from './MarkdownEditor';
+export type { MarkdownEditorProps, MarkdownEditorSelection, MarkdownEditorSelectionRequest, MarkdownEditorSurface } from './MarkdownEditor';
 export { default as MarkdownFullscreenViewer } from './MarkdownFullscreenViewer';
 export type { MarkdownFullscreenViewerProps } from './MarkdownFullscreenViewer';
 export type {
