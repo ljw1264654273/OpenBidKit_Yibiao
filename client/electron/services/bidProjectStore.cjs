@@ -586,9 +586,10 @@ function createBidProjectStore({ app, db }) {
     );
     const storedSummary = parseJson(row.summary_json, {});
     const shouldRefresh = Number(storedSummary.exactSentenceRulesVersion) !== exactSentenceRulesVersion;
-    const allMatches = shouldRefresh
-      ? prepareDuplicateResultForRead(row, parseJson(row.matches_json, [])).matches
+    const prepared = shouldRefresh
+      ? prepareDuplicateResultForRead(row, parseJson(row.matches_json, []))
       : null;
+    const allMatches = prepared?.matches || null;
     const count = shouldRefresh
       ? allMatches.length
       : Number(db.prepare(`
@@ -607,9 +608,7 @@ function createBidProjectStore({ app, db }) {
       `).all(id, normalizedLimit, normalizedOffset)
         .map((item) => parseJson(item.match_json, null))
         .filter(Boolean);
-    const summary = shouldRefresh
-      ? prepareDuplicateResultForRead(row, parseJson(row.matches_json, [])).summary
-      : storedSummary;
+    const summary = prepared?.summary || storedSummary;
     return buildDuplicateResult(row, matches, {
       totalMatches: count,
       offset: normalizedOffset,
@@ -630,6 +629,7 @@ function createBidProjectStore({ app, db }) {
         r.right_project_id,
         r.sensitivity,
         r.summary_json,
+        r.matches_json,
         r.created_at,
         r.updated_at,
         lp.project_name AS left_project_name,
@@ -647,7 +647,10 @@ function createBidProjectStore({ app, db }) {
     `).all(params);
     const summaries = Object.fromEntries(ids.map((id) => [id, null]));
     for (const row of rows) {
-      const summary = parseJson(row.summary_json, {});
+      const storedSummary = parseJson(row.summary_json, {});
+      const summary = Number(storedSummary.exactSentenceRulesVersion) === exactSentenceRulesVersion
+        ? storedSummary
+        : prepareDuplicateResultForRead(row, parseJson(row.matches_json, [])).summary;
       const threshold = Number.isFinite(Number(summary.threshold))
         ? Number(summary.threshold)
         : fallbackDuplicateThreshold(row.sensitivity);
