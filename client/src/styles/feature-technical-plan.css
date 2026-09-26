@@ -2,11 +2,92 @@
 .technical-workbench {
   --technical-workbench-control-radius: 6px;
   position: relative;
-  gap: 12px;
+  gap: 8px;
   height: 100%;
   min-height: 0;
   flex: 1;
   overflow: hidden;
+}
+
+.technical-step-module {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--yb-surface);
+  border: 1px solid var(--yb-border);
+  border-radius: 8px;
+}
+
+.technical-step-navigation {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  min-width: 0;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--yb-border-soft);
+}
+
+.technical-step-navigation-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-width: 0;
+  min-height: 38px;
+  padding: 5px 8px;
+  color: var(--yb-text-muted);
+  background: transparent;
+  border: 0;
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.technical-step-navigation-item::after {
+  position: absolute;
+  right: 8px;
+  bottom: -1px;
+  left: 8px;
+  height: 2px;
+  content: '';
+  background: transparent;
+}
+
+.technical-step-navigation-item:hover { color: var(--yb-primary-deep); }
+.technical-step-navigation-item.is-current { color: var(--yb-primary-deep); font-weight: 700; }
+.technical-step-navigation-item.is-current::after { background: var(--yb-primary); }
+.technical-step-navigation-item.is-complete { color: var(--yb-success-deep); }
+.technical-step-navigation-index {
+  display: inline-grid;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  place-items: center;
+  color: var(--yb-text-muted);
+  background: var(--yb-surface-muted);
+  border-radius: 50%;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.technical-step-navigation-item.is-current .technical-step-navigation-index { color: #fff; background: var(--yb-primary); }
+.technical-step-navigation-item.is-complete .technical-step-navigation-index { color: #fff; background: var(--yb-success); }
+.technical-step-navigation-label { overflow: hidden; text-overflow: ellipsis; }
+
+.technical-step-content {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  padding: 8px;
+}
+
+@media (max-width: 760px) {
+  .technical-step-navigation { overflow-x: auto; grid-template-columns: repeat(5, max-content); }
+  .technical-step-navigation-item { min-width: 112px; }
+  .technical-step-content { padding: 6px; }
 }
 
 .plan-step-body {
@@ -226,46 +307,46 @@
   }
 }
 
-.technical-workbench > .plan-step-body {
+.technical-step-content > .plan-step-body {
   height: 100%;
   min-height: 0;
   flex: 1;
   overflow: hidden;
 }
 
-.technical-workbench > .plan-step-body:not(.document-analysis-page):not(.bid-analysis-page):not(.outline-generation-page):not(.content-generation-page):not(.feasibility-materials-page) {
+.technical-step-content > .plan-step-body:not(.document-analysis-page):not(.bid-analysis-page):not(.outline-generation-page):not(.content-generation-page):not(.feasibility-materials-page) {
   grid-template-rows: auto minmax(0, 1fr);
 }
 
-.technical-workbench > .document-analysis-page {
+.technical-step-content > .document-analysis-page {
   grid-template-rows: auto auto minmax(0, 1fr);
 }
 
-.technical-workbench > .document-analysis-page.has-section-hint {
+.technical-step-content > .document-analysis-page.has-section-hint {
   grid-template-rows: auto auto auto minmax(0, 1fr);
 }
 
-.technical-workbench > .document-analysis-page.has-document-tabs {
+.technical-step-content > .document-analysis-page.has-document-tabs {
   grid-template-rows: auto auto auto minmax(0, 1fr);
 }
 
-.technical-workbench > .document-analysis-page.has-section-hint.has-document-tabs {
+.technical-step-content > .document-analysis-page.has-section-hint.has-document-tabs {
   grid-template-rows: auto auto auto auto minmax(0, 1fr);
 }
 
-.technical-workbench > .document-analysis-page.has-section-error {
+.technical-step-content > .document-analysis-page.has-section-error {
   grid-template-rows: auto auto auto minmax(0, 1fr);
 }
 
-.technical-workbench > .document-analysis-page.has-section-hint.has-section-error {
+.technical-step-content > .document-analysis-page.has-section-hint.has-section-error {
   grid-template-rows: auto auto auto auto minmax(0, 1fr);
 }
 
-.technical-workbench > .document-analysis-page.has-document-tabs.has-section-error {
+.technical-step-content > .document-analysis-page.has-document-tabs.has-section-error {
   grid-template-rows: auto auto auto auto minmax(0, 1fr);
 }
 
-.technical-workbench > .document-analysis-page.has-section-hint.has-document-tabs.has-section-error {
+.technical-step-content > .document-analysis-page.has-section-hint.has-document-tabs.has-section-error {
   grid-template-rows: auto auto auto auto auto minmax(0, 1fr);
 }
 
@@ -7553,6 +7634,19 @@
 .technical-document-upload-board .upload-file-pill {
   flex: 0 1 auto;
   max-width: 100%;
+}
+
+/* 顶部状态栏已承载 STEP 01 标题，上传区只保留文件操作内容。 */
+.technical-workbench {
+  gap: 8px;
+}
+
+.technical-document-upload-board .upload-page-title {
+  display: none;
+}
+
+.technical-document-upload-board .upload-stack {
+  padding: 0 12px 12px;
 }
 
 @media (max-width: 759px) {

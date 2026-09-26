@@ -72,6 +72,15 @@ const stepLabels: Record<TechnicalPlanStep, string> = {
   expand: '扩写改写',
 };
 
+// 顶部状态栏只展示用户可感知的五个主流程步骤；扩写改写仍保留为独立流程页。
+const statusSteps = [
+  { key: 'document-analysis', label: '选择标书' },
+  { key: 'bid-analysis', label: '文件解析' },
+  { key: 'outline-generation', label: '目录生成' },
+  { key: 'global-facts', label: '事实设定' },
+  { key: 'content-edit', label: '生成正文' },
+] as const;
+
 const resetState = {
   workflowKind: 'technical-plan' as TechnicalPlanWorkflowKind,
   step: 'document-analysis' as TechnicalPlanStep,
@@ -291,6 +300,8 @@ function TechnicalPlanHome({ workflowKind, projectId, registerLeaveGuard, onSect
     ));
   }, []);
   const activeIndex = steps.indexOf(state.step);
+  const stateStatusIndex = statusSteps.findIndex((step) => step.key === state.step);
+  const statusActiveIndex = stateStatusIndex >= 0 ? stateStatusIndex : statusSteps.length - 1;
   const requiredBidAnalysisReady = areRequiredBidAnalysisTasksReady(state.bidAnalysisTasks);
   const isBidSectionExtractionRunning = state.bidSectionExtractionTask?.status === 'running' || state.bidSectionExtractionTask?.status === 'pausing';
   const isBidAnalysisTaskRunning = state.bidAnalysisTask?.status === 'running' || state.bidAnalysisTask?.status === 'pausing';
@@ -980,14 +991,8 @@ function TechnicalPlanHome({ workflowKind, projectId, registerLeaveGuard, onSect
         <button type="button" className="text-button bid-project-context-back" onClick={() => onSectionChange?.('bid-projects')}>
           返回项目列表
         </button>
-        <div className="bid-project-context-main">
-          <span className="section-kicker">{projectId ? '当前标书项目' : '当前流程'}</span>
-          <strong>{projectId ? bidProject?.projectName || '正在读取项目名称...' : workflowLabel(workflowKind)}</strong>
-          <span>{projectId ? `${bidProject?.sourceFileName || '招标文件'}${bidProject?.sectionLabel ? ` · ${bidProject.sectionLabel}` : ''}` : '本地默认工作区'}</span>
-        </div>
         <div className="bid-project-context-meta">
           {projectId ? <span>同源第 {bidProject?.sourceSequence || 1} 份</span> : null}
-          <span>{stepLabels[state.step]}</span>
         </div>
         <div className="bid-project-context-actions" role="group" aria-label="流程导航">
           {navigationActions.map((action) => (
@@ -1009,6 +1014,26 @@ function TechnicalPlanHome({ workflowKind, projectId, registerLeaveGuard, onSect
       {[state.outlineGenerationTask, state.globalFactsTask, state.contentGenerationTask].some((task) => task?.remote_knowledge_action_required) && (
         <button type="button" className="secondary-action remote-knowledge-task-action" onClick={showRemoteKnowledgeDecision}>处理远程知识异常</button>
       )}
+      <section className="technical-step-module" aria-label="技术方案流程">
+        <nav className="technical-step-navigation" aria-label="流程步骤">
+          {statusSteps.map((step, index) => {
+            const isCurrent = index === statusActiveIndex;
+            const isComplete = index < statusActiveIndex;
+            return (
+              <button
+                type="button"
+                key={step.key}
+                className={`technical-step-navigation-item${isCurrent ? ' is-current' : ''}${isComplete ? ' is-complete' : ''}`}
+                onClick={() => { void switchStep(step.key); }}
+                aria-current={isCurrent ? 'step' : undefined}
+              >
+                <span className="technical-step-navigation-index">{String(index + 1).padStart(2, '0')}</span>
+                <span className="technical-step-navigation-label">{step.label}</span>
+              </button>
+            );
+          })}
+        </nav>
+        <div className="technical-step-content">
       {state.step === 'document-analysis' && (
         <DocumentAnalysisPage
           projectId={projectId}
@@ -1152,6 +1177,8 @@ function TechnicalPlanHome({ workflowKind, projectId, registerLeaveGuard, onSect
           </section>
         </div>
       )}
+        </div>
+      </section>
 
       <AppDialog
         open={resetDialogOpen}

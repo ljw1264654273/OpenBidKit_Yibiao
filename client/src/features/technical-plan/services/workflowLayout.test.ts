@@ -530,6 +530,33 @@ test('项目状态栏承载流程导航且不再渲染底部悬浮工具条', ()
   assert.doesNotMatch(home, /technical-plan-reset/);
 });
 
+test('五步流程统一收纳在一个紧凑模块中，顶部状态导航不再独立占位', () => {
+  const home = readFileSync(new URL('../pages/TechnicalPlanHome.tsx', import.meta.url), 'utf8');
+  const documentAnalysis = readFileSync(new URL('../pages/DocumentAnalysisPage.tsx', import.meta.url), 'utf8');
+  const css = readFileSync(new URL('../../../styles/feature-bid-project.css', import.meta.url), 'utf8');
+  const technicalCss = readFileSync(new URL('../../../styles/feature-technical-plan.css', import.meta.url), 'utf8');
+  const shellCss = readFileSync(new URL('../../../styles/layout-app-shell.css', import.meta.url), 'utf8');
+
+  assert.match(home, /const statusSteps = \[[\s\S]*选择标书[\s\S]*文件解析[\s\S]*目录生成[\s\S]*事实设定[\s\S]*生成正文[\s\S]*\]/);
+  assert.doesNotMatch(home, /className="bid-project-context-main"/);
+  assert.doesNotMatch(home, /className="bid-project-context-steps"/);
+  assert.match(home, /className="technical-step-module"/);
+  assert.match(home, /className="technical-step-navigation"/);
+  assert.match(home, /className="technical-step-content"/);
+  assert.match(home, /is-complete|is-current/);
+  assert.match(home, /aria-label="流程步骤"/);
+  assert.match(documentAnalysis, /className="technical-document-upload-board"/);
+  assert.doesNotMatch(css, /\.technical-workbench \.bid-project-context-steps/);
+  assert.match(css, /\.technical-workbench \.bid-project-context-bar\s*\{[^}]*min-height:\s*40px;/s);
+  assert.match(technicalCss, /\.technical-workbench\s*\{[^}]*gap:\s*8px;/s);
+  assert.match(technicalCss, /\.technical-step-navigation\s*\{/);
+  assert.match(technicalCss, /\.technical-step-module\s*\{[^}]*grid-template-rows:\s*auto minmax\(0, 1fr\);/s);
+  assert.match(technicalCss, /\.technical-step-content\s*\{[^}]*padding:\s*8px;/s);
+  assert.match(technicalCss, /\.technical-step-content > \.plan-step-body/);
+  assert.match(technicalCss, /\.technical-document-upload-board \.upload-page-title\s*\{\s*display:\s*none;/s);
+  assert.match(shellCss, /\.content-shell:has\(\.technical-workbench\)\s*\{[^}]*padding:\s*16px 28px;/s);
+});
+
 test('STEP 01 上传招标文件成功后重新展开快速配置', () => {
   const source = readFileSync(new URL('../pages/DocumentAnalysisPage.tsx', import.meta.url), 'utf8');
   const importFlow = source.slice(

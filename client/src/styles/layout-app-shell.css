@@ -472,6 +472,7 @@
 
 .content-shell:has(.technical-workbench) {
   overflow: hidden;
+  padding: 16px 28px;
 }
 
 .content-shell:has(.settings-page) {

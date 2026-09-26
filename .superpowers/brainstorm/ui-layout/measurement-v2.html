@@ -1,0 +1,62 @@
+<style>
+  :root { font-family: "Segoe UI", "Microsoft YaHei", sans-serif; color: #1f2d3d; }
+  body { margin: 0; background: #f4f7fb; }
+  .wrap { padding: 24px; }
+  h2 { margin: 0 0 6px; font-size: 22px; }
+  .subtitle { margin: 0 0 18px; color: #718198; }
+  .mock { overflow: hidden; background: #fff; border: 1px solid #dbe4ef; border-radius: 8px; }
+  .mock-head { padding: 12px 14px; border-bottom: 1px solid #e3eaf2; font-weight: 700; }
+  .canvas { min-height: 410px; padding: 16px; background: #f7f9fc; }
+  .compact-bar { display: grid; grid-template-columns: auto minmax(240px, 1fr) minmax(360px, 1.35fr) auto; gap: 12px; align-items: center; padding: 8px 12px; background: #fff; border: 1px solid #dfe7f0; border-radius: 6px; }
+  .back { padding: 8px 12px; border: 1px solid #26313c; border-radius: 4px; font-size: 13px; white-space: nowrap; }
+  .context { min-width: 0; }
+  .context small { display: block; color: #2671ee; font-weight: 700; letter-spacing: .12em; }
+  .context strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; }
+  .context span { display: block; overflow: hidden; color: #8190a2; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+  .stepper { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 5px; min-width: 0; }
+  .step { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 4px; align-items: center; min-width: 0; padding: 5px 4px; color: #8897a9; border-bottom: 2px solid #dde5ef; font-size: 10px; }
+  .step::before { width: 18px; height: 18px; content: attr(data-no); color: #718198; background: #edf2f8; border-radius: 50%; line-height: 18px; text-align: center; }
+  .step span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .step.is-done, .step.is-current { color: #2671ee; border-color: #2671ee; }
+  .step.is-done::before, .step.is-current::before { color: #fff; background: #2671ee; }
+  .step.is-current { color: #1f2d3d; font-weight: 700; }
+  .actions { display: flex; gap: 5px; }
+  .chip { padding: 6px 9px; border: 1px solid #d4e0ee; border-radius: 999px; color: #5e718a; font-size: 11px; white-space: nowrap; }
+  .primary { background: #2671ee; color: #fff; border-color: #2671ee; }
+  .measure { position: relative; height: 18px; margin: 0 10px; }
+  .measure::before { position: absolute; top: 9px; left: 0; right: 0; border-top: 2px dashed #f08b34; content: ""; }
+  .measure span { position: absolute; top: -1px; left: 50%; transform: translateX(-50%); padding: 1px 5px; color: #c66b19; background: #fff4e8; border-radius: 3px; font-size: 11px; white-space: nowrap; }
+  .upload { padding: 10px 12px; background: #fff; border: 1px solid #e0e7f0; border-radius: 6px; }
+  .upload-row { display: grid; grid-template-columns: 104px 1fr auto; gap: 10px; align-items: center; min-height: 52px; padding: 7px 9px; background: #fbfcfe; border: 1px solid #e4ebf3; border-radius: 5px; }
+  .body-preview { margin-top: 12px; padding: 14px; min-height: 190px; background: #fff; border: 1px solid #e0e7f0; }
+  .body-preview strong { display: block; margin-bottom: 8px; font-size: 16px; }
+  .line { height: 8px; margin: 8px 0; background: #edf2f8; border-radius: 3px; }
+  .line.short { width: 60%; }
+  .note { margin-top: 12px; padding: 10px 12px; color: #5b6d83; background: #f7faff; border-left: 3px solid #2671ee; font-size: 12px; line-height: 1.6; }
+  @media (max-width: 900px) { .compact-bar { grid-template-columns: auto minmax(0, 1fr) auto; } .stepper { grid-column: 1 / -1; grid-row: 2; } }
+</style>
+
+<h2>重新理解后的顶部结构</h2>
+<p class="subtitle">目标是压缩头部总高度：一条状态栏承载项目、当前步骤、5 步进度和操作；下方只保留紧凑文件行。</p>
+
+<div class="mock">
+  <div class="mock-head">单状态栏 + 紧凑文件行</div>
+  <div class="canvas">
+    <div class="compact-bar">
+      <span class="back">返回项目列表</span>
+      <div class="context"><small>STEP 01</small><strong>选择标书</strong><span>SZCJ2026-S-G-043 苏州智能交通信息科技股份有限公司</span></div>
+      <div class="stepper">
+        <div class="step is-current" data-no="01"><span>选择标书</span></div>
+        <div class="step" data-no="02"><span>文件解析</span></div>
+        <div class="step" data-no="03"><span>目录生成</span></div>
+        <div class="step" data-no="04"><span>事实设定</span></div>
+        <div class="step" data-no="05"><span>生成正文</span></div>
+      </div>
+      <div class="actions"><span class="chip">同源 1 份</span><span class="chip primary">下一步</span></div>
+    </div>
+    <div class="measure"><span>状态栏下方只保留约 8-12px</span></div>
+    <div class="upload"><div class="upload-row"><strong>01 招标文件</strong><span>01-SZCJ2026-S-G-043 苏州智能交通信息科技股份有限公司 数字防控业务管理系统项目定稿.doc</span><span class="chip primary">继续上传</span></div></div>
+    <div class="body-preview"><strong>招标文件内容</strong><div class="line"></div><div class="line"></div><div class="line short"></div><div class="line"></div></div>
+    <div class="note">不再单独出现“STEP 01 选择标书”大标题卡；5 步状态和项目上下文集中在一条顶部状态栏，文件行直接贴近正文预览。</div>
+  </div>
+</div>

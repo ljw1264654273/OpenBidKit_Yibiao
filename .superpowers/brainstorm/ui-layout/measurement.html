@@ -1,0 +1,76 @@
+<style>
+  :root { font-family: "Segoe UI", "Microsoft YaHei", sans-serif; color: #1f2d3d; }
+  body { margin: 0; background: #f4f7fb; }
+  .wrap { padding: 24px; }
+  h2 { margin: 0 0 6px; font-size: 22px; }
+  .subtitle { margin: 0 0 18px; color: #718198; }
+  .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+  .mock { overflow: hidden; background: #fff; border: 1px solid #dbe4ef; border-radius: 8px; }
+  .mock-head { padding: 12px 14px; border-bottom: 1px solid #e3eaf2; font-weight: 700; }
+  .canvas { min-height: 300px; padding: 20px; background: #f7f9fc; }
+  .bar { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: center; min-height: 56px; padding: 10px 14px; background: #fff; border: 1px solid #dfe7f0; border-radius: 8px; }
+  .back { padding: 10px 14px; border: 2px solid #26313c; border-radius: 6px; font-size: 14px; }
+  .title { min-width: 0; }
+  .title small { display: block; color: #2671ee; font-weight: 700; letter-spacing: .14em; }
+  .title strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .actions { display: flex; gap: 6px; }
+  .chip { padding: 7px 10px; border: 1px solid #d4e0ee; border-radius: 999px; color: #5e718a; font-size: 12px; white-space: nowrap; }
+  .primary { background: #2671ee; color: #fff; border-color: #2671ee; }
+  .measure { position: relative; height: 26px; margin: 0 12px; }
+  .measure::before { position: absolute; top: 12px; left: 0; right: 0; border-top: 2px dashed #f08b34; content: ""; }
+  .measure span { position: absolute; top: 0; left: 50%; transform: translateX(-50%); padding: 2px 6px; color: #c66b19; background: #fff4e8; border-radius: 4px; font-size: 12px; white-space: nowrap; }
+  .upload { padding: 12px 14px; background: #fff; border: 1px solid #e0e7f0; }
+  .upload-title { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; }
+  .upload-title small { color: #2671ee; font-weight: 700; letter-spacing: .14em; }
+  .upload-row { display: grid; grid-template-columns: 102px 1fr auto; gap: 10px; align-items: center; min-height: 64px; padding: 8px 10px; background: #fbfcfe; border: 1px solid #e4ebf3; border-radius: 6px; }
+  .stepper { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; margin-bottom: 10px; }
+  .step { position: relative; padding: 7px 5px; color: #8897a9; text-align: center; font-size: 11px; border-bottom: 3px solid #dde5ef; }
+  .step::before { display: block; width: 20px; height: 20px; margin: 0 auto 4px; content: attr(data-no); color: #718198; background: #edf2f8; border-radius: 50%; line-height: 20px; }
+  .step.is-done { color: #2671ee; border-color: #2671ee; }
+  .step.is-done::before, .step.is-current::before { color: #fff; background: #2671ee; }
+  .step.is-current { color: #1f2d3d; border-color: #2671ee; font-weight: 700; }
+  .note { margin-top: 12px; padding: 10px 12px; color: #5b6d83; background: #f7faff; border-left: 3px solid #2671ee; font-size: 12px; line-height: 1.6; }
+  @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } .canvas { min-height: 0; } }
+</style>
+
+<h2>Step 01 页面间距与目标布局</h2>
+<p class="subtitle">左侧按当前 CSS 值复现；右侧按第二张图整理为紧凑状态栏 + 5 步流程状态。</p>
+
+<div class="grid">
+  <div class="mock">
+    <div class="mock-head">当前实现</div>
+    <div class="canvas">
+      <div class="bar">
+        <span>返回项目列表</span>
+        <div class="title"><small>当前标书项目</small><strong>SZCJ2026-S-G-043 苏州智能交通信息科技股份有限公司</strong></div>
+        <div class="actions"><span class="chip">选择标书</span><span class="chip primary">下一步</span></div>
+      </div>
+      <div class="measure"><span>页面顶部留白：36px</span></div>
+      <div class="upload-title"><small>STEP 01</small><strong>选择标书</strong></div>
+      <div class="measure"><span>状态栏 → 选择标书：26px</span></div>
+      <div class="upload"><div class="upload-row"><strong>01 招标文件</strong><span>01-SZCJ2026-S-G-043 ...doc</span><span class="chip primary">继续上传</span></div></div>
+    </div>
+  </div>
+
+  <div class="mock">
+    <div class="mock-head">目标理解（第二张图）</div>
+    <div class="canvas">
+      <div class="bar">
+        <span class="back">返回项目列表</span>
+        <div class="title"><small>STEP 01　选择标书</small><strong>SZCJ2026-S-G-043 苏州智能交通信息科技股份有限公司</strong></div>
+        <div class="actions"><span class="chip">同源第 1 份</span><span class="chip primary">下一步</span></div>
+      </div>
+      <div class="measure"><span>建议顶部留白：待确认</span></div>
+      <div class="stepper">
+        <div class="step is-current" data-no="01">选择标书</div>
+        <div class="step" data-no="02">文件解析</div>
+        <div class="step" data-no="03">目录生成</div>
+        <div class="step" data-no="04">事实设定</div>
+        <div class="step" data-no="05">生成正文</div>
+      </div>
+      <div class="measure"><span>建议状态栏 → 模块：当前间距的一半（13px）</span></div>
+      <div class="upload"><div class="upload-title"><small>STEP 01</small><strong>选择标书</strong></div><div class="upload-row"><strong>01 招标文件</strong><span>01-SZCJ2026-S-G-043 ...doc</span><span class="chip primary">继续上传</span></div></div>
+      <div class="note">核心变化：标题与当前步骤进入同一行；5 个步骤有已完成 / 当前 / 未开始三种状态；模块间距减半，页面整体改为紧凑分区。</div>
+    </div>
+  </div>
+</div>
