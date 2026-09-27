@@ -11,6 +11,8 @@ const folder = (id: string, knowledgeBaseId: KnowledgeFolder['knowledge_base_id'
   id,
   name: id,
   knowledge_base_id: knowledgeBaseId,
+  province: null,
+  city: null,
   created_at: '',
   updated_at: '',
 });

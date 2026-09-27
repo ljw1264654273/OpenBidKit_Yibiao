@@ -3,6 +3,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { trackPageView } from '../../../shared/analytics/analytics';
 import { AppDialog, InlineSpinner, isLibreOfficeRequiredMessage, MarkdownFullscreenViewer, MarkdownRenderer, ProgressBar, useDocumentParseNotice, useToast } from '../../../shared/ui';
 import { KNOWLEDGE_BASE_CATALOG, getKnowledgeBaseCatalogItem, type KnowledgeBaseId } from '../knowledgeBaseCatalog';
+import { formatFolderRegion, getCityOptions, provinceOptions, selectProvince } from '../regionOptions';
 import type { KnowledgeAnalysisSnapshot, KnowledgeBaseEvent, KnowledgeBaseIndex, KnowledgeDocument, KnowledgeItem } from '../types';
 
 declare global {
@@ -355,6 +356,7 @@ function KnowledgeBasePage({ knowledgeBaseId }: KnowledgeBasePageProps) {
   const [developerMode, setDeveloperMode] = useState(false);
   const [showCreateFolder, setShowCreateFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
+  const [newFolderRegion, setNewFolderRegion] = useState({ provinceCode: '', cityCode: '' });
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [moveDocumentTarget, setMoveDocumentTarget] = useState<KnowledgeDocument | null>(null);
   const [moveIndex, setMoveIndex] = useState<KnowledgeBaseIndex>(emptyIndex);
@@ -384,6 +386,7 @@ function KnowledgeBasePage({ knowledgeBaseId }: KnowledgeBasePageProps) {
   const { showDocumentParseNotice } = useDocumentParseNotice();
 
   const activeFolder = index.folders.find((folder) => folder.id === activeFolderId) || index.folders[0];
+  const cityOptions = useMemo(() => getCityOptions(newFolderRegion.provinceCode), [newFolderRegion.provinceCode]);
   const documentsByFolder = useMemo(() => {
     const grouped = new Map<string, KnowledgeDocument[]>();
     index.documents.forEach((document) => {
@@ -662,7 +665,15 @@ function KnowledgeBasePage({ knowledgeBaseId }: KnowledgeBasePageProps) {
     }
   };
 
+  const closeCreateFolder = () => {
+    if (creatingFolder) return;
+    setNewFolderName('');
+    setNewFolderRegion(selectProvince(''));
+    setShowCreateFolder(false);
+  };
+
   const createFolder = async () => {
+    if (creatingFolder) return;
     const name = newFolderName.trim();
     if (!name) {
       showToast('请输入文件夹名称', 'info');
@@ -671,13 +682,16 @@ function KnowledgeBasePage({ knowledgeBaseId }: KnowledgeBasePageProps) {
 
     try {
       setCreatingFolder(true);
-      const folder = await knowledgeBaseApi?.createFolder(name.trim(), knowledgeBaseId);
-      if (!folder) return;
+      const province = provinceOptions.find((option) => option.code === newFolderRegion.provinceCode)?.name || null;
+      const city = cityOptions.find((option) => option.code === newFolderRegion.cityCode)?.name || null;
+      const folder = await knowledgeBaseApi?.createFolder(name, knowledgeBaseId, province, city);
+      if (!folder) throw new Error('创建文件夹失败');
       const nextIndex = { ...indexRef.current, folders: [...indexRef.current.folders, folder] };
       indexRef.current = nextIndex;
       setIndex(nextIndex);
       setActiveFolderId(folder.id);
       setNewFolderName('');
+      setNewFolderRegion(selectProvince(''));
       setShowCreateFolder(false);
       showToast('文件夹已创建', 'success');
     } catch (error) {
@@ -1042,40 +1056,12 @@ function KnowledgeBasePage({ knowledgeBaseId }: KnowledgeBasePageProps) {
           <small>{activeFolder ? `当前文件夹：${activeFolder.name} · ` : ''}{index.folders.length} 个文件夹 / {index.documents.length} 个文档</small>
         </div>
         <div className="knowledge-toolbar-actions">
-          <button type="button" className="secondary-action" onClick={() => setShowCreateFolder((value) => !value)} disabled={listLoading}>新建文件夹</button>
+          <button type="button" className="secondary-action" onClick={() => setShowCreateFolder(true)} disabled={listLoading}>新建文件夹</button>
           <button type="button" className="primary-action" onClick={uploadDocuments} disabled={loading || !activeFolder}>
             {loading ? '处理中...' : '上传文档'}
           </button>
         </div>
       </section>
-
-      {showCreateFolder && (
-        <form
-          className="knowledge-create-folder-bar"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void createFolder();
-          }}
-        >
-          <input
-            autoFocus
-            value={newFolderName}
-            onChange={(event) => setNewFolderName(event.target.value)}
-            placeholder="输入文件夹名称"
-          />
-          <button type="submit" className="primary-action" disabled={creatingFolder}>{creatingFolder ? '创建中...' : '创建'}</button>
-          <button
-            type="button"
-            className="secondary-action"
-            onClick={() => {
-              setNewFolderName('');
-              setShowCreateFolder(false);
-            }}
-          >
-            取消
-          </button>
-        </form>
-      )}
 
       <section className="knowledge-layout">
         <aside className="knowledge-folder-panel">
@@ -1092,6 +1078,7 @@ function KnowledgeBasePage({ knowledgeBaseId }: KnowledgeBasePageProps) {
             <div className="knowledge-folder-list knowledge-category-list">
               {index.folders.map((folder) => {
                 const count = documentsByFolder.get(folder.id)?.length || 0;
+                const region = formatFolderRegion(folder.province, folder.city);
                 const dragging = dragPayload?.kind === 'folder' && dragPayload.folderId === folder.id;
                 const dropTarget = folderDropTargetId === folder.id;
                 return (
@@ -1113,7 +1100,7 @@ function KnowledgeBasePage({ knowledgeBaseId }: KnowledgeBasePageProps) {
                       <button type="button" className="knowledge-folder-main" onClick={() => startTransition(() => setActiveFolderId(folder.id))}>
                         <span aria-hidden="true">F</span>
                         <strong>{folder.name}</strong>
-                        <small>{dropTarget && dragPayload?.kind === 'document' ? '松开移动到此文件夹' : `${count} 个文档`}</small>
+                        <small>{dropTarget && dragPayload?.kind === 'document' ? '松开移动到此文件夹' : `${region ? `${region} / ` : ''}${count} 个文档`}</small>
                       </button>
                     </div>
                     <div className="knowledge-folder-actions">
@@ -1224,6 +1211,58 @@ function KnowledgeBasePage({ knowledgeBaseId }: KnowledgeBasePageProps) {
         </section>
       </div>
 
+      <AppDialog
+        open={showCreateFolder}
+        onOpenChange={(open) => !open && closeCreateFolder()}
+        kicker={category.label}
+        title="新建文件夹"
+        cardClassName="knowledge-create-folder-dialog"
+        preventClose={creatingFolder}
+        actions={(
+          <>
+            <button type="button" className="secondary-action" onClick={closeCreateFolder} disabled={creatingFolder}>取消</button>
+            <button type="submit" form="knowledge-create-folder-form" className="primary-action" disabled={creatingFolder}>
+              {creatingFolder ? '创建中...' : '创建'}
+            </button>
+          </>
+        )}
+      >
+        <form
+          id="knowledge-create-folder-form"
+          className="knowledge-create-folder-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void createFolder();
+          }}
+        >
+          <label>
+            <span>文件夹名称</span>
+            <input autoFocus aria-required="true" value={newFolderName} onChange={(event) => setNewFolderName(event.target.value)} disabled={creatingFolder} />
+          </label>
+          <label>
+            <span>所属省份（可选）</span>
+            <select
+              value={newFolderRegion.provinceCode}
+              onChange={(event) => setNewFolderRegion(selectProvince(event.target.value))}
+              disabled={creatingFolder}
+            >
+              <option value="">不选择省份</option>
+              {provinceOptions.map((option) => <option key={option.code} value={option.code}>{option.name}</option>)}
+            </select>
+          </label>
+          <label>
+            <span>所属城市（可选）</span>
+            <select
+              value={newFolderRegion.cityCode}
+              onChange={(event) => setNewFolderRegion((region) => ({ ...region, cityCode: event.target.value }))}
+              disabled={creatingFolder || !newFolderRegion.provinceCode}
+            >
+              <option value="">不选择城市</option>
+              {cityOptions.map((option) => <option key={option.code} value={option.code}>{option.name}</option>)}
+            </select>
+          </label>
+        </form>
+      </AppDialog>
       <AppDialog
         open={Boolean(deleteConfirm)}
         onOpenChange={(open) => !open && !deletingConfirm && setDeleteConfirm(null)}

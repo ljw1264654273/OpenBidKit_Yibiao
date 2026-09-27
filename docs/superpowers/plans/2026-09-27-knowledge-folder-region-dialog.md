@@ -34,13 +34,13 @@
 
 **Files:** `client/src/features/knowledge-base/pages/KnowledgeBasePage.tsx`, `client/src/styles/feature-knowledge-base.css`。
 
-- [ ] 为可测试的地域展示/切换行为增加聚焦测试（纯函数如 `formatFolderRegion` 和省份变化时的城市重置），运行确认失败。
-- [ ] 以 `AppDialog` 替换 `knowledge-create-folder-bar`。名称必填；省份可空；未选省份时城市禁用；省份更改清空城市。创建中禁用关闭及重复提交，失败保留内容，成功清空内容并选中新文件夹。顶部及空态共用入口。
-- [ ] 文件夹列表展示可用地域（若省、市同名仅展示一次）；无地域不显示占位。移除旧内联表单 CSS，加入与现有移动弹窗一致的表单样式及小窗口约束。
-- [ ] 运行聚焦测试和 `npm run build`，处理编译错误。
+- [x] 为可测试的地域展示/切换行为增加聚焦测试（纯函数如 `formatFolderRegion` 和省份变化时的城市重置），运行确认失败。
+- [x] 以 `AppDialog` 替换 `knowledge-create-folder-bar`。名称必填；省份可空；未选省份时城市禁用；省份更改清空城市。创建中禁用关闭及重复提交，失败保留内容，成功清空内容并选中新文件夹。顶部及空态共用入口。
+- [x] 文件夹列表展示可用地域（若省、市同名仅展示一次）；无地域不显示占位。移除旧内联表单 CSS，加入与现有移动弹窗一致的表单样式及小窗口约束。
+- [x] 运行聚焦测试和 `npm run build`，处理编译错误。
 
 ### Task 4: 全链路验证
 
-- [ ] `cd client; npm run smoke:electron-native`，并运行知识库 Store 定向测试、`npm run build`、`npm audit`。
+- [x] `cd client; npm run smoke:electron-native`，并运行知识库 Store 定向测试、`npm run build`、`npm audit`（官方 registry 报 38 项现有依赖告警）。
 - [ ] `npm run dev` 打开 Electron；分别检查任意两个分类中的新建入口、可空地域、级联清空、列表显示、页面切换后持久展示，以及窄窗口弹窗布局和键盘关闭。其余四个分类由同一组件/接口覆盖。
-- [ ] 检查 `git diff --check` 和范围，确保 `client/src/features/bid-project/components/BidProjectRow.tsx` 的既有修改未受影响；记录未完成的手动验证或审计问题。
+- [x] 检查 `git diff --check` 和范围，确保 `client/src/features/bid-project/components/BidProjectRow.tsx` 的既有修改未受影响；记录未完成的手动验证或审计问题。

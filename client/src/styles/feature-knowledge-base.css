@@ -185,33 +185,49 @@
   box-shadow: 0 10px 24px rgba(33, 116, 253, 0.16);
 }
 
-.knowledge-create-folder-bar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  background: rgba(255, 255, 255, 0.88);
-  border: 1px solid var(--yb-border-soft);
-  border-radius: var(--yb-radius-lg);
-  box-shadow: 0 10px 28px rgba(33, 116, 253, 0.08);
+.knowledge-create-folder-dialog {
+  width: min(480px, calc(100vw - 32px));
 }
 
-.knowledge-create-folder-bar input {
-  flex: 1;
-  min-width: 180px;
-  height: 36px;
-  padding: 0 12px;
+.knowledge-create-folder-form {
+  display: grid;
+  gap: 14px;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.knowledge-create-folder-form label {
+  display: grid;
+  gap: 7px;
+}
+
+.knowledge-create-folder-form label > span {
+  color: var(--yb-text);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.knowledge-create-folder-form input,
+.knowledge-create-folder-form select {
+  width: 100%;
+  min-height: var(--yb-control-height);
+  padding: 0 10px;
   color: var(--yb-text);
   font-size: 14px;
   background: #ffffff;
   border: 1px solid var(--yb-border-soft);
   border-radius: var(--yb-radius-md);
-  outline: none;
 }
 
-.knowledge-create-folder-bar input:focus {
+.knowledge-create-folder-form input:focus-visible,
+.knowledge-create-folder-form select:focus-visible {
   border-color: rgba(33, 116, 253, 0.5);
-  box-shadow: var(--yb-focus-ring);
+  outline: 2px solid var(--yb-primary);
+  outline-offset: 2px;
+}
+
+.knowledge-create-folder-form select:disabled {
+  opacity: 0.55;
 }
 
 .knowledge-layout {
@@ -372,6 +388,12 @@
   font-weight: 800;
   background: rgba(33, 116, 253, 0.12);
   border-radius: var(--yb-radius-md);
+}
+
+.knowledge-folder-main strong,
+.knowledge-folder-main small {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .knowledge-folder-actions {
