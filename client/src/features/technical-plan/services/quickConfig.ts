@@ -54,20 +54,29 @@ export const PAGE_LADDER_PRESETS: Record<PageLadderKey, PageLadderPreset> = {
 
 export const QUICK_CONFIG_STORAGE_KEY = 'yibiao.technical-plan.step01.quick-config-expanded';
 const WORDS_PER_PAGE = 500;
+const CUSTOM_PAGE_VARIANCE = 0.2;
+const MAX_CUSTOM_PAGE_VARIANCE = 100;
+export const TABLE_DENSITY_LIMITS: Record<ContentTableRequirement, number> = {
+  none: 0,
+  light: 3,
+  moderate: 7,
+  heavy: 10,
+};
 
 const DEFAULT_HTML_IMAGE_TYPES = '甘特图、进度网络图、组织架构图、泳道图、RACI 职责矩阵、风险矩阵、系统架构与拓扑图、WBS 工作分解结构图、鱼骨图、柱状图、折线图、饼图';
 
 export const DEFAULT_CONTENT_GENERATION_OPTIONS: ContentGenerationOptions = {
   imagePreset: 'enhanced',
   useAiImages: true,
-  maxAiImages: 10,
+  maxAiImages: 3,
   useMermaidImages: true,
   useAiRedesignForMermaid: false,
-  maxMermaidImages: 8,
+  maxMermaidImages: 3,
   useHtmlImages: true,
-  maxHtmlImages: 8,
+  maxHtmlImages: 3,
   htmlImageTypes: DEFAULT_HTML_IMAGE_TYPES,
   tableRequirement: 'heavy',
+  maxTables: 10,
   enableConsistencyAudit: true,
   consistencyRepairMode: 'agent',
   enableOriginalPlanCoverageAudit: false,
@@ -102,9 +111,10 @@ export function resolvePageLadderKey(options: OutlineWordControlOptions): PageLa
 export function createCustomPageOptions(pageCount: number): OutlineWordControlOptions {
   const normalizedPageCount = Math.max(1, Math.round(Number(pageCount) || 1));
   const words = normalizedPageCount * WORDS_PER_PAGE;
+  const variance = Math.min(Math.round(words * CUSTOM_PAGE_VARIANCE), MAX_CUSTOM_PAGE_VARIANCE * WORDS_PER_PAGE);
   return {
-    minimumWords: words,
-    maximumWords: words,
+    minimumWords: words - variance,
+    maximumWords: words + variance,
     sectionWords: 1800,
     strictSectionWords: false,
   };
@@ -119,12 +129,19 @@ export function resolveCustomPageCount(options: OutlineWordControlOptions): numb
   if (
     options.minimumWords <= 0
     || options.maximumWords <= 0
-    || options.minimumWords !== options.maximumWords
-    || options.minimumWords % WORDS_PER_PAGE !== 0
   ) {
     return null;
   }
-  return options.minimumWords / WORDS_PER_PAGE;
+  if (options.minimumWords === options.maximumWords && options.minimumWords % WORDS_PER_PAGE === 0) {
+    return options.minimumWords / WORDS_PER_PAGE;
+  }
+  const pageCount = (options.minimumWords + options.maximumWords) / (2 * WORDS_PER_PAGE);
+  const expected = createCustomPageOptions(pageCount);
+  return Number.isSafeInteger(pageCount)
+    && expected.minimumWords === options.minimumWords
+    && expected.maximumWords === options.maximumWords
+    ? pageCount
+    : null;
 }
 
 export function resolveCustomPageDraft(options: OutlineWordControlOptions, currentDraft = ''): string {
@@ -144,6 +161,14 @@ export function normalizeTableRequirement(value: unknown): ContentTableRequireme
   return value === 'none' || value === 'light' || value === 'moderate' || value === 'heavy'
     ? value
     : 'heavy';
+}
+
+export function resolveTableLimit(requirement: ContentTableRequirement, value: unknown) {
+  if (requirement === 'none') return 0;
+  const numeric = Number(value);
+  return value !== undefined && value !== null && value !== '' && Number.isInteger(numeric) && numeric >= 0
+    ? numeric
+    : TABLE_DENSITY_LIMITS[requirement];
 }
 
 export function resolveContentGenerationOptionsForQuickConfig(
@@ -168,6 +193,7 @@ export function resolveContentGenerationOptionsForQuickConfig(
       ? source.htmlImageTypes
       : DEFAULT_HTML_IMAGE_TYPES,
     tableRequirement: normalizeTableRequirement(source.tableRequirement),
+    maxTables: resolveTableLimit(normalizeTableRequirement(source.tableRequirement), source.maxTables),
     consistencyRepairMode: source.consistencyRepairMode === 'normal' ? 'normal' : 'agent',
     originalPlanCoverageRepairMode: source.originalPlanCoverageRepairMode === 'normal' ? 'normal' : 'agent',
   };
@@ -195,6 +221,7 @@ export function mergeContentGenerationOptionsForQuickConfig(
       ? source.htmlImageTypes
       : DEFAULT_HTML_IMAGE_TYPES,
     tableRequirement: normalizeTableRequirement(source.tableRequirement),
+    maxTables: resolveTableLimit(normalizeTableRequirement(source.tableRequirement), source.maxTables),
     consistencyRepairMode,
     originalPlanCoverageRepairMode,
   };

@@ -23,7 +23,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 18px;
+  gap: 14px;
 }
 
 .duplicate-upload-summary {
@@ -103,14 +103,14 @@
   flex-direction: column;
   gap: 18px;
   overflow: auto;
-  padding: 26px 30px 28px;
+  padding: 22px 24px 24px;
 }
 
 .duplicate-guide-head strong {
   display: block;
   margin-top: 8px;
   color: var(--yb-text);
-  font-size: 22px;
+  font-size: 20px;
   letter-spacing: -0.025em;
 }
 
@@ -178,8 +178,8 @@
   min-height: 0;
   grid-row: 1 / -1;
   grid-template-rows: auto auto minmax(0, 1fr);
-  gap: 18px;
-  padding: 24px;
+  gap: 14px;
+  padding: 18px;
   background: rgba(255, 255, 255, 0.94);
   border: 1px solid rgba(228, 233, 240, 0.88);
   border-radius: var(--yb-radius-xl);
@@ -196,12 +196,12 @@
 .duplicate-page-title h2 {
   margin: 8px 0 0;
   color: var(--yb-text);
-  font-size: 24px;
+  font-size: 22px;
   letter-spacing: -0.035em;
 }
 
 .duplicate-analysis-title {
-  min-height: 58px;
+  min-height: 48px;
 }
 
 .duplicate-analysis-tabs {
@@ -215,9 +215,9 @@
 
 .duplicate-analysis-tab {
   display: grid;
-  min-height: 86px;
-  gap: 10px;
-  padding: 16px 20px;
+  min-height: 68px;
+  gap: 7px;
+  padding: 12px 16px;
   text-align: left;
   background: transparent;
   border: 0;
@@ -247,7 +247,7 @@
 
 .duplicate-analysis-tab strong {
   color: var(--yb-text);
-  font-size: 20px;
+  font-size: 16px;
 }
 
 .duplicate-analysis-tab em {
@@ -920,7 +920,7 @@
 .duplicate-analysis-content h3 {
   margin: 12px 0 10px;
   color: var(--yb-text);
-  font-size: 28px;
+  font-size: 22px;
   letter-spacing: -0.035em;
 }
 

@@ -81,8 +81,8 @@
   flex-direction: column;
   width: min(480px, calc(100vw - 40px));
   max-height: min(680px, calc(100vh - 40px));
-  gap: 16px;
-  padding: 22px;
+  gap: 12px;
+  padding: 20px;
   overflow: hidden;
   background: #ffffff;
   border: 1px solid rgba(228, 233, 240, 0.9);
@@ -101,7 +101,7 @@
 .detail-help-head h2 {
   margin: 0;
   color: var(--yb-text);
-  font-size: 20px;
+  font-size: 18px;
   letter-spacing: -0.02em;
 }
 
@@ -157,8 +157,8 @@
   flex-direction: column;
   width: min(560px, 100%);
   max-height: min(720px, calc(100vh - 40px));
-  gap: 16px;
-  padding: 24px;
+  gap: 12px;
+  padding: 20px;
   overflow: hidden;
   background: #ffffff;
   border: 1px solid rgba(228, 233, 240, 0.9);
@@ -179,7 +179,7 @@
 .content-regenerate-card-head h2 {
   margin: 0;
   color: var(--yb-text);
-  font-size: 22px;
+  font-size: 20px;
   letter-spacing: -0.02em;
 }
 
@@ -215,7 +215,7 @@
   flex: 0 0 auto;
   flex-wrap: wrap;
   justify-content: flex-end;
-  gap: 10px;
+  gap: 8px;
 }
 
 .remote-knowledge-decision-actions {

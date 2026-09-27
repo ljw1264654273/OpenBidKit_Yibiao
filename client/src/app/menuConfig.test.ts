@@ -24,7 +24,23 @@ test('knowledge bases are exposed as flat top-level navigation entries', () => {
   expectedNavigationIds.slice(0, 6).forEach((navigationId) => {
     assert.match(catalogSource, new RegExp(navigationId));
   });
+  assert.match(catalogSource, /label:\s*'国标文档'/);
+  assert.match(catalogSource, /label:\s*'省标文档'/);
+  assert.match(catalogSource, /label:\s*'市标文档'/);
+  assert.match(catalogSource, /label:\s*'行业标文档'/);
+  assert.match(catalogSource, /label:\s*'企业文档'/);
   assert.match(source, /id:\s*'remote-knowledge-base'/);
   assert.match(source, /id:\s*'image-knowledge-base'/);
   assert.doesNotMatch(source, /id:\s*'knowledge-base'/);
+  assert.match(source, /document:\s*'文档'/);
+  assert.match(source, /'national-standard':\s*'国标'/);
+  assert.match(source, /'provincial-standard':\s*'省标'/);
+  assert.match(source, /'municipal-standard':\s*'市标'/);
+  assert.match(source, /'industry-standard':\s*'行业标'/);
+  assert.match(source, /enterprise:\s*'企业'/);
+  assert.match(
+    source,
+    /description:\s*`管理\$\{knowledgeBaseDescriptionLabels\[item\.id\]\}资料、文件夹和可复用知识条目`/,
+  );
+  assert.doesNotMatch(source, /item\.label\.replace\(\/知识库\$\//);
 });

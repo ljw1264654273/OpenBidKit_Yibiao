@@ -6,27 +6,27 @@ export const KNOWLEDGE_BASE_CATALOG = [
   },
   {
     id: 'national-standard',
-    label: '国标知识库',
+    label: '国标文档',
     navigationId: 'national-standard-knowledge-base',
   },
   {
     id: 'provincial-standard',
-    label: '省标知识库',
+    label: '省标文档',
     navigationId: 'provincial-standard-knowledge-base',
   },
   {
     id: 'municipal-standard',
-    label: '市标知识库',
+    label: '市标文档',
     navigationId: 'municipal-standard-knowledge-base',
   },
   {
     id: 'industry-standard',
-    label: '行业标知识库',
+    label: '行业标文档',
     navigationId: 'industry-standard-knowledge-base',
   },
   {
     id: 'enterprise',
-    label: '企业知识库',
+    label: '企业文档',
     navigationId: 'enterprise-knowledge-base',
   },
 ] as const;

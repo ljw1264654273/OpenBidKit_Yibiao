@@ -410,22 +410,24 @@ test('正文生成目录支持拖拽调宽并让长标题最多显示两行', ()
   assert.match(css, /\.content-outline-text strong\s*\{[^}]*display:\s*-webkit-box;[^}]*-webkit-line-clamp:\s*2;[^}]*\}/s);
 });
 
-test('选择标书使用局部紧凑上传样式并把正文阅读器收敛为全屏查看入口', () => {
+test('选择标书将全屏查看和文件切换放入唯一快速配置标题行', () => {
   const source = readFileSync(new URL('../pages/DocumentAnalysisPage.tsx', import.meta.url), 'utf8');
 
   assert.match(source, /<UploadBoard[^>]*className="technical-document-upload-board"/s);
-  assert.match(source, /technical-document-reader-card analysis-markdown-card/);
+  assert.doesNotMatch(source, /technical-document-reader-card analysis-markdown-card/);
+  assert.doesNotMatch(source, /<strong>\{documentLabels\[visibleDocumentTab\]\}内容<\/strong>/);
   assert.match(source, /<MarkdownFullscreenViewer/);
   assert.match(source, /fullscreenTriggerOnly/);
   assert.match(source, /buttonLabel="全屏查看"/);
+  assert.match(source, /quick-config-summary-actions[\s\S]*<MarkdownFullscreenViewer/);
+  assert.match(source, /aria-label="选择查看的文件"/);
+  assert.doesNotMatch(source, /className="quick-config-head"/);
 });
 
-test('选择标书正文阅读器只保留全屏查看入口，不再内嵌长文滚动区', () => {
+test('选择标书不再保留独立正文阅读器样式', () => {
   const css = readFileSync(new URL('../../../styles/feature-technical-plan.css', import.meta.url), 'utf8');
 
-  assert.match(css, /\.technical-document-reader-card\.is-compact\s*\{[^}]*height:\s*auto;[^}]*align-self:\s*start;/s);
-  assert.match(css, /\.technical-document-reader-actions\s*\{/);
-  assert.match(css, /\.technical-document-reader-actions\s+\.markdown-fullscreen-frame\.is-trigger-only\s*\{/);
+  assert.match(css, /\.quick-config-summary-actions\s*\{/);
 });
 
 test('STEP 01 以解析为主并把快速配置折叠成可展开摘要', () => {
@@ -474,12 +476,15 @@ test('STEP 01 图片设置提供三种图片模式并显示中文说明', () => 
   assert.match(imageConfig, /丰富图文/);
   assert.match(imageConfig, /基础配图/);
   assert.match(imageConfig, /纯文字/);
-  assert.match(imageConfig, /适量实拍图、PPT 插图、页面丰富/);
-  assert.match(imageConfig, /适量流程图配图，内容简洁清晰/);
+  assert.match(source, /实拍图上限/);
+  assert.match(source, /PPT 图上限/);
+  assert.match(source, /流程图上限/);
   assert.match(imageConfig, /无配图，仅文字方案/);
   assert.match(source, /role="radiogroup" aria-label="图片模式"/);
   assert.match(source, /QUICK_CONFIG_IMAGE_OPTIONS/);
-  assert.match(css, /\.quick-config-image-options\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/s);
+  assert.match(css, /\.quick-config-image-options\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*minmax\(400px,\s*1\.25fr\) repeat\(2,\s*minmax\(140px,\s*1fr\)\)/s);
+  assert.match(css, /\.quick-config-image-option\.is-active \.quick-config-image-description\s*\{[^}]*display:\s*flex;[^}]*overflow-x:\s*auto;/s);
+  assert.match(css, /\.quick-config-image-option\.is-active \.quick-config-inline-limit\s*\{[^}]*flex:\s*0 0 auto;/s);
   assert.match(source, /preset === 'enhanced'/);
   assert.doesNotMatch(source, /\['enhanced', 'rich', 'basic', 'text-only'\]/);
   assert.doesNotMatch(source, /\['useAiImages', 'AI 配图'\]/);
@@ -554,7 +559,7 @@ test('五步流程统一收纳在一个紧凑模块中，顶部状态导航不�
   assert.match(technicalCss, /\.technical-step-content\s*\{[^}]*padding:\s*8px;/s);
   assert.match(technicalCss, /\.technical-step-content > \.plan-step-body/);
   assert.match(technicalCss, /\.technical-document-upload-board \.upload-page-title\s*\{\s*display:\s*none;/s);
-  assert.match(shellCss, /\.content-shell:has\(\.technical-workbench\)\s*\{[^}]*padding:\s*16px 28px;/s);
+  assert.match(shellCss, /\.content-shell:has\(\.technical-workbench\)\s*\{[^}]*padding:\s*14px 24px;/s);
 });
 
 test('STEP 01 上传招标文件成功后重新展开快速配置', () => {

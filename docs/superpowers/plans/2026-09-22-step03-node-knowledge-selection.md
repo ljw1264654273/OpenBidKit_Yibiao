@@ -879,8 +879,8 @@ Expected: no whitespace errors. Only the planned Renderer/helper/test/style file
 
 Use the existing development server if `127.0.0.1:5173` is already occupied; do not terminate an unrelated process. In STEP 03:
 
-1. Open “新增知识库”, select “国标知识库”, select an existing directory, click “选择并上传文档”, and confirm the directory appears under the current node after upload.
-2. Open “新增知识库”, select “省标知识库”, choose “+ 新建目录”, create a directory, cancel the file picker, and confirm the empty directory remains associated.
+1. Open “新增知识库”, select “国标文档”, select an existing directory, click “选择并上传文档”, and confirm the directory appears under the current node after upload.
+2. Open “新增知识库”, select “省标文档”, choose “+ 新建目录”, create a directory, cancel the file picker, and confirm the empty directory remains associated.
 3. Open “关联文档”, select one一级知识库 and one directory, confirm only that directory’s `success` documents appear, select multiple documents, save, and confirm the detail list shows `一级知识库 / 目录 / 文档`.
 4. Repeat association on a second directory and confirm the first directory’s document links remain; switch the一级知识库 and confirm directory/document selections clear.
 

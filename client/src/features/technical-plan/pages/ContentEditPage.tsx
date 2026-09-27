@@ -31,6 +31,7 @@ import {
   normalizePersistedContentGenerationOptions,
   normalizeRuntimeContentGenerationOptions,
 } from '../services/imageConfig';
+import { resolveTableLimit, TABLE_DENSITY_LIMITS } from '../services/quickConfig';
 
 interface ContentEditPageProps {
   projectId?: string;
@@ -86,10 +87,10 @@ const imageModelStatusLabels: Record<ImageModelStatus, string> = {
 };
 
 const tableRequirementOptions: Array<{ value: ContentTableRequirement; label: string }> = [
-  { value: 'none', label: '不要' },
+  { value: 'none', label: '无表格' },
   { value: 'light', label: '少量' },
   { value: 'moderate', label: '适中' },
-  { value: 'heavy', label: '大量' },
+  { value: 'heavy', label: '丰富' },
 ];
 
 const consistencyRepairModeOptions: Array<{ value: ConsistencyRepairMode; label: string }> = [
@@ -167,14 +168,15 @@ function ImageExampleIcon() {
 const defaultContentGenerationOptions: ContentGenerationOptions = {
   imagePreset: 'enhanced',
   useAiImages: true,
-  maxAiImages: 10,
+  maxAiImages: 3,
   useMermaidImages: true,
   useAiRedesignForMermaid: false,
-  maxMermaidImages: 8,
+  maxMermaidImages: 3,
   useHtmlImages: true,
-  maxHtmlImages: 8,
+  maxHtmlImages: 3,
   htmlImageTypes: DEFAULT_HTML_IMAGE_TYPES,
   tableRequirement: 'heavy',
+  maxTables: 10,
   enableConsistencyAudit: true,
   consistencyRepairMode: 'agent',
   enableOriginalPlanCoverageAudit: false,
@@ -211,6 +213,7 @@ function normalizeGenerationOptions(options: ContentGenerationOptions | undefine
   return {
     ...imageOptions,
     tableRequirement: isContentTableRequirement(tableRequirement) ? tableRequirement : fallback.tableRequirement,
+    maxTables: resolveTableLimit(isContentTableRequirement(tableRequirement) ? tableRequirement : fallback.tableRequirement, options?.maxTables),
     enableConsistencyAudit: Boolean(options?.enableConsistencyAudit ?? fallback.enableConsistencyAudit),
     consistencyRepairMode: isConsistencyRepairMode(options?.consistencyRepairMode) ? options.consistencyRepairMode : fallback.consistencyRepairMode,
     enableOriginalPlanCoverageAudit: isExpansionWorkflow ? Boolean(options?.enableOriginalPlanCoverageAudit ?? fallback.enableOriginalPlanCoverageAudit) : false,
@@ -1597,6 +1600,7 @@ function ContentEditPage({
         maxHtmlImages: runtimeGenerationOptions.maxHtmlImages,
         htmlImageTypes: runtimeGenerationOptions.htmlImageTypes,
         tableRequirement: runtimeGenerationOptions.tableRequirement,
+        maxTables: runtimeGenerationOptions.maxTables,
         enableConsistencyAudit: runtimeGenerationOptions.enableConsistencyAudit,
         consistencyRepairMode: runtimeGenerationOptions.consistencyRepairMode,
         enableOriginalPlanCoverageAudit: isExpansionWorkflow && runtimeGenerationOptions.enableOriginalPlanCoverageAudit,
@@ -1669,6 +1673,7 @@ function ContentEditPage({
           maxHtmlImages: savedGenerationOptions.maxHtmlImages,
           htmlImageTypes: savedGenerationOptions.htmlImageTypes,
           tableRequirement: savedGenerationOptions.tableRequirement,
+          maxTables: savedGenerationOptions.maxTables,
           enableConsistencyAudit: savedGenerationOptions.enableConsistencyAudit,
           consistencyRepairMode: savedGenerationOptions.consistencyRepairMode,
           enableOriginalPlanCoverageAudit: isExpansionWorkflow && savedGenerationOptions.enableOriginalPlanCoverageAudit,
@@ -2385,11 +2390,27 @@ ${selectedMermaidReviewCode}
                   <select
                     value={draftGenerationOptions.tableRequirement}
                     disabled={generationStrategyLocked}
-                    onChange={(event) => setDraftGenerationOptions((prev) => ({ ...prev, tableRequirement: event.target.value as ContentTableRequirement }))}
+                    onChange={(event) => setDraftGenerationOptions((prev) => {
+                      const tableRequirement = event.target.value as ContentTableRequirement;
+                      return { ...prev, tableRequirement, maxTables: TABLE_DENSITY_LIMITS[tableRequirement] };
+                    })}
                   >
                     {tableRequirementOptions.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}
                   </select>
                 </label>
+                {draftGenerationOptions.tableRequirement !== 'none' && (
+                  <label className="content-generation-config-row">
+                    <span><strong>全文表格上限</strong></span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={draftGenerationOptions.maxTables ?? TABLE_DENSITY_LIMITS[draftGenerationOptions.tableRequirement]}
+                      disabled={generationStrategyLocked}
+                      onChange={(event) => setDraftGenerationOptions((prev) => ({ ...prev, maxTables: Math.max(0, Math.floor(Number(event.target.value) || 0)) }))}
+                    />
+                  </label>
+                )}
               </div>
               <div className="content-generation-config-group">
                 <label className="content-generation-config-row">

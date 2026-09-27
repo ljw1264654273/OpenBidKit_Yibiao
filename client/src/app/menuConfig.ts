@@ -6,6 +6,15 @@ const underDevelopmentNotice = {
   message: '功能正在开发中。',
 };
 
+const knowledgeBaseDescriptionLabels = {
+  document: '文档',
+  'national-standard': '国标',
+  'provincial-standard': '省标',
+  'municipal-standard': '市标',
+  'industry-standard': '行业标',
+  enterprise: '企业',
+} satisfies Record<(typeof KNOWLEDGE_BASE_CATALOG)[number]['id'], string>;
+
 export const appMenuItems: AppMenuItem[] = [
   {
     id: 'bid-projects',
@@ -39,7 +48,7 @@ export const appMenuItems: AppMenuItem[] = [
   ...KNOWLEDGE_BASE_CATALOG.map((item): AppMenuItem => ({
     id: item.navigationId,
     label: item.label,
-    description: `管理${item.label.replace(/知识库$/, '')}资料、文件夹和可复用知识条目`,
+    description: `管理${knowledgeBaseDescriptionLabels[item.id]}资料、文件夹和可复用知识条目`,
   })),
   {
     id: 'remote-knowledge-base',

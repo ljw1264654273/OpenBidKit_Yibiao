@@ -467,12 +467,12 @@
   min-height: 0;
   flex: 1;
   overflow: hidden;
-  padding: 36px 44px;
+  padding: 28px 36px;
 }
 
 .content-shell:has(.technical-workbench) {
   overflow: hidden;
-  padding: 16px 28px;
+  padding: 14px 24px;
 }
 
 .content-shell:has(.settings-page) {
@@ -490,6 +490,6 @@
   height: 100%;
   min-height: 0;
   flex-direction: column;
-  gap: 26px;
+  gap: 20px;
   overflow: auto;
 }

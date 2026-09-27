@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 // Node 的类型擦除测试运行器需要显式扩展名，产品代码仍使用标准无扩展名导入。
 // @ts-expect-error allowImportingTsExtensions 仅影响测试运行方式
-import { DEFAULT_CONTENT_GENERATION_OPTIONS, DEFAULT_PAGE_LADDER_KEY, PAGE_LADDER_KEYS, PAGE_LADDER_PRESETS, createCustomPageOptions, getQuickConfigMissingItems, isQuickConfigComplete, isQuickConfigLocked, isQuickConfigOptionLocked, isValidCustomPageCount, mergeContentGenerationOptionsForQuickConfig, normalizeTableRequirement, resolveContentGenerationOptionsForQuickConfig, resolveCustomPageCount, resolveCustomPageDraft, resolvePageLadderKey } from './quickConfig.ts';
+import { DEFAULT_CONTENT_GENERATION_OPTIONS, DEFAULT_PAGE_LADDER_KEY, PAGE_LADDER_KEYS, PAGE_LADDER_PRESETS, TABLE_DENSITY_LIMITS, createCustomPageOptions, getQuickConfigMissingItems, isQuickConfigComplete, isQuickConfigLocked, isQuickConfigOptionLocked, isValidCustomPageCount, mergeContentGenerationOptionsForQuickConfig, normalizeTableRequirement, resolveContentGenerationOptionsForQuickConfig, resolveCustomPageCount, resolveCustomPageDraft, resolvePageLadderKey } from './quickConfig.ts';
 // @ts-expect-error allowImportingTsExtensions 仅影响测试运行方式
 import { DEFAULT_OUTLINE_WORD_CONTROL_OPTIONS } from '../../../shared/types/outline.ts';
 
@@ -53,8 +53,8 @@ test('篇幅预设按 1500、1200、900、500、200 页排列且默认 1200 页'
   assert.equal(isValidCustomPageCount(''), false);
   assert.equal(isValidCustomPageCount('12.5'), false);
   assert.deepEqual(createCustomPageOptions(1000), {
-    minimumWords: 500000,
-    maximumWords: 500000,
+    minimumWords: 450000,
+    maximumWords: 550000,
     sectionWords: 1800,
     strictSectionWords: false,
   });
@@ -70,6 +70,41 @@ test('篇幅预设按 1500、1200、900、500、200 页排列且默认 1200 页'
     sectionWords: 500,
     strictSectionWords: false,
   }), 'p1200');
+});
+
+test('自定义页数按每页 500 字及有限浮动换算为上下限', () => {
+  assert.deepEqual(createCustomPageOptions(100), {
+    minimumWords: 40000,
+    maximumWords: 60000,
+    sectionWords: 1800,
+    strictSectionWords: false,
+  });
+  assert.deepEqual(createCustomPageOptions(500), {
+    minimumWords: 200000,
+    maximumWords: 300000,
+    sectionWords: 1800,
+    strictSectionWords: false,
+  });
+  assert.deepEqual(createCustomPageOptions(1200), {
+    minimumWords: 550000,
+    maximumWords: 650000,
+    sectionWords: 1800,
+    strictSectionWords: false,
+  });
+  assert.equal(resolveCustomPageCount(createCustomPageOptions(100)), 100);
+  assert.equal(resolveCustomPageDraft(createCustomPageOptions(100)), '100');
+  assert.equal(resolveCustomPageCount({
+    minimumWords: 430000,
+    maximumWords: 430000,
+    sectionWords: 1800,
+    strictSectionWords: false,
+  }), 860);
+  assert.equal(resolveCustomPageCount({
+    minimumWords: 40000,
+    maximumWords: 65000,
+    sectionWords: 1800,
+    strictSectionWords: false,
+  }), null);
 });
 
 test('自定义页数草稿从已保存配置恢复，非法配置不再回退为 0', () => {
@@ -93,6 +128,14 @@ test('表格密度缺失或非法时回退丰富，显式无表格保留', () =>
   assert.equal(normalizeTableRequirement(undefined), 'heavy');
   assert.equal(normalizeTableRequirement('unknown'), 'heavy');
   assert.equal(normalizeTableRequirement('none'), 'none');
+});
+
+test('表格预设和自定义上限持久化为同一正文配置', () => {
+  assert.deepEqual(TABLE_DENSITY_LIMITS, { none: 0, light: 3, moderate: 7, heavy: 10 });
+  assert.equal(resolveContentGenerationOptionsForQuickConfig(undefined, true).maxTables, 10);
+  const custom = mergeContentGenerationOptionsForQuickConfig(undefined, { tableRequirement: 'light', maxTables: 5 }, true);
+  assert.equal(resolveContentGenerationOptionsForQuickConfig(custom, true).maxTables, 5);
+  assert.equal(mergeContentGenerationOptionsForQuickConfig(custom, { tableRequirement: 'moderate', maxTables: 7 }, true).maxTables, 7);
 });
 
 test('图片默认值使用丰富图文并在运行态遵循图片模型可用性', () => {

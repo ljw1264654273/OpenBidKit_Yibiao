@@ -9,11 +9,11 @@
 一级入口固定为：
 
 - 文档知识库
-- 国标知识库
-- 省标知识库
-- 市标知识库
-- 行业标知识库
-- 企业知识库
+- 国标文档
+- 省标文档
+- 市标文档
+- 行业标文档
+- 企业文档
 - 远程知识库
 - 图片知识库
 
@@ -24,11 +24,11 @@
 | 导航 ID | 数据库分类 ID | 中文名称 |
 | --- | --- | --- |
 | `document-knowledge-base` | `document` | 文档知识库 |
-| `national-standard-knowledge-base` | `national-standard` | 国标知识库 |
-| `provincial-standard-knowledge-base` | `provincial-standard` | 省标知识库 |
-| `municipal-standard-knowledge-base` | `municipal-standard` | 市标知识库 |
-| `industry-standard-knowledge-base` | `industry-standard` | 行业标知识库 |
-| `enterprise-knowledge-base` | `enterprise` | 企业知识库 |
+| `national-standard-knowledge-base` | `national-standard` | 国标文档 |
+| `provincial-standard-knowledge-base` | `provincial-standard` | 省标文档 |
+| `municipal-standard-knowledge-base` | `municipal-standard` | 市标文档 |
+| `industry-standard-knowledge-base` | `industry-standard` | 行业标文档 |
+| `enterprise-knowledge-base` | `enterprise` | 企业文档 |
 
 远程和图片一级入口分别使用 `remote-knowledge-base`、`image-knowledge-base`。旧 `knowledge-base`、旧 `document-knowledge-base` 和旧 `image-knowledge-base` 状态都保留入口兼容，其中旧图片状态在新菜单中仍映射到图片知识库并显示开发中提示。
 

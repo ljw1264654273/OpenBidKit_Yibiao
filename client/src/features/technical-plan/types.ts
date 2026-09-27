@@ -89,6 +89,7 @@ export interface ContentGenerationOptions {
   maxHtmlImages: number;
   htmlImageTypes: string;
   tableRequirement: ContentTableRequirement;
+  maxTables?: number;
   enableConsistencyAudit: boolean;
   consistencyRepairMode: ConsistencyRepairMode;
   enableOriginalPlanCoverageAudit: boolean;

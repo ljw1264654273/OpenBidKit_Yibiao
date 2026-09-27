@@ -4,9 +4,9 @@
   min-width: 0;
   height: 100%;
   min-height: 0;
-  gap: 18px;
+  gap: 16px;
   overflow: auto;
-  padding: 28px 32px 36px;
+  padding: 24px 28px 30px;
   background: var(--yb-page-bg, #f7f9fc);
 }
 
@@ -26,8 +26,8 @@
   color: var(--yb-text, #213753);
 }
 
-.expansion-create-head h1 { font-size: 28px; }
-.expansion-create-preview-head h2 { font-size: 22px; }
+.expansion-create-head h1 { font-size: 24px; }
+.expansion-create-preview-head h2 { font-size: 20px; }
 
 .expansion-create-head p {
   margin: 0;
@@ -51,7 +51,7 @@
   display: grid;
   min-height: 260px;
   gap: 14px;
-  padding: 20px 24px 22px;
+  padding: 16px 18px 18px;
   background: #fff;
   border: 1px solid var(--yb-border, #e4eaf1);
   border-radius: 8px;

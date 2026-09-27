@@ -86,8 +86,8 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
-  gap: 18px;
-  padding: 22px 24px;
+  gap: 14px;
+  padding: 16px 18px;
   background:
     radial-gradient(circle at 90% 8%, rgba(91, 84, 211, 0.12), transparent 28%),
     rgba(255, 255, 255, 0.94);
@@ -97,7 +97,7 @@
   display: block;
   margin: 7px 0 5px;
   color: var(--yb-text);
-  font-size: 24px;
+  font-size: 22px;
   letter-spacing: -0.025em;
 }
 
@@ -170,8 +170,8 @@
   min-height: 0;
   grid-row: 1 / -1;
   grid-template-rows: auto auto minmax(0, 1fr);
-  gap: 18px;
-  padding: 24px;
+  gap: 14px;
+  padding: 18px;
   background: rgba(255, 255, 255, 0.94);
   border: 1px solid rgba(228, 233, 240, 0.88);
   border-radius: var(--yb-radius-xl);
@@ -179,13 +179,13 @@
 }
 
 .rejection-check-result-title {
-  min-height: 58px;
+  min-height: 48px;
 }
 
 .rejection-check-result-actions {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 6px;
 }
 
 .rejection-check-result-tabs {
@@ -199,9 +199,9 @@
 
 .rejection-check-result-tab {
   display: grid;
-  min-height: 86px;
-  gap: 10px;
-  padding: 16px 20px;
+  min-height: 68px;
+  gap: 7px;
+  padding: 12px 16px;
   text-align: left;
   background: transparent;
   border: 0;
@@ -224,7 +224,7 @@
 
 .rejection-check-result-tab strong {
   color: var(--yb-text);
-  font-size: 20px;
+  font-size: 16px;
 }
 
 .rejection-check-result-tab em {
@@ -262,7 +262,7 @@
   flex-direction: column;
   justify-content: center;
   overflow: auto;
-  padding: 34px;
+  padding: 26px;
   background: linear-gradient(180deg, rgba(248, 250, 253, 0.88), rgba(255, 255, 255, 0.98));
   border: 1px solid var(--yb-border-soft);
   border-radius: var(--yb-radius-xl);
@@ -271,7 +271,7 @@
 .rejection-check-result-content h3 {
   margin: 10px 0 12px;
   color: var(--yb-text);
-  font-size: 26px;
+  font-size: 22px;
   letter-spacing: -0.025em;
 }
 

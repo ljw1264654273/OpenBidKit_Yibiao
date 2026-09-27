@@ -8,12 +8,12 @@ test('四种图片模式映射为稳定规范值', () => {
   assert.deepEqual(applyImagePreset('enhanced'), {
     imagePreset: 'enhanced',
     useAiImages: true,
-    maxAiImages: 10,
+    maxAiImages: 3,
     useMermaidImages: true,
     useAiRedesignForMermaid: false,
-    maxMermaidImages: 8,
+    maxMermaidImages: 3,
     useHtmlImages: true,
-    maxHtmlImages: 8,
+    maxHtmlImages: 3,
     htmlImageTypes: DEFAULT_HTML_IMAGE_TYPES,
   });
 
@@ -35,7 +35,7 @@ test('四种图片模式映射为稳定规范值', () => {
     maxAiImages: 0,
     useMermaidImages: true,
     useAiRedesignForMermaid: false,
-    maxMermaidImages: 5,
+    maxMermaidImages: 3,
     useHtmlImages: false,
     maxHtmlImages: 0,
     htmlImageTypes: DEFAULT_HTML_IMAGE_TYPES,
@@ -61,7 +61,7 @@ test('持久化图片模式不因叶子数量或图片模型可用性变成自�
   });
   assert.equal(persisted.imagePreset, 'enhanced');
   assert.equal(persisted.useAiImages, true);
-  assert.equal(persisted.maxAiImages, 10);
+  assert.equal(persisted.maxAiImages, 3);
 
   const runtime = normalizeRuntimeContentGenerationOptions(persisted, {
     imageModelAvailable: false,
@@ -94,7 +94,7 @@ test('历史配置缺少 imagePreset 时精确匹配，否则为 custom', () => 
     useHtmlImages: true,
     maxHtmlImages: 3,
     htmlImageTypes: DEFAULT_HTML_IMAGE_TYPES,
-  }), 'rich');
+  }), 'enhanced');
 
   assert.equal(inferImagePreset({
     useAiImages: true,

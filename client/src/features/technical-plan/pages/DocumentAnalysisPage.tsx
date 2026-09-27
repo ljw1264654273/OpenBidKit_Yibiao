@@ -33,6 +33,7 @@ import {
   PAGE_LADDER_KEYS,
   PAGE_LADDER_PRESETS,
   QUICK_CONFIG_STORAGE_KEY,
+  TABLE_DENSITY_LIMITS,
   resolveContentGenerationOptionsForQuickConfig,
   resolveCustomPageCount,
   resolveCustomPageDraft,
@@ -92,12 +93,45 @@ interface DocumentAnalysisPageProps {
   onCustomPageStateChange?: (state: { selected: boolean; draft: string }) => void;
 }
 
-const tableDensityOptions: Array<{ value: ContentTableRequirement; label: string }> = [
-  { value: 'none', label: '无表格' },
-  { value: 'light', label: '少量' },
-  { value: 'moderate', label: '适中' },
-  { value: 'heavy', label: '丰富' },
+const tableDensityOptions: Array<{ value: ContentTableRequirement; label: string; description: string }> = [
+  { value: 'none', label: '无表格', description: '正文中不包含表格' },
+  { value: 'light', label: '少量', description: '正文中存在必要表格' },
+  { value: 'moderate', label: '适中', description: '正文中设计包含表格' },
+  { value: 'heavy', label: '丰富', description: '正文中设计表格' },
 ];
+
+function EditableLimit({ label, ariaLabel = label, value, disabled, onCommit }: { label: string; ariaLabel?: string; value: number; disabled: boolean; onCommit: (value: number) => void }) {
+  const [draft, setDraft] = useState(String(value));
+  useEffect(() => setDraft(String(value)), [value]);
+  const commit = () => {
+    const numeric = Number(draft);
+    if (!Number.isSafeInteger(numeric) || numeric < 0 || draft.trim() === '') {
+      setDraft(String(value));
+      return;
+    }
+    if (numeric !== value) onCommit(numeric);
+  };
+  return (
+    <label className="quick-config-inline-limit">
+      <span>{label}</span>
+      <input
+        type="number"
+        min="0"
+        step="1"
+        aria-label={ariaLabel}
+        value={draft}
+        disabled={disabled}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') event.currentTarget.blur();
+          if (event.key === 'Escape') setDraft(String(value));
+        }}
+      />
+      <span>个</span>
+    </label>
+  );
+}
 
 function DocumentAnalysisPage({
   projectId,
@@ -159,9 +193,16 @@ function DocumentAnalysisPage({
     [contentGenerationOptions, imageModelAvailable],
   );
   const resolvedImagePreset = useMemo(
-    () => contentGenerationOptions?.imagePreset
-      || (contentGenerationOptions ? inferImagePreset(contentGenerationOptions) : resolvedContentOptions.imagePreset || 'enhanced'),
-    [contentGenerationOptions, resolvedContentOptions.imagePreset],
+    () => {
+      if (!contentGenerationOptions || contentGenerationOptions.imagePreset !== 'custom') {
+        return contentGenerationOptions?.imagePreset || 'enhanced';
+      }
+      if (!contentGenerationOptions.useAiImages && !contentGenerationOptions.useHtmlImages) {
+        return contentGenerationOptions.useMermaidImages ? 'basic' : 'text-only';
+      }
+      return 'enhanced';
+    },
+    [contentGenerationOptions],
   );
   const pageLadderKey = useMemo(() => resolvePageLadderKey(outlineWordControlOptions), [outlineWordControlOptions]);
   const sectionExtractionRunning = bidSectionExtractionStatus === 'running';
@@ -445,6 +486,7 @@ function DocumentAnalysisPage({
         contentGenerationOptions,
         {
           tableRequirement: value,
+          maxTables: TABLE_DENSITY_LIMITS[value],
         },
         imageModelAvailable,
       ));
@@ -455,12 +497,27 @@ function DocumentAnalysisPage({
     }
   };
 
+  const applyTableLimit = async (value: number) => {
+    setQuickConfigSaving('table:limit');
+    try {
+      await onContentGenerationOptionsChange(mergeContentGenerationOptionsForQuickConfig(
+        contentGenerationOptions,
+        { tableRequirement: resolvedContentOptions.tableRequirement, maxTables: value },
+        imageModelAvailable,
+      ));
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '保存表格上限失败', 'error');
+    } finally {
+      setQuickConfigSaving(null);
+    }
+  };
+
   const applyImagePresetSelection = async (preset: Exclude<ContentImagePreset, 'custom'>) => {
     if (quickConfigOptionLocked) {
       showToast('正文生成任务进行中，请等待任务结束后再调整快速配置', 'info');
       return;
     }
-    if (resolvedImagePreset === preset) return;
+    if (resolvedImagePreset === preset && inferImagePreset(contentGenerationOptions) === preset) return;
     if ((preset === 'enhanced' || preset === 'rich') && !imageModelAvailable) {
       showToast('图片模型当前不可用，已保存图片模式；开始生成正文时会按运行环境自动处理 AI 配图', 'info');
     }
@@ -473,6 +530,21 @@ function DocumentAnalysisPage({
       ));
     } catch (error) {
       showToast(error instanceof Error ? error.message : '保存图片模式失败', 'error');
+    } finally {
+      setQuickConfigSaving(null);
+    }
+  };
+
+  const applyImageLimit = async (field: 'maxAiImages' | 'maxHtmlImages' | 'maxMermaidImages', value: number) => {
+    setQuickConfigSaving(`image:${field}`);
+    try {
+      await onContentGenerationOptionsChange(mergeContentGenerationOptionsForQuickConfig(
+        contentGenerationOptions,
+        { imagePreset: 'custom', [field]: value },
+        imageModelAvailable,
+      ));
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '保存图片上限失败', 'error');
     } finally {
       setQuickConfigSaving(null);
     }
@@ -648,7 +720,6 @@ function DocumentAnalysisPage({
     ? tenderFiles.find((file) => file.id === activeDocumentTab.slice('tender:'.length)) || null
     : null;
   const visibleDocumentTab = activeDocumentTab === 'originalPlan' ? 'originalPlan' : 'tender';
-  const activeFile = visibleDocumentTab === 'originalPlan' ? originalPlanFile : activeTenderSource || tenderFile;
   const activeMarkdown = visibleDocumentTab === 'originalPlan'
     ? originalPlanMarkdown
     : activeTenderSource
@@ -662,7 +733,7 @@ function DocumentAnalysisPage({
   const activeTenderSourceLoading = activeTenderSource && loadingTenderSourceId === activeTenderSource.id;
 
   return (
-    <div className={`plan-step-body document-analysis-page technical-document-page${hasSectionHint ? ' has-section-hint' : ''}${bidSectionExtractionError ? ' has-section-error' : ''}${hasDocumentTabs ? ' has-document-tabs' : ''}`}>
+    <div className={`plan-step-body document-analysis-page technical-document-page${hasSectionHint ? ' has-section-hint' : ''}${bidSectionExtractionError ? ' has-section-error' : ''}`}>
       <UploadBoard
         className="technical-document-upload-board"
         kicker="STEP 01"
@@ -768,34 +839,45 @@ function DocumentAnalysisPage({
             <span className="section-kicker">快速配置</span>
             <strong>生成约束</strong>
           </div>
-              <div className="quick-config-summary-values" aria-label="当前快速配置">
-                <span>篇幅 <b>{quickConfigPageSummary}</b></span>
-                <span>表格 <b>{hasTableDensitySelection ? quickConfigTableSummary : '待选择'}</b></span>
-                <span>图片 <b>{quickConfigImageSummary}</b></span>
+          <div className="quick-config-summary-values" aria-label="当前快速配置">
+            <span>篇幅 <b>{quickConfigPageSummary}</b></span>
+            <span>表格 <b>{hasTableDensitySelection ? quickConfigTableSummary : '待选择'}</b></span>
+            <span>图片 <b>{quickConfigImageSummary}</b></span>
           </div>
-          <button
-            type="button"
-            className="outline-config-action quick-config-toggle"
-            aria-expanded={quickConfigExpanded}
-            aria-controls="technical-plan-quick-config-panel"
-            onClick={() => updateQuickConfigExpanded(!quickConfigExpanded)}
-            title={quickConfigExpanded ? '收起设置' : '展开设置'}
-            aria-label={quickConfigExpanded ? '收起快速配置' : '展开快速配置'}
-          >
-            {quickConfigExpanded ? '收起' : '设置'}
-          </button>
+          <div className="quick-config-summary-actions">
+            {hasDocumentTabs && (
+              <select
+                aria-label="选择查看的文件"
+                value={activeDocumentTab}
+                onChange={(event) => setActiveDocumentTab(event.target.value)}
+              >
+                {documentTabs.map((tab) => <option key={tab.id} value={tab.id}>{tab.label}</option>)}
+              </select>
+            )}
+            <MarkdownFullscreenViewer
+              title={`${documentLabels[visibleDocumentTab]}全屏查看`}
+              buttonLabel="全屏查看"
+              fullscreenTriggerOnly
+              disabled={!activeMarkdown || Boolean(activeTenderSourceLoading)}
+            >
+              <MarkdownRenderer>{activeMarkdown}</MarkdownRenderer>
+            </MarkdownFullscreenViewer>
+            <button
+              type="button"
+              className="outline-config-action quick-config-toggle"
+              aria-expanded={quickConfigExpanded}
+              aria-controls="technical-plan-quick-config-panel"
+              onClick={() => updateQuickConfigExpanded(!quickConfigExpanded)}
+              title={quickConfigExpanded ? '收起设置' : '展开设置'}
+              aria-label={quickConfigExpanded ? '收起快速配置' : '展开快速配置'}
+            >
+              {quickConfigExpanded ? '收起' : '设置'}
+            </button>
+          </div>
         </div>
 
         {quickConfigExpanded && (
           <div className="quick-config-panel" id="technical-plan-quick-config-panel">
-            <div className="quick-config-head">
-              <div>
-                <span className="section-kicker">快速配置</span>
-                <strong>本次标书的生成约束</strong>
-              </div>
-              <small>早选不早生效：STEP 03 目录生成、STEP 05 正文生成时仍可调整</small>
-            </div>
-
             <div className="quick-config-row">
               <div className="quick-config-label"><strong>投标范围</strong><small>决定下游全部输入</small></div>
               <div className="quick-config-row-body">
@@ -808,6 +890,7 @@ function DocumentAnalysisPage({
                     {selectedSectionTitle ? '更换标段' : hasFormalBidSections ? '选择标段' : '识别标段'}
                   </button>
                 )}
+                <small className="quick-config-note">选择的标段用于下游全部输入。</small>
               </div>
             </div>
 
@@ -874,28 +957,34 @@ function DocumentAnalysisPage({
                       ? `默认按 ${PAGE_LADDER_PRESETS[DEFAULT_PAGE_LADDER_KEY].label} 生成`
                       : `换算为全文 ${PAGE_LADDER_PRESETS[activePresetKey].description}，STEP 03 可精确调整上下限与单节字数。`}
                 </small>
+                <small className="quick-config-note">STEP 03 目录生成时仍可调整。</small>
               </div>
             </div>
 
             <div className="quick-config-row">
               <div className="quick-config-label"><strong>表格密度</strong><small>正文表格要求</small></div>
               <div className="quick-config-row-body">
-                <div className="quick-config-segment" role="radiogroup" aria-label="表格密度">
+                <div className="quick-config-table-options" role="radiogroup" aria-label="表格密度">
                   {tableDensityOptions.map((option) => (
-                    <button
-                      key={option.value}
-                      type="button"
-                      role="radio"
-                      aria-checked={option.value === resolvedContentOptions.tableRequirement}
-                      className={hasTableDensitySelection && option.value === resolvedContentOptions.tableRequirement ? 'is-active' : ''}
-                      onClick={() => void applyTableDensity(option.value)}
-                      disabled={quickConfigSaving !== null || quickConfigOptionLocked}
-                    >
-                      {option.label}
-                    </button>
+                    <div className="quick-config-table-option" key={option.value}>
+                      <button
+                        type="button"
+                        role="radio"
+                        aria-checked={option.value === resolvedContentOptions.tableRequirement}
+                        className={hasTableDensitySelection && option.value === resolvedContentOptions.tableRequirement ? 'is-active' : ''}
+                        onClick={() => void applyTableDensity(option.value)}
+                        disabled={quickConfigSaving !== null || quickConfigOptionLocked}
+                      >{option.label}</button>
+                      <span className="quick-config-option-description">
+                        {option.description}
+                        {option.value !== 'none' && (option.value === resolvedContentOptions.tableRequirement
+                          ? <>，<EditableLimit label="上限" ariaLabel="表格上限" value={resolvedContentOptions.maxTables ?? TABLE_DENSITY_LIMITS[option.value]} disabled={quickConfigSaving !== null || quickConfigOptionLocked} onCommit={(value) => void applyTableLimit(value)} /></>
+                          : <span>，上限 {TABLE_DENSITY_LIMITS[option.value]} 个</span>)}
+                      </span>
+                    </div>
                   ))}
                 </div>
-                <span className="quick-config-note">对应 STEP 05 生成配置</span>
+                <small className="quick-config-note">全文上限，STEP 05 正文生成时仍可调整。</small>
               </div>
             </div>
 
@@ -919,7 +1008,17 @@ function DocumentAnalysisPage({
                           <span className="quick-config-image-dot" aria-hidden="true" />
                           <span>{label}</span>
                         </button>
-                        <small className="quick-config-image-description">{description}</small>
+                        <small className="quick-config-image-description">
+                          {preset === 'text-only' ? description : active ? (
+                            preset === 'basic'
+                              ? <EditableLimit label="流程图上限" value={resolvedContentOptions.maxMermaidImages} disabled={disabled} onCommit={(value) => void applyImageLimit('maxMermaidImages', value)} />
+                              : <>
+                                <EditableLimit label="实拍图上限" value={resolvedContentOptions.maxAiImages} disabled={disabled} onCommit={(value) => void applyImageLimit('maxAiImages', value)} />
+                                <EditableLimit label="PPT 图上限" value={resolvedContentOptions.maxHtmlImages} disabled={disabled} onCommit={(value) => void applyImageLimit('maxHtmlImages', value)} />
+                                <EditableLimit label="流程图上限" value={resolvedContentOptions.maxMermaidImages} disabled={disabled} onCommit={(value) => void applyImageLimit('maxMermaidImages', value)} />
+                              </>
+                          ) : preset === 'basic' ? '流程图上限 3 个' : '实拍图、PPT 图、流程图各上限 3 个'}
+                        </small>
                       </div>
                     );
                   })}
@@ -928,58 +1027,6 @@ function DocumentAnalysisPage({
             </div>
           </div>
         )}
-      </section>
-
-      {hasDocumentTabs && (
-        <div className="document-switch-tabs" role="tablist" aria-label="技术方案文件正文切换">
-          {documentTabs.map((tab) => {
-            const isActive = tab.id === activeDocumentTab;
-            return (
-              <button
-                type="button"
-                className={`document-switch-tab${isActive ? ' is-active' : ''}`}
-                role="tab"
-                aria-selected={isActive}
-                aria-controls={`technical-document-panel-${tab.id}`}
-                id={`document-switch-tab-${tab.id}`}
-                key={tab.id}
-                onClick={() => setActiveDocumentTab(tab.id)}
-              >
-                <strong>{tab.label}</strong>
-              </button>
-            );
-          })}
-        </div>
-      )}
-
-      <section
-        className="technical-document-reader-card analysis-markdown-card is-compact"
-        role={hasDocumentTabs ? 'tabpanel' : undefined}
-        id={hasDocumentTabs ? `technical-document-panel-${activeDocumentTab}` : undefined}
-        aria-labelledby={hasDocumentTabs ? `document-switch-tab-${activeDocumentTab}` : undefined}
-      >
-        <div className="analysis-result-head technical-document-reader-head">
-          <div className="technical-document-reader-title">
-            <strong>{documentLabels[visibleDocumentTab]}内容</strong>
-            <span>{activeFile ? `${activeFile.fileName} · ${activeFile.markdownChars} 字` : '等待上传'}</span>
-          </div>
-          <div className="technical-document-reader-actions">
-            {activeTenderSourceLoading && <span className="technical-document-reader-loading">正在读取正文...</span>}
-            {!activeTenderSourceLoading && !activeMarkdown && (
-              <span className="technical-document-reader-empty">{activeFile ? '正文尚未解析完成' : `尚未导入${documentLabels[visibleDocumentTab]}`}</span>
-            )}
-            <MarkdownFullscreenViewer
-              title={`${documentLabels[visibleDocumentTab]}全屏查看`}
-              buttonLabel="全屏查看"
-              fullscreenTriggerOnly
-              disabled={!activeMarkdown || Boolean(activeTenderSourceLoading)}
-            >
-              <MarkdownRenderer>
-                {activeMarkdown}
-              </MarkdownRenderer>
-            </MarkdownFullscreenViewer>
-          </div>
-        </div>
       </section>
 
       <BidSectionSelectorDialog

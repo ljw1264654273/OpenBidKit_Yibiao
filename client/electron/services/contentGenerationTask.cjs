@@ -648,11 +648,13 @@ function countContentWords(content) {
   return countReadableWords(String(content || ''));
 }
 
-function maxTablesForRequirement(requirement, leafCount) {
+function maxTablesForRequirement(requirement, leafCount, configuredLimit) {
   if (requirement === 'none') return 0;
-  if (requirement === 'light') return Math.floor(Math.max(0, leafCount) * 0.2);
-  if (requirement === 'moderate') return Math.floor(Math.max(0, leafCount) * 0.4);
-  return null;
+  const defaults = { light: 3, moderate: 7, heavy: 10 };
+  const limit = Number.isInteger(configuredLimit) && configuredLimit >= 0
+    ? configuredLimit
+    : defaults[requirement] ?? defaults.heavy;
+  return Math.min(Math.max(0, leafCount), limit);
 }
 
 function clearContentPlanTable(contentPlan) {
@@ -926,12 +928,10 @@ function buildChapterContentPlanMessages({ chapter, parentChapters, siblingChapt
   const chapterTitle = chapter.title || '未命名章节';
   const chapterDescription = chapter.description || '';
   const tableRequirementLabel = TABLE_REQUIREMENT_LABELS[tableRequirement] || TABLE_REQUIREMENT_LABELS.heavy;
-  const tablePlanningAllowed = tableRequirement !== 'none';
-  const tableLimitInstruction = tableRequirement === 'heavy'
-    ? '表格需求为“大量”，保持现有编排逻辑；仍然只有明显适合表格的小节才将 table.needed 设为 true。'
-    : tableRequirement === 'none'
-      ? '表格需求为“不要”，table.needed 必须为 false，table.purpose 留空。'
-      : `表格需求为“${tableRequirementLabel}”，table.needed 表示进入表格候选池，不代表最终一定生成；全文表格上限为 ${maxTables || 0} 个，共 ${tableTotalSections || totalSections || 0} 个叶子小节，系统后续会全局择优。`;
+  const tablePlanningAllowed = tableRequirement !== 'none' && maxTables > 0;
+  const tableLimitInstruction = !tablePlanningAllowed
+    ? '本次不生成表格，table.needed 必须为 false，table.purpose 留空。'
+    : `表格需求为“${tableRequirementLabel}”，table.needed 表示进入表格候选池，不代表最终一定生成；全文表格上限为 ${maxTables} 个，共 ${tableTotalSections || totalSections || 0} 个叶子小节，系统后续会全局择优。`;
   const messages = [
     {
       role: 'system',
@@ -3392,7 +3392,8 @@ async function runContentGenerationTask({ aiService, agentService, workspaceStor
   const imageConcurrency = normalizeImageConcurrency(aiConfig.image_model?.concurrency_limit);
   const developerModeEnabled = isDeveloperModeEnabled(aiService);
   const tableRequirement = normalizeTableRequirement(generationOptions.tableRequirement ?? generationOptions.table_requirement);
-  let maxTables = maxTablesForRequirement(tableRequirement, leaves.length);
+  const configuredTableLimit = generationOptions.maxTables ?? generationOptions.max_tables;
+  let maxTables = maxTablesForRequirement(tableRequirement, leaves.length, configuredTableLimit);
   const referenceKnowledgeDocumentIds = normalizeReferenceDocumentIds(storedPlan);
   const enableConsistencyAudit = Boolean(generationOptions.enableConsistencyAudit ?? generationOptions.enable_consistency_audit ?? true);
   const requestedConsistencyRepairMode = normalizeConsistencyRepairMode(generationOptions.consistencyRepairMode ?? generationOptions.consistency_repair_mode);
@@ -3569,10 +3570,10 @@ async function runContentGenerationTask({ aiService, agentService, workspaceStor
 
   function refreshRunLimits(targets = tasksToRun) {
     const taskItemIds = new Set(targets.map(({ item }) => item.id));
-    maxTables = maxTablesForRequirement(tableRequirement, leaves.length);
-    const retainedTableCount = maxTables === null ? 0 : countRetainedTablePlans(storedContentPlans, taskItemIds);
+    maxTables = maxTablesForRequirement(tableRequirement, leaves.length, configuredTableLimit);
+    const retainedTableCount = countRetainedTablePlans(storedContentPlans, taskItemIds);
     runLimits = {
-      maxTablesForRun: maxTables === null ? null : Math.max(0, maxTables - retainedTableCount),
+      maxTablesForRun: Math.max(0, maxTables - retainedTableCount),
       retainedTableCount,
     };
     return runLimits;
@@ -3595,11 +3596,7 @@ async function runContentGenerationTask({ aiService, agentService, workspaceStor
     logs = [...logs, `开发者随机失败模式已启用：本轮将模拟 ${simulatedFailureItemIds.size} 个小节生成失败（${[...simulatedFailureItemIds].join('、')}）。`];
   }
   logs = [...logs, `文本模型并发上限：${contentConcurrency}。`];
-  logs = [...logs, tableRequirement === 'heavy'
-    ? '表格需求：大量，保持现有表格编排逻辑。'
-    : tableRequirement === 'none'
-      ? '表格需求：不要，本次正文编排不会安排表格。'
-      : `表格需求：${TABLE_REQUIREMENT_LABELS[tableRequirement]}，全文最多 ${maxTables} 个表格，本轮最多新增 ${runLimits.maxTablesForRun} 个。`];
+  logs = [...logs, `表格需求：${TABLE_REQUIREMENT_LABELS[tableRequirement]}，全文最多 ${maxTables} 个表格，本轮最多新增 ${runLimits.maxTablesForRun} 个。`];
   if (wordControl.minimumWords > 0 || wordControl.maximumWords > 0 || wordControl.sectionWords > 0) {
     logs = [...logs, `目录生效字数配置：最少 ${wordControl.minimumWords || '不限制'} 字，最多 ${wordControl.maximumWords || '不限制'} 字，每小节 ${wordControl.sectionWords || '不控制'} 字。`];
   }
@@ -4471,18 +4468,14 @@ async function runContentGenerationTask({ aiService, agentService, workspaceStor
     pauseIfRequested('正文生成已在编排阶段暂停，可导出当前已完成内容，稍后继续。');
 
     const tableCandidates = tasksToRun.filter(({ item }) => contentPlans.get(item.id)?.table.needed);
-    const selectedTableIds = runLimits.maxTablesForRun === null
-      ? new Set(tableCandidates.map(({ item }) => item.id))
-      : pickDistributedTableTargets(tableCandidates, runLimits.maxTablesForRun);
-    if (runLimits.maxTablesForRun !== null) {
-      for (const { item } of tableCandidates) {
-        if (!selectedTableIds.has(item.id)) {
-          contentPlans.set(item.id, clearContentPlanTable(contentPlans.get(item.id)));
-        }
+    const selectedTableIds = pickDistributedTableTargets(tableCandidates, runLimits.maxTablesForRun);
+    for (const { item } of tableCandidates) {
+      if (!selectedTableIds.has(item.id)) {
+        contentPlans.set(item.id, clearContentPlanTable(contentPlans.get(item.id)));
       }
     }
 
-    logs = [...logs, `整体编排完成：表格候选 ${tableCandidates.length} 个，${runLimits.maxTablesForRun === null ? '保持现有编排' : `入选 ${selectedTableIds.size} 个`}。`];
+    logs = [...logs, `整体编排完成：表格候选 ${tableCandidates.length} 个，入选 ${selectedTableIds.size} 个。`];
     persistContentPlans(tasksToRun);
     contentStats.phase = 'generating';
     publishTaskUpdate({ status: 'running', progress: progressFor(leaves, sections), logs, stats: statsSnapshot() });
@@ -7421,6 +7414,7 @@ const __mandatoryBidContentRulesTestRuntime = {
 
 module.exports = {
   runContentGenerationTask,
+  maxTablesForRequirement,
   stripRepeatedChapterTitle,
   normalizeContentGenerationRuntime,
   namespaceRemoteKnowledgeItem,

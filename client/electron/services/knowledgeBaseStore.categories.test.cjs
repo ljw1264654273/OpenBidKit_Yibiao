@@ -33,6 +33,11 @@ function createLegacyDatabase(userDataPath, version) {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
+
+    CREATE TABLE bid_project_duplicate_results (
+      result_id TEXT PRIMARY KEY,
+      matches_json TEXT NOT NULL DEFAULT '[]'
+    );
   `);
   db.prepare(`
     INSERT INTO knowledge_folders (folder_id, name, sort_order, created_at, updated_at)
@@ -111,11 +116,11 @@ function assertKnowledgeBaseCatalog() {
     catalog.KNOWLEDGE_BASE_CATALOG.map((item) => [item.id, item.label, item.navigationId]),
     [
       ['document', '文档知识库', 'document-knowledge-base'],
-      ['national-standard', '国标知识库', 'national-standard-knowledge-base'],
-      ['provincial-standard', '省标知识库', 'provincial-standard-knowledge-base'],
-      ['municipal-standard', '市标知识库', 'municipal-standard-knowledge-base'],
-      ['industry-standard', '行业标知识库', 'industry-standard-knowledge-base'],
-      ['enterprise', '企业知识库', 'enterprise-knowledge-base'],
+      ['national-standard', '国标文档', 'national-standard-knowledge-base'],
+      ['provincial-standard', '省标文档', 'provincial-standard-knowledge-base'],
+      ['municipal-standard', '市标文档', 'municipal-standard-knowledge-base'],
+      ['industry-standard', '行业标文档', 'industry-standard-knowledge-base'],
+      ['enterprise', '企业文档', 'enterprise-knowledge-base'],
     ],
   );
   assert.equal(catalog.getKnowledgeBaseCatalogItem('document').navigationId, 'document-knowledge-base');

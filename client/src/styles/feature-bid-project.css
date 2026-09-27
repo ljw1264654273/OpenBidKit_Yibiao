@@ -2,7 +2,7 @@
   height: 100%;
   min-height: 0;
   overflow: auto;
-  padding: 28px 32px 36px;
+  padding: 24px 28px 30px;
   background: var(--yb-page-bg, #f7f9fc);
 }
 
@@ -10,13 +10,13 @@
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  gap: 20px;
-  margin-bottom: 24px;
+  gap: 16px;
+  margin-bottom: 18px;
 }
 
 .bid-project-page-head h1 {
   margin: 5px 0 6px;
-  font-size: 28px;
+  font-size: 24px;
 }
 
 .bid-project-page-head p {
@@ -36,7 +36,7 @@
   border-radius: 8px;
   background: #fff;
   text-align: left;
-  padding: 15px 16px;
+  padding: 12px 14px;
   cursor: pointer;
 }
 
@@ -55,7 +55,7 @@
 .bid-project-summary-card strong {
   display: block;
   margin: 4px 0;
-  font-size: 24px;
+  font-size: 20px;
   color: #1c3150;
 }
 
@@ -105,7 +105,7 @@
 }
 
 .bid-project-row {
-  min-height: 76px;
+  min-height: 64px;
   border-top: 1px solid #edf1f5;
   font-size: 13px;
 }

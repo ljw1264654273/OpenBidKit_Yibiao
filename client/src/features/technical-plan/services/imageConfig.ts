@@ -14,12 +14,12 @@ export const QUICK_CONFIG_IMAGE_OPTIONS = [
   {
     preset: 'enhanced',
     label: '丰富图文',
-    description: '适量实拍图、PPT 插图、页面丰富',
+    description: '实拍图、PPT 图、流程图',
   },
   {
     preset: 'basic',
     label: '基础配图',
-    description: '适量流程图配图，内容简洁清晰',
+    description: '仅使用流程图',
   },
   {
     preset: 'text-only',
@@ -45,12 +45,12 @@ const IMAGE_PRESET_DEFINITIONS: Record<Exclude<ContentImagePreset, 'custom'>, Im
   enhanced: {
     imagePreset: 'enhanced',
     useAiImages: true,
-    maxAiImages: 10,
+    maxAiImages: 3,
     useMermaidImages: true,
     useAiRedesignForMermaid: false,
-    maxMermaidImages: 8,
+    maxMermaidImages: 3,
     useHtmlImages: true,
-    maxHtmlImages: 8,
+    maxHtmlImages: 3,
     htmlImageTypes: DEFAULT_HTML_IMAGE_TYPES,
   },
   rich: {
@@ -70,7 +70,7 @@ const IMAGE_PRESET_DEFINITIONS: Record<Exclude<ContentImagePreset, 'custom'>, Im
     maxAiImages: 0,
     useMermaidImages: true,
     useAiRedesignForMermaid: false,
-    maxMermaidImages: 5,
+    maxMermaidImages: 3,
     useHtmlImages: false,
     maxHtmlImages: 0,
     htmlImageTypes: DEFAULT_HTML_IMAGE_TYPES,

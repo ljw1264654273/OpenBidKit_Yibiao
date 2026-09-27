@@ -319,35 +319,9 @@
 }
 
 .technical-step-content > .document-analysis-page {
-  grid-template-rows: auto auto minmax(0, 1fr);
-}
-
-.technical-step-content > .document-analysis-page.has-section-hint {
-  grid-template-rows: auto auto auto minmax(0, 1fr);
-}
-
-.technical-step-content > .document-analysis-page.has-document-tabs {
-  grid-template-rows: auto auto auto minmax(0, 1fr);
-}
-
-.technical-step-content > .document-analysis-page.has-section-hint.has-document-tabs {
-  grid-template-rows: auto auto auto auto minmax(0, 1fr);
-}
-
-.technical-step-content > .document-analysis-page.has-section-error {
-  grid-template-rows: auto auto auto minmax(0, 1fr);
-}
-
-.technical-step-content > .document-analysis-page.has-section-hint.has-section-error {
-  grid-template-rows: auto auto auto auto minmax(0, 1fr);
-}
-
-.technical-step-content > .document-analysis-page.has-document-tabs.has-section-error {
-  grid-template-rows: auto auto auto auto minmax(0, 1fr);
-}
-
-.technical-step-content > .document-analysis-page.has-section-hint.has-document-tabs.has-section-error {
-  grid-template-rows: auto auto auto auto auto minmax(0, 1fr);
+  grid-template-rows: none;
+  align-content: start;
+  overflow-y: auto;
 }
 
 /* [1777-2081] analysis-import-card/result-card/markdown-card + technical-document-upload-board/reader + document-switch-tabs */
@@ -600,14 +574,14 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 18px 20px;
+  gap: 10px;
+  padding: 14px 16px;
   border-bottom: 1px solid var(--yb-border-soft);
 }
 
 .analysis-result-head strong {
   color: var(--yb-text);
-  font-size: 18px;
+  font-size: 16px;
 }
 
 .analysis-result-head span {
@@ -1331,7 +1305,7 @@
   display: inline-flex;
   align-items: baseline;
   gap: 5px;
-  padding: 9px 11px;
+  padding: 5px 8px;
   color: var(--yb-text-soft);
   font-size: 12px;
   font-weight: 800;
@@ -1343,7 +1317,7 @@
 .global-facts-stats strong {
   margin: 0;
   color: var(--yb-success);
-  font-size: 16px;
+  font-size: 13px;
   letter-spacing: 0;
 }
 
@@ -1368,7 +1342,7 @@
 
 .global-facts-panel-head {
   align-items: center;
-  padding: 18px 20px;
+  padding: 14px 16px;
 }
 
 .global-facts-list {
@@ -1384,7 +1358,7 @@
 .global-facts-item {
   display: grid;
   gap: 5px;
-  padding: 14px;
+  padding: 10px 12px;
   text-align: left;
   background: transparent;
   border: 1px solid transparent;
@@ -1437,7 +1411,7 @@
 }
 
 .global-facts-panel-actions {
-  padding: 14px 16px;
+  padding: 10px 12px;
   border-top: 1px solid var(--yb-border-soft);
 }
 
@@ -1455,16 +1429,16 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 18px;
-  padding: 20px 24px;
+  gap: 12px;
+  padding: 16px 18px;
   border-bottom: 1px solid var(--yb-border-soft);
 }
 
 .global-facts-reader-head strong {
   display: block;
-  margin: 7px 0;
+  margin: 4px 0;
   color: var(--yb-text);
-  font-size: 22px;
+  font-size: 20px;
   letter-spacing: -0.02em;
 }
 
@@ -1478,7 +1452,7 @@
   display: flex;
   flex: 0 0 auto;
   align-items: center;
-  gap: 10px;
+  gap: 6px;
 }
 
 .global-facts-editor-grid {
@@ -2741,16 +2715,16 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 18px;
-  padding: 20px 24px;
+  gap: 12px;
+  padding: 16px 18px;
   border-bottom: 1px solid var(--yb-border-soft);
 }
 
 .content-reader-head strong {
   display: block;
-  margin: 7px 0;
+  margin: 4px 0;
   color: var(--yb-text);
-  font-size: 22px;
+  font-size: 20px;
   letter-spacing: -0.02em;
 }
 
@@ -2764,7 +2738,7 @@
   display: flex;
   flex: 0 0 auto;
   align-items: center;
-  gap: 10px;
+  gap: 6px;
 }
 
 .content-ai-rewrite-trigger {
@@ -3138,7 +3112,7 @@
 .content-generation-output {
   max-height: none;
   min-height: 0;
-  padding: 22px 24px 28px;
+  padding: 18px 20px 24px;
 }
 
 /* 第五步正文预览：普通正文统一正文样式，正文层次仍由模板逐级控制。 */
@@ -7357,34 +7331,41 @@
   font-size: 12px;
 }
 
+.quick-config-summary-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.quick-config-summary-actions select {
+  max-width: 160px;
+  min-height: 30px;
+  border: 1px solid var(--yb-border);
+  border-radius: var(--technical-workbench-control-radius);
+  background: var(--yb-surface);
+  color: var(--yb-text-soft);
+  font-size: 12px;
+}
+
+.quick-config-summary-actions .markdown-fullscreen-frame.is-trigger-only {
+  display: inline-flex;
+  width: auto;
+  min-height: 0;
+  overflow: visible;
+}
+
+.quick-config-summary-actions .markdown-fullscreen-trigger {
+  position: static;
+  min-height: 30px;
+  padding: 4px 10px;
+  white-space: nowrap;
+}
+
 .quick-config-panel {
   display: grid;
   min-width: 0;
   border-top: 1px solid var(--yb-border-soft);
-}
-
-.quick-config-panel .quick-config-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 14px 8px;
-  background: #ffffff;
-}
-
-.quick-config-panel .quick-config-head > div {
-  display: grid;
-  gap: 1px;
-}
-
-.quick-config-panel .quick-config-head strong {
-  color: var(--yb-text);
-  font-size: 14px;
-}
-
-.quick-config-panel .quick-config-head small {
-  color: var(--yb-text-muted);
-  font-size: 11px;
 }
 
 .quick-config-row {
@@ -7541,10 +7522,74 @@
 
 .quick-config-image-options {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: minmax(400px, 1.25fr) repeat(2, minmax(140px, 1fr));
   align-items: flex-start;
   gap: 10px;
   width: 100%;
+}
+
+.quick-config-table-options {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  width: 100%;
+}
+
+.quick-config-table-option {
+  display: grid;
+  align-content: start;
+  gap: 5px;
+  min-width: 0;
+}
+
+.quick-config-table-option > button {
+  min-height: 30px;
+  border: 1px solid var(--yb-border);
+  border-radius: var(--technical-workbench-control-radius);
+  background: var(--yb-surface);
+  color: var(--yb-text-soft);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.quick-config-table-option > button.is-active {
+  background: var(--yb-primary);
+  border-color: var(--yb-primary);
+  color: #fff;
+  font-weight: 700;
+}
+
+.quick-config-option-description {
+  min-height: 22px;
+  color: var(--yb-text-muted);
+  font-size: 11px;
+  text-align: center;
+}
+
+.quick-config-inline-limit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin-left: 3px;
+  white-space: nowrap;
+}
+
+.quick-config-inline-limit input {
+  width: 42px;
+  min-height: 24px;
+  padding: 2px 4px;
+  border: 1px solid var(--yb-border);
+  border-radius: var(--technical-workbench-control-radius);
+  background: var(--yb-surface);
+  color: var(--yb-text);
+  font: inherit;
+  text-align: center;
+}
+
+.quick-config-image-description .quick-config-inline-limit {
+  margin: 0;
 }
 
 .quick-config-image-option {
@@ -7555,7 +7600,16 @@
 }
 
 .quick-config-image-option.is-active .quick-config-image-description {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  overflow-x: auto;
   color: #3d7a54;
+}
+
+.quick-config-image-option.is-active .quick-config-inline-limit {
+  flex: 0 0 auto;
 }
 
 .quick-config-image-pill {
@@ -7604,6 +7658,10 @@
   font-size: 11px;
   line-height: 1.45;
   text-align: center;
+}
+
+@media (max-width: 1100px) {
+  .quick-config-image-options { grid-template-columns: minmax(0, 1fr); }
 }
 
 .quick-config-bid-section-hint.is-selected {
@@ -7660,16 +7718,12 @@
     grid-row: 2;
   }
 
-  .quick-config-toggle {
-    grid-column: 2;
-    grid-row: 1;
+  .quick-config-summary-actions {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    justify-content: flex-end;
   }
-
-  .quick-config-panel .quick-config-head {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 4px;
-  }
+  .quick-config-summary-actions select { max-width: 110px; }
 
   .quick-config-row {
     grid-template-columns: 1fr;
@@ -7683,4 +7737,7 @@
   .quick-config-row-body > .quick-config-note {
     flex-basis: 100%;
   }
+
+  .quick-config-table-options { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .quick-config-image-options { grid-template-columns: 1fr; }
 }
