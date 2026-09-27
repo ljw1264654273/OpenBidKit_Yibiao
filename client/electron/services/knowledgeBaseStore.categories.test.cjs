@@ -95,6 +95,44 @@ function assertKnowledgeFolderCategoryMigration(initialVersion) {
   }
 }
 
+function assertKnowledgeFolderRegionMigration(initialVersion) {
+  const userDataPath = fs.mkdtempSync(path.join(os.tmpdir(), 'yibiao-knowledge-region-'));
+  let database;
+  try {
+    createLegacyDatabase(userDataPath, initialVersion);
+    const app = createApp(userDataPath);
+    database = createSqliteDatabase(app);
+    const columns = database.db.prepare('PRAGMA table_info(knowledge_folders)').all().map((column) => column.name);
+    assert.ok(columns.includes('province'));
+    assert.ok(columns.includes('city'));
+    assert.deepEqual(
+      database.db.prepare('SELECT province, city FROM knowledge_folders WHERE folder_id = ?').get('folder-a'),
+      { province: null, city: null },
+    );
+
+    const store = createKnowledgeBaseStore({ app, db: database.db });
+    const empty = store.createFolder('未指定地域');
+    const provincial = store.createFolder('省份资料', 'provincial-standard', '广东省');
+    const municipal = store.createFolder('城市资料', 'municipal-standard', '广东省', '广州市');
+    assert.deepEqual([empty.province, empty.city], [null, null]);
+    assert.deepEqual([provincial.province, provincial.city], ['广东省', null]);
+    assert.deepEqual([municipal.province, municipal.city], ['广东省', '广州市']);
+    assert.deepEqual(
+      store.list({ allKnowledgeBases: true }).folders
+        .filter((folder) => [empty.id, provincial.id, municipal.id].includes(folder.id))
+        .map((folder) => [folder.name, folder.province, folder.city]),
+      [
+        ['未指定地域', null, null],
+        ['省份资料', '广东省', null],
+        ['城市资料', '广东省', '广州市'],
+      ],
+    );
+  } finally {
+    database?.close();
+    fs.rmSync(userDataPath, { recursive: true, force: true });
+  }
+}
+
 function loadKnowledgeBaseCatalog() {
   const catalogPath = path.join(__dirname, '../../src/features/knowledge-base/knowledgeBaseCatalog.ts');
   const source = fs.readFileSync(catalogPath, 'utf8');
@@ -400,6 +438,8 @@ function assertServiceRollsBackFilesystemWhenStoreMoveFails() {
 function runNativeAssertions() {
   assertKnowledgeFolderCategoryMigration(31);
   assertKnowledgeFolderCategoryMigration(schemaVersion);
+  assertKnowledgeFolderRegionMigration(33);
+  assertKnowledgeFolderRegionMigration(schemaVersion);
   assertKnowledgeBaseCatalog();
   assertCategoryAwareStoreContracts();
   assertServiceRejectsInvalidMoves();

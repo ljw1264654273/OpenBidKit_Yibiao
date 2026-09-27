@@ -738,6 +738,8 @@ CREATE TABLE IF NOT EXISTS knowledge_folders (
   folder_id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   knowledge_base_id TEXT NOT NULL DEFAULT 'document',
+  province TEXT,
+  city TEXT,
   sort_order INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL

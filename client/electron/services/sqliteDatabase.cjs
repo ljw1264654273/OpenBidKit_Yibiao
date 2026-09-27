@@ -3,7 +3,7 @@ const path = require('node:path');
 const Database = require('better-sqlite3');
 const { getWorkspaceDatabasePath } = require('../utils/paths.cjs');
 
-const schemaVersion = 33;
+const schemaVersion = 34;
 
 function safeProjectTablePart(projectId) {
   return String(projectId || '')
@@ -829,6 +829,12 @@ function addKnowledgeFolderCatalog(db) {
   `);
 }
 
+function addKnowledgeFolderRegion(db) {
+  if (!getExistingTables(db).has('knowledge_folders')) return;
+  addColumnIfMissing(db, 'knowledge_folders', 'province', 'TEXT');
+  addColumnIfMissing(db, 'knowledge_folders', 'city', 'TEXT');
+}
+
 function createDuplicateCheckSchema(db) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS duplicate_check_meta (
@@ -1236,6 +1242,8 @@ function createKnowledgeBaseSchema(db) {
     CREATE TABLE IF NOT EXISTS knowledge_folders (
       folder_id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
+      province TEXT,
+      city TEXT,
       sort_order INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
@@ -1779,6 +1787,14 @@ const schemaHealthColumnGroups = [
     },
   },
   {
+    version: 34,
+    table: 'knowledge_folders',
+    columns: {
+      province: 'TEXT',
+      city: 'TEXT',
+    },
+  },
+  {
     version: 28,
     table: 'technical_plan_illustration_items',
     columns: technicalPlanIllustrationRedrawColumns,
@@ -1863,6 +1879,9 @@ function ensureWorkspaceSchemaHealth(db, targetVersion = schemaVersion, onStatus
   }
   if (targetVersion >= 32) {
     addKnowledgeFolderCatalog(db);
+  }
+  if (targetVersion >= 34) {
+    addKnowledgeFolderRegion(db);
   }
 }
 
@@ -2031,6 +2050,11 @@ const migrations = [
     version: 33,
     description: '查重结果匹配组按行存储以支持分页读取',
     up: ensureBidProjectDuplicateMatches,
+  },
+  {
+    version: 34,
+    description: '知识库文件夹新增可选省市',
+    up: addKnowledgeFolderRegion,
   },
 ];
 

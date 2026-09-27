@@ -155,6 +155,8 @@ function createKnowledgeBaseStore({ app, db }) {
       id: row.folder_id,
       name: row.name,
       knowledge_base_id: normalizeKnowledgeBaseId(row.knowledge_base_id),
+      province: row.province ?? null,
+      city: row.city ?? null,
       sort_order: Number(row.sort_order || 0),
       created_at: row.created_at,
       updated_at: row.updated_at,
@@ -163,17 +165,21 @@ function createKnowledgeBaseStore({ app, db }) {
 
   function insertOrUpdateFolder(folder) {
     db.prepare(`
-      INSERT INTO knowledge_folders (folder_id, name, knowledge_base_id, sort_order, created_at, updated_at)
-      VALUES (@folder_id, @name, @knowledge_base_id, @sort_order, @created_at, @updated_at)
+      INSERT INTO knowledge_folders (folder_id, name, knowledge_base_id, province, city, sort_order, created_at, updated_at)
+      VALUES (@folder_id, @name, @knowledge_base_id, @province, @city, @sort_order, @created_at, @updated_at)
       ON CONFLICT(folder_id) DO UPDATE SET
         name = excluded.name,
         knowledge_base_id = excluded.knowledge_base_id,
+        province = excluded.province,
+        city = excluded.city,
         sort_order = excluded.sort_order,
         updated_at = excluded.updated_at
     `).run({
       folder_id: folder.id,
       name: safeName(folder.name),
       knowledge_base_id: normalizeKnowledgeBaseId(folder.knowledge_base_id),
+      province: folder.province ?? null,
+      city: folder.city ?? null,
       sort_order: Number(folder.sort_order || 0),
       created_at: folder.created_at || now(),
       updated_at: folder.updated_at || now(),
@@ -342,11 +348,11 @@ function createKnowledgeBaseStore({ app, db }) {
     return documentFromRow(row);
   }
 
-  function createFolder(name, knowledgeBaseId = defaultKnowledgeBaseId) {
+  function createFolder(name, knowledgeBaseId = defaultKnowledgeBaseId, province = null, city = null) {
     const normalizedKnowledgeBaseId = normalizeKnowledgeBaseId(knowledgeBaseId);
     const timestamp = now();
     const maxOrder = db.prepare('SELECT COALESCE(MAX(sort_order), -1) AS value FROM knowledge_folders WHERE knowledge_base_id = ?').get(normalizedKnowledgeBaseId)?.value ?? -1;
-    const folder = { id: createId('folder'), name: safeName(name), knowledge_base_id: normalizedKnowledgeBaseId, sort_order: Number(maxOrder) + 1, created_at: timestamp, updated_at: timestamp };
+    const folder = { id: createId('folder'), name: safeName(name), knowledge_base_id: normalizedKnowledgeBaseId, province: province || null, city: city || null, sort_order: Number(maxOrder) + 1, created_at: timestamp, updated_at: timestamp };
     insertOrUpdateFolder(folder);
     return folder;
   }

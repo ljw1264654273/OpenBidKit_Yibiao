@@ -16,10 +16,10 @@
 
 **Files:** `client/electron/services/knowledgeBaseStore.categories.test.cjs`, `client/electron/services/knowledgeBaseStore.cjs`, `client/electron/services/sqliteDatabase.cjs`, `sql/workspace_schema.sql`。
 
-- [ ] 在现有 Electron native 分类测试中增加旧版（v33）升级后 `province`、`city` 默认为 `NULL` 的断言，以及创建空地域、省份独选、省市同选后创建返回值和 `list()` 返回相同值的断言。
-- [ ] 执行 `cd client; node --test electron/services/knowledgeBaseStore.categories.test.cjs`，确认断言因缺少字段而失败。
-- [ ] 将 schemaVersion 增至 34；增加迁移 `addKnowledgeFolderRegion()`，用 `addColumnIfMissing` 建立两个可空 `TEXT` 字段；在 schema health 的字段修复映射中登记 v34；更新目标 schema。Store 的 `folderFromRow`、insert/upsert、`createFolder(name, knowledgeBaseId, province = null, city = null)` 同步字段，空值写 `NULL`。保留旧调用签名兼容性。
-- [ ] 重新运行定向测试并执行 `node --check electron/services/sqliteDatabase.cjs; node --check electron/services/knowledgeBaseStore.cjs`，确认通过。
+- [x] 在现有 Electron native 分类测试中增加旧版（v33）升级后 `province`、`city` 默认为 `NULL` 的断言，以及创建空地域、省份独选、省市同选后创建返回值和 `list()` 返回相同值的断言。
+- [x] 执行 `cd client; node --test electron/services/knowledgeBaseStore.categories.test.cjs`，确认断言因缺少字段而失败。
+- [x] 将 schemaVersion 增至 34；增加迁移 `addKnowledgeFolderRegion()`，用 `addColumnIfMissing` 建立两个可空 `TEXT` 字段；在 schema health 的字段修复映射中登记 v34；更新目标 schema。Store 的 `folderFromRow`、insert/upsert、`createFolder(name, knowledgeBaseId, province = null, city = null)` 同步字段，空值写 `NULL`。保留旧调用签名兼容性。
+- [x] 重新运行定向测试并执行 `node --check electron/services/sqliteDatabase.cjs; node --check electron/services/knowledgeBaseStore.cjs`，确认通过。
 
 ### Task 2: 创建调用链与省市选项
 
