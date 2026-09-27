@@ -144,7 +144,7 @@ const bridge = {
   },
   knowledgeBase: {
     list: (options) => ipcRenderer.invoke('knowledge-base:list', options),
-    createFolder: (name, knowledgeBaseId) => ipcRenderer.invoke('knowledge-base:create-folder', name, knowledgeBaseId),
+    createFolder: (name, knowledgeBaseId, province, city) => ipcRenderer.invoke('knowledge-base:create-folder', name, knowledgeBaseId, province, city),
     renameFolder: (folderId, name) => ipcRenderer.invoke('knowledge-base:rename-folder', folderId, name),
     reorderFolder: (draggedFolderId, targetFolderId, position) => ipcRenderer.invoke('knowledge-base:reorder-folder', draggedFolderId, targetFolderId, position),
     deleteFolder: (folderId) => ipcRenderer.invoke('knowledge-base:delete-folder', folderId),

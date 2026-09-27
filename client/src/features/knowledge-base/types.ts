@@ -80,6 +80,8 @@ export interface KnowledgeFolder {
   id: string;
   name: string;
   knowledge_base_id: KnowledgeBaseId;
+  province: string | null;
+  city: string | null;
   sort_order?: number;
   created_at: string;
   updated_at: string;

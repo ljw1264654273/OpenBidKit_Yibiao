@@ -2081,8 +2081,8 @@ function createKnowledgeBaseService({ app, aiService, configStore, knowledgeBase
       return knowledgeBaseStore.list(options);
     },
 
-    createFolder(name, knowledgeBaseId) {
-      return knowledgeBaseStore.createFolder(name, knowledgeBaseId);
+    createFolder(name, knowledgeBaseId, province, city) {
+      return knowledgeBaseStore.createFolder(name, knowledgeBaseId, province, city);
     },
 
     renameFolder(folderId, name) {

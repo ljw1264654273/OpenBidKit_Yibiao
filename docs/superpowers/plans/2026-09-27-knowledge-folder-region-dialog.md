@@ -25,10 +25,10 @@
 
 **Files:** `client/electron/services/knowledgeBaseService.cjs`, `client/electron/ipc/knowledgeBaseIpc.cjs`, `client/electron/preload.cjs`, `client/src/shared/types/ipc.ts`, `client/src/features/knowledge-base/types.ts`, `client/src/features/knowledge-base/regionOptions.ts`, `client/src/features/knowledge-base/regionOptions.test.cjs`, `client/package.json`, `client/package-lock.json`。
 
-- [ ] 增加省市选项的纯函数测试：34 个省级选项可用、北京市有城市选项、广东省城市包含广州市、未选省份没有城市选项；先运行测试确认缺失实现导致失败。
-- [ ] `npm install @vant/area-data@2.2.0`；用包的 `areaList.province_list` / `areaList.city_list` 生成选项，城市按省份代码前两位筛选。省、市均存中文名称；直辖市保留其城市级选项。无需区县。
-- [ ] bridge 的 `createFolder` 增加两个可选尾参数，service 和 IPC 只转发；`KnowledgeFolder` 增加 `province: string | null`、`city: string | null`。原有技术方案两参数调用不变。
-- [ ] 运行省市选项定向测试和修改过的 `.cjs` 的 `node --check`。
+- [x] 增加省市选项的纯函数测试：34 个省级选项可用、北京市有城市选项、广东省城市包含广州市、未选省份没有城市选项；先运行测试确认缺失实现导致失败。
+- [x] `npm install @vant/area-data@2.2.0`；用包的 `areaList.province_list` / `areaList.city_list` 生成选项，城市按省份代码前两位筛选。省、市均存中文名称；直辖市保留其城市级选项。无需区县。
+- [x] bridge 的 `createFolder` 增加两个可选尾参数，service 和 IPC 只转发；`KnowledgeFolder` 增加 `province: string | null`、`city: string | null`。原有技术方案两参数调用不变。
+- [x] 运行省市选项定向测试和修改过的 `.cjs` 的 `node --check`。
 
 ### Task 3: 新建弹窗及列表展示
 

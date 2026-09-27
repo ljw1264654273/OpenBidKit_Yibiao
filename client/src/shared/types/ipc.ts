@@ -712,7 +712,7 @@ export interface YibiaoBridge {
   };
   knowledgeBase: {
     list: (options?: KnowledgeBaseIndexOptions) => Promise<KnowledgeBaseIndex>;
-    createFolder: (name: string, knowledgeBaseId?: KnowledgeBaseId) => Promise<KnowledgeFolder>;
+    createFolder: (name: string, knowledgeBaseId?: KnowledgeBaseId, province?: string | null, city?: string | null) => Promise<KnowledgeFolder>;
     renameFolder: (folderId: string, name: string) => Promise<KnowledgeFolder>;
     reorderFolder: (draggedFolderId: string, targetFolderId: string, position: 'before' | 'after') => Promise<KnowledgeBaseIndexMutationResult>;
     deleteFolder: (folderId: string) => Promise<KnowledgeBaseMutationResult>;

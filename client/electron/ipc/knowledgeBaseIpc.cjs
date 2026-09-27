@@ -3,7 +3,7 @@ const { ipcMain } = require('electron');
 function registerKnowledgeBaseIpc({ knowledgeBaseService, ipcMain: ipcMainOverride }) {
   const ipc = ipcMainOverride || ipcMain;
   ipc.handle('knowledge-base:list', (_event, options) => knowledgeBaseService.list(options));
-  ipc.handle('knowledge-base:create-folder', (_event, name, knowledgeBaseId) => knowledgeBaseService.createFolder(name, knowledgeBaseId));
+  ipc.handle('knowledge-base:create-folder', (_event, name, knowledgeBaseId, province, city) => knowledgeBaseService.createFolder(name, knowledgeBaseId, province, city));
   ipc.handle('knowledge-base:rename-folder', (_event, folderId, name) => knowledgeBaseService.renameFolder(folderId, name));
   ipc.handle('knowledge-base:reorder-folder', (_event, draggedFolderId, targetFolderId, position) => knowledgeBaseService.reorderFolder(draggedFolderId, targetFolderId, position));
   ipc.handle('knowledge-base:delete-folder', (_event, folderId) => knowledgeBaseService.deleteFolder(folderId));
