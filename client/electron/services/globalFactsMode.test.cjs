@@ -18,11 +18,15 @@ function createPrompt(globalFactsMode) {
 function assertNoFabricationRules(prompt) {
   assert.doesNotMatch(prompt, /张伟/);
   assert.doesNotMatch(prompt, /李明/);
+  assert.doesNotMatch(prompt, /允许补足/);
+  assert.doesNotMatch(prompt, /模拟生成/);
+  assert.doesNotMatch(prompt, /杜撰.*事实值/);
   assert.doesNotMatch(prompt, /补足.*具体事实值/);
-  assert.doesNotMatch(prompt, /补足具体周期/);
+  assert.doesNotMatch(prompt, /补足.*具体周期/);
 }
 
 function assertStandardPrompt(prompt) {
+  assert.match(prompt, /标准模式/);
   assert.match(prompt, /严禁.*杜撰具体值/);
   assert.match(prompt, /笼统承诺/);
   assert.match(prompt, /不要编造日期或周期/);
@@ -30,9 +34,20 @@ function assertStandardPrompt(prompt) {
   assertNoFabricationRules(prompt);
 }
 
-test('global facts mode normalization keeps only omit and placeholder', () => {
-  assert.equal(normalizeGlobalFactsMode(undefined), 'omit');
-  assert.equal(normalizeGlobalFactsMode('fabricate'), 'omit');
+test('global facts mode normalization maps legacy, unknown, and malformed values to omit', () => {
+  const omitCases = [
+    ['missing', undefined],
+    ['legacy fabricate', 'fabricate'],
+    ['null', null],
+    ['empty string', ''],
+    ['whitespace', '   '],
+    ['arbitrary string', 'unknown-mode'],
+    ['object', { unexpected: true }],
+    ['array', ['placeholder']],
+  ];
+  for (const [label, value] of omitCases) {
+    assert.equal(normalizeGlobalFactsMode(value), 'omit', label);
+  }
   assert.equal(normalizeGlobalFactsMode('omit'), 'omit');
   assert.equal(normalizeGlobalFactsMode('placeholder'), 'placeholder');
 });
@@ -48,7 +63,9 @@ test('standard mode uses non-fabrication semantics', () => {
 
 test('strict mode uses the exact pending-value placeholder', () => {
   const prompt = createPrompt('placeholder');
+  assert.match(prompt, /严谨模式/);
   assert.match(prompt, /【待填写】/);
+  assert.match(prompt, /项目经理：【待填写】/);
   assert.match(prompt, /严禁.*省略/);
   assertNoFabricationRules(prompt);
 });

@@ -24,6 +24,13 @@ function assertStandardModeNonFabricationRules(prompt) {
   assert.match(prompt, /严禁虚拟、杜撰/);
   assert.match(prompt, /笼统/);
   assert.match(prompt, /不要为了写得具体而编造/);
+  assert.doesNotMatch(prompt, /张伟/);
+  assert.doesNotMatch(prompt, /李明/);
+  assert.doesNotMatch(prompt, /允许补足/);
+  assert.doesNotMatch(prompt, /模拟生成/);
+  assert.doesNotMatch(prompt, /杜撰.*事实值/);
+  assert.doesNotMatch(prompt, /补足.*具体事实值/);
+  assert.doesNotMatch(prompt, /补足.*具体周期/);
 }
 
 test('chapter planning and first content generation receive mandatory schedule bounds', () => {
