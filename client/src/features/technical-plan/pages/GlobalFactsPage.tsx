@@ -27,24 +27,19 @@ const statusLabels: Record<string, string> = {
 
 const globalFactsModeOptions: Array<{ value: GlobalFactsMode; title: string; description: string }> = [
   {
-    value: 'fabricate',
-    title: '胡咧咧模式',
-    description: '未在参考材料中找到的直接证据，但经评估，正文中可能用到，为保证全文一致，会由 AI 直接杜撰。如：涉及人员名单，但用户未提供，AI 会编辑不存在的人名。此模式写完的技术方案直接完整可用，无需人工干预。',
-  },
-  {
     value: 'omit',
-    title: '别招欠模式',
-    description: '选题范围与胡咧咧模式相同。未在参考材料中找到具体值时，仍会保留该项，改写成符合招标要求的笼统口径，不写具体人员、时间、地点、业绩、证书、规格型号或实施细节。如：涉及人员名单但用户未提供，会保留岗位事实并写成按招标要求配备，而不是编造人名或忽略该项。正文阶段同样沿用笼统写法。',
+    title: '标准模式',
+    description: '保留与正文相关的事实项。参考材料未提供具体值时，改写为符合招标要求的通用承诺，不编造人员姓名、时间、地点、业绩、证书、规格型号或实施细节；正文阶段继续使用通用表述。',
   },
   {
     value: 'placeholder',
-    title: '放着我来模式',
-    description: '选题范围与胡咧咧模式相同。未在参考材料中找到具体值时，仍会保留该项，并将值标记为【待填写】。如：涉及人员名单但用户未提供，会保留岗位事实并写成【待填写】。用户需要二次修改后再进入正文生成阶段。正文生产时的任何不确定项也会使用【待填写】占位。',
+    title: '严谨模式',
+    description: '保留与正文相关的事实项。参考材料未提供具体值时，将该项标记为【待填写】；正文阶段遇到不确定内容也使用【待填写】，用户需要在生成后补充填写。',
   },
 ];
 
-function normalizeGlobalFactsMode(value: GlobalFactsMode | undefined): GlobalFactsMode {
-  return value === 'omit' || value === 'placeholder' ? value : 'fabricate';
+function normalizeGlobalFactsMode(value: unknown): GlobalFactsMode {
+  return value === 'placeholder' ? 'placeholder' : 'omit';
 }
 
 function createFactId() {
@@ -224,10 +219,13 @@ function GlobalFactsPage({
   };
 
   const addFactGroup = async () => {
+    const initialContent = normalizeGlobalFactsMode(globalFactsMode) === 'placeholder'
+      ? '- 项目经理：【待填写】。'
+      : '- 项目经理：按招标文件对该岗位的要求配备。';
     const nextGroup: GlobalFactGroupState = {
       id: createFactId(),
       title: '新增事实大项',
-      content: '- 项目经理：张伟，高级工程师，负责总体协调和质量把关。',
+      content: initialContent,
       updated_at: new Date().toISOString(),
     };
     await saveFacts([...globalFacts, nextGroup], '已新增事实大项');

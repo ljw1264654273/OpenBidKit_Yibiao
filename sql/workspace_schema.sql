@@ -14,7 +14,7 @@ PRAGMA busy_timeout = 5000;
 
 -- 目标完整结构版本。
 -- 运行时代码应通过 PRAGMA user_version 判断是否需要自动升级。
-PRAGMA user_version = 35;
+PRAGMA user_version = 36;
 
 -- v27 标书项目工作区索引。正文和技术方案状态按项目专属表/目录保存。
 CREATE TABLE IF NOT EXISTS bid_projects (
@@ -138,8 +138,8 @@ CREATE TABLE IF NOT EXISTS technical_plan_meta (
   outline_mode TEXT NOT NULL DEFAULT 'standalone-technical',
   -- v13 已有方案扩写目录使用方式：original-only / ai-complement。
   outline_expansion_mode TEXT NOT NULL DEFAULT 'ai-complement',
-  -- v22 Step04 事实补全模式：fabricate / omit / placeholder，缺省 fabricate。
-  global_facts_mode TEXT NOT NULL DEFAULT 'fabricate',
+  -- v22 Step04 事实补全模式：omit / placeholder；v36 将旧 fabricate 值迁移为 omit，缺省 omit。
+  global_facts_mode TEXT NOT NULL DEFAULT 'omit',
   -- v18 Step03 当前可编辑字数设置，以及当前目录生成成功时固化的生效快照。
   outline_word_control_options_json TEXT,
   outline_word_control_snapshot_json TEXT,

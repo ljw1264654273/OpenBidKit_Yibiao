@@ -107,7 +107,7 @@ const resetState = {
   bidAnalysisTask: undefined,
   outlineGenerationTask: undefined,
   outlineAdjustmentTask: undefined,
-  globalFactsMode: 'fabricate' as GlobalFactsMode,
+  globalFactsMode: 'omit' as GlobalFactsMode,
   globalFactsTask: undefined,
   globalFactsAdjustmentTask: undefined,
   globalFacts: [] as GlobalFactGroupState[],
@@ -1137,7 +1137,7 @@ function TechnicalPlanHome({ workflowKind, projectId, registerLeaveGuard, onSect
           projectId={projectId}
           outlineData={state.outlineData}
           globalFacts={state.globalFacts}
-          globalFactsMode={state.globalFactsMode || 'fabricate'}
+          globalFactsMode={state.globalFactsMode || 'omit'}
           task={state.globalFactsTask}
           aiAdjustmentRunning={isGlobalFactsAdjusting}
           focusGroupRequest={globalFactsFocusRequest}

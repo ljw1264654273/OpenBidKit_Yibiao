@@ -1,7 +1,11 @@
 import { useEffect, useState } from 'react';
 import { DEFAULT_OUTLINE_WORD_CONTROL_OPTIONS } from '../../../shared/types';
 import { technicalPlanStorage } from '../services/technicalPlanStorage';
-import type { TechnicalPlanState } from '../types';
+import type { GlobalFactsMode, TechnicalPlanState } from '../types';
+
+function normalizeGlobalFactsMode(value: unknown): GlobalFactsMode {
+  return value === 'placeholder' ? 'placeholder' : 'omit';
+}
 
 const initialState: TechnicalPlanState = {
   workflowKind: 'technical-plan',
@@ -30,7 +34,7 @@ const initialState: TechnicalPlanState = {
   bidAnalysisTask: undefined,
   outlineGenerationTask: undefined,
   outlineAdjustmentTask: undefined,
-  globalFactsMode: 'fabricate',
+  globalFactsMode: 'omit',
   globalFactsTask: undefined,
   globalFactsAdjustmentTask: undefined,
   globalFacts: [],
@@ -52,7 +56,7 @@ export function useTechnicalPlanWorkflow(projectId?: string) {
       try {
         const cachedState = await technicalPlanStorage.load(projectId);
         if (mounted && cachedState) {
-          setState({ ...initialState, ...cachedState, outlineExpansionMode: cachedState.outlineExpansionMode || 'ai-complement', globalFactsMode: cachedState.globalFactsMode || 'fabricate' });
+          setState({ ...initialState, ...cachedState, outlineExpansionMode: cachedState.outlineExpansionMode || 'ai-complement', globalFactsMode: normalizeGlobalFactsMode(cachedState.globalFactsMode) });
         }
       } catch (error) {
         console.warn('技术方案缓存读取失败', error);

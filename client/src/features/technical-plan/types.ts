@@ -16,7 +16,7 @@ export type ConsistencyRepairMode = 'agent' | 'normal';
 export type OriginalPlanCoverageRepairMode = 'agent' | 'normal';
 export type SaveOutlineReason = 'sort' | 'edit' | 'delete' | 'add-root' | 'add-child' | 'replace';
 export type OutlineAttribute = '通用' | '商务' | '资信' | '技术' | '其他';
-export type GlobalFactsMode = 'fabricate' | 'omit' | 'placeholder';
+export type GlobalFactsMode = 'omit' | 'placeholder';
 
 export interface ScoreSourceAnchor {
   document_hash: string;

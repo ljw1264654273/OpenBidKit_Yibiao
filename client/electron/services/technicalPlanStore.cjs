@@ -91,7 +91,7 @@ const initialState = {
   bidSectionExtractionTask: undefined,
   bidAnalysisTask: undefined,
   outlineGenerationTask: undefined,
-  globalFactsMode: 'fabricate',
+  globalFactsMode: 'omit',
   globalFactsTask: undefined,
   globalFacts: [],
   contentGenerationTask: undefined,
@@ -370,11 +370,11 @@ function isValidOutlineExpansionMode(value) {
 }
 
 function isValidGlobalFactsMode(value) {
-  return value === 'fabricate' || value === 'omit' || value === 'placeholder';
+  return value === 'omit' || value === 'placeholder';
 }
 
 function normalizeGlobalFactsMode(value) {
-  return isValidGlobalFactsMode(value) ? value : 'fabricate';
+  return isValidGlobalFactsMode(value) ? value : 'omit';
 }
 
 function collectLeafItems(items) {
@@ -857,8 +857,8 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     if (existing) return existing;
     const timestamp = now();
     db.prepare(`
-      INSERT INTO technical_plan_meta (id, workflow_kind, step, bid_analysis_mode, outline_mode, outline_expansion_mode, created_at, updated_at)
-      VALUES (1, 'technical-plan', 'document-analysis', 'key', 'standalone-technical', 'ai-complement', @timestamp, @timestamp)
+      INSERT INTO technical_plan_meta (id, workflow_kind, step, bid_analysis_mode, outline_mode, outline_expansion_mode, global_facts_mode, created_at, updated_at)
+      VALUES (1, 'technical-plan', 'document-analysis', 'key', 'standalone-technical', 'ai-complement', 'omit', @timestamp, @timestamp)
     `).run({ timestamp });
     return db.prepare('SELECT * FROM technical_plan_meta WHERE id = 1').get();
   }
@@ -2428,7 +2428,7 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       outline_word_control_snapshot_json: null,
       outline_project_name: null,
       outline_project_overview: null,
-      global_facts_mode: 'fabricate',
+      global_facts_mode: 'omit',
       content_generation_options_json: null,
       content_generation_runtime_json: null,
       pending_tender_markdown_path: null,
