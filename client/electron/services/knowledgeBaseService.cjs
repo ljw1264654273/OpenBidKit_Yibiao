@@ -3,9 +3,10 @@ const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const path = require('node:path');
 const { dialog } = require('electron');
-const { getKnowledgeBaseDir } = require('../utils/paths.cjs');
+const { getKnowledgeBaseDir, getWorkspaceTrashDir } = require('../utils/paths.cjs');
 const { deleteImportedImageBatches } = require('../utils/importedImages.cjs');
 const { enqueueJsonLine, enqueueLogRemoval } = require('../utils/silentFileLog.cjs');
+const { forceRemoveSync } = require('../utils/forceRemove.cjs');
 const { splitUserTextByContextLimit } = require('../utils/userTextSplitter.cjs');
 const { parseDocumentWithConfig } = require('./fileService.cjs');
 
@@ -2122,7 +2123,10 @@ function createKnowledgeBaseService({ app, aiService, configStore, knowledgeBase
       }
 
       deleteImportedImageBatches(app, `knowledge-${documentId}`);
-      fs.rmSync(fromRelative(baseDir, document.document_dir), { recursive: true, force: true });
+      forceRemoveSync(fromRelative(baseDir, document.document_dir), {
+        trashDir: getWorkspaceTrashDir(app),
+        deferOnFailure: true,
+      });
       enqueueLogRemoval(getDebugLogPath(app, documentId));
       knowledgeBaseStore.deleteDocument(documentId);
       return { success: true, message: `已删除文档“${document.file_name}”` };
