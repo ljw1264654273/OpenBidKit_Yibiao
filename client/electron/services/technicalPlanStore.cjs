@@ -857,8 +857,8 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     if (existing) return existing;
     const timestamp = now();
     db.prepare(`
-      INSERT INTO technical_plan_meta (id, workflow_kind, step, bid_analysis_mode, outline_mode, outline_expansion_mode, created_at, updated_at)
-      VALUES (1, 'technical-plan', 'document-analysis', 'key', 'standalone-technical', 'ai-complement', @timestamp, @timestamp)
+      INSERT INTO technical_plan_meta (id, workflow_kind, step, bid_analysis_mode, outline_mode, outline_expansion_mode, global_facts_mode, created_at, updated_at)
+      VALUES (1, 'technical-plan', 'document-analysis', 'key', 'standalone-technical', 'ai-complement', 'omit', @timestamp, @timestamp)
     `).run({ timestamp });
     return db.prepare('SELECT * FROM technical_plan_meta WHERE id = 1').get();
   }

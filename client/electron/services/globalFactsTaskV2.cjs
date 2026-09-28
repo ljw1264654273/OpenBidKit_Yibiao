@@ -65,6 +65,16 @@ function padIndex(index) {
   return String(index + 1).padStart(2, '0');
 }
 
+function resolveGlobalFactsMode(payload, storedMode) {
+  let value = storedMode;
+  if (Object.prototype.hasOwnProperty.call(payload || {}, 'globalFactsMode')) {
+    value = payload.globalFactsMode;
+  } else if (Object.prototype.hasOwnProperty.call(payload || {}, 'global_facts_mode')) {
+    value = payload.global_facts_mode;
+  }
+  return normalizeGlobalFactsMode(value);
+}
+
 function buildMissingValueRule(mode) {
   if (mode === 'placeholder') {
     return '用户资料已经给出明确事实时，使用资料中的事实值。用户资料没有给出具体值时，该项仍须保留，值必须逐字写成【待填写】，不要改写成“待定”“TBD”或其他说法，也不要编造具体值。严禁省略该项。必须包含工期、运维期或交货时间中的至少一个相关变量；没有具体值时使用【待填写】。【待填写】不是空泛内容，定稿时不得因不够具体而删除。';
@@ -333,7 +343,7 @@ async function runGlobalFactsTaskV2({
           task_key: globalFactsAgentTaskKey,
           run_id: task.task_id,
           resume_payload: {
-            globalFactsMode: payload?.globalFactsMode || payload?.global_facts_mode,
+            globalFactsMode,
           },
           ...partial,
         },
@@ -358,7 +368,7 @@ async function runGlobalFactsTaskV2({
   }
 
   const storedPlan = workspaceStore.loadTechnicalPlan() || {};
-  const globalFactsMode = normalizeGlobalFactsMode(payload?.globalFactsMode || payload?.global_facts_mode || storedPlan.globalFactsMode);
+  const globalFactsMode = resolveGlobalFactsMode(payload, storedPlan.globalFactsMode);
   const tenderSources = collectTenderSourceFiles(workspaceStore, storedPlan);
   if (!tenderSources.length) {
     throw new Error('请先上传招标文件，再生成全局事实');
@@ -545,6 +555,10 @@ const __globalFactsModeTestRuntime = {
   createGlobalFactsPrompt,
 };
 
+const __globalFactsModeResolutionTestRuntime = {
+  resolveGlobalFactsMode,
+};
+
 module.exports = {
   GLOBAL_FACTS_OUTPUT_FILE,
   GLOBAL_FACTS_JSON_SCHEMA,
@@ -557,4 +571,5 @@ module.exports = {
   buildGlobalFactGroupAllowlist,
   filterRemoteOnlyGlobalFacts,
   __globalFactsModeTestRuntime,
+  __globalFactsModeResolutionTestRuntime,
 };

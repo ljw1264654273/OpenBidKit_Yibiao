@@ -9,6 +9,16 @@ function normalizeGlobalFactsMode(value) {
   return value === 'placeholder' ? 'placeholder' : 'omit';
 }
 
+function resolveGlobalFactsMode(payload, storedMode) {
+  let value = storedMode;
+  if (Object.prototype.hasOwnProperty.call(payload || {}, 'globalFactsMode')) {
+    value = payload.globalFactsMode;
+  } else if (Object.prototype.hasOwnProperty.call(payload || {}, 'global_facts_mode')) {
+    value = payload.global_facts_mode;
+  }
+  return normalizeGlobalFactsMode(value);
+}
+
 function buildMissingFactRule(mode) {
   if (mode === 'placeholder') {
     return '4. 用户资料没有给出具体值，但该信息会影响后续正文一致写法时，必须保留该项并把事实值写成【待填写】，严禁省略该项或杜撰具体值。占位符必须逐字使用【待填写】。';
@@ -885,7 +895,7 @@ async function runGlobalFactsTask({ aiService, workspaceStore, knowledgeBaseServ
   }
 
   const storedPlan = workspaceStore.loadTechnicalPlan() || {};
-  const globalFactsMode = normalizeGlobalFactsMode(payload?.globalFactsMode || payload?.global_facts_mode || storedPlan.globalFactsMode);
+  const globalFactsMode = resolveGlobalFactsMode(payload, storedPlan.globalFactsMode);
   const tenderMarkdown = workspaceStore.readTenderMarkdown();
   if (!String(tenderMarkdown || '').trim()) {
     throw new Error('请先上传招标文件，再生成全局事实');
@@ -973,6 +983,10 @@ async function runGlobalFactsTask({ aiService, workspaceStore, knowledgeBaseServ
   );
 }
 
+const __globalFactsModeResolutionTestRuntime = {
+  resolveGlobalFactsMode,
+};
+
 module.exports = {
   formatBidAnalysisFactsForPrompt,
   formatOutlineForPrompt,
@@ -984,4 +998,5 @@ module.exports = {
   normalizeReferenceDocumentIds,
   runGlobalFactsTask,
   validateGlobalFactsResponse,
+  __globalFactsModeResolutionTestRuntime,
 };

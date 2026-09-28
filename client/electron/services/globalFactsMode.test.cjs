@@ -5,8 +5,14 @@ const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 
-const { normalizeGlobalFactsMode } = require('./globalFactsTask.cjs');
-const { __globalFactsModeTestRuntime: promptRuntime } = require('./globalFactsTaskV2.cjs');
+const {
+  normalizeGlobalFactsMode,
+  __globalFactsModeResolutionTestRuntime: legacyModeRuntime,
+} = require('./globalFactsTask.cjs');
+const {
+  __globalFactsModeTestRuntime: promptRuntime,
+  __globalFactsModeResolutionTestRuntime: v2ModeRuntime,
+} = require('./globalFactsTaskV2.cjs');
 
 function createPrompt(globalFactsMode) {
   assert.ok(promptRuntime, 'globalFactsTaskV2 must expose __globalFactsModeTestRuntime');
@@ -89,6 +95,19 @@ test('legacy, missing, and malformed modes fall back to standard prompt semantic
   }
 });
 
+test('explicit falsy or malformed payload mode overrides stored placeholder', () => {
+  for (const runtime of [legacyModeRuntime, v2ModeRuntime]) {
+    assert.ok(runtime, 'global facts task must expose mode resolution test runtime');
+    assert.equal(typeof runtime.resolveGlobalFactsMode, 'function');
+    for (const value of ['', null, false, 0, { unexpected: true }]) {
+      assert.equal(runtime.resolveGlobalFactsMode({ globalFactsMode: value }, 'placeholder'), 'omit');
+      assert.equal(runtime.resolveGlobalFactsMode({ global_facts_mode: value }, 'placeholder'), 'omit');
+    }
+    assert.equal(runtime.resolveGlobalFactsMode({}, 'placeholder'), 'placeholder');
+    assert.equal(runtime.resolveGlobalFactsMode({ globalFactsMode: undefined, global_facts_mode: 'placeholder' }, 'placeholder'), 'omit');
+  }
+});
+
 async function runStoreAssertions() {
   const { createSqliteDatabase } = require('./sqliteDatabase.cjs');
   const { createTechnicalPlanStore } = require('./technicalPlanStore.cjs');
@@ -132,6 +151,12 @@ async function runStoreAssertions() {
     await store.importTenderDocument(['fixture.md']);
     assert.equal(database.db.prepare('SELECT global_facts_mode FROM technical_plan_meta WHERE id = 1').get().global_facts_mode, 'omit');
     assert.equal(store.loadTechnicalPlan().globalFactsMode, 'omit');
+
+    store.saveGlobalFactsConfig({ globalFactsMode: 'placeholder' });
+    assert.equal(store.loadTechnicalPlan().globalFactsMode, 'placeholder');
+    store.clearTechnicalPlan();
+    assert.equal(database.db.prepare('SELECT global_facts_mode FROM technical_plan_meta WHERE id = 1').get().global_facts_mode, 'omit');
+    assert.equal(store.loadTechnicalPlan().globalFactsMode, 'omit');
   } finally {
     database?.close();
     fs.rmSync(userDataPath, { recursive: true, force: true });
@@ -146,7 +171,7 @@ if (process.argv.includes('--electron-native-store')) {
     })
     .finally(() => process.exit(process.exitCode || 0));
 } else {
-  test('Store defaults, malformed saves, and tender reset use omit mode', () => {
+  test('Store defaults, malformed saves, tender reset, and full reset use omit mode', () => {
     const result = spawnSync(require('electron'), ['--runAsNode', __filename, '--electron-native-store'], {
       encoding: 'utf8',
       timeout: 30000,
