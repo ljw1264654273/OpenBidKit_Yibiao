@@ -77,7 +77,6 @@ function BidProjectRow({
       ? '标书生成失败，请重新生成后再导出'
       : '标书生成完成后才可导出';
   const displayStatus = isDerived ? getUniquenessLabel(project) : statusLabels[project.status];
-  const projectSubtitle = `${project.sourceFileName || '尚未上传招标文件'}${project.sectionLabel ? ` · ${project.sectionLabel}` : ''} · 同源第 ${project.sourceSequence || 1} 份`;
   const duplicateLabel = duplicateSummary
     ? `最近对比：${duplicateSummary.otherProjectName} · ${formatDuplicateSummary(duplicateSummary)}`
     : '最近查重：暂无结果';
@@ -86,7 +85,6 @@ function BidProjectRow({
     <article className="bid-project-row">
       <button type="button" className="bid-project-row-main" onClick={() => onOpen(project)}>
         <strong title={project.projectName}>{project.projectName}</strong>
-        <span title={projectSubtitle}>{projectSubtitle}</span>
         <span className={`bid-project-row-duplicate-summary${duplicateSummary ? '' : ' is-empty'}`} title={duplicateLabel}>
           {duplicateLabel}
         </span>

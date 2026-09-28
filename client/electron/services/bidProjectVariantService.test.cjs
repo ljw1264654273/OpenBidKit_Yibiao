@@ -221,6 +221,8 @@ test('copies tender and successful analysis into a clean outline-stage workspace
     });
     sourceStore.saveChapterContent({ nodeId: 'node-1', content: '第一份正文' });
     sourceStore.updateTechnicalPlan({
+      outlineWordControlOptions: { minimumWords: 200000, maximumWords: 300000, sectionWords: 1800, strictSectionWords: false },
+      contentGenerationOptions: { imagePreset: 'enhanced', tableRequirement: 'heavy', maxTables: 10 },
       globalFacts: [{ id: 'facts', title: '项目事实', items: [] }],
       contentGenerationTask: {
         task_id: 'content-task',
@@ -238,6 +240,20 @@ test('copies tender and successful analysis into a clean outline-stage workspace
     const state = derivedStore.loadTechnicalPlan();
 
     assert.equal(state.step, 'outline-generation');
+    assert.deepEqual(state.outlineWordControlOptions, {
+      minimumWords: 40000,
+      maximumWords: 60000,
+      sectionWords: 1800,
+      strictSectionWords: false,
+    });
+    assert.equal(state.contentGenerationOptions.tableRequirement, 'light');
+    assert.equal(state.contentGenerationOptions.maxTables, 3);
+    assert.equal(state.contentGenerationOptions.imagePreset, 'text-only');
+    assert.equal(state.contentGenerationOptions.useAiImages, false);
+    assert.equal(state.contentGenerationOptions.useMermaidImages, false);
+    assert.equal(state.contentGenerationOptions.useHtmlImages, false);
+    assert.equal(sourceStore.loadTechnicalPlan().contentGenerationOptions.imagePreset, 'enhanced');
+    assert.equal(sourceStore.loadTechnicalPlan().outlineWordControlOptions.minimumWords, 200000);
     assert.equal(derivedStore.readTenderMarkdown().trim(), '# 当前标段\n技术要求');
     assert.equal(derivedStore.readOriginalTenderMarkdown().trim(), '# 招标原文\n第一标段\n第二标段');
     assert.equal(derivedStore.readTenderSourceMarkdown('tender-1').trim(), '# 招标原文');
