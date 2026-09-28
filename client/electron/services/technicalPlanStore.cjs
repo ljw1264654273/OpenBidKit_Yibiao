@@ -47,6 +47,24 @@ const defaultOutlineWordControlOptions = Object.freeze({
   sectionWords: 1800,
   strictSectionWords: false,
 });
+const variantOutlineWordControlOptions = Object.freeze({
+  minimumWords: 40000,
+  maximumWords: 60000,
+  sectionWords: 1800,
+  strictSectionWords: false,
+});
+const variantContentGenerationOptions = Object.freeze({
+  imagePreset: 'text-only',
+  useAiImages: false,
+  maxAiImages: 0,
+  useMermaidImages: false,
+  useAiRedesignForMermaid: false,
+  maxMermaidImages: 0,
+  useHtmlImages: false,
+  maxHtmlImages: 0,
+  tableRequirement: 'light',
+  maxTables: 3,
+});
 
 const initialState = {
   workflowKind: 'technical-plan',
@@ -3250,10 +3268,11 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
         selected_section_id: seed?.selectedSectionId || null,
         selected_section_title: seed?.selectedSectionTitle || null,
         selected_section_head_line: seed?.selectedSectionHeadLine || null,
+        outline_word_control_options_json: JSON.stringify(variantOutlineWordControlOptions),
         outline_word_control_snapshot_json: null,
         outline_project_name: null,
         outline_project_overview: null,
-        content_generation_options_json: null,
+        content_generation_options_json: JSON.stringify(variantContentGenerationOptions),
         content_generation_runtime_json: null,
       });
       saveBidItems(seed?.bidAnalysisTasks || {}, seed?.bidAnalysisMode);
