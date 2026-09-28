@@ -66,13 +66,10 @@ function padIndex(index) {
 }
 
 function buildMissingValueRule(mode) {
-  if (mode === 'omit') {
-    return '用户资料已经给出明确事实时，使用资料中的事实值。用户资料没有给出具体值时，该项仍须保留，写成不涉及具体时间、地点、人员、业绩、证书、规格型号、工艺步骤、数量指标的正确笼统承诺，表明本方案按招标要求执行该项，但不展开具体做法。严禁省略该项，也严禁杜撰具体值。必须包含工期、运维期或交货时间中的至少一个相关变量；没有具体值时同样使用笼统承诺，不要编造日期或周期。笼统但正确的承诺口径不是空泛内容，定稿时不得因不够具体而删除。';
-  }
   if (mode === 'placeholder') {
     return '用户资料已经给出明确事实时，使用资料中的事实值。用户资料没有给出具体值时，该项仍须保留，值必须逐字写成【待填写】，不要改写成“待定”“TBD”或其他说法，也不要编造具体值。严禁省略该项。必须包含工期、运维期或交货时间中的至少一个相关变量；没有具体值时使用【待填写】。【待填写】不是空泛内容，定稿时不得因不够具体而删除。';
   }
-  return '用户资料已经给出明确事实时，使用资料中的事实值。用户资料没有给出具体值，但该信息对全文一致性重要时，根据项目语境补足一套合理、稳定、不冲突的具体事实值。必须包含工期、运维期或交货时间中的至少一个相关变量；分段或材料不足时，若项目概述或招标解析结果中已有明确内容应写入，否则按项目语境补足具体周期。';
+  return '用户资料已经给出明确事实时，使用资料中的事实值。用户资料没有给出具体值时，该项仍须保留，写成不涉及具体时间、地点、人员、业绩、证书、规格型号、工艺步骤、数量指标的正确笼统承诺，表明本方案按招标要求执行该项，但不展开具体做法。严禁省略该项，也严禁杜撰具体值。必须包含工期、运维期或交货时间中的至少一个相关变量；没有具体值时同样使用笼统承诺，不要编造日期或周期。笼统但正确的承诺口径不是空泛内容，定稿时不得因不够具体而删除。';
 }
 
 function buildJsonExample(mode) {
@@ -87,23 +84,12 @@ function buildJsonExample(mode) {
   ]
 }`;
   }
-  if (mode === 'omit') {
-    return `{
-  "groups": [
-    {
-      "id": "project_team",
-      "title": "项目角色变量",
-      "content": "- 项目经理：按招标文件对该岗位的要求配备。\\n- 技术负责人：按招标文件对该岗位的要求配备。"
-    }
-  ]
-}`;
-  }
   return `{
   "groups": [
     {
       "id": "project_team",
       "title": "项目角色变量",
-      "content": "- 项目经理：张伟，负责总体协调。\\n- 技术负责人：李明，负责方案设计和联调验收。"
+      "content": "- 项目经理：按招标文件对该岗位的要求配备。\\n- 技术负责人：按招标文件对该岗位的要求配备。"
     }
   ]
 }`;
@@ -283,6 +269,8 @@ function buildWorkPrinciples({ hasKnowledge, hasOriginalPlan }) {
 }
 
 function createGlobalFactsPrompt({ fileCatalog, hasKnowledge, hasOriginalPlan, globalFactsMode, hasRemoteKnowledge = false }) {
+  const mode = normalizeGlobalFactsMode(globalFactsMode);
+  const modeHeading = mode === 'placeholder' ? '严谨模式' : '标准模式';
   return `请只在当前工作目录内工作。已有材料足以判断时自主执行，不要调用 ask-user。
 
 任务：整理后续技术方案正文必须统一采用的全局事实变量，写入 ${GLOBAL_FACTS_OUTPUT_FILE}。
@@ -296,8 +284,8 @@ ${fileCatalog}
 ${buildWorkPrinciples({ hasKnowledge, hasOriginalPlan })}
 ${hasRemoteKnowledge ? `\n${REMOTE_FACTS_REFERENCE_RULE}` : ''}
 
-缺具体值时的写法：
-${buildMissingValueRule(globalFactsMode)}
+缺具体值时的写法（${modeHeading}）：
+${buildMissingValueRule(mode)}
 
 输出：
 1. 只写入 ${GLOBAL_FACTS_OUTPUT_FILE}，必须是纯 JSON，不要 Markdown 代码块。
@@ -305,7 +293,7 @@ ${buildMissingValueRule(globalFactsMode)}
 3. 程序已为该文件预置 Schema。写入后调用 json-validation，只传 {"file_path":"${GLOBAL_FACTS_OUTPUT_FILE}"}；失败则先改文件再校验，直到通过。
 
 格式示意：
-${buildJsonExample(globalFactsMode)}`;
+${buildJsonExample(mode)}`;
 }
 
 async function runGlobalFactsTaskV2({
@@ -551,6 +539,12 @@ async function runGlobalFactsTaskV2({
   });
 }
 
+const __globalFactsModeTestRuntime = {
+  buildMissingValueRule,
+  buildJsonExample,
+  createGlobalFactsPrompt,
+};
+
 module.exports = {
   GLOBAL_FACTS_OUTPUT_FILE,
   GLOBAL_FACTS_JSON_SCHEMA,
@@ -562,4 +556,5 @@ module.exports = {
   buildFileCatalog,
   buildGlobalFactGroupAllowlist,
   filterRemoteOnlyGlobalFacts,
+  __globalFactsModeTestRuntime,
 };

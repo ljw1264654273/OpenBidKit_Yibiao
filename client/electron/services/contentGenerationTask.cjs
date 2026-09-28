@@ -104,25 +104,28 @@ function singleLine(value) {
 }
 
 function normalizeGlobalFactsMode(value) {
-  return value === 'omit' || value === 'placeholder' ? value : 'fabricate';
+  return value === 'placeholder' ? 'placeholder' : 'omit';
 }
 
 function buildContentFactCompletenessInstruction(mode) {
-  if (mode === 'omit') {
-    return `事实补全规则（别招欠模式）：
-1. 严禁虚拟、杜撰任何未在本章节全局事实变量和参考材料中明确给出的具体信息。
-2. 全局事实变量中已经给出的笼统口径必须沿用，不得自行补成具体工艺、人名、日期、地点、业绩、证书、规格型号或实施细节。
-3. 如果有不确定的，尽量使用笼统的方式表达，不涉及不确定的时间、地点、人员、业绩、证书、规格型号等任何事实项内容。
-4. 不要为了写得具体而编造人名、日期、地点、业绩、证书编号、规格型号。`;
-  }
   if (mode === 'placeholder') {
-    return `事实补全规则（放着我来模式）：
+    return `事实补全规则（严谨模式）：
 1. 严禁虚拟、杜撰任何未在本章节全局事实变量和参考材料中明确给出的具体信息。
 2. 任何不确定项必须使用【待填写】作为占位符，不要改写成“待定”或其他说法。
 3. 如果全局事实变量中已有【待填写】，正文必须原样沿用，不得改成具体值。
 4. 不要杜撰不确定的时间、地点、人员、业绩、证书、规格型号等任何事实项内容。`;
   }
-  return '';
+  return `事实补全规则（标准模式）：
+1. 严禁虚拟、杜撰任何未在本章节全局事实变量和参考材料中明确给出的具体信息。
+2. 全局事实变量中已经给出的笼统口径必须沿用，不得自行补成具体工艺、人名、日期、地点、业绩、证书、规格型号或实施细节。
+3. 如果有不确定的，尽量使用笼统的方式表达，不涉及不确定的时间、地点、人员、业绩、证书、规格型号等任何事实项内容。
+4. 不要为了写得具体而编造人名、日期、地点、业绩、证书编号、规格型号。`;
+}
+
+function buildPlaceholderPreservationInstruction(mode) {
+  return normalizeGlobalFactsMode(mode) === 'placeholder'
+    ? '不得把【待填写】改成具体值，也不得为缺失项杜撰事实。'
+    : '';
 }
 
 function withFactCompletenessInstruction(text, mode) {
@@ -1430,7 +1433,7 @@ workspace 文件说明：
 - 修复事实冲突、前后矛盾、同一信息多处表达不一致等问题。
 - 优先以 global-facts.md 中的事实变量和关键项目信息为准。
 
-${MANDATORY_SCHEDULE_RULE_PROMPT}${buildContentFactCompletenessInstruction(globalFactsMode) ? `\n\n${buildContentFactCompletenessInstruction(globalFactsMode)}\n不得把【待填写】改成具体值，也不得为缺失项杜撰事实。` : ''}`;
+${MANDATORY_SCHEDULE_RULE_PROMPT}\n\n${buildContentFactCompletenessInstruction(globalFactsMode)}${buildPlaceholderPreservationInstruction(globalFactsMode) ? `\n${buildPlaceholderPreservationInstruction(globalFactsMode)}` : ''}`;
 }
 
 function normalizeOriginalRestoreAssignments(value, context) {
@@ -1897,7 +1900,7 @@ function buildConsistencyAuditMessages({ group, globalFactsText, bidAnalysisFact
 3. 正文没有涉及某条事实时，不要报告缺失，不要建议补充。
 4. 不报告文风、质量、重复、篇幅、表达优化等问题。
 5. section_id 必须来自允许的目录编号清单，禁止编造编号。
-6. 只筛选冲突目录编号和冲突证据，不要重写正文。${buildContentFactCompletenessInstruction(globalFactsMode) ? `\n7. 全局事实中的【待填写】不是冲突，不要要求正文补成具体值，也不要把缺失项当成需要杜撰的内容。` : ''}
+6. 只筛选冲突目录编号和冲突证据，不要重写正文。${normalizeGlobalFactsMode(globalFactsMode) === 'placeholder' ? `\n7. 全局事实中的【待填写】不是冲突，不要要求正文补成具体值，也不要把缺失项当成需要杜撰的内容。` : ''}
 
 返回格式：
 {
@@ -2009,7 +2012,7 @@ function buildConsistencyRepairMessages({ context, conflicts, globalFactsText, b
 9. ${tableAllowed ? '保留 Markdown 表格、列表、代码块、图片和 Mermaid 块结构。' : '保留普通列表、代码块、图片和 Mermaid 块结构；不得新增或保留 Markdown 表格、HTML 表格。'}
 10. start_line/end_line 使用下方带行号正文中的 1-based 行号；如果不确定也必须提供可唯一匹配的 old_text。
 
-${MANDATORY_SCHEDULE_RULE_PROMPT}${buildContentFactCompletenessInstruction(globalFactsMode) ? `\n\n${buildContentFactCompletenessInstruction(globalFactsMode)}\n不得把【待填写】改成具体值，也不得为缺失项杜撰事实。` : ''}
+${MANDATORY_SCHEDULE_RULE_PROMPT}\n\n${buildContentFactCompletenessInstruction(globalFactsMode)}${buildPlaceholderPreservationInstruction(globalFactsMode) ? `\n${buildPlaceholderPreservationInstruction(globalFactsMode)}` : ''}
 
 返回格式：
 {

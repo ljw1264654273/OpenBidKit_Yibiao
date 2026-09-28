@@ -1,4 +1,8 @@
 const assert = require('node:assert/strict');
+const { spawnSync } = require('node:child_process');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 const test = require('node:test');
 
 const { normalizeGlobalFactsMode } = require('./globalFactsTask.cjs');
@@ -54,7 +58,16 @@ test('global facts mode normalization maps legacy, unknown, and malformed values
 
 test('V2 exposes prompt helpers for the two-mode contract', () => {
   assert.ok(promptRuntime, 'globalFactsTaskV2 must expose __globalFactsModeTestRuntime');
+  assert.deepEqual(Object.keys(promptRuntime).sort(), [
+    'buildJsonExample',
+    'buildMissingValueRule',
+    'createGlobalFactsPrompt',
+  ]);
+  assert.equal(typeof promptRuntime.buildMissingValueRule, 'function');
+  assert.equal(typeof promptRuntime.buildJsonExample, 'function');
   assert.equal(typeof promptRuntime.createGlobalFactsPrompt, 'function');
+  assert.match(promptRuntime.buildMissingValueRule(undefined), /笼统承诺/);
+  assert.doesNotMatch(promptRuntime.buildJsonExample('fabricate'), /张伟|李明/);
 });
 
 test('standard mode uses non-fabrication semantics', () => {
@@ -75,3 +88,69 @@ test('legacy, missing, and malformed modes fall back to standard prompt semantic
     assertStandardPrompt(createPrompt(value));
   }
 });
+
+async function runStoreAssertions() {
+  const { createSqliteDatabase } = require('./sqliteDatabase.cjs');
+  const { createTechnicalPlanStore } = require('./technicalPlanStore.cjs');
+  const userDataPath = fs.mkdtempSync(path.join(os.tmpdir(), 'yibiao-global-facts-mode-'));
+  let database;
+  try {
+    const app = {
+      getPath(name) {
+        assert.equal(name, 'userData');
+        return userDataPath;
+      },
+      once() {},
+    };
+    database = createSqliteDatabase(app);
+    const store = createTechnicalPlanStore({
+      app,
+      db: database.db,
+      fileService: {
+        async importDocument() {
+          return {
+            success: true,
+            file_content: '# 招标文件\n测试内容',
+            file_name: '测试招标文件.md',
+            parser_label: '本地解析',
+          };
+        },
+      },
+      agentService: { deletePersistentTask() {} },
+      taskLogStore: { list: () => [], sync() {} },
+      configStore: { load: () => ({}) },
+    });
+
+    assert.equal(store.loadTechnicalPlan().globalFactsMode, 'omit');
+
+    assert.deepEqual(store.saveGlobalFactsConfig({ globalFactsMode: 'fabricate' }), { globalFactsMode: 'omit' });
+    assert.equal(database.db.prepare('SELECT global_facts_mode FROM technical_plan_meta WHERE id = 1').get().global_facts_mode, 'omit');
+    assert.equal(store.loadTechnicalPlan().globalFactsMode, 'omit');
+
+    store.saveGlobalFactsConfig({ globalFactsMode: 'placeholder' });
+    assert.equal(store.loadTechnicalPlan().globalFactsMode, 'placeholder');
+    await store.importTenderDocument(['fixture.md']);
+    assert.equal(database.db.prepare('SELECT global_facts_mode FROM technical_plan_meta WHERE id = 1').get().global_facts_mode, 'omit');
+    assert.equal(store.loadTechnicalPlan().globalFactsMode, 'omit');
+  } finally {
+    database?.close();
+    fs.rmSync(userDataPath, { recursive: true, force: true });
+  }
+}
+
+if (process.argv.includes('--electron-native-store')) {
+  runStoreAssertions()
+    .catch((error) => {
+      console.error(error);
+      process.exitCode = 1;
+    })
+    .finally(() => process.exit(process.exitCode || 0));
+} else {
+  test('Store defaults, malformed saves, and tender reset use omit mode', () => {
+    const result = spawnSync(require('electron'), ['--runAsNode', __filename, '--electron-native-store'], {
+      encoding: 'utf8',
+      timeout: 30000,
+    });
+    assert.equal(result.status, 0, `${result.stderr || result.stdout || 'Electron native global facts mode store test timed out'}`);
+  });
+}
