@@ -3,7 +3,7 @@ const path = require('node:path');
 const Database = require('better-sqlite3');
 const { getWorkspaceDatabasePath } = require('../utils/paths.cjs');
 
-const schemaVersion = 34;
+const schemaVersion = 35;
 
 function safeProjectTablePart(projectId) {
   return String(projectId || '')
@@ -696,6 +696,11 @@ function createBidProjectSchema(db) {
       project_name TEXT NOT NULL,
       project_type TEXT NOT NULL DEFAULT 'technical-plan',
       status TEXT NOT NULL DEFAULT 'incomplete',
+      derived_from_project_id TEXT,
+      uniqueness_status TEXT NOT NULL DEFAULT 'none',
+      uniqueness_result_id TEXT,
+      uniqueness_attempts INTEGER NOT NULL DEFAULT 0,
+      uniqueness_auto_run_requested INTEGER NOT NULL DEFAULT 0,
       source_group_id TEXT,
       source_sequence INTEGER NOT NULL DEFAULT 1,
       source_file_name TEXT,
@@ -747,6 +752,14 @@ function createBidProjectSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_bid_project_duplicate_pair
       ON bid_project_duplicate_results(left_project_id, right_project_id, updated_at DESC);
   `);
+}
+
+function addBidProjectVariantState(db) {
+  addColumnIfMissing(db, 'bid_projects', 'derived_from_project_id', 'TEXT');
+  addColumnIfMissing(db, 'bid_projects', 'uniqueness_status', "TEXT NOT NULL DEFAULT 'none'");
+  addColumnIfMissing(db, 'bid_projects', 'uniqueness_result_id', 'TEXT');
+  addColumnIfMissing(db, 'bid_projects', 'uniqueness_attempts', 'INTEGER NOT NULL DEFAULT 0');
+  addColumnIfMissing(db, 'bid_projects', 'uniqueness_auto_run_requested', 'INTEGER NOT NULL DEFAULT 0');
 }
 
 function ensureBidProjectDuplicateMatches(db) {
@@ -1883,6 +1896,9 @@ function ensureWorkspaceSchemaHealth(db, targetVersion = schemaVersion, onStatus
   if (targetVersion >= 34) {
     addKnowledgeFolderRegion(db);
   }
+  if (targetVersion >= 35) {
+    addBidProjectVariantState(db);
+  }
 }
 
 const migrations = [
@@ -2055,6 +2071,11 @@ const migrations = [
     version: 34,
     description: '知识库文件夹新增可选省市',
     up: addKnowledgeFolderRegion,
+  },
+  {
+    version: 35,
+    description: '标书项目新增同源派生与正文查重状态',
+    up: addBidProjectVariantState,
   },
 ];
 

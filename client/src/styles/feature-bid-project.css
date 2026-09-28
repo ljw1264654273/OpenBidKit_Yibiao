@@ -92,8 +92,8 @@
 .bid-project-list-head,
 .bid-project-row {
   display: grid;
-  grid-template-columns: minmax(260px, 2fr) 1fr 1fr 1fr 150px;
-  gap: 14px;
+  grid-template-columns: minmax(220px, 1.8fr) 92px 106px 82px minmax(240px, 1.5fr);
+  gap: 10px;
   align-items: center;
   padding: 12px 16px;
 }
@@ -144,7 +144,7 @@
   max-width: 100%;
   color: #56708f !important;
   font-size: 11px !important;
-  white-space: normal !important;
+  white-space: nowrap !important;
 }
 
 .bid-project-row-duplicate-summary.is-empty {
@@ -152,7 +152,28 @@
 }
 
 .bid-project-row-type { color: #566a83; font-size: 12px; }
-.bid-project-row-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.bid-project-row-actions {
+  display: grid;
+  grid-template-rows: auto auto;
+  justify-items: end;
+  gap: 2px 8px;
+  min-width: 0;
+}
+
+.bid-project-row-actions-group {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px 6px;
+  min-width: 0;
+}
+
+.bid-project-row-actions .text-button {
+  min-height: 26px;
+  padding: 3px 5px;
+  white-space: nowrap;
+}
+
 .danger-text { color: #c43f48; }
 .bid-project-row-actions .text-button.is-selected { color: #216eea; font-weight: 700; }
 
@@ -741,7 +762,23 @@
   .bid-project-list-head { display: none; }
   .bid-project-row { grid-template-columns: minmax(0, 1fr) auto; gap: 7px 12px; }
   .bid-project-row-type, .bid-project-row-time { display: none; }
-  .bid-project-row-actions { grid-column: 2; grid-row: 1 / span 2; }
+  .bid-project-row-actions {
+    grid-column: 1 / -1;
+    grid-row: auto;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 4px 8px;
+    width: 100%;
+  }
+
+  .bid-project-row-actions-group { display: contents; }
+
+  .bid-project-row-actions .text-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    padding-inline: 4px;
+  }
   .bid-project-pagination { align-items: flex-start; flex-direction: column; }
   .bid-project-compare-bar { grid-template-columns: 1fr; gap: 12px; }
   .bid-project-compare-actions { justify-content: flex-start; }

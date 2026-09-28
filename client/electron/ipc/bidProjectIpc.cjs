@@ -1,4 +1,5 @@
 const { compareBidContents, normalizeParagraph, replaceFirstTextOutsideIllustrationBlocks, replaceTextPreservingIllustrationBlocks, splitBidParagraphs } = require('../services/bidContentDuplicateService.cjs');
+const { calculateContentFingerprint } = require('../services/bidProjectVariantDeduplicationTask.cjs');
 const { getBidProjectTechnicalPlanDir } = require('../utils/paths.cjs');
 
 function registerBidProjectIpc({
@@ -6,17 +7,21 @@ function registerBidProjectIpc({
   ipcMain: ipc = require('electron').ipcMain,
   bidProjectManager,
   bidProjectImportService,
+  bidProjectVariantService,
   technicalPlanStore,
   taskService,
   exportService,
   duplicateRewriteService,
 }) {
   const projectStore = bidProjectManager.getProjectStore();
-  ipc.handle('bid-project:list', (_event, filters) => projectStore.listProjects(filters));
-  ipc.handle('bid-project:get', (_event, projectId) => projectStore.getProject(projectId));
+  ipc.handle('bid-project:list', (_event, filters) => bidProjectManager.listProjects(filters));
+  ipc.handle('bid-project:get', (_event, projectId) => bidProjectManager.getProject(projectId));
   ipc.handle('bid-project:open', (_event, projectId) => bidProjectManager.openProject(projectId));
   ipc.handle('bid-project:close', (_event, projectId) => bidProjectManager.closeProject(projectId));
   ipc.handle('bid-project:create', (_event, options) => bidProjectManager.createProject(options));
+  ipc.handle('bid-project:create-variant', (_event, sourceProjectId) => (
+    bidProjectVariantService.createVariantProject(sourceProjectId)
+  ));
   ipc.handle('bid-project:update', (_event, projectId, patch) => bidProjectManager.updateProject(projectId, patch));
   ipc.handle('bid-project:delete', async (_event, projectId) => {
     await taskService?.cancelProjectTasks?.(projectId);
@@ -100,6 +105,22 @@ function registerBidProjectIpc({
     const project = bidProjectManager.getProject(projectId);
     const store = bidProjectManager.getTechnicalPlanStore(projectId);
     if (!project || !store) throw new Error('未找到标书项目');
+    if (project.derivedFromProjectId) {
+      const sourceProject = bidProjectManager.getProject(project.derivedFromProjectId);
+      if (!sourceProject) throw new Error('来源项目已删除，当前标书无法导出');
+      if (project.status !== 'completed' || project.uniquenessStatus !== 'passed') {
+        throw new Error('同源正文查重通过后才能导出');
+      }
+      const sourceStore = bidProjectManager.getTechnicalPlanStore(sourceProject.projectId);
+      const validation = projectStore.validateProjectUniqueness(project.projectId, {
+        sourceFingerprint: calculateContentFingerprint(sourceStore),
+        derivedFingerprint: calculateContentFingerprint(store),
+        contentGenerationSucceeded: store.loadTechnicalPlan()?.contentGenerationTask?.status === 'success',
+      });
+      if (!validation.valid) {
+        throw new Error(validation.reason || '同源正文查重结果已失效，请重新查重');
+      }
+    }
     const state = store.loadTechnicalPlan();
     const outline = state?.outlineData?.outline || [];
     if (!outline.length) throw new Error('当前项目还没有可导出的目录内容');

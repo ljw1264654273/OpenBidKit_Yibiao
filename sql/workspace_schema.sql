@@ -14,7 +14,7 @@ PRAGMA busy_timeout = 5000;
 
 -- 目标完整结构版本。
 -- 运行时代码应通过 PRAGMA user_version 判断是否需要自动升级。
-PRAGMA user_version = 33;
+PRAGMA user_version = 35;
 
 -- v27 标书项目工作区索引。正文和技术方案状态按项目专属表/目录保存。
 CREATE TABLE IF NOT EXISTS bid_projects (
@@ -22,6 +22,11 @@ CREATE TABLE IF NOT EXISTS bid_projects (
   project_name TEXT NOT NULL,
   project_type TEXT NOT NULL DEFAULT 'technical-plan',
   status TEXT NOT NULL DEFAULT 'incomplete',
+  derived_from_project_id TEXT,
+  uniqueness_status TEXT NOT NULL DEFAULT 'none',
+  uniqueness_result_id TEXT,
+  uniqueness_attempts INTEGER NOT NULL DEFAULT 0,
+  uniqueness_auto_run_requested INTEGER NOT NULL DEFAULT 0,
   source_group_id TEXT,
   source_sequence INTEGER NOT NULL DEFAULT 1,
   source_file_name TEXT,

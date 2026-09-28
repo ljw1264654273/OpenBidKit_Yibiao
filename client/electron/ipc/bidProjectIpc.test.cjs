@@ -50,7 +50,7 @@ function createManager() {
   };
   const states = {
     [leftProject.projectId]: { outlineData: { outline: [{ id: 'left-node', title: '章节一', content: '左侧正文内容足够长，能够被查重服务识别为同源重复段落，并且包含完整的项目管理事实。' }] } },
-    [rightProject.projectId]: { outlineData: { outline: [{ id: 'right-node', title: '章节一', content: '右侧正文内容足够长，能够被查重服务识别为同源重复段落，并且包含完整的项目管理事实。' }] } },
+    [rightProject.projectId]: { contentGenerationTask: { status: 'success' }, outlineData: { outline: [{ id: 'right-node', title: '章节一', content: '右侧正文内容足够长，能够被查重服务识别为同源重复段落，并且包含完整的项目管理事实。' }] } },
   };
   let savedDuplicatePayload;
   let savedChapterContent;
@@ -94,6 +94,7 @@ function createManager() {
   };
   const manager = {
     getProjectStore: () => projectStore,
+    listProjects: (filters) => projectStore.listProjects(filters),
     getTechnicalPlanStore: (projectId) => ({
       loadTechnicalPlan: () => states[projectId],
       readTenderMarkdown: () => '',
@@ -160,12 +161,145 @@ function registerForTest(overrides = {}) {
     },
     technicalPlanStore: fixture.manager.getTechnicalPlanStore(fixture.leftProject.projectId),
     taskService: { cancelProjectTasks: async () => undefined },
+    bidProjectVariantService: {
+      createVariantProject: async (sourceProjectId) => ({
+        ...fixture.rightProject,
+        projectId: 'derived-project',
+        derivedFromProjectId: sourceProjectId,
+        status: 'incomplete',
+        uniquenessStatus: 'pending',
+      }),
+    },
     exportService: { exportWord: async () => ({ success: true }) },
     duplicateRewriteService,
     ...overrides,
   });
   return { ipc, fixture, expansionCalls, expansionProject };
 }
+
+test('creates a derived bid through the variant service', async () => {
+  const { ipc, fixture } = registerForTest();
+
+  const created = await ipc.handlers.get('bid-project:create-variant')(
+    {},
+    fixture.leftProject.projectId,
+  );
+
+  assert.equal(created.projectId, 'derived-project');
+  assert.equal(created.derivedFromProjectId, fixture.leftProject.projectId);
+  assert.equal(created.uniquenessStatus, 'pending');
+});
+
+test('list and get use refreshed project status after a source body changes', () => {
+  const { ipc, fixture } = registerForTest();
+  const refreshed = { ...fixture.rightProject, status: 'incomplete', uniquenessStatus: 'pending' };
+  fixture.manager.listProjects = () => [fixture.leftProject, refreshed];
+  fixture.manager.getProject = () => refreshed;
+
+  assert.equal(ipc.handlers.get('bid-project:list')({})[1].uniquenessStatus, 'pending');
+  assert.equal(ipc.handlers.get('bid-project:get')({}, refreshed.projectId).status, 'incomplete');
+});
+
+test('blocks export when a derived project has not passed uniqueness validation', async () => {
+  const { ipc, fixture } = registerForTest();
+  const derived = {
+    ...fixture.rightProject,
+    derivedFromProjectId: fixture.leftProject.projectId,
+    uniquenessStatus: 'pending',
+    status: 'incomplete',
+  };
+  fixture.manager.getProject = () => derived;
+
+  await assert.rejects(
+    ipc.handlers.get('bid-project:export-word')({ sender: { send() {} } }, derived.projectId),
+    /同源正文查重通过后才能导出/,
+  );
+});
+
+for (const scenario of [
+  ['项目关系不匹配', '查重结果与当前两份标书不匹配'],
+  ['正文指纹变化', '任一标书正文已变化，需要重新查重'],
+  ['查重仍有命中', '同源正文查重仍有重复内容'],
+]) {
+  test(`blocks export when derived uniqueness validation reports ${scenario[0]}`, async () => {
+    const { ipc, fixture } = registerForTest();
+    const derived = {
+      ...fixture.rightProject,
+      derivedFromProjectId: fixture.leftProject.projectId,
+      uniquenessStatus: 'passed',
+      status: 'completed',
+    };
+    fixture.manager.getProject = (projectId) => (
+      projectId === derived.projectId ? derived : fixture.leftProject
+    );
+    fixture.projectStore.validateProjectUniqueness = () => ({
+      valid: false,
+      project: { ...derived, status: 'incomplete', uniquenessStatus: 'pending' },
+      result: null,
+      reason: scenario[1],
+    });
+
+    await assert.rejects(
+      ipc.handlers.get('bid-project:export-word')({ sender: { send() {} } }, derived.projectId),
+      new RegExp(scenario[1]),
+    );
+  });
+}
+
+test('allows export only after a derived project passes current fingerprint validation', async () => {
+  let exported = 0;
+  const { ipc, fixture } = registerForTest({
+    exportService: {
+      exportWord: async () => {
+        exported += 1;
+        return { success: true };
+      },
+    },
+  });
+  const derived = {
+    ...fixture.rightProject,
+    derivedFromProjectId: fixture.leftProject.projectId,
+    uniquenessStatus: 'passed',
+    status: 'completed',
+  };
+  fixture.manager.getProject = (projectId) => (
+    projectId === derived.projectId ? derived : fixture.leftProject
+  );
+  fixture.projectStore.validateProjectUniqueness = () => ({
+    valid: true,
+    project: derived,
+    result: { summary: { duplicateParagraphCount: 0, exactSentenceCount: 0 } },
+    reason: '',
+  });
+
+  const result = await ipc.handlers.get('bid-project:export-word')(
+    { sender: { send() {} } },
+    derived.projectId,
+  );
+
+  assert.equal(result.success, true);
+  assert.equal(exported, 1);
+});
+
+test('keeps ordinary completed project export behavior unchanged', async () => {
+  let exported = 0;
+  const { ipc, fixture } = registerForTest({
+    exportService: {
+      exportWord: async () => {
+        exported += 1;
+        return { success: true };
+      },
+    },
+  });
+
+  const result = await ipc.handlers.get('bid-project:export-word')(
+    { sender: { send() {} } },
+    fixture.leftProject.projectId,
+  );
+
+  assert.equal(result.success, true);
+  assert.equal(exported, 1);
+});
 
 test('registers expansion import handlers and forwards payloads unchanged', async () => {
   const { ipc, expansionCalls, expansionProject } = registerForTest();

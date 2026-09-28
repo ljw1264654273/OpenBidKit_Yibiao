@@ -33,6 +33,10 @@ function registerTaskIpc({ taskService }) {
     taskService.subscribe(event.sender);
     return taskService.startContentGeneration(payload);
   });
+  ipcMain.handle('tasks:start-variant-deduplication', (event, payload) => {
+    taskService.subscribe(event.sender);
+    return taskService.startVariantDeduplication(payload);
+  });
   ipcMain.handle('tasks:pause-content-generation', (event, payload) => {
     taskService.subscribe(event.sender);
     return taskService.pauseContentGeneration(payload);

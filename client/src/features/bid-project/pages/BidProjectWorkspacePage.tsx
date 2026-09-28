@@ -37,6 +37,8 @@ function BidProjectWorkspacePage({ onSectionChange, onProjectOpen }: BidProjectW
   const [duplicateResultError, setDuplicateResultError] = useState<string | null>(null);
   const [recentDuplicateSummaries, setRecentDuplicateSummaries] = useState<Record<string, BidProjectDuplicateSummary | null>>({});
   const [exportTarget, setExportTarget] = useState<BidProject | null>(null);
+  const [variantSource, setVariantSource] = useState<BidProject | null>(null);
+  const [commandProjectId, setCommandProjectId] = useState<string | null>(null);
   const compareRequestRef = useRef(0);
   const duplicateResultRequestRef = useRef(0);
 
@@ -66,6 +68,13 @@ function BidProjectWorkspacePage({ onSectionChange, onProjectOpen }: BidProjectW
   useEffect(() => {
     void loadProjects();
   }, [loadProjects]);
+
+  useEffect(() => window.yibiao?.tasks.onTaskEvent((event) => {
+    if (event.task.type !== 'variant-deduplication') return;
+    if (event.task.progress === 0 || event.task.status === 'success' || event.task.status === 'error') {
+      window.setTimeout(() => { void loadProjects(); }, 0);
+    }
+  }), [loadProjects]);
 
   useEffect(() => {
     setPage(1);
@@ -265,10 +274,41 @@ function BidProjectWorkspacePage({ onSectionChange, onProjectOpen }: BidProjectW
     }
   };
 
+  const confirmCreateVariant = async () => {
+    if (!variantSource || commandProjectId) return;
+    setCommandProjectId(variantSource.projectId);
+    try {
+      const created = await bidProjectStorage.createVariant(variantSource.projectId);
+      setVariantSource(null);
+      showToast('第二份标书已创建，将从目录重新生成', 'success');
+      await onProjectOpen(created);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '创建第二份标书失败', 'error');
+    } finally {
+      setCommandProjectId(null);
+    }
+  };
+
+  const retryUniqueness = async (project: BidProject) => {
+    if (commandProjectId) return;
+    setCommandProjectId(project.projectId);
+    try {
+      await window.yibiao!.tasks.startVariantDeduplication({ projectId: project.projectId });
+      await loadProjects();
+      showToast('已开始同源正文查重，重复内容将自动改写', 'info');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '启动同源正文查重失败', 'error');
+    } finally {
+      setCommandProjectId(null);
+    }
+  };
+
   const exportProject = (project: BidProject) => {
-    if (project.status !== 'completed') {
+    if (project.status !== 'completed' || (project.derivedFromProjectId && project.uniquenessStatus !== 'passed')) {
       showToast(
-        project.status === 'generating'
+        project.derivedFromProjectId && project.uniquenessStatus !== 'passed'
+          ? '同源正文查重通过后才可导出'
+          : project.status === 'generating'
           ? '项目正在生成中，请等待任务结束后再导出'
           : project.status === 'failed'
             ? '标书生成失败，请重新生成后再导出'
@@ -354,6 +394,9 @@ function BidProjectWorkspacePage({ onSectionChange, onProjectOpen }: BidProjectW
             compareSelected={compareSelection.includes(project.projectId)}
             duplicateSummary={recentDuplicateSummaries[project.projectId]}
             onViewDuplicateResult={(target) => { void openLatestDuplicateResult(target); }}
+            onCreateVariant={setVariantSource}
+            onRetryUniqueness={(target) => { void retryUniqueness(target); }}
+            commandPending={commandProjectId === project.projectId}
           />
         ))}
         {!loading && filteredProjects.length > 0 ? (
@@ -380,6 +423,22 @@ function BidProjectWorkspacePage({ onSectionChange, onProjectOpen }: BidProjectW
           </div>
         ) : null}
       </section>
+
+      <AppDialog
+        open={Boolean(variantSource)}
+        onOpenChange={(open) => !open && !commandProjectId && setVariantSource(null)}
+        kicker="同源标书"
+        title="再生成一份标书"
+        description={`将基于“${variantSource?.projectName || ''}”使用同一招标文件创建新项目。新标书会重新生成目录和正文，并在正文完成后自动查重、改写重复内容。`}
+        actions={(
+          <>
+            <button type="button" className="secondary-action" onClick={() => setVariantSource(null)} disabled={Boolean(commandProjectId)}>取消</button>
+            <button type="button" className="primary-action" onClick={() => { void confirmCreateVariant(); }} disabled={Boolean(commandProjectId)}>
+              {commandProjectId ? '正在创建...' : '创建并重新生成'}
+            </button>
+          </>
+        )}
+      />
 
       <AppDialog
         open={Boolean(renameTarget)}

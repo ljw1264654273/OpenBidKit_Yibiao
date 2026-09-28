@@ -1,11 +1,17 @@
 export type BidProjectStatus = 'generating' | 'incomplete' | 'completed' | 'failed';
 export type BidProjectType = 'technical-plan' | 'existing-plan-expansion';
+export type BidProjectUniquenessStatus = 'none' | 'pending' | 'checking' | 'passed' | 'failed';
 
 export interface BidProject {
   projectId: string;
   projectName: string;
   projectType: BidProjectType;
   status: BidProjectStatus;
+  derivedFromProjectId?: string;
+  uniquenessStatus: BidProjectUniquenessStatus;
+  uniquenessResultId?: string;
+  uniquenessAttempts: number;
+  uniquenessAutoRunRequested: boolean;
   sourceGroupId?: string;
   sourceSequence: number;
   sourceFileName?: string;
@@ -39,6 +45,7 @@ export interface BidProjectCreateOptions {
   sourceFile?: BidProjectSourceFile;
   sourceGroupId?: string;
   sectionLabel?: string;
+  derivedFromProjectId?: string;
 }
 
 export interface BidProjectImportPreview {

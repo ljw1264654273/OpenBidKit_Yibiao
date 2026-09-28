@@ -4,7 +4,7 @@ const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 
-const { createSqliteDatabase } = require('./sqliteDatabase.cjs');
+const { createSqliteDatabase, schemaVersion } = require('./sqliteDatabase.cjs');
 
 function createApp(userDataPath) {
   return {
@@ -54,7 +54,7 @@ test('migrates legacy duplicate result JSON into normalized match rows', () => {
     database = null;
 
     database = createSqliteDatabase(app);
-    assert.equal(database.schemaVersion, 33);
+    assert.equal(database.schemaVersion, schemaVersion);
     assert.deepEqual(
       database.db.prepare(`
         SELECT match_index, match_id, match_json

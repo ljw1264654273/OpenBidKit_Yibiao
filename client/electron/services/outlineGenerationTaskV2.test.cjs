@@ -9,6 +9,7 @@ const {
   createChildrenPrompt,
   createLeafAdjustmentPrompt,
   createOutlineReviewPrompt,
+  buildVariantOutlineReference,
   enforceMinimumLeafTarget,
   deriveAcceptableLeafRange,
   deriveSemanticMinimumLeafTarget,
@@ -1587,6 +1588,59 @@ test('远程目录参考文件明确标记为不可信材料且不泄露内部�
   assert.match(file.content, /规范片段/);
   assert.match(file.content, /远程正文/);
   assert.doesNotMatch(file.content, /kb-secret|doc-secret|chunk-secret/);
+});
+
+test('派生目录生成注入第一份标书目录并在各阶段强调非固定结构差异化', () => {
+  const reference = buildVariantOutlineReference({
+    variant_baseline_outline: {
+      outline: [{ id: '1', title: '第一份实施方案', content: '不得进入参照文件' }],
+    },
+  });
+
+  assert.equal(reference.path, '第一份标书目录.json');
+  assert.match(reference.content, /第一份实施方案/);
+  assert.doesNotMatch(reference.content, /不得进入参照文件/);
+
+  const initialPrompt = createInitialPrompt('按评分要求生成。', { hasVariantBaseline: true });
+  const childrenPrompt = createChildrenPrompt({
+    hasOriginalPlan: false,
+    originalOnly: false,
+    targetLeafCount: 20,
+    allowRootChanges: false,
+    standaloneTechnical: true,
+    hasVariantBaseline: true,
+  });
+  const reviewPrompt = createOutlineReviewPrompt({
+    targetLeafCount: 20,
+    actualLeafCount: 20,
+    allowRootChanges: false,
+    standaloneTechnical: true,
+    hasVariantBaseline: true,
+  });
+
+  for (const prompt of [initialPrompt, childrenPrompt, reviewPrompt]) {
+    assert.match(prompt, /第一份标书目录\.json/);
+    assert.match(prompt, /评分原文|固定目录|固定标题/);
+    assert.match(prompt, /重新规划|不得照搬/);
+  }
+});
+
+test('普通项目不注入第一份目录文件或差异化规则', () => {
+  assert.equal(buildVariantOutlineReference({}), null);
+  assert.doesNotMatch(createInitialPrompt('正常生成。'), /第一份标书目录\.json/);
+  assert.doesNotMatch(createChildrenPrompt({
+    hasOriginalPlan: false,
+    originalOnly: false,
+    targetLeafCount: 20,
+    allowRootChanges: false,
+    standaloneTechnical: true,
+  }), /第一份标书目录\.json/);
+  assert.doesNotMatch(createOutlineReviewPrompt({
+    targetLeafCount: 20,
+    actualLeafCount: 20,
+    allowRootChanges: false,
+    standaloneTechnical: true,
+  }), /第一份标书目录\.json/);
 });
 
 test('original-only 真实目录任务不调用远程检索，也不注入远程文件', async () => {
