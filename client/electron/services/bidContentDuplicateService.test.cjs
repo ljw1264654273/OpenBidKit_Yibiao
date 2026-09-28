@@ -333,6 +333,26 @@ test('uses the minimum effective character boundary for exact sentences', () => 
   assert.equal(eligibleResult.summary.exactSentenceCount, 1);
 });
 
+test('separates a markdown list heading from the complete sentence on the next line', () => {
+  const repeatedSentence = '党中央、国务院明确保持土地承包关系稳定并长久不变，第二轮土地承包到期后再延长三十年。';
+  const result = compareBidContents({
+    leftContent: [
+      '1. **国家层面政策背景**',
+      `   ${repeatedSentence}`,
+      '   1. **法律与制度依据：** 相关法律构成项目实施的制度基础。',
+    ].join('\n'),
+    rightContent: `农村土地承包经营制度经历持续完善。\n${repeatedSentence}`,
+    sensitivity: 'high',
+  });
+
+  assert.equal(result.summary.exactSentenceCount, 1);
+  assert.equal(result.matches.length, 1);
+  assert.equal(
+    result.matches[0].exactSentences[0].normalized,
+    '党中央国务院明确保持土地承包关系稳定并长久不变第二轮土地承包到期后再延长三十年',
+  );
+});
+
 test('treats a line break as whitespace inside one complete sentence', () => {
   const result = compareBidContents({
     leftContent: '本项目将建立统一的项目管理机制，\n确保建设任务按期完成。',

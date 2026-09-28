@@ -114,12 +114,21 @@ function compactParagraph(value) {
 function splitBidParagraphs(content) {
   return removeIllustrationBlocks(content)
     .split(/\n\s*\n+/)
-    .map((text, index) => ({
-      index,
-      text: normalizeParagraph(text),
+    .map((sentenceText) => ({
+      sentenceText: String(sentenceText || '').trim(),
+      text: normalizeParagraph(sentenceText),
     }))
     .filter((paragraph) => paragraph.text)
-    .map((paragraph, index) => ({ ...paragraph, index }));
+    .map((paragraph, index) => {
+      const result = { index, text: paragraph.text };
+      Object.defineProperty(result, 'sentenceText', {
+        configurable: false,
+        enumerable: false,
+        value: paragraph.sentenceText,
+        writable: false,
+      });
+      return result;
+    });
 }
 
 function splitSentences(value) {
@@ -128,9 +137,16 @@ function splitSentences(value) {
   let start = 0;
   const isAsciiLetter = (character) => Boolean(character && /[A-Za-z]/.test(character));
   const isDigit = (character) => Boolean(character && /[0-9]/.test(character));
+  const isMarkdownHeadingBoundary = (index) => {
+    const lineStart = text.lastIndexOf('\n', index - 1) + 1;
+    const line = text.slice(lineStart, index);
+    const hasStructuralMarker = /^\s{0,3}(?:#{1,6}\s+|[-*+>]\s+|\d+(?:\.\d+)*[.)、．]\s+|[一二三四五六七八九十百千万零〇两]+[、.．]\s+|[（(][一二三四五六七八九十百千万零〇两\d]+[）)]\s+|[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳]\s+)/u.test(line);
+    return hasStructuralMarker && isHeadingLikeSentence(line);
+  };
   const isBoundary = (index) => {
     const character = text[index];
     if ('。！？!?'.includes(character)) return true;
+    if (character === '\n') return isMarkdownHeadingBoundary(index);
     if (character !== '.') return false;
     const previous = text[index - 1];
     const next = text[index + 1];
@@ -181,7 +197,7 @@ function isHeadingLikeSentence(value) {
 }
 
 function exactSentenceEntries(paragraph) {
-  return splitSentences(paragraph.text)
+  return splitSentences(paragraph.sentenceText || paragraph.text)
     .filter((sentence) => (
       hasSentenceTerminator(sentence)
       && !isPureListMarker(sentence)

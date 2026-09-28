@@ -1,9 +1,11 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
+  readProjectParagraphs,
   replaceMatchedParagraph,
   runBidProjectVariantDeduplicationTask,
 } = require('./bidProjectVariantDeduplicationTask.cjs');
+const { compareBidContents } = require('./bidContentDuplicateService.cjs');
 
 function makeOutline(content) {
   return { outline: [{ id: 'node-1', title: '实施方案', content }] };
@@ -107,6 +109,28 @@ test('passes on the initial zero-match check and persists both body fingerprints
   assert.equal(harness.projects.get('derived').uniquenessStatus, 'passed');
   assert.equal(harness.projects.get('derived').uniquenessAttempts, 0);
   assert.equal(harness.saves.length, 0);
+});
+
+test('preserves markdown heading line breaks in the content sent to exact sentence comparison', () => {
+  const repeatedSentence = '党中央、国务院明确保持土地承包关系稳定并长久不变，第二轮土地承包到期后再延长三十年。';
+  const source = readProjectParagraphs({
+    outlineData: makeOutline([
+      '1. **国家层面政策背景**',
+      `   ${repeatedSentence}`,
+      '   1. **法律与制度依据：** 相关法律构成项目实施的制度基础。',
+    ].join('\n')),
+  });
+  const derived = readProjectParagraphs({
+    outlineData: makeOutline(`农村土地承包经营制度经历持续完善。\n${repeatedSentence}`),
+  });
+
+  const result = compareBidContents({
+    leftContent: source.content,
+    rightContent: derived.content,
+    sensitivity: 'high',
+  });
+
+  assert.equal(result.summary.exactSentenceCount, 1);
 });
 
 test('rewrites only the derived side and rechecks until the built-in checker reaches zero', async () => {

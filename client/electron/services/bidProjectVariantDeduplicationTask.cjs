@@ -25,6 +25,7 @@ function readProjectParagraphs(storeOrState) {
     ? storeOrState.loadTechnicalPlan()
     : storeOrState;
   const paragraphs = [];
+  const comparisonParagraphs = [];
   const nodes = collectOutlineNodes(state?.outlineData?.outline || []);
   for (const item of nodes) {
     if (item?.children?.length) continue;
@@ -35,13 +36,14 @@ function readProjectParagraphs(storeOrState) {
         localIndex,
         content: paragraph.text,
       });
+      comparisonParagraphs.push(paragraph.sentenceText || paragraph.text);
     });
   }
   return {
     state,
     nodes,
     paragraphs,
-    content: paragraphs.map((item) => item.content).join('\n\n'),
+    content: comparisonParagraphs.join('\n\n'),
   };
 }
 

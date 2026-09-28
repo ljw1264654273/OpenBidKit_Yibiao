@@ -179,13 +179,17 @@ function registerBidProjectIpc({
 
 function readProjectParagraphs(state) {
     const paragraphs = [];
+    const comparisonParagraphs = [];
     const visit = (items) => (items || []).forEach((item) => {
       if (item?.children?.length) visit(item.children);
       else splitBidParagraphs(item?.content || '')
-        .forEach((paragraph) => paragraphs.push({ nodeId: item.id, title: item.title, content: paragraph.text }));
+        .forEach((paragraph) => {
+          paragraphs.push({ nodeId: item.id, title: item.title, content: paragraph.text });
+          comparisonParagraphs.push(paragraph.sentenceText || paragraph.text);
+        });
   });
   visit(state?.outlineData?.outline || []);
-  return { paragraphs, content: paragraphs.map((item) => item.content).join('\n\n') };
+  return { paragraphs, content: comparisonParagraphs.join('\n\n') };
 }
 
 async function extractTenderParagraphs(store) {
