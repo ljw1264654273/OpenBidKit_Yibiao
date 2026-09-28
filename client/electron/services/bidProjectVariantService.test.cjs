@@ -381,3 +381,57 @@ test('copies tender and successful analysis into a clean outline-stage workspace
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('preserves illustration review items when variant deduplication rewrites body text', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'yibiao-variant-illustration-review-'));
+  const db = new Database(':memory:');
+  const manager = createBidProjectManager({
+    app: { getPath: () => root },
+    db,
+    fileService: {},
+    agentService: { deletePersistentTask() {} },
+    taskLogStore: { list: () => [], sync() {}, normalizeLogs: (logs) => logs || [] },
+    configStore: { load: () => ({}) },
+  });
+  try {
+    const project = manager.createProject({ projectName: '第二份标书', sourceFile: createSourceFile() });
+    const store = manager.getTechnicalPlanStore(project.projectId);
+    store.saveOutline({
+      reason: 'replace',
+      outlineData: { outline: [{ id: 'node-1', title: '总体进度安排' }] },
+    });
+    store.saveChapterContent({ nodeId: 'node-1', content: '原正文' });
+    store.updateTechnicalPlan({
+      contentIllustrationPlan: {
+        plan_version: 1,
+        revision: 'variant-review-plan',
+        items: [{
+          item_id: 'variant-image-1',
+          kind: 'html',
+          image_type: 'gantt',
+          title: '项目实施进度图',
+          section_ids: ['node-1'],
+          placement: 'before',
+          generation: {
+            status: 'success',
+            review_status: 'pending',
+            asset_url: 'yibiao-asset://generated-images/variant-image.png',
+          },
+        }],
+      },
+    });
+
+    store.saveChapterContent({
+      nodeId: 'node-1',
+      content: '同源查重改写后的正文',
+      reason: 'variant-deduplication',
+    });
+
+    const plan = store.loadTechnicalPlan().contentIllustrationPlan;
+    assert.equal(plan.items[0].item_id, 'variant-image-1');
+    assert.equal(plan.items[0].generation.review_status, 'pending');
+  } finally {
+    db.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

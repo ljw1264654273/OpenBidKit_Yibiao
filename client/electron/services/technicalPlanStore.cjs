@@ -3158,7 +3158,9 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
         VALUES (?, ?, NULL, ?)
         ON CONFLICT(node_id) DO UPDATE SET status = excluded.status, error = NULL, updated_at = excluded.updated_at
       `).run(nodeId, nextContent.trim() ? 'success' : 'idle', timestamp);
-      clearContentIllustrationPlan();
+      if (reason !== 'variant-deduplication') {
+        clearContentIllustrationPlan();
+      }
     });
     transaction();
     if (changed && typeof onContentChanged === 'function') onContentChanged({ origin: reason, nodeIds: [String(nodeId)] });
