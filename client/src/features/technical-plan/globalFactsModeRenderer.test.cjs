@@ -33,3 +33,10 @@ test('页面、主页和工作流均将非 placeholder 值归一化为 omit', ()
   assert.match(workflowSource, /function normalizeGlobalFactsMode\([\s\S]*?return value === 'placeholder' \? 'placeholder' : 'omit';[\s\S]*?\}/);
   assert.match(workflowSource, /globalFactsMode:\s*normalizeGlobalFactsMode\(cachedState\.globalFactsMode\)/);
 });
+
+test('新增事实大项按当前模式使用安全初始内容', () => {
+  assert.match(pageSource, /normalizeGlobalFactsMode\(globalFactsMode\) === 'placeholder'/);
+  assert.match(pageSource, /- 项目经理：【待填写】。/);
+  assert.match(pageSource, /- 项目经理：按招标文件对该岗位的要求配备。/);
+  assert.doesNotMatch(pageSource, /张伟/);
+});

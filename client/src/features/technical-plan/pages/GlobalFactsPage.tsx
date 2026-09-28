@@ -219,10 +219,13 @@ function GlobalFactsPage({
   };
 
   const addFactGroup = async () => {
+    const initialContent = normalizeGlobalFactsMode(globalFactsMode) === 'placeholder'
+      ? '- 项目经理：【待填写】。'
+      : '- 项目经理：按招标文件对该岗位的要求配备。';
     const nextGroup: GlobalFactGroupState = {
       id: createFactId(),
       title: '新增事实大项',
-      content: '- 项目经理：张伟，高级工程师，负责总体协调和质量把关。',
+      content: initialContent,
       updated_at: new Date().toISOString(),
     };
     await saveFacts([...globalFacts, nextGroup], '已新增事实大项');
