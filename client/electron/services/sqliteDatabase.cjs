@@ -3,7 +3,7 @@ const path = require('node:path');
 const Database = require('better-sqlite3');
 const { getWorkspaceDatabasePath } = require('../utils/paths.cjs');
 
-const schemaVersion = 35;
+const schemaVersion = 36;
 
 function safeProjectTablePart(projectId) {
   return String(projectId || '')
@@ -55,7 +55,7 @@ function createTechnicalPlanProjectSchema(db, projectId) {
       bid_section_extraction_error TEXT,
       outline_mode TEXT NOT NULL DEFAULT 'standalone-technical',
       outline_expansion_mode TEXT NOT NULL DEFAULT 'ai-complement',
-      global_facts_mode TEXT NOT NULL DEFAULT 'fabricate',
+      global_facts_mode TEXT NOT NULL DEFAULT 'omit',
       outline_word_control_options_json TEXT,
       outline_word_control_snapshot_json TEXT,
       outline_project_name TEXT,
@@ -244,7 +244,7 @@ function createInitialSchema(db) {
       bid_section_extraction_error TEXT,
       outline_mode TEXT NOT NULL DEFAULT 'standalone-technical',
       outline_expansion_mode TEXT NOT NULL DEFAULT 'ai-complement',
-      global_facts_mode TEXT NOT NULL DEFAULT 'fabricate',
+      global_facts_mode TEXT NOT NULL DEFAULT 'omit',
       outline_word_control_options_json TEXT,
       outline_word_control_snapshot_json TEXT,
       outline_project_name TEXT,
@@ -475,7 +475,15 @@ function addTechnicalPlanOutlineExpansionMode(db) {
 }
 
 function addTechnicalPlanGlobalFactsMode(db) {
-  addColumnIfMissing(db, 'technical_plan_meta', 'global_facts_mode', "TEXT NOT NULL DEFAULT 'fabricate'");
+  addColumnIfMissing(db, 'technical_plan_meta', 'global_facts_mode', "TEXT NOT NULL DEFAULT 'omit'");
+}
+
+function migrateTechnicalPlanGlobalFactsModeToOmit(db) {
+  db.prepare(`
+    UPDATE technical_plan_meta
+    SET global_facts_mode = 'omit'
+    WHERE global_facts_mode = 'fabricate'
+  `).run();
 }
 
 function addTechnicalPlanBidSectionOptimization(db) {
@@ -1739,7 +1747,7 @@ const schemaHealthColumnGroups = [
     version: 22,
     table: 'technical_plan_meta',
     columns: {
-      global_facts_mode: "TEXT NOT NULL DEFAULT 'fabricate'",
+      global_facts_mode: "TEXT NOT NULL DEFAULT 'omit'",
     },
   },
   {
@@ -2076,6 +2084,11 @@ const migrations = [
     version: 35,
     description: '标书项目新增同源派生与正文查重状态',
     up: addBidProjectVariantState,
+  },
+  {
+    version: 36,
+    description: '技术方案全局事实补全模式默认改为标准模式',
+    up: migrateTechnicalPlanGlobalFactsModeToOmit,
   },
 ];
 
