@@ -18,7 +18,7 @@ function createPrompt(globalFactsMode) {
 function assertNoFabricationRules(prompt) {
   assert.doesNotMatch(prompt, /张伟/);
   assert.doesNotMatch(prompt, /李明/);
-  assert.doesNotMatch(prompt, /补足具体事实值/);
+  assert.doesNotMatch(prompt, /补足.*具体事实值/);
   assert.doesNotMatch(prompt, /补足具体周期/);
 }
 
