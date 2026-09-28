@@ -20,6 +20,12 @@ function assertScheduleRule(prompt, { facts = true } = {}) {
   assert.match(prompt, /更现实.*延长/);
 }
 
+function assertStandardModeNonFabricationRules(prompt) {
+  assert.match(prompt, /严禁虚拟、杜撰/);
+  assert.match(prompt, /笼统/);
+  assert.match(prompt, /不要为了写得具体而编造/);
+}
+
 test('chapter planning and first content generation receive mandatory schedule bounds', () => {
   const planning = joinMessages(runtime.buildChapterContentPlanMessages({
     chapter, parentChapters: [], siblingChapters: [], projectOverview: '',
@@ -47,6 +53,7 @@ test('ordinary and Agent restored optimization preserve tender schedule bounds',
   ].join('\n');
   assertScheduleRule(ordinary);
   assertScheduleRule(agent);
+  assertStandardModeNonFabricationRules(agent);
 });
 
 test('word adjustment cannot extend or move a compact tender schedule', () => {
@@ -56,6 +63,7 @@ test('word adjustment cannot extend or move a compact tender schedule', () => {
     maximumChangeWords: 20, totalRemainingWords: 10, globalFactsMode: 'fabricate',
   }));
   assertScheduleRule(prompt);
+  assertStandardModeNonFabricationRules(prompt);
 });
 
 test('normal and Agent original coverage repair receive Step02 schedule facts', () => {
@@ -83,6 +91,8 @@ test('normal and Agent consistency repair receive Step02 schedule facts', () => 
   ].join('\n');
   assertScheduleRule(normal);
   assertScheduleRule(agent);
+  assertStandardModeNonFabricationRules(normal);
+  assertStandardModeNonFabricationRules(agent);
 });
 
 test('JSON correction retries keep the same schedule facts and deadline rule', () => {
