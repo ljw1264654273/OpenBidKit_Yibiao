@@ -479,11 +479,27 @@ function addTechnicalPlanGlobalFactsMode(db) {
 }
 
 function migrateTechnicalPlanGlobalFactsModeToOmit(db) {
-  db.prepare(`
-    UPDATE technical_plan_meta
-    SET global_facts_mode = 'omit'
-    WHERE global_facts_mode = 'fabricate'
-  `).run();
+  const projectTablePrefix = 'technical_plan_project_';
+  const projectMetaSuffix = '_meta';
+  const projectMetaTables = db.prepare(`
+    SELECT name
+    FROM sqlite_master
+    WHERE type = 'table' AND name GLOB 'technical_plan_project_*_meta'
+  `).all()
+    .map((row) => row.name)
+    .filter((tableName) => {
+      const projectTablePart = tableName.slice(projectTablePrefix.length, -projectMetaSuffix.length);
+      return `${getTechnicalPlanProjectTablePrefix(projectTablePart)}meta` === tableName;
+    });
+
+  for (const tableName of ['technical_plan_meta', ...projectMetaTables]) {
+    if (!getExistingColumns(db, tableName).has('global_facts_mode')) continue;
+    db.prepare(`
+      UPDATE ${quoteIdentifier(tableName)}
+      SET global_facts_mode = 'omit'
+      WHERE global_facts_mode = 'fabricate'
+    `).run();
+  }
 }
 
 function addTechnicalPlanBidSectionOptimization(db) {

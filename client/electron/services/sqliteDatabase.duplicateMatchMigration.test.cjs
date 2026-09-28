@@ -1,9 +1,10 @@
 const assert = require('node:assert/strict');
-const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
+
+const { createSqliteDatabase, schemaVersion } = require('./sqliteDatabase.cjs');
 
 function createApp(userDataPath) {
   return {
@@ -15,8 +16,7 @@ function createApp(userDataPath) {
   };
 }
 
-function runMigrationAssertions() {
-  const { createSqliteDatabase, schemaVersion } = require('./sqliteDatabase.cjs');
+test('migrates legacy duplicate result JSON into normalized match rows', () => {
   const userDataPath = fs.mkdtempSync(path.join(os.tmpdir(), 'yibiao-duplicate-match-migration-'));
   let database;
   try {
@@ -71,23 +71,10 @@ function runMigrationAssertions() {
     database?.close();
     fs.rmSync(userDataPath, { recursive: true, force: true });
   }
-}
+});
 
-if (process.argv.includes('--electron-native')) {
-  try {
-    runMigrationAssertions();
-  } catch (error) {
-    console.error(error);
-    process.exitCode = 1;
-  } finally {
-    process.exit(process.exitCode || 0);
+test.after(() => {
+  if (process.versions.electron) {
+    require('electron').app.quit();
   }
-} else {
-  test('migrates legacy duplicate result JSON into normalized match rows', () => {
-    const result = spawnSync(require('electron'), ['--runAsNode', __filename, '--electron-native'], {
-      encoding: 'utf8',
-      timeout: 30000,
-    });
-    assert.equal(result.status, 0, result.stderr || result.stdout || 'Electron native duplicate migration test timed out');
-  });
-}
+});
