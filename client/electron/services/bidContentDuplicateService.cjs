@@ -5,7 +5,7 @@ const sensitivityThresholds = Object.freeze({
 });
 
 const minimumExactSentenceCharacters = 8;
-const exactSentenceRulesVersion = 2;
+const exactSentenceRulesVersion = 3;
 const headingLikeEndingPattern = /(?:概况|目标|安排|措施|方案|承诺|分析|理解|认识|要求|内容|范围|依据|说明|清单|计划|组织|职责|制度|机制|标准|服务|保障|原则|思路|流程|体系|结构|情况|背景|意义|特点|概述|介绍|设计|规划|部署|分类|组成|功能|任务|条件|方式|方法|过程|结果|效果|建议|要点|重点|难点|问题|风险|响应|资源|进度|质量|安全|管理|控制)$/u;
 const sentencePredicatePattern = /(?:是|为|有|将|会|能|可|应|需|须|已|未|并|通过|按照|根据|确保|保证|完成|建立|开展|提供|负责|满足|实现|采用|包括|具有|形成|达到|提升|加强|制定|配置|落实|支持|使用|做到|具备|覆盖|用于|适用|保持|持续|及时|严格|能够|可以|需要|应当|必须|不得|完善|明确|有效|符合|执行|包含|构成|提出|采取|设置|承担|配备|协同)/u;
 
@@ -196,6 +196,17 @@ function isHeadingLikeSentence(value) {
   return headingLikeEndingPattern.test(content) && !sentencePredicatePattern.test(content);
 }
 
+function exactSentenceMatchText(value) {
+  const text = normalizeParagraph(value);
+  const withoutListMarker = text.replace(
+    /^\s*(?:\d+(?:\.\d+)*[.)、．]\s*|[一二三四五六七八九十百千万零〇两]+[、.．]\s*|[（(][一二三四五六七八九十百千万零〇两\d]+[）)]\s*|[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳]\s*)/u,
+    '',
+  ).trim();
+  if (!withoutListMarker || withoutListMarker === text) return text;
+  const labeledContent = withoutListMarker.match(/^([^，,；;。！？!?：:]{1,30})[：:]\s*(\S[\s\S]*)$/u);
+  return labeledContent?.[2]?.trim() || text;
+}
+
 function exactSentenceEntries(paragraph) {
   return splitSentences(paragraph.sentenceText || paragraph.text)
     .filter((sentence) => (
@@ -206,8 +217,9 @@ function exactSentenceEntries(paragraph) {
     .map((sentence) => ({
       sentence,
       normalized: compactParagraph(sentence),
+      matchKey: compactParagraph(exactSentenceMatchText(sentence)),
     }))
-    .filter((entry) => entry.normalized.length >= minimumExactSentenceCharacters);
+    .filter((entry) => entry.matchKey.length >= minimumExactSentenceCharacters);
 }
 
 function collectExactSentenceMatches(leftParagraphs, rightParagraphs, leftExempt, rightExempt) {
@@ -216,9 +228,9 @@ function collectExactSentenceMatches(leftParagraphs, rightParagraphs, leftExempt
     const rightCompact = compactParagraph(rightParagraph.text);
     if (!rightCompact || rightExempt.has(rightCompact) || looksExemptParagraph(rightParagraph.text)) continue;
     exactSentenceEntries(rightParagraph).forEach((entry) => {
-      const occurrences = rightSentencesByKey.get(entry.normalized) || [];
+      const occurrences = rightSentencesByKey.get(entry.matchKey) || [];
       occurrences.push({ paragraph: rightParagraph, sentence: entry.sentence });
-      rightSentencesByKey.set(entry.normalized, occurrences);
+      rightSentencesByKey.set(entry.matchKey, occurrences);
     });
   }
 
@@ -229,29 +241,27 @@ function collectExactSentenceMatches(leftParagraphs, rightParagraphs, leftExempt
     const leftSentenceEntries = exactSentenceEntries(leftParagraph);
 
     for (const entry of leftSentenceEntries) {
-      for (const occurrence of rightSentencesByKey.get(entry.normalized) || []) {
+      for (const occurrence of rightSentencesByKey.get(entry.matchKey) || []) {
         const groupKey = `${leftParagraph.index}:${occurrence.paragraph.index}`;
         const group = groups.get(groupKey) || {
           leftParagraph,
           rightParagraph: occurrence.paragraph,
           exactSentences: [],
+          matchKeys: new Set(),
         };
-        if (!group.exactSentences.some((item) => (
-          item.normalized === entry.normalized
-          && item.left === entry.sentence
-          && item.right === occurrence.sentence
-        ))) {
+        if (!group.matchKeys.has(entry.matchKey)) {
           group.exactSentences.push({
             normalized: entry.normalized,
             left: entry.sentence,
             right: occurrence.sentence,
           });
+          group.matchKeys.add(entry.matchKey);
         }
         groups.set(groupKey, group);
       }
     }
   }
-  return Array.from(groups.values());
+  return Array.from(groups.values(), ({ matchKeys: _matchKeys, ...group }) => group);
 }
 
 function refreshExactSentenceMatches(matches) {

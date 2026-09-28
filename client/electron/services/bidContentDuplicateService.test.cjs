@@ -353,6 +353,74 @@ test('separates a markdown list heading from the complete sentence on the next l
   );
 });
 
+test('matches an exact sentence after an inline numbered label against standalone text', () => {
+  const repeatedSentence = '收集各部门、各系统与承包地有关的成果资料并分析整理，据此编制项目实施方案，明确技术路线、作业流程和质量控制措施。';
+  const result = compareBidContents({
+    leftContent: [
+      '第一份标书围绕项目理解展开，说明现场组织、进度统筹、质量检查和成果交付安排。',
+      `1. **资料收集：** ${repeatedSentence}`,
+      '第一份标书另行制定人员轮班、设备维护、数据备份和沟通协调方案。',
+    ].join('\n'),
+    rightContent: [
+      '第二份标书重点描述数据库结构、空间拓扑、档案扫描和登记发证流程。',
+      repeatedSentence,
+      '第二份标书同时安排驻场服务、问题响应、培训移交和验收支持工作。',
+    ].join('\n'),
+    sensitivity: 'medium',
+  });
+
+  assert.equal(result.summary.exactSentenceCount, 1);
+  assert.equal(result.matches.length, 1);
+  assert.equal(result.matches[0].matchType, 'exact-sentence');
+  assert.equal(
+    result.matches[0].exactSentences[0].left,
+    `1. 资料收集： ${repeatedSentence}`,
+  );
+  assert.equal(
+    result.matches[0].exactSentences[0].right,
+    repeatedSentence,
+  );
+  assert.equal(
+    result.matches[0].exactSentences[0].normalized,
+    '1资料收集收集各部门各系统与承包地有关的成果资料并分析整理据此编制项目实施方案明确技术路线作业流程和质量控制措施',
+  );
+});
+
+test('keeps ordinary numbered sentences distinct when no inline label is present', () => {
+  const repeatedSentence = '本项目建立全过程质量控制机制并明确阶段检查、问题整改、复核确认和成果验收要求。';
+  const result = compareBidContents({
+    leftContent: [
+      '第一份标书围绕现场组织、资源投入、进度协调和人员职责形成独立安排。',
+      `1. ${repeatedSentence}`,
+      '第一份标书另行说明设备维护、数据备份、风险处置和沟通汇报机制。',
+    ].join('\n'),
+    rightContent: [
+      '第二份标书重点描述数据库结构、空间拓扑、档案扫描和登记发证流程。',
+      `2. ${repeatedSentence}`,
+      '第二份标书同时安排驻场服务、培训移交、应急响应和验收支持工作。',
+    ].join('\n'),
+    sensitivity: 'medium',
+  });
+
+  assert.equal(result.summary.exactSentenceCount, 0);
+  assert.equal(result.matches.length, 0);
+});
+
+test('counts one exact sentence when different numbered labels wrap the same text', () => {
+  const repeatedSentence = '收集各部门、各系统与承包地有关的成果资料并分析整理，据此编制项目实施方案。';
+  const result = compareBidContents({
+    leftContent: [
+      `1. **资料收集：** ${repeatedSentence}`,
+      `2. **实施准备：** ${repeatedSentence}`,
+    ].join('\n'),
+    rightContent: repeatedSentence,
+    sensitivity: 'high',
+  });
+
+  assert.equal(result.summary.exactSentenceCount, 1);
+  assert.equal(result.matches.length, 1);
+});
+
 test('treats a line break as whitespace inside one complete sentence', () => {
   const result = compareBidContents({
     leftContent: '本项目将建立统一的项目管理机制，\n确保建设任务按期完成。',
