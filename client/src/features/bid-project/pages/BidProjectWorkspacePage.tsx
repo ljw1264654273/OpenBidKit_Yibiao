@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppDialog, EmptyState, useToast } from '../../../shared/ui';
 import type { SectionId } from '../../../shared/types/navigation';
+import type { TaskEventTask } from '../../../shared/types/ipc';
 import { bidProjectStorage } from '../services/bidProjectStorage';
 import { filterBidProjects, getBidProjectCounts, paginateBidProjects } from '../services/bidProjectList';
 import type { BidContentDuplicateResult, BidProject, BidProjectDuplicateSummary, BidProjectStatus } from '../types';
@@ -39,6 +40,7 @@ function BidProjectWorkspacePage({ onSectionChange, onProjectOpen }: BidProjectW
   const [exportTarget, setExportTarget] = useState<BidProject | null>(null);
   const [variantSource, setVariantSource] = useState<BidProject | null>(null);
   const [commandProjectId, setCommandProjectId] = useState<string | null>(null);
+  const [variantProgressByProject, setVariantProgressByProject] = useState<Record<string, number>>({});
   const compareRequestRef = useRef(0);
   const duplicateResultRequestRef = useRef(0);
 
@@ -69,12 +71,36 @@ function BidProjectWorkspacePage({ onSectionChange, onProjectOpen }: BidProjectW
     void loadProjects();
   }, [loadProjects]);
 
-  useEffect(() => window.yibiao?.tasks.onTaskEvent((event) => {
-    if (event.task.type !== 'variant-deduplication') return;
-    if (event.task.progress === 0 || event.task.status === 'success' || event.task.status === 'error') {
-      window.setTimeout(() => { void loadProjects(); }, 0);
-    }
-  }), [loadProjects]);
+  useEffect(() => {
+    const updateVariantProgress = (task: TaskEventTask) => {
+      if (task.type !== 'variant-deduplication') return;
+      const projectId = task.project_id || task.projectId || task.scope_id;
+      if (!projectId) return;
+      const active = task.status === 'queued' || task.status === 'running' || task.status === 'pausing';
+      setVariantProgressByProject((previous) => {
+        if (active) {
+          return { ...previous, [projectId]: Math.max(0, Math.min(100, Number(task.progress) || 0)) };
+        }
+        if (!Object.hasOwn(previous, projectId)) return previous;
+        const next = { ...previous };
+        delete next[projectId];
+        return next;
+      });
+      if (task.progress === 0 || task.status === 'success' || task.status === 'error') {
+        window.setTimeout(() => { void loadProjects(); }, 0);
+      }
+    };
+
+    const unsubscribe = window.yibiao?.tasks.onTaskEvent((event) => {
+      updateVariantProgress(event.task);
+    });
+    void window.yibiao?.tasks.getActiveTasks()
+      .then((tasks) => tasks.forEach(updateVariantProgress))
+      .catch((error) => {
+        showToast(error instanceof Error ? error.message : '读取查重任务进度失败', 'error');
+      });
+    return unsubscribe;
+  }, [loadProjects, showToast]);
 
   useEffect(() => {
     setPage(1);
@@ -397,6 +423,7 @@ function BidProjectWorkspacePage({ onSectionChange, onProjectOpen }: BidProjectW
             onCreateVariant={setVariantSource}
             onRetryUniqueness={(target) => { void retryUniqueness(target); }}
             commandPending={commandProjectId === project.projectId}
+            uniquenessProgress={variantProgressByProject[project.projectId]}
           />
         ))}
         {!loading && filteredProjects.length > 0 ? (

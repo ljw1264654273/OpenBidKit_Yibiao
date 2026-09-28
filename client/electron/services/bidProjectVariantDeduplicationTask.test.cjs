@@ -11,7 +11,7 @@ function makeOutline(content) {
   return { outline: [{ id: 'node-1', title: '实施方案', content }] };
 }
 
-function createHarness({ sourceContent, derivedContent, rewriteResponses = [] }) {
+function createHarness({ sourceContent, derivedContent, rewriteResponses = [], compareContents }) {
   const projects = new Map([
     ['source', { projectId: 'source', projectName: '第一份标书', status: 'completed' }],
     ['derived', {
@@ -88,10 +88,31 @@ function createHarness({ sourceContent, derivedContent, rewriteResponses = [] })
       updateTask,
       checkpointTask,
       taskControl,
+      compareContents,
       payload: { projectId: 'derived' },
     }),
   };
 }
+
+test('publishes worker comparison progress before the uniqueness task completes', async () => {
+  const harness = createHarness({
+    sourceContent: '第一份标书采用现场集中协调机制，按周组织联席会议并留存闭环记录。',
+    derivedContent: '第二份标书设置分层负责制度，由专业负责人每日汇总风险并安排后续处置。',
+    compareContents: async (input, { onProgress }) => {
+      onProgress(25);
+      await new Promise((resolve) => setImmediate(resolve));
+      onProgress(100);
+      return compareBidContents(input);
+    },
+  });
+
+  await harness.run();
+
+  const comparisonUpdates = harness.taskSnapshots.filter((patch) => patch.stats?.uniqueness?.phase === 'comparing');
+  assert.ok(comparisonUpdates.length >= 2);
+  assert.ok(comparisonUpdates[0].progress > 0);
+  assert.ok(comparisonUpdates.at(-1).progress >= comparisonUpdates[0].progress);
+});
 
 test('passes on the initial zero-match check and persists both body fingerprints', async () => {
   const harness = createHarness({

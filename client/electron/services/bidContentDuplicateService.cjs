@@ -294,6 +294,10 @@ function refreshExactSentenceMatches(matches) {
 
 function makeNGramSet(value, size = 2) {
   const text = compactParagraph(value);
+  return makeNGramSetFromCompact(text, size);
+}
+
+function makeNGramSetFromCompact(text, size = 2) {
   if (!text) return new Set();
   if (text.length <= size) return new Set([text]);
   const grams = new Set();
@@ -316,6 +320,10 @@ function jaccard(left, right) {
 function editSimilarity(leftValue, rightValue) {
   const left = compactParagraph(leftValue);
   const right = compactParagraph(rightValue);
+  return editSimilarityFromCompact(left, right);
+}
+
+function editSimilarityFromCompact(left, right) {
   if (!left && !right) return 1;
   if (!left || !right) return 0;
   if (left === right) return 1;
@@ -337,6 +345,10 @@ function editSimilarity(leftValue, rightValue) {
 
 function tokenSet(value) {
   const compact = compactParagraph(value);
+  return tokenSetFromCompact(compact);
+}
+
+function tokenSetFromCompact(compact) {
   const tokens = new Set();
   for (let index = 0; index < compact.length - 1; index += 1) {
     tokens.add(compact.slice(index, index + 2));
@@ -345,9 +357,36 @@ function tokenSet(value) {
 }
 
 function paragraphSimilarity(left, right) {
-  const edit = editSimilarity(left, right);
-  const ngram = jaccard(makeNGramSet(left, 2), makeNGramSet(right, 2));
-  const token = jaccard(tokenSet(left), tokenSet(right));
+  return paragraphSimilarityPrepared(prepareComparableParagraph(left), prepareComparableParagraph(right));
+}
+
+function prepareComparableParagraph(value) {
+  const compact = compactParagraph(value);
+  return {
+    compact,
+    ngrams: makeNGramSetFromCompact(compact, 2),
+    tokens: tokenSetFromCompact(compact),
+  };
+}
+
+function paragraphSimilarityUpperBound(left, right) {
+  const ngram = jaccard(left.ngrams, right.ngrams);
+  const token = jaccard(left.tokens, right.tokens);
+  return {
+    ngram,
+    token,
+    score: Math.max(
+      0.5 + ngram * 0.35 + token * 0.15,
+      ngram * 0.92,
+      token * 0.95,
+    ),
+  };
+}
+
+function paragraphSimilarityPrepared(left, right, preparedOverlap) {
+  const overlap = preparedOverlap || paragraphSimilarityUpperBound(left, right);
+  const edit = editSimilarityFromCompact(left.compact, right.compact);
+  const { ngram, token } = overlap;
   // 字符编辑距离对调序很敏感，因此同时保留顺序无关的字符 n-gram 得分。
   return Number(Math.max(
     edit * 0.5 + ngram * 0.35 + token * 0.15,
@@ -387,45 +426,73 @@ function compareBidContents({
   leftExemptParagraphs = [],
   rightExemptParagraphs = [],
   minimumCharacters = 30,
-} = {}) {
+} = {}, { onProgress } = {}) {
+  let lastProgress = -1;
+  const reportProgress = (value) => {
+    if (typeof onProgress !== 'function') return;
+    const next = Math.max(0, Math.min(100, Math.round(Number(value) || 0)));
+    if (next === lastProgress) return;
+    lastProgress = next;
+    onProgress(next);
+  };
   const threshold = sensitivityThresholds[sensitivity] || sensitivityThresholds.medium;
   const leftParagraphs = splitBidParagraphs(leftContent);
   const rightParagraphs = splitBidParagraphs(rightContent);
   const leftExempt = new Set([...exemptParagraphs, ...leftExemptParagraphs].map(compactParagraph).filter(Boolean));
   const rightExempt = new Set([...exemptParagraphs, ...rightExemptParagraphs].map(compactParagraph).filter(Boolean));
+  const leftComparable = leftParagraphs.map((paragraph) => ({
+    paragraph,
+    prepared: prepareComparableParagraph(paragraph.text),
+  })).filter(({ paragraph, prepared }) => (
+    prepared.compact.length >= minimumCharacters
+    && !leftExempt.has(prepared.compact)
+    && !looksExemptParagraph(paragraph.text)
+  ));
+  const rightComparable = rightParagraphs.map((paragraph) => ({
+    paragraph,
+    prepared: prepareComparableParagraph(paragraph.text),
+  })).filter(({ paragraph, prepared }) => (
+    prepared.compact.length >= minimumCharacters
+    && !rightExempt.has(prepared.compact)
+    && !looksExemptParagraph(paragraph.text)
+  ));
   const matches = [];
+  const totalPairs = leftComparable.length * rightComparable.length;
+  let processedPairs = 0;
 
-  for (const leftParagraph of leftParagraphs) {
-    const leftCompact = compactParagraph(leftParagraph.text);
-    if (leftCompact.length < minimumCharacters || leftExempt.has(leftCompact) || looksExemptParagraph(leftParagraph.text)) {
-      continue;
-    }
+  reportProgress(0);
+
+  for (const leftItem of leftComparable) {
     let best = null;
-    for (const rightParagraph of rightParagraphs) {
-      const rightCompact = compactParagraph(rightParagraph.text);
-      if (rightCompact.length < minimumCharacters || rightExempt.has(rightCompact) || looksExemptParagraph(rightParagraph.text)) {
-        continue;
+    for (const rightItem of rightComparable) {
+      const overlap = paragraphSimilarityUpperBound(leftItem.prepared, rightItem.prepared);
+      const roundedUpperBound = Number(overlap.score.toFixed(4));
+      if (roundedUpperBound >= threshold && (!best || roundedUpperBound > best.similarity)) {
+        const similarity = paragraphSimilarityPrepared(leftItem.prepared, rightItem.prepared, overlap);
+        if (!best || similarity > best.similarity) {
+          best = { rightParagraph: rightItem.paragraph, similarity };
+        }
       }
-      const similarity = paragraphSimilarity(leftParagraph.text, rightParagraph.text);
-      if (!best || similarity > best.similarity) {
-        best = { rightParagraph, similarity };
-      }
+      processedPairs += 1;
+      reportProgress(totalPairs ? (processedPairs / totalPairs) * 90 : 90);
     }
     if (!best || best.similarity < threshold) continue;
     matches.push({
-      id: `match-${leftParagraph.index}-${best.rightParagraph.index}`,
+      id: `match-${leftItem.paragraph.index}-${best.rightParagraph.index}`,
       similarity: best.similarity,
       level: best.similarity >= Math.min(0.94, threshold + 0.14) ? 'high' : 'medium',
       matchType: 'similar-paragraph',
-      leftParagraph,
+      leftParagraph: leftItem.paragraph,
       rightParagraph: best.rightParagraph,
-      suggestion: buildRewriteSuggestion(leftParagraph.text, best.rightParagraph.text),
+      suggestion: buildRewriteSuggestion(leftItem.paragraph.text, best.rightParagraph.text),
     });
   }
+  if (!totalPairs) reportProgress(90);
 
   const uniqueMatches = matches.filter((match, index, all) => (
     all.findIndex((candidate) => candidate.rightParagraph.index === match.rightParagraph.index) === index
   ));
+  reportProgress(92);
   const exactSentenceGroups = collectExactSentenceMatches(leftParagraphs, rightParagraphs, leftExempt, rightExempt);
   const mergedMatches = [...uniqueMatches];
   for (const group of exactSentenceGroups) {
@@ -449,6 +516,7 @@ function compareBidContents({
       suggestion: buildRewriteSuggestion(group.leftParagraph.text, group.rightParagraph.text),
     });
   }
+  reportProgress(100);
   return {
     sensitivity: sensitivityThresholds[sensitivity] ? sensitivity : 'medium',
     threshold,

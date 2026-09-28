@@ -1,5 +1,6 @@
 import type { BidProject, BidProjectDuplicateSummary } from '../types';
 import { formatDuplicateSummary } from '../services/duplicateRewriteUi';
+import { ProgressBar } from '../../../shared/ui';
 
 const statusLabels: Record<BidProject['status'], string> = {
   generating: '生成中',
@@ -26,6 +27,7 @@ interface BidProjectRowProps {
   onCreateVariant?: (project: BidProject) => void;
   onRetryUniqueness?: (project: BidProject) => void;
   commandPending?: boolean;
+  uniquenessProgress?: number;
 }
 
 function getUniquenessLabel(project: BidProject): string {
@@ -49,6 +51,7 @@ function BidProjectRow({
   onCreateVariant,
   onRetryUniqueness,
   commandPending = false,
+  uniquenessProgress,
 }: BidProjectRowProps) {
   const updatedAt = new Date(project.updatedAt).toLocaleString('zh-CN', {
     month: 'numeric',
@@ -90,7 +93,19 @@ function BidProjectRow({
         </span>
       </button>
       <span className="bid-project-row-type">{typeLabels[project.projectType]}</span>
-      <span className={`bid-project-status is-${project.status}`}><i />{displayStatus}</span>
+      <div className="bid-project-uniqueness-status">
+        <span className={`bid-project-status is-${project.status}`}><i />{displayStatus}</span>
+        {typeof uniquenessProgress === 'number' ? (
+          <span className="bid-project-row-progress">
+            <ProgressBar
+              value={uniquenessProgress}
+              active
+              label={`同源正文查重进度 ${Math.round(uniquenessProgress)}%`}
+            />
+            <small>{Math.round(uniquenessProgress)}%</small>
+          </span>
+        ) : null}
+      </div>
       <span className="bid-project-row-time">{updatedAt}</span>
       <div className="bid-project-row-actions">
         <div className="bid-project-row-actions-group is-primary">

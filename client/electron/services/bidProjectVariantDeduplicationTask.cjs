@@ -1,12 +1,12 @@
 const crypto = require('node:crypto');
 const {
-  compareBidContents,
   normalizeParagraph,
   removeIllustrationBlocks,
   replaceFirstTextOutsideIllustrationBlocks,
   replaceTextPreservingIllustrationBlocks,
   splitBidParagraphs,
 } = require('./bidContentDuplicateService.cjs');
+const { compareBidContentsInWorker } = require('./bidContentDuplicateWorkerService.cjs');
 const { createBidProjectDuplicateRewriteService } = require('./bidProjectDuplicateRewriteService.cjs');
 
 const MAX_REWRITE_ROUNDS = 5;
@@ -121,6 +121,7 @@ async function runBidProjectVariantDeduplicationTask({
   checkpointTask = (patch) => ({ task: patch }),
   taskControl,
   payload = {},
+  compareContents = compareBidContentsInWorker,
 }) {
   const projectId = String(payload.projectId || payload.project_id || '').trim();
   const projectStore = bidProjectManager?.getProjectStore?.();
@@ -137,6 +138,7 @@ async function runBidProjectVariantDeduplicationTask({
   const derivedTenderParagraphs = await readTenderParagraphs(derivedStore);
   let rewriteRounds = 0;
   let latestResultId = null;
+  let lastReportedProgress = 0;
   const logs = ['开始按“同源正文查重”标准检查第二份标书'];
   bidProjectManager.updateProject(projectId, {
     status: 'generating',
@@ -155,12 +157,36 @@ async function runBidProjectVariantDeduplicationTask({
       }
       const leftContentFingerprint = calculateContentFingerprint(sourceContent.state);
       const rightContentFingerprint = calculateContentFingerprint(derivedContent.state);
-      const comparison = compareBidContents({
+      const comparisonStart = Math.min(92, 2 + rewriteRounds * 18);
+      const comparisonEnd = Math.min(98, comparisonStart + 10);
+      const comparison = await compareContents({
         leftContent: sourceContent.content,
         rightContent: derivedContent.content,
         sensitivity: 'medium',
         leftExemptParagraphs: sourceTenderParagraphs,
         rightExemptParagraphs: derivedTenderParagraphs,
+      }, {
+        signal: taskControl?.signal,
+        onProgress: (progress) => {
+          const comparisonProgress = Math.max(0, Math.min(100, Number(progress) || 0));
+          const mappedProgress = Math.round(
+            comparisonStart + ((comparisonEnd - comparisonStart) * comparisonProgress) / 100,
+          );
+          if (mappedProgress <= lastReportedProgress) return;
+          lastReportedProgress = mappedProgress;
+          updateTask({
+            status: 'running',
+            progress: mappedProgress,
+            logs,
+            stats: {
+              uniqueness: {
+                phase: 'comparing',
+                round: rewriteRounds,
+                comparisonProgress: Math.round(comparisonProgress),
+              },
+            },
+          });
+        },
       });
       const matches = comparison.matches.map((match) => ({
         ...match,
@@ -259,11 +285,23 @@ async function runBidProjectVariantDeduplicationTask({
           rewritten.rewrittenText,
           targetParagraph.localIndex,
         ));
+        const rewriteStart = 12 + (rewriteRounds - 1) * 18;
+        const rewriteProgress = Math.min(92, Math.round(
+          rewriteStart + ((index + 1) / targetMatches.length) * 8,
+        ));
+        lastReportedProgress = Math.max(lastReportedProgress, rewriteProgress);
         updateTask({
           status: 'running',
-          progress: Math.min(94, 10 + rewriteRounds * 16 + Math.round(((index + 1) / targetMatches.length) * 8)),
+          progress: lastReportedProgress,
           logs,
-          stats: { uniqueness: { round: rewriteRounds, duplicateCount: targetMatches.length, rewrittenCount: index + 1 } },
+          stats: {
+            uniqueness: {
+              phase: 'rewriting',
+              round: rewriteRounds,
+              duplicateCount: targetMatches.length,
+              rewrittenCount: index + 1,
+            },
+          },
         });
       }
       for (const [nodeId, content] of nodeContents) {

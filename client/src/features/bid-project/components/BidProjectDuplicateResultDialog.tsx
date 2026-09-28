@@ -292,8 +292,6 @@ function BidProjectDuplicateResultDialog({
             <div className="bid-project-match-list">
               {checkedMatches.map((match, index) => {
                 const targetSide = targets[match.id] || 'right';
-                const target = targetSide === 'left' ? match.leftParagraph.text : match.rightParagraph.text;
-                const reference = targetSide === 'left' ? match.rightParagraph.text : match.leftParagraph.text;
                 const ignored = match.decision === 'ignored';
                 const exactSentences = match.exactSentences || [];
                 return (
@@ -355,24 +353,17 @@ function BidProjectDuplicateResultDialog({
                                 <option value="right">改写右侧文件</option>
                               </select>
                             </label>
-                            <small>另一侧作为参考：只帮助理解重复点，不会被修改，也不会照搬其表达。</small>
+                            <small>另一侧仅用于帮助 AI 识别重复表达，不会被修改。</small>
                           </div>
-                          <div className="bid-project-rewrite-preview">
-                            <div>
-                              <span>当前目标原文</span>
-                              <p>{target}</p>
-                            </div>
-                            <div>
-                              <span>参考文本</span>
-                              <p>{reference}</p>
-                            </div>
-                          </div>
-                          <textarea
-                            value={drafts[match.id] || ''}
-                            onChange={(event) => setDrafts((previous) => ({ ...previous, [match.id]: event.target.value }))}
-                            placeholder="点击“AI 改写”生成草稿，也可以直接手动编辑"
-                            aria-label={`重复组 ${index + 1} 的改写草稿`}
-                          />
+                          <label className="bid-project-rewrite-field">
+                            <span>改写后文本</span>
+                            <textarea
+                              value={drafts[match.id] || ''}
+                              onChange={(event) => setDrafts((previous) => ({ ...previous, [match.id]: event.target.value }))}
+                              placeholder="点击“AI 改写”生成草稿，也可以直接手动编辑"
+                              aria-label={`重复组 ${index + 1} 的改写后文本`}
+                            />
+                          </label>
                           {meta[match.id] ? (
                             <div className="bid-project-rewrite-note">
                               <span>改写说明：{meta[match.id].reason}</span>

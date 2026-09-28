@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createTaskService } = require('./taskService.cjs');
+const { isTechnicalPlanContentComplete } = require('./technicalPlanContentState.cjs');
 
 async function waitUntil(predicate, attempts = 30) {
   for (let index = 0; index < attempts; index += 1) {
@@ -16,6 +17,8 @@ function makeHarness({
   variantTaskStatus,
   derived = true,
   contentRunnerError = null,
+  reconstructedContentComplete = false,
+  reconstructedLegacyContentComplete = false,
 } = {}) {
   let project = {
     projectId: 'derived',
@@ -33,7 +36,16 @@ function makeHarness({
     outlineWordControlSnapshot: {},
     referenceKnowledgeDocumentIds: [],
     remoteKnowledgeScopes: [],
-    outlineData: { outline: [{ id: 'node-1', title: '方案', content: '完整正文' }] },
+    outlineData: {
+      outline: [{
+        id: 'node-1',
+        title: '方案',
+        content: '完整正文',
+        ...(reconstructedContentComplete && !reconstructedLegacyContentComplete
+          ? { content_mode: 'ai-generate' }
+          : {}),
+      }],
+    },
     contentGenerationSections: { 'node-1': { status: 'success' } },
     ...(contentTaskStatus ? {
       contentGenerationTask: {
@@ -181,6 +193,42 @@ test('startup recovery schedules only flagged derived projects with successful b
   const unfinished = makeHarness({ autoRunRequested: true, contentTaskStatus: 'paused' });
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(unfinished.payloads.variant.length, 0);
+});
+
+test('allows uniqueness retry when outline edits removed the successful task record but all current body sections remain complete', async () => {
+  const harness = makeHarness({ reconstructedContentComplete: true });
+
+  harness.service.startVariantDeduplication({ projectId: 'derived' });
+
+  await waitUntil(() => harness.payloads.variant.length === 1 && harness.service.getActiveTasks().length === 0);
+  assert.equal(harness.getProject().uniquenessStatus, 'passed');
+});
+
+test('reconstructs completed body state for legacy outlines without content modes', async () => {
+  const harness = makeHarness({
+    reconstructedContentComplete: true,
+    reconstructedLegacyContentComplete: true,
+  });
+
+  harness.service.startVariantDeduplication({ projectId: 'derived' });
+
+  await waitUntil(() => harness.payloads.variant.length === 1 && harness.service.getActiveTasks().length === 0);
+  assert.equal(harness.getProject().uniquenessStatus, 'passed');
+});
+
+test('does not reconstruct completion while a persisted body task is unfinished', () => {
+  assert.equal(isTechnicalPlanContentComplete({
+    outlineData: {
+      outline: [{ id: 'node-1', title: '方案', content: '已有正文' }],
+    },
+    contentGenerationSections: {
+      'node-1': { status: 'success', content: '已有正文' },
+    },
+    contentGenerationTask: {
+      type: 'content-generation',
+      status: 'paused',
+    },
+  }), false);
 });
 
 test('startup recovery turns an interrupted uniqueness task into a retryable failure', () => {

@@ -53,6 +53,25 @@ test('builds a right-target request without swapping the submitted project texts
   assert.match(userMessage, /右侧项目正文[\s\S]*本项目建立完善的项目管理机制/);
 });
 
+test('includes detected complete duplicate sentences in the rewrite task', () => {
+  const request = buildBidProjectDuplicateRewriteRequest({
+    ...rewriteInput,
+    exactSentences: [{
+      left: '实施周期为30天。',
+      right: '实施周期为30天！',
+    }],
+  });
+  const userMessage = request.messages
+    .filter((message) => message.role === 'user')
+    .map((message) => message.content)
+    .join('\n');
+
+  assert.match(userMessage, /已识别的完整重复句/);
+  assert.match(userMessage, /左侧：实施周期为30天。/);
+  assert.match(userMessage, /右侧：实施周期为30天！/);
+  assert.match(userMessage, /优先消除这些完整重复句/);
+});
+
 test('normalizes a valid rewrite response to the public result shape', () => {
   assert.deepEqual(normalizeBidProjectDuplicateRewriteResponse({
     rewrittenText: '本项目将构建清晰的管理体系，划分职责边界，并保障建设工作按期推进。',

@@ -176,7 +176,12 @@ test('标书列表提供同源再生成与重新查重操作，并展示权威�
   assert.match(row, /!project\.lastError\?\.includes\('来源项目已删除'\)/);
   assert.match(workspacePage, /bidProjectStorage\.createVariant/);
   assert.match(workspacePage, /startVariantDeduplication/);
+  assert.match(workspacePage, /getActiveTasks/);
+  assert.match(workspacePage, /variantProgressByProject/);
+  assert.match(workspacePage, /uniquenessProgress=/);
   assert.match(workspacePage, /<AppDialog[\s\S]*再生成一份标书/);
+  assert.match(row, /<ProgressBar/);
+  assert.match(row, /查重进度/);
   assert.match(storage, /bidProject\.createVariant/);
   assert.match(preload, /bid-project:create-variant/);
   assert.match(preload, /tasks:start-variant-deduplication/);

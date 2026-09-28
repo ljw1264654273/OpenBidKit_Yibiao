@@ -190,6 +190,28 @@
 .bid-project-status.is-incomplete { color: #b77908; }
 .bid-project-status.is-completed { color: #169b62; }
 .bid-project-status.is-failed { color: #cb3b42; }
+.bid-project-uniqueness-status {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.bid-project-row-progress {
+  display: grid;
+  grid-template-columns: minmax(44px, 1fr) auto;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  max-width: 104px;
+}
+
+.bid-project-row-progress small {
+  color: #647892;
+  font-size: 10px;
+  line-height: 1;
+  white-space: nowrap;
+}
 .bid-project-loading { padding: 40px; color: #7a899a; text-align: center; }
 
 .bid-project-pagination {
@@ -544,35 +566,15 @@
   line-height: 1.5;
 }
 
-.bid-project-rewrite-preview {
+.bid-project-rewrite-field {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 10px;
+  gap: 6px;
 }
 
-.bid-project-rewrite-preview > div {
-  min-width: 0;
-  padding: 8px 10px;
-  background: #fff;
-  border: 1px solid #e7edf4;
-  border-radius: 5px;
-}
-
-.bid-project-rewrite-preview span {
-  display: block;
-  margin-bottom: 4px;
-  color: #8896a6;
-  font-size: 11px;
-}
-
-.bid-project-rewrite-preview p {
-  max-height: 100px;
-  margin: 0;
-  overflow: auto;
-  color: #53647a;
-  overflow-wrap: anywhere;
-  line-height: 1.6;
-  white-space: pre-wrap;
+.bid-project-rewrite-field > span {
+  color: #536a84;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .bid-project-match-workbench textarea {
@@ -788,8 +790,7 @@
   .bid-project-context-actions { grid-column: 1 / -1; justify-content: flex-start; flex-wrap: wrap; }
   .bid-project-duplicate-dialog-card { width: calc(100vw - 24px); max-height: calc(100vh - 24px); padding: 18px; }
   .bid-project-duplicate-result-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .bid-project-match-columns,
-  .bid-project-rewrite-preview { grid-template-columns: 1fr; }
+  .bid-project-match-columns { grid-template-columns: 1fr; }
   .bid-project-match-target-row { align-items: stretch; flex-direction: column; }
   .bid-project-match-target-row small { padding-bottom: 0; }
   .bid-project-match-action-row { display: grid; grid-template-columns: 1fr; }

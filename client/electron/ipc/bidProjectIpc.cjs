@@ -94,6 +94,7 @@ function registerBidProjectIpc({
       rightProjectName: result.rightProject?.projectName || '右侧标书',
       leftText: match.leftParagraph.text,
       rightText: match.rightParagraph.text,
+      exactSentences: match.exactSentences,
       targetSide,
       targetProjectId,
       referenceProjectId,

@@ -5,6 +5,7 @@ const { runContentGenerationTask } = require('./contentGenerationTask.cjs');
 const { runGlobalFactsTaskV2 } = require('./globalFactsTaskV2.cjs');
 const { runOutlineGenerationTaskV2 } = require('./outlineGenerationTaskV2.cjs');
 const { runBidProjectVariantDeduplicationTask } = require('./bidProjectVariantDeduplicationTask.cjs');
+const { isTechnicalPlanContentComplete } = require('./technicalPlanContentState.cjs');
 const { runOutlineAdjustmentTask } = require('./outlineAdjustmentTask.cjs');
 const { runGlobalFactsAdjustmentTask } = require('./globalFactsAdjustmentTask.cjs');
 const {
@@ -1661,7 +1662,7 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
     const project = bidProjectManager?.getProject?.(projectId);
     if (!project?.derivedFromProjectId) throw new Error('当前项目不是同源派生标书');
     const technicalPlan = getTechnicalPlanStore(projectId).loadTechnicalPlan() || {};
-    if (technicalPlan.contentGenerationTask?.status !== 'success') {
+    if (!isTechnicalPlanContentComplete(technicalPlan)) {
       throw new Error('请先完成第二份标书正文生成，再执行同源正文查重');
     }
     const runner = taskRunners.variantDeduplication || ((context) => (
@@ -1707,7 +1708,7 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
   for (const pendingProject of bidProjectManager?.getProjectStore?.().listPendingAutomaticUniquenessProjects?.() || []) {
     const projectId = pendingProject.projectId;
     const state = getTechnicalPlanStore(projectId).loadTechnicalPlan() || {};
-    if (state.contentGenerationTask?.status !== 'success' || hasActiveTask('variant-deduplication', projectId)) continue;
+    if (!isTechnicalPlanContentComplete(state) || hasActiveTask('variant-deduplication', projectId)) continue;
     queueMicrotask(() => {
       try {
         startVariantDeduplication({ projectId });

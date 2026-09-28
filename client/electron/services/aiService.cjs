@@ -1647,7 +1647,7 @@ async function testOpenAICompatibleImageModel(app, config, provider) {
   const requestBody = createOpenAICompatibleImageRequestBody(
     provider,
     imageConfig,
-    '大字报，内容是“易标AI老好了”',
+    '大字报，内容是“园测AI标书”',
   );
 
   try {
@@ -1756,7 +1756,7 @@ async function testGoogleImageModel(app, config) {
   const requestMode = normalizeImageRequestMode(imageConfig);
   const requestId = createRequestId();
   const logTitle = 'AI生图测试-Google AI Studio';
-  const requestBody = createGoogleImageRequestBody('大字报，内容是“易标AI老好了”', normalizeGoogleImageSize(imageConfig));
+  const requestBody = createGoogleImageRequestBody('大字报，内容是“园测AI标书”', normalizeGoogleImageSize(imageConfig));
   const url = createGoogleImageUrl(baseUrl, imageConfig.model_name, requestMode);
   let responseData = null;
 
@@ -2053,7 +2053,7 @@ async function testBailianImageModel(app, config) {
   const requestMode = normalizeImageRequestMode(imageConfig);
   const requestId = createRequestId();
   const logTitle = 'AI生图测试-' + meta.label;
-  const requestBody = createBailianImageRequestBody('大字报，内容是“易标AI老好了”', imageConfig);
+  const requestBody = createBailianImageRequestBody('大字报，内容是“园测AI标书”', imageConfig);
   const url = createBailianImageUrl(baseUrl);
   try {
     writeAiLog(app, config, { request_id: requestId, log_title: logTitle, type: 'image-test-pending', provider: meta.logProvider, request_mode: requestMode, url, request: requestBody, status: 'pending', created_at: new Date().toISOString() });
@@ -2559,7 +2559,7 @@ async function generateComfyUIImage(app, config, request) {
 async function testComfyUIImageModel(app, config) {
   const testRequest = {
     title: '测试',
-    prompt: '大字报，内容是"易标AI老好了"',
+    prompt: '大字报，内容是"园测AI标书"',
   };
   const { image, workflow_source: workflowSource } = await runComfyUIImageGeneration(app, config, testRequest, {
     returnRawImage: true,

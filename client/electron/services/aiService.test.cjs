@@ -58,6 +58,13 @@ function createImageConfig(overrides = {}) {
   };
 }
 
+test('uses the current test poster text for every image provider', () => {
+  const source = require('node:fs').readFileSync(require.resolve('./aiService.cjs'), 'utf8');
+
+  assert.equal(source.includes('易标AI老好了'), false);
+  assert.equal(source.match(/园测AI标书/g)?.length, 4);
+});
+
 test('retries JSON requests without response_format when the provider reports the type is unavailable', async (t) => {
   const originalFetch = global.fetch;
   const requestBodies = [];

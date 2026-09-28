@@ -5,6 +5,7 @@ const {
 const { createBidProjectStore } = require('./bidProjectStore.cjs');
 const { createTechnicalPlanStore } = require('./technicalPlanStore.cjs');
 const { calculateContentFingerprint } = require('./bidProjectVariantDeduplicationTask.cjs');
+const { isTechnicalPlanContentComplete } = require('./technicalPlanContentState.cjs');
 
 function createBidProjectManager({
   app,
@@ -75,7 +76,7 @@ function createBidProjectManager({
     return projectStore.validateProjectUniqueness(project.projectId, {
       sourceFingerprint: calculateContentFingerprint(sourceStore),
       derivedFingerprint: calculateContentFingerprint(derivedStore),
-      contentGenerationSucceeded: derivedStore.loadTechnicalPlan()?.contentGenerationTask?.status === 'success',
+      contentGenerationSucceeded: isTechnicalPlanContentComplete(derivedStore.loadTechnicalPlan()),
     }).project;
   }
 

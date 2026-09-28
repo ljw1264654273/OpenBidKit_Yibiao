@@ -442,3 +442,22 @@ test('does not treat malformed terminal punctuation as a complete sentence', () 
   assert.equal(result.summary.exactSentenceCount, 0);
   assert.equal(result.matches.length, 0);
 });
+
+test('reports monotonic comparison progress and completes at 100 percent', () => {
+  const makeParagraph = (prefix, index) => (
+    `${prefix}${index}围绕施工组织、质量安全、资源配置和验收管理建立全过程闭环机制，责任人员按计划记录执行结果并处理偏差。`
+  );
+  const progress = [];
+
+  compareBidContents({
+    leftContent: Array.from({ length: 6 }, (_, index) => makeParagraph('甲方方案', index)).join('\n\n'),
+    rightContent: Array.from({ length: 6 }, (_, index) => makeParagraph('乙方方案', index)).join('\n\n'),
+    sensitivity: 'medium',
+  }, {
+    onProgress: (value) => progress.push(value),
+  });
+
+  assert.ok(progress.length > 1);
+  assert.equal(progress.at(-1), 100);
+  assert.ok(progress.every((value, index) => index === 0 || value >= progress[index - 1]));
+});

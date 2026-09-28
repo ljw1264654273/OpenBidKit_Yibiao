@@ -51,6 +51,18 @@ function normalizeTargetSide(value) {
   return targetSide;
 }
 
+function formatExactSentenceContext(value) {
+  const entries = (Array.isArray(value) ? value : []).flatMap((entry) => {
+    const left = String(entry?.left ?? '').trim();
+    const right = String(entry?.right ?? '').trim();
+    return left && right ? [{ left, right }] : [];
+  });
+  if (!entries.length) return '未识别到单独的完整重复句，请结合两侧完整段落处理相似表达。';
+  return `已识别的完整重复句：\n${entries.map((entry, index) => (
+    `${index + 1}. 左侧：${entry.left}\n   右侧：${entry.right}`
+  )).join('\n')}`;
+}
+
 function buildBidProjectDuplicateRewriteRequest(input = {}) {
   const targetSide = normalizeTargetSide(input.targetSide);
   const leftProjectName = requireText(input.leftProjectName, '缺少左侧标书项目名称');
@@ -59,6 +71,7 @@ function buildBidProjectDuplicateRewriteRequest(input = {}) {
   const rightText = String(input.rightText ?? '').trim();
   const targetText = targetSide === 'left' ? leftText : rightText;
   const referenceText = targetSide === 'left' ? rightText : leftText;
+  const exactSentenceContext = formatExactSentenceContext(input.exactSentences);
 
   requireText(targetText, '目标文本不能为空，请先确认选中的文件包含正文');
   requireText(referenceText, '参考文本不能为空，请先确认另一侧文件包含正文');
@@ -89,7 +102,9 @@ RIGHT_TEXT>>>`,
 目标文本：${targetSide === 'left' ? '左侧项目正文' : '右侧项目正文'}
 参考文本：${targetSide === 'left' ? '右侧项目正文' : '左侧项目正文'}
 
-请只改写目标文本。参考文本仅用于定位重复表达，绝不能照搬参考侧的句式、连续表达、措辞组合或段落结构。请保留目标文本的全部事实和承诺，并返回结构化 JSON。`,
+${exactSentenceContext}
+
+请只改写目标文本。参考文本仅用于定位重复表达，绝不能照搬参考侧的句式、连续表达、措辞组合或段落结构。存在完整重复句时，优先消除这些完整重复句，同时保留目标文本的全部事实和承诺，并返回结构化 JSON。`,
       },
     ],
     response_format: {
