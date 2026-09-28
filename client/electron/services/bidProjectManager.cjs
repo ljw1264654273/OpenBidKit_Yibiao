@@ -4,6 +4,7 @@ const {
 } = require('./sqliteDatabase.cjs');
 const { createBidProjectStore } = require('./bidProjectStore.cjs');
 const { createTechnicalPlanStore } = require('./technicalPlanStore.cjs');
+const { calculateContentFingerprint } = require('./bidProjectVariantDeduplicationTask.cjs');
 
 function createBidProjectManager({
   app,
@@ -30,6 +31,22 @@ function createBidProjectManager({
         taskLogStore,
         configStore,
         projectId: id,
+        onContentChanged({ origin } = {}) {
+          const project = projectStore.getProject(id);
+          if (!project?.derivedFromProjectId) return;
+          if (origin !== 'variant-deduplication') {
+            technicalPlanStores.get(id)?.updateTechnicalPlanWithoutReload?.({
+              variantDeduplicationTask: null,
+            });
+          }
+          projectStore.updateProject(id, {
+            status: 'incomplete',
+            uniquenessStatus: 'pending',
+            uniquenessResultId: null,
+            ...(origin === 'manual' ? { uniquenessAutoRunRequested: false } : {}),
+            lastError: null,
+          });
+        },
       }));
     }
     return technicalPlanStores.get(id);
@@ -46,8 +63,34 @@ function createBidProjectManager({
     }
   }
 
+  function refreshProjectUniqueness(project) {
+    if (!project?.derivedFromProjectId) return project;
+    const sourceProject = projectStore.getProject(project.derivedFromProjectId);
+    if (!sourceProject) {
+      return projectStore.validateProjectUniqueness(project.projectId, {}).project;
+    }
+    if (project.uniquenessStatus !== 'passed' && project.status !== 'completed') return project;
+    const sourceStore = getTechnicalPlanStore(sourceProject.projectId);
+    const derivedStore = getTechnicalPlanStore(project.projectId);
+    return projectStore.validateProjectUniqueness(project.projectId, {
+      sourceFingerprint: calculateContentFingerprint(sourceStore),
+      derivedFingerprint: calculateContentFingerprint(derivedStore),
+      contentGenerationSucceeded: derivedStore.loadTechnicalPlan()?.contentGenerationTask?.status === 'success',
+    }).project;
+  }
+
+  function getProject(projectId) {
+    return refreshProjectUniqueness(projectStore.getProject(projectId));
+  }
+
+  function listProjects(filters) {
+    // 列表是高频 IPC 读操作，不能为每个派生项目同步加载完整正文并计算指纹。
+    // 正文变更会由技术方案 Store 立即使查重状态失效，导出前还会执行一次最终校验。
+    return projectStore.listProjects(filters);
+  }
+
   function openProject(projectId) {
-    const project = projectStore.getProject(projectId);
+    const project = getProject(projectId);
     if (!project) throw new Error('未找到标书项目');
     currentProjectId = project.projectId;
     const store = getTechnicalPlanStore(currentProjectId);
@@ -129,11 +172,12 @@ function createBidProjectManager({
     createProject,
     deleteProject,
     getCurrentProjectId: () => currentProjectId,
-    getProject: projectStore.getProject,
+    getProject,
     getProjectStore: () => projectStore,
     getSourceMatches: projectStore.getSourceMatches,
     getTechnicalPlanStore,
-    listProjects: projectStore.listProjects,
+    listProjects,
+    listProjectSourceFiles: projectStore.listProjectSourceFiles,
     listSourceGroupProjects: projectStore.listSourceGroupProjects,
     openProject,
     replaceProjectSourceFiles: projectStore.replaceProjectSourceFiles,

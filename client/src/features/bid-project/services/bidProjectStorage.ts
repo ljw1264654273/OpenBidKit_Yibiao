@@ -14,6 +14,9 @@ export const bidProjectStorage = {
   create(options: BidProjectCreateOptions): Promise<BidProject> {
     return window.yibiao!.bidProject.create(options);
   },
+  createVariant(sourceProjectId: string): Promise<BidProject> {
+    return window.yibiao!.bidProject.createVariant(sourceProjectId);
+  },
   update(projectId: string, patch: Partial<BidProject>): Promise<BidProject> {
     return window.yibiao!.bidProject.update(projectId, patch);
   },

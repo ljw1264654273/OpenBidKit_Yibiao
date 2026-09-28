@@ -18,7 +18,7 @@ function createApp(userDataPath) {
   };
 }
 
-function createStore(app, db, projectId) {
+function createStore(app, db, projectId, onContentChanged) {
   return createTechnicalPlanStore({
     app,
     db,
@@ -26,6 +26,7 @@ function createStore(app, db, projectId) {
     taskLogStore: { list: () => [], sync() {} },
     configStore: { load: () => ({}) },
     projectId,
+    onContentChanged,
   });
 }
 
@@ -133,8 +134,38 @@ async function runNodeKnowledgeAssertions() {
   }
 }
 
+async function runBodyInvalidationAssertions() {
+  const userDataPath = fs.mkdtempSync(path.join(os.tmpdir(), 'yibiao-body-invalidation-'));
+  let database;
+  try {
+    const app = createApp(userDataPath);
+    database = createSqliteDatabase(app);
+    createTechnicalPlanProjectSchema(database.db, 'derived-test');
+    const changes = [];
+    const store = createStore(app, database.db, 'derived-test', (change) => changes.push(change));
+    const outlineData = { outline: [{ id: '1', title: '方案', content: '已有正文' }] };
+    store.saveOutline({ outlineData, reason: 'replace' });
+    changes.length = 0;
+    store.saveGlobalFacts([]);
+    assert.equal(changes.length, 1, '全局事实清空正文必须触发状态失效');
+
+    store.saveOutline({ outlineData, reason: 'replace' });
+    changes.length = 0;
+    store.saveOutlineNodeKnowledge({ nodeId: '1', knowledgeFolderIds: ['folder'] });
+    assert.equal(changes.length, 1, '知识关联清空正文必须触发状态失效');
+
+    store.saveOutline({ outlineData, reason: 'replace' });
+    changes.length = 0;
+    store.saveOutline({ outlineData, reason: 'replace' });
+    assert.equal(changes.length, 1, '重生成目录清空正文必须触发状态失效');
+  } finally {
+    database?.close();
+    fs.rmSync(userDataPath, { recursive: true, force: true });
+  }
+}
+
 if (process.argv.includes('--electron-native')) {
-  runNodeKnowledgeAssertions()
+  Promise.all([runNodeKnowledgeAssertions(), runBodyInvalidationAssertions()])
     .catch((error) => {
       console.error(error);
       process.exitCode = 1;

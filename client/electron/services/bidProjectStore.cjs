@@ -151,6 +151,10 @@ function normalizeStatus(value) {
   return ['generating', 'incomplete', 'completed', 'failed'].includes(value) ? value : 'incomplete';
 }
 
+function normalizeUniquenessStatus(value) {
+  return ['none', 'pending', 'checking', 'passed', 'failed'].includes(value) ? value : 'none';
+}
+
 function toProject(row) {
   if (!row) return null;
   return {
@@ -158,6 +162,11 @@ function toProject(row) {
     projectName: row.project_name,
     projectType: normalizeProjectType(row.project_type),
     status: normalizeStatus(row.status),
+    derivedFromProjectId: row.derived_from_project_id || undefined,
+    uniquenessStatus: normalizeUniquenessStatus(row.uniqueness_status),
+    uniquenessResultId: row.uniqueness_result_id || undefined,
+    uniquenessAttempts: Math.max(0, Number(row.uniqueness_attempts || 0)),
+    uniquenessAutoRunRequested: Boolean(row.uniqueness_auto_run_requested),
     sourceGroupId: row.source_group_id || undefined,
     sourceSequence: Number(row.source_sequence || 1),
     sourceFileName: row.source_file_name || undefined,
@@ -183,6 +192,11 @@ function createBidProjectStore({ app, db }) {
       project_name TEXT NOT NULL,
       project_type TEXT NOT NULL DEFAULT 'technical-plan',
       status TEXT NOT NULL DEFAULT 'incomplete',
+      derived_from_project_id TEXT,
+      uniqueness_status TEXT NOT NULL DEFAULT 'none',
+      uniqueness_result_id TEXT,
+      uniqueness_attempts INTEGER NOT NULL DEFAULT 0,
+      uniqueness_auto_run_requested INTEGER NOT NULL DEFAULT 0,
       source_group_id TEXT,
       source_sequence INTEGER NOT NULL DEFAULT 1,
       source_file_name TEXT,
@@ -288,6 +302,7 @@ function createBidProjectStore({ app, db }) {
     sourceFile,
     sourceFiles = [],
     sourceGroupId,
+    derivedFromProjectId,
     sectionLabel = '',
   } = {}) {
     const timestamp = now();
@@ -304,10 +319,12 @@ function createBidProjectStore({ app, db }) {
       db.prepare(`
         INSERT INTO bid_projects (
           project_id, project_name, project_type, status, source_group_id, source_sequence,
+          derived_from_project_id, uniqueness_status,
           source_file_name, source_file_hash, source_content_hash, source_file_size,
           source_file_modified_at, section_label, created_at, updated_at
         ) VALUES (
           @project_id, @project_name, @project_type, 'incomplete', @source_group_id, @source_sequence,
+          @derived_from_project_id, @uniqueness_status,
           @source_file_name, @source_file_hash, @source_content_hash, @source_file_size,
           @source_file_modified_at, @section_label, @created_at, @updated_at
         )
@@ -317,6 +334,8 @@ function createBidProjectStore({ app, db }) {
         project_type: normalizedType,
         source_group_id: groupId,
         source_sequence: existingCount + 1,
+        derived_from_project_id: String(derivedFromProjectId || '').trim() || null,
+        uniqueness_status: derivedFromProjectId ? 'pending' : 'none',
         source_file_name: sourceFile?.fileName || null,
         source_file_hash: fileHash || null,
         source_content_hash: contentHash || null,
@@ -388,6 +407,24 @@ function createBidProjectStore({ app, db }) {
     return records;
   }
 
+  function listProjectSourceFiles(projectId) {
+    return db.prepare(`
+      SELECT *
+      FROM bid_project_source_files
+      WHERE project_id = ?
+      ORDER BY created_at ASC, rowid ASC
+    `).all(String(projectId || '')).map((row) => ({
+      sourceId: row.source_id,
+      fileName: row.file_name,
+      sourceDocxPath: row.source_docx_path || undefined,
+      markdownPath: row.markdown_path || undefined,
+      fileHash: row.file_hash || undefined,
+      contentHash: row.content_hash || undefined,
+      size: Number(row.file_size || 0),
+      modifiedAt: row.modified_at || undefined,
+    }));
+  }
+
   function updateProject(projectId, patch = {}) {
     const entries = [];
     const params = { project_id: String(projectId || ''), updated_at: now() };
@@ -399,11 +436,20 @@ function createBidProjectStore({ app, db }) {
       lastTaskStatus: 'last_task_status',
       lastError: 'last_error',
       sectionLabel: 'section_label',
+      derivedFromProjectId: 'derived_from_project_id',
+      uniquenessStatus: 'uniqueness_status',
+      uniquenessResultId: 'uniqueness_result_id',
+      uniquenessAttempts: 'uniqueness_attempts',
+      uniquenessAutoRunRequested: 'uniqueness_auto_run_requested',
     };
     for (const [field, column] of Object.entries(mapping)) {
       if (!Object.prototype.hasOwnProperty.call(patch, field)) continue;
       entries.push(`${column} = @${column}`);
-      params[column] = field === 'status' ? normalizeStatus(patch[field]) : (patch[field] ?? null);
+      if (field === 'status') params[column] = normalizeStatus(patch[field]);
+      else if (field === 'uniquenessStatus') params[column] = normalizeUniquenessStatus(patch[field]);
+      else if (field === 'uniquenessAttempts') params[column] = Math.max(0, Math.floor(Number(patch[field] || 0)));
+      else if (field === 'uniquenessAutoRunRequested') params[column] = patch[field] ? 1 : 0;
+      else params[column] = patch[field] ?? null;
     }
     if (!entries.length) return getProject(projectId);
     db.prepare(`UPDATE bid_projects SET ${entries.join(', ')}, updated_at = @updated_at WHERE project_id = @project_id`).run(params);
@@ -414,7 +460,20 @@ function createBidProjectStore({ app, db }) {
     const id = String(projectId || '');
     const project = getProject(id);
     if (!project) return { success: false, message: '未找到标书项目' };
-    db.prepare('DELETE FROM bid_projects WHERE project_id = ?').run(id);
+    const remove = db.transaction(() => {
+      db.prepare(`
+        UPDATE bid_projects
+        SET status = 'incomplete',
+            uniqueness_status = 'failed',
+            uniqueness_result_id = NULL,
+            uniqueness_auto_run_requested = 0,
+            last_error = '来源项目已删除，无法继续同源正文查重',
+            updated_at = ?
+        WHERE derived_from_project_id = ?
+      `).run(now(), id);
+      db.prepare('DELETE FROM bid_projects WHERE project_id = ?').run(id);
+    });
+    remove();
     forceRemoveSync(getBidProjectDir(app, id), {
       trashDir: getWorkspaceTrashDir(app),
       deferOnFailure: true,
@@ -426,6 +485,77 @@ function createBidProjectStore({ app, db }) {
     const project = getProject(projectId);
     if (!project?.sourceGroupId) return [];
     return db.prepare('SELECT * FROM bid_projects WHERE source_group_id = ? ORDER BY source_sequence ASC').all(project.sourceGroupId).map(toProject);
+  }
+
+  function listPendingAutomaticUniquenessProjects() {
+    return db.prepare(`
+      SELECT *
+      FROM bid_projects
+      WHERE derived_from_project_id IS NOT NULL
+        AND uniqueness_auto_run_requested = 1
+      ORDER BY updated_at ASC, created_at ASC
+    `).all().map(toProject);
+  }
+
+  function validateProjectUniqueness(projectId, contentFingerprints = {}) {
+    const project = getProject(projectId);
+    if (!project) return { valid: false, project: null, result: null, reason: '未找到标书项目' };
+    if (!project.derivedFromProjectId) return { valid: true, project, result: null, reason: '' };
+
+    const sourceProject = getProject(project.derivedFromProjectId);
+    if (!sourceProject) {
+      const invalid = updateProject(project.projectId, {
+        status: 'incomplete',
+        uniquenessStatus: 'failed',
+        uniquenessResultId: null,
+        uniquenessAutoRunRequested: false,
+        lastError: '来源项目已删除，无法继续同源正文查重',
+      });
+      return { valid: false, project: invalid, result: null, reason: '来源项目已删除' };
+    }
+
+    const result = project.uniquenessResultId
+      ? loadDuplicateResult(project.uniquenessResultId)
+      : null;
+    const relationMatches = Boolean(result) && (
+      (result.leftProjectId === sourceProject.projectId && result.rightProjectId === project.projectId)
+      || (result.rightProjectId === sourceProject.projectId && result.leftProjectId === project.projectId)
+    );
+    const summary = result?.summary || {};
+    const zeroMatches = Number(summary.duplicateParagraphCount || 0) === 0
+      && Number(summary.exactSentenceCount || 0) === 0;
+    const sourceStoredFingerprint = result?.leftProjectId === sourceProject.projectId
+      ? summary.leftContentFingerprint
+      : summary.rightContentFingerprint;
+    const derivedStoredFingerprint = result?.leftProjectId === project.projectId
+      ? summary.leftContentFingerprint
+      : summary.rightContentFingerprint;
+    const fingerprintsMatch = Boolean(contentFingerprints.sourceFingerprint)
+      && Boolean(contentFingerprints.derivedFingerprint)
+      && sourceStoredFingerprint === contentFingerprints.sourceFingerprint
+      && derivedStoredFingerprint === contentFingerprints.derivedFingerprint;
+    const valid = project.uniquenessStatus === 'passed'
+      && contentFingerprints.contentGenerationSucceeded !== false
+      && relationMatches
+      && zeroMatches
+      && fingerprintsMatch;
+    if (valid) return { valid: true, project, result, reason: '' };
+
+    const reason = contentFingerprints.contentGenerationSucceeded === false
+      ? '第二份标书正文生成状态已失效，请先完成正文生成'
+      : relationMatches && zeroMatches && !fingerprintsMatch
+        ? '任一标书正文已变化，需要重新查重'
+        : '同源正文查重结果无效，需要重新查重';
+    const invalid = project.uniquenessStatus === 'passed' || project.status === 'completed'
+      ? updateProject(project.projectId, {
+        status: 'incomplete',
+        uniquenessStatus: 'pending',
+        uniquenessResultId: null,
+        uniquenessAutoRunRequested: false,
+        lastError: reason,
+      })
+      : project;
+    return { valid: false, project: invalid, result, reason };
   }
 
   function replaceDuplicateMatchRows(resultId, matches) {
@@ -759,6 +889,8 @@ function createBidProjectStore({ app, db }) {
     getProject,
     getSourceMatches,
     listProjects,
+    listPendingAutomaticUniquenessProjects,
+    listProjectSourceFiles,
     listRecentDuplicateSummaries,
     listSourceGroupProjects,
     loadLatestDuplicateResult,
@@ -768,6 +900,7 @@ function createBidProjectStore({ app, db }) {
     saveDuplicateResult,
     updateDuplicateMatchDecision,
     updateProject,
+    validateProjectUniqueness,
   };
 }
 

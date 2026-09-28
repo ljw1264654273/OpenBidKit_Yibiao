@@ -4,6 +4,7 @@ const { runBidAnalysisTask } = require('./bidAnalysisTask.cjs');
 const { runContentGenerationTask } = require('./contentGenerationTask.cjs');
 const { runGlobalFactsTaskV2 } = require('./globalFactsTaskV2.cjs');
 const { runOutlineGenerationTaskV2 } = require('./outlineGenerationTaskV2.cjs');
+const { runBidProjectVariantDeduplicationTask } = require('./bidProjectVariantDeduplicationTask.cjs');
 const { runOutlineAdjustmentTask } = require('./outlineAdjustmentTask.cjs');
 const { runGlobalFactsAdjustmentTask } = require('./globalFactsAdjustmentTask.cjs');
 const {
@@ -88,6 +89,15 @@ const taskDefinitions = {
     lockPolicy: 'scope-exclusive',
     stateKey: 'technicalPlan',
     field: 'contentGenerationTask',
+  },
+  'variant-deduplication': {
+    label: '同源正文查重',
+    group: 'technical-plan',
+    groupLabel: '技术方案',
+    step: 6,
+    lockPolicy: 'scope-exclusive',
+    stateKey: 'technicalPlan',
+    field: 'variantDeduplicationTask',
   },
   'rejection-items-extraction': {
     label: '无效与废标项解析',
@@ -212,13 +222,17 @@ const technicalPlanStepByTaskType = Object.freeze({
   'global-facts-generation': 'global-facts',
   'global-facts-adjustment': 'global-facts',
   'content-generation': 'content-edit',
+  'variant-deduplication': 'content-edit',
 });
 
-function getBidProjectStatusForTask(task, statusOverride) {
+function getBidProjectStatusForTask(task, statusOverride, project) {
   if (statusOverride) return statusOverride;
   if (['queued', 'running', 'pausing', 'paused'].includes(task?.status)) return 'generating';
   if (task?.status === 'error' || task?.status === 'interrupted') return 'failed';
-  if (task?.status === 'success' && task?.type === 'content-generation') return 'completed';
+  if (task?.status === 'success' && task?.type === 'variant-deduplication') return 'completed';
+  if (task?.status === 'success' && task?.type === 'content-generation') {
+    return project?.derivedFromProjectId ? 'incomplete' : 'completed';
+  }
   return 'incomplete';
 }
 
@@ -341,7 +355,7 @@ function cloneRemoteScopes(scopes) {
   }));
 }
 
-function createTaskService({ aiService, agentService, autoConfirmationService, technicalPlanStore, bidProjectManager, rejectionCheckStore, duplicateCheckStore, feasibilityReportStore, knowledgeBaseService, knowledgeReferenceService, remoteKnowledgeDecisionService, duplicateCheckService, openXmlHelperService, taskRunners = {} }) {
+function createTaskService({ aiService, agentService, autoConfirmationService, technicalPlanStore, bidProjectManager, bidProjectVariantService, rejectionCheckStore, duplicateCheckStore, feasibilityReportStore, knowledgeBaseService, knowledgeReferenceService, remoteKnowledgeDecisionService, duplicateCheckService, openXmlHelperService, taskRunners = {} }) {
   const subscribers = new Set();
   const callbackSubscribers = new Set();
   const activeTasks = new Map();
@@ -761,14 +775,22 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
   function updateBidProjectTaskStatus(task, statusOverride) {
     const projectId = getProjectId(task);
     if (!projectId || !bidProjectManager?.updateProject) return;
-    const nextStatus = getBidProjectStatusForTask(task, statusOverride);
+    const project = bidProjectManager.getProject?.(projectId);
+    const nextStatus = getBidProjectStatusForTask(task, statusOverride, project);
     try {
       bidProjectManager.updateProject(projectId, {
         status: nextStatus,
         lastTaskType: task.type,
         lastTaskStatus: task.status,
         lastError: task.error || null,
-        currentStep: technicalPlanStepByTaskType[task.type],
+        ...(task.type === 'content-generation'
+          && project?.derivedFromProjectId
+          && (task.status === 'error' || task.status === 'interrupted')
+          ? { uniquenessAutoRunRequested: false }
+          : {}),
+        ...(technicalPlanStepByTaskType[task.type]
+          ? { currentStep: technicalPlanStepByTaskType[task.type] }
+          : {}),
       });
     } catch (error) {
       console.warn('[task-service] 更新标书项目状态失败', error);
@@ -1102,6 +1124,10 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
         checkpointTask({ status: 'error', error: error.message || '任务执行失败' });
       }
     }).finally(() => {
+      const scheduleVariantAfterContent = type === 'content-generation'
+        && currentTask.status === 'success'
+        && Boolean(bidProjectManager?.getProject?.(projectId)?.derivedFromProjectId)
+        && Boolean(bidProjectManager?.getProject?.(projectId)?.uniquenessAutoRunRequested);
       if (definition.group === 'technical-plan' && !taskControl.queued) {
         technicalPlanRunning = Math.max(0, technicalPlanRunning - 1);
       }
@@ -1109,11 +1135,41 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
       if (aiService?.resumeQueueScope) {
         aiService.resumeQueueScope(queueScopeId);
       }
-      updateBidProjectTaskStatus(currentTask);
+      if (type === 'variant-deduplication' && taskControl.signal.aborted) {
+        bidProjectManager?.updateProject?.(projectId, {
+          status: 'incomplete',
+          uniquenessStatus: 'pending',
+          uniquenessAutoRunRequested: false,
+          lastTaskType: type,
+          lastTaskStatus: 'interrupted',
+          lastError: null,
+        });
+      } else if (type === 'content-generation'
+        && taskControl.signal.aborted
+        && currentTask.status !== 'paused') {
+        bidProjectManager?.updateProject?.(projectId, {
+          status: 'incomplete',
+          uniquenessAutoRunRequested: false,
+          lastTaskType: type,
+          lastTaskStatus: 'interrupted',
+          lastError: null,
+        });
+      } else {
+        updateBidProjectTaskStatus(currentTask);
+      }
       activeTasks.delete(taskKey);
       activeTaskControls.delete(taskKey);
       resolveSettled();
       drainTechnicalPlanQueue();
+      if (scheduleVariantAfterContent) {
+        queueMicrotask(() => {
+          try {
+            startVariantDeduplication({ projectId });
+          } catch (error) {
+            console.warn('[task-service] 自动启动同源正文查重失败', error);
+          }
+        });
+      }
     });
 
     return snapshotTask(currentTask);
@@ -1449,6 +1505,35 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
     emit(recoveredTask, buildSnapshot(getTaskDefinition('global-facts-generation'), partial, recoveredTask));
   }
 
+  function recoverInterruptedVariantDeduplicationTask(technicalPlan, projectId, workspaceStore = technicalPlanStore) {
+    const variantTask = technicalPlan.variantDeduplicationTask;
+    if (!isActiveTaskStatus(variantTask?.status) || hasActiveTask('variant-deduplication', projectId)) return;
+    const message = '上次同源正文查重被应用关闭中断，请重新查重。';
+    const recoveredTask = {
+      ...variantTask,
+      status: 'error',
+      progress: Math.max(0, Math.min(99, Number(variantTask.progress || 0))),
+      pause_requested: false,
+      error: message,
+      logs: [...(Array.isArray(variantTask.logs) ? variantTask.logs : []), message],
+      updated_at: now(),
+    };
+    workspaceStore.updateTechnicalPlanWithoutReload({ variantDeduplicationTask: recoveredTask });
+    bidProjectManager?.updateProject?.(projectId, {
+      status: 'failed',
+      uniquenessStatus: 'failed',
+      uniquenessAutoRunRequested: false,
+      lastTaskType: 'variant-deduplication',
+      lastTaskStatus: 'error',
+      lastError: message,
+    });
+    emit(recoveredTask, buildSnapshot(
+      getTaskDefinition('variant-deduplication'),
+      { variantDeduplicationTask: recoveredTask },
+      recoveredTask,
+    ));
+  }
+
   function recoverInterruptedRejectionCheckTasks(state) {
     const staleExtractionMessage = '上次解析未完成，请重新解析';
     const staleCheckMessage = '上次检查未完成，请重新检查';
@@ -1571,6 +1656,29 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
     if (recovered) emit(recovered, { feasibilityReportPatch: partial });
   }
 
+  function startVariantDeduplication(payload = {}) {
+    const projectId = getProjectId(payload);
+    const project = bidProjectManager?.getProject?.(projectId);
+    if (!project?.derivedFromProjectId) throw new Error('当前项目不是同源派生标书');
+    const technicalPlan = getTechnicalPlanStore(projectId).loadTechnicalPlan() || {};
+    if (technicalPlan.contentGenerationTask?.status !== 'success') {
+      throw new Error('请先完成第二份标书正文生成，再执行同源正文查重');
+    }
+    const runner = taskRunners.variantDeduplication || ((context) => (
+      runBidProjectVariantDeduplicationTask({ ...context, bidProjectManager })
+    ));
+    return startManagedTask('variant-deduplication', { ...payload, projectId }, runner, {}, {
+      beforeStart: () => {
+        bidProjectManager.updateProject(projectId, {
+          status: 'generating',
+          uniquenessStatus: 'checking',
+          uniquenessAutoRunRequested: false,
+          lastError: null,
+        });
+      },
+    });
+  }
+
   const rejectionCheckRecoveryState = rejectionCheckStore.loadRejectionCheck() || {};
   const duplicateCheckRecoveryState = duplicateCheckStore.loadDuplicateCheck() || {};
   const feasibilityReportRecoveryState = feasibilityReportStore?.loadFeasibilityReport?.() || {};
@@ -1588,12 +1696,26 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
     recoverInterruptedOutlineGenerationTask(state, projectId, store);
     recoverInterruptedOutlineAdjustmentTask(state, projectId, store);
     recoverInterruptedContentGenerationTask(state, projectId, store);
+    recoverInterruptedVariantDeduplicationTask(state, projectId, store);
     recoverInterruptedGlobalFactsTask(state, projectId, store);
     recoverInterruptedGlobalFactsAdjustmentTask(state, projectId, store);
   });
   recoverInterruptedRejectionCheckTasks(rejectionCheckRecoveryState);
   recoverInterruptedDuplicateCheckTask(duplicateCheckRecoveryState);
   recoverInterruptedFeasibilityTasks(feasibilityReportRecoveryState);
+
+  for (const pendingProject of bidProjectManager?.getProjectStore?.().listPendingAutomaticUniquenessProjects?.() || []) {
+    const projectId = pendingProject.projectId;
+    const state = getTechnicalPlanStore(projectId).loadTechnicalPlan() || {};
+    if (state.contentGenerationTask?.status !== 'success' || hasActiveTask('variant-deduplication', projectId)) continue;
+    queueMicrotask(() => {
+      try {
+        startVariantDeduplication({ projectId });
+      } catch (error) {
+        console.warn('[task-service] 恢复自动同源正文查重失败', error);
+      }
+    });
+  }
 
   return {
     subscribe,
@@ -1626,7 +1748,15 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
         : payload?.outline_mode === 'response-file'
           ? 'response-file'
           : 'aligned';
-      const taskPayload = { ...payload, outline_mode: outlineMode };
+      const project = bidProjectManager?.getProject?.(getProjectId(payload));
+      const baselineOutline = project?.derivedFromProjectId
+        ? bidProjectVariantService?.getVariantBaselineOutline?.(project.projectId)
+        : null;
+      const taskPayload = {
+        ...payload,
+        outline_mode: outlineMode,
+        ...(baselineOutline ? { variant_baseline_outline: baselineOutline } : {}),
+      };
       return startManagedTask('outline-generation', taskPayload, taskRunners.outlineGeneration || runOutlineGenerationTaskV2, {
         outlineMode,
         outlineExpansionMode: payload?.outline_expansion_mode === 'original-only' ? 'original-only' : 'ai-complement',
@@ -1683,8 +1813,30 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
       if (!technicalPlan.outlineWordControlSnapshot) {
         throw new Error('当前目录没有字数控制生效快照，请重新生成目录');
       }
-      return startManagedTask('content-generation', payload, runContentGenerationTask);
+      const projectId = getProjectId(payload);
+      const project = bidProjectManager?.getProject?.(projectId);
+      const fullGeneration = Boolean(project?.derivedFromProjectId)
+        && !payload?.resume
+        && !payload?.onlyMissing
+        && !payload?.targetItemId;
+      return startManagedTask(
+        'content-generation',
+        payload,
+        taskRunners.contentGeneration || runContentGenerationTask,
+        {},
+        fullGeneration ? {
+          beforeStart: () => bidProjectManager.updateProject(projectId, {
+            status: 'generating',
+            uniquenessStatus: 'pending',
+            uniquenessResultId: null,
+            uniquenessAttempts: 0,
+            uniquenessAutoRunRequested: true,
+            lastError: null,
+          }),
+        } : {},
+      );
     },
+    startVariantDeduplication,
     pauseContentGeneration(payload = {}) {
       const taskKey = getTaskKey('content-generation', payload);
       const task = activeTasks.get(taskKey);

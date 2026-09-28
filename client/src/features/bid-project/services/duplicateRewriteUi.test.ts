@@ -108,7 +108,7 @@ test('列表页只有生成完成的标书允许导出', async () => {
   const row = await fs.readFile(new URL('../components/BidProjectRow.tsx', import.meta.url), 'utf8');
   const sharedStyles = await fs.readFile(new URL('../../../styles/shared-components.css', import.meta.url), 'utf8');
 
-  assert.match(row, /disabled=\{project\.status !== 'completed'\}/);
+  assert.match(row, /disabled=\{!canExport\}/);
   assert.match(row, /标书生成完成后才可导出/);
   assert.match(workspacePage, /project\.status !== 'completed'/);
   assert.match(workspacePage, /标书生成完成后才可导出/);
@@ -157,4 +157,38 @@ test('标书列表查重摘要查询不读取完整匹配正文 JSON', async () 
   assert.doesNotMatch(store, /SELECT\s+r\.\*/);
   assert.match(store, /r\.summary_json/);
   assert.match(store, /r\.result_id/);
+});
+
+test('标书列表提供同源再生成与重新查重操作，并展示权威查重状态', async () => {
+  const fs = await import('node:fs/promises');
+  const workspacePage = await fs.readFile(new URL('../pages/BidProjectWorkspacePage.tsx', import.meta.url), 'utf8');
+  const row = await fs.readFile(new URL('../components/BidProjectRow.tsx', import.meta.url), 'utf8');
+  const storage = await fs.readFile(new URL('./bidProjectStorage.ts', import.meta.url), 'utf8');
+  const preload = await fs.readFile(new URL('../../../../electron/preload.cjs', import.meta.url), 'utf8');
+
+  assert.match(row, /再生成一份/);
+  assert.match(row, /重新查重/);
+  assert.match(row, /project\.projectType === 'technical-plan'/);
+  assert.match(row, /!project\.derivedFromProjectId/);
+  assert.match(row, /project\.uniquenessStatus/);
+  assert.match(row, /查重改写中/);
+  assert.match(row, /来源项目已删除/);
+  assert.match(row, /!project\.lastError\?\.includes\('来源项目已删除'\)/);
+  assert.match(workspacePage, /bidProjectStorage\.createVariant/);
+  assert.match(workspacePage, /startVariantDeduplication/);
+  assert.match(workspacePage, /<AppDialog[\s\S]*再生成一份标书/);
+  assert.match(storage, /bidProject\.createVariant/);
+  assert.match(preload, /bid-project:create-variant/);
+  assert.match(preload, /tasks:start-variant-deduplication/);
+});
+
+test('派生标书只有查重通过后才在列表中允许导出', async () => {
+  const fs = await import('node:fs/promises');
+  const workspacePage = await fs.readFile(new URL('../pages/BidProjectWorkspacePage.tsx', import.meta.url), 'utf8');
+  const row = await fs.readFile(new URL('../components/BidProjectRow.tsx', import.meta.url), 'utf8');
+
+  assert.match(row, /project\.uniquenessStatus === 'passed'/);
+  assert.match(row, /同源正文查重通过后才可导出/);
+  assert.match(workspacePage, /project\.derivedFromProjectId/);
+  assert.match(workspacePage, /project\.uniquenessStatus !== 'passed'/);
 });

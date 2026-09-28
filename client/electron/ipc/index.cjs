@@ -43,6 +43,7 @@ const { createTaskLogStore } = require('../services/taskLogStore.cjs');
 const { createTechnicalPlanStore } = require('../services/technicalPlanStore.cjs');
 const { createBidProjectManager } = require('../services/bidProjectManager.cjs');
 const { createBidProjectImportService } = require('../services/bidProjectImportService.cjs');
+const { createBidProjectVariantService } = require('../services/bidProjectVariantService.cjs');
 const { createWorkflowAnalytics } = require('../services/workflowAnalytics.cjs');
 const { createBidProjectDuplicateRewriteService } = require('../services/bidProjectDuplicateRewriteService.cjs');
 const { createFeasibilityReportStore } = require('../services/feasibilityReportStore.cjs');
@@ -89,6 +90,7 @@ const workspaceDatabaseChannels = [
   'bid-project:open',
   'bid-project:close',
   'bid-project:create',
+  'bid-project:create-variant',
   'bid-project:update',
   'bid-project:delete',
   'bid-project:source-group',
@@ -188,6 +190,7 @@ const workspaceDatabaseChannels = [
   'tasks:suppress-outline-selection-auto-confirmation',
   'tasks:start-global-facts-generation',
   'tasks:start-content-generation',
+  'tasks:start-variant-deduplication',
   'tasks:pause-content-generation',
   'tasks:start-rejection-items-extraction',
   'tasks:start-rejection-check',
@@ -281,6 +284,7 @@ function registerWorkspaceDatabaseServices({ app, configStore, aiService, agentS
     configStore,
   });
   const bidProjectImportService = createBidProjectImportService({ app, fileService, bidProjectManager, workflowAnalytics });
+  const bidProjectVariantService = createBidProjectVariantService({ projectManager: bidProjectManager });
   const bidProjectDuplicateRewriteService = createBidProjectDuplicateRewriteService({ aiService });
   const knowledgeBaseStore = createKnowledgeBaseStore({ app, db: sqliteDatabase.db });
   const knowledgeBaseService = createKnowledgeBaseService({ app, aiService, configStore, knowledgeBaseStore });
@@ -299,7 +303,7 @@ function registerWorkspaceDatabaseServices({ app, configStore, aiService, agentS
     rejectionCheckStore,
     duplicateCheckStore,
   });
-  const taskService = createTaskService({ aiService, agentService, autoConfirmationService, technicalPlanStore, bidProjectManager, rejectionCheckStore, duplicateCheckStore, feasibilityReportStore, knowledgeBaseService, knowledgeReferenceService, remoteKnowledgeDecisionService, duplicateCheckService, openXmlHelperService });
+  const taskService = createTaskService({ aiService, agentService, autoConfirmationService, technicalPlanStore, bidProjectManager, bidProjectVariantService, rejectionCheckStore, duplicateCheckStore, feasibilityReportStore, knowledgeBaseService, knowledgeReferenceService, remoteKnowledgeDecisionService, duplicateCheckService, openXmlHelperService });
   const contentAiEditService = createContentAiEditService({
     app,
     aiService,
@@ -315,6 +319,7 @@ function registerWorkspaceDatabaseServices({ app, configStore, aiService, agentS
     ipcMain,
     bidProjectManager,
     bidProjectImportService,
+    bidProjectVariantService,
     technicalPlanStore,
     taskService,
     exportService,

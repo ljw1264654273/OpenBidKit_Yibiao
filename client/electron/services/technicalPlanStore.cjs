@@ -77,6 +77,7 @@ const initialState = {
   globalFactsTask: undefined,
   globalFacts: [],
   contentGenerationTask: undefined,
+  variantDeduplicationTask: undefined,
   contentGenerationOptions: undefined,
   contentGenerationSections: {},
   contentGenerationPlans: {},
@@ -94,6 +95,7 @@ const taskFieldTypes = {
   globalFactsTask: 'global-facts-generation',
   globalFactsAdjustmentTask: 'global-facts-adjustment',
   contentGenerationTask: 'content-generation',
+  variantDeduplicationTask: 'variant-deduplication',
 };
 
 const taskTypeFields = Object.fromEntries(Object.entries(taskFieldTypes).map(([field, type]) => [type, field]));
@@ -545,7 +547,7 @@ function updateScoreCoverageForOutlineSave({ coverageMap, suppliedCoverageMap, r
   return { ...coverageMap, records };
 }
 
-function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, taskLogStore: rawTaskLogStore, configStore, projectId }) {
+function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, taskLogStore: rawTaskLogStore, configStore, projectId, onContentChanged }) {
   const projectScoped = Boolean(projectId);
   const projectTablePrefix = projectScoped ? getTechnicalPlanProjectTablePrefix(projectId) : '';
   const tableName = (name) => `${projectTablePrefix || 'technical_plan_'}${name}`;
@@ -644,6 +646,7 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
   });
 
   const workspaceTrashDir = getWorkspaceTrashDir(app);
+  let generatedContentChangedNodeIds = null;
 
   /**
    * 工作区内的强制删除统一带回收目录兜底:强杀外部占用进程;占用者属于本应用进程(如 Agent 在
@@ -2356,7 +2359,12 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
   function saveContentGenerationItemFields({ nodeId, section, storedPlan, runtime }) {
     const timestamp = now();
     if (section) {
+      const previousContent = db.prepare('SELECT content FROM technical_plan_outline_nodes WHERE node_id = ?').get(nodeId)?.content || '';
+      const nextContent = String(section.content || '');
       updateGeneratedContent.run(String(section.content || ''), timestamp, nodeId);
+      if (generatedContentChangedNodeIds && previousContent !== nextContent) {
+        generatedContentChangedNodeIds.add(String(nodeId));
+      }
       upsertGeneratedSection.run({
         node_id: nodeId,
         status: normalizeStatus(section.status, ['idle', 'running', 'success', 'error', 'ignored'], 'idle'),
@@ -2816,7 +2824,19 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
   // 应用技术方案局部更新，但不重新加载完整工作区状态。
   function updateTechnicalPlanWithoutReload(partial) {
     const shouldClearMermaidCache = shouldClearMermaidCacheForPartial(partial);
-    updateTechnicalPlanTransaction(partial || {});
+    generatedContentChangedNodeIds = new Set();
+    try {
+      updateTechnicalPlanTransaction(partial || {});
+    } catch (error) {
+      generatedContentChangedNodeIds = null;
+      throw error;
+    }
+    const changedNodeIds = [...generatedContentChangedNodeIds];
+    generatedContentChangedNodeIds = null;
+    if ((changedNodeIds.length || partial?.invalidateContentGeneration === true || partial?.outlineData === null)
+      && typeof onContentChanged === 'function') {
+      onContentChanged({ origin: 'generation', nodeIds: changedNodeIds });
+    }
     const deletedAgentSessions = hasOwn(partial, 'outlineData') && partial.outlineData === null;
     if (deletedAgentSessions) {
       deleteOutlineAgentTask();
@@ -3006,6 +3026,9 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       saveScoreCoverageMap();
     });
     transaction();
+    if (invalidatesContentTask && typeof onContentChanged === 'function') {
+      onContentChanged({ origin: 'manual' });
+    }
     const outlineGenerationTask = loadTask('outline-generation');
     const sortedContentRuntime = reason === 'sort'
       ? safeJsonParse(readMetaRow().content_generation_runtime_json, undefined)
@@ -3056,6 +3079,7 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       };
     });
     transaction();
+    if (typeof onContentChanged === 'function') onContentChanged({ origin: 'manual' });
     return result;
   }
 
@@ -3084,6 +3108,7 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       saveTask('global-facts-generation', savedTask);
     });
     transaction();
+    if (typeof onContentChanged === 'function') onContentChanged({ origin: 'manual' });
     return {
       globalFacts: normalizedGlobalFacts,
       globalFactsTask: savedTask,
@@ -3100,13 +3125,15 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     return { contentGenerationOptions, contentIllustrationPlan: undefined };
   }
 
-  function saveChapterContent({ nodeId, content }) {
+  function saveChapterContent({ nodeId, content, reason = 'manual' }) {
+    let changed = false;
     const transaction = db.transaction(() => {
       assertContentEditingAllowed();
       const timestamp = now();
-      const node = db.prepare('SELECT node_id, title FROM technical_plan_outline_nodes WHERE node_id = ?').get(nodeId);
+      const node = db.prepare('SELECT node_id, title, content FROM technical_plan_outline_nodes WHERE node_id = ?').get(nodeId);
       if (!node) throw new Error('当前目录中未找到该章节');
       const nextContent = String(content || '');
+      changed = String(node.content || '') !== nextContent;
       db.prepare('UPDATE technical_plan_outline_nodes SET content = ?, updated_at = ? WHERE node_id = ?').run(nextContent, timestamp, nodeId);
       db.prepare(`
         INSERT INTO technical_plan_content_sections (node_id, status, error, updated_at)
@@ -3116,7 +3143,123 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       clearContentIllustrationPlan();
     });
     transaction();
+    if (changed && typeof onContentChanged === 'function') onContentChanged({ origin: reason, nodeIds: [String(nodeId)] });
     return { contentIllustrationPlan: undefined };
+  }
+
+  function exportVariantSeed() {
+    const meta = readMetaRow();
+    const state = loadTechnicalPlan();
+    if (!state.tenderFile) throw new Error('第一份标书缺少有效招标文件');
+    const tenderFiles = loadTenderSourceFiles(meta).map((file) => {
+      const sourceDocxPath = String(file.sourceDocxPath || '').trim();
+      const resolvedDocxPath = sourceDocxPath ? resolveMarkdownPath(sourceDocxPath) : '';
+      return {
+        ...file,
+        markdown: readTenderSourceMarkdown(file.id),
+        sourceDocxPath: resolvedDocxPath && fs.existsSync(resolvedDocxPath) ? resolvedDocxPath : undefined,
+      };
+    });
+    return {
+      tenderFile: { ...state.tenderFile },
+      tenderFiles,
+      workingMarkdown: readTenderMarkdown(),
+      originalMarkdown: readOriginalTenderMarkdown(),
+      bidAnalysisMode: state.bidAnalysisMode,
+      bidAnalysisSelectedTaskIds: [...state.bidAnalysisSelectedTaskIds],
+      bidAnalysisTasks: Object.fromEntries(Object.entries(state.bidAnalysisTasks || {})
+        .filter(([, task]) => task?.status === 'success')
+        .map(([id, task]) => [id, { ...task }])),
+      bidSectionMode: state.bidSectionMode,
+      bidSections: state.bidSections,
+      bidSectionExtractionStatus: state.bidSectionExtractionStatus,
+      selectedSectionId: state.tenderFile.selectedSectionId,
+      selectedSectionTitle: state.tenderFile.selectedSectionTitle,
+      selectedSectionHeadLine: meta.selected_section_head_line || undefined,
+    };
+  }
+
+  function importVariantSeed(seed) {
+    const workingMarkdown = String(seed?.workingMarkdown || '').trim();
+    const originalMarkdown = String(seed?.originalMarkdown || '').trim();
+    if (!workingMarkdown || !originalMarkdown) throw new Error('第一份标书的招标文件种子不完整');
+    const timestamp = now();
+    fs.mkdirSync(technicalPlanDir, { recursive: true });
+    removeWorkspacePathSync(tenderSourceFilesDir);
+    removeWorkspacePathSync(tenderOriginalsDir);
+    writeMarkdownFile(tenderMarkdownPath, workingMarkdown, 'variant-tender');
+    writeMarkdownFile(tenderOriginalMarkdownPath, originalMarkdown, 'variant-tender-original');
+
+    const tenderFiles = (Array.isArray(seed?.tenderFiles) ? seed.tenderFiles : []).map((file, index) => {
+      const id = String(file?.id || createTenderSourceId(file?.fileName, file?.markdown, index));
+      const fileName = String(file?.fileName || '招标文件');
+      const markdown = String(file?.markdown || '').trim();
+      const markdownPath = path.join(tenderSourceFilesDirRelativePath, `${id}-${safeFileNamePart(fileName)}.md`).replace(/\\/g, '/');
+      writeMarkdownFile(resolveMarkdownPath(markdownPath), markdown, id);
+      let sourceDocxPath;
+      const sourceDocx = String(file?.sourceDocxPath || '').trim();
+      if (sourceDocx && fs.existsSync(sourceDocx)) {
+        sourceDocxPath = path.join(tenderOriginalsDirRelativePath, `${id}.docx`).replace(/\\/g, '/');
+        const targetPath = resolveMarkdownPath(sourceDocxPath);
+        fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+        fs.copyFileSync(sourceDocx, targetPath);
+      }
+      return {
+        id,
+        fileName,
+        markdownPath,
+        markdownChars: markdown.length,
+        contentHash: file?.contentHash || stableHash(markdown),
+        parserLabel: file?.parserLabel,
+        sourceDocxPath,
+        importedAt: file?.importedAt || timestamp,
+        updatedAt: timestamp,
+      };
+    });
+
+    const transaction = db.transaction(() => {
+      db.prepare('DELETE FROM technical_plan_tasks').run();
+      db.prepare('DELETE FROM technical_plan_bid_items').run();
+      db.prepare('DELETE FROM technical_plan_reference_docs').run();
+      db.prepare('DELETE FROM technical_plan_remote_knowledge_documents').run();
+      db.prepare('DELETE FROM technical_plan_remote_knowledge_scopes').run();
+      db.prepare('DELETE FROM technical_plan_outline_nodes').run();
+      db.prepare('DELETE FROM technical_plan_global_fact_groups').run();
+      db.prepare('DELETE FROM technical_plan_content_sections').run();
+      db.prepare('DELETE FROM technical_plan_content_plans').run();
+      clearContentIllustrationPlan();
+      updateMeta({
+        workflow_kind: 'technical-plan',
+        step: 'outline-generation',
+        tender_file_name: seed?.tenderFile?.fileName || tenderFiles[0]?.fileName || '招标文件',
+        tender_markdown_path: tenderMarkdownRelativePath,
+        tender_markdown_hash: stableHash(workingMarkdown),
+        tender_markdown_chars: workingMarkdown.length,
+        tender_parser_label: seed?.tenderFile?.parserLabel || null,
+        tender_imported_at: seed?.tenderFile?.importedAt || timestamp,
+        tender_files_json: JSON.stringify(tenderFiles),
+        tender_original_markdown_path: tenderOriginalMarkdownRelativePath,
+        tender_original_markdown_hash: stableHash(originalMarkdown),
+        tender_original_markdown_chars: originalMarkdown.length,
+        bid_analysis_mode: isValidBidMode(seed?.bidAnalysisMode) ? seed.bidAnalysisMode : 'key',
+        bid_analysis_selected_task_ids_json: jsonOrNull(normalizeBidAnalysisTaskIds(seed?.bidAnalysisSelectedTaskIds)),
+        bid_section_mode: normalizeBidSectionMode(seed?.bidSectionMode),
+        bid_sections_json: jsonOrNull(normalizeBidSections(seed?.bidSections)),
+        bid_section_extraction_status: seed?.bidSectionExtractionStatus === 'success' ? 'success' : 'idle',
+        bid_section_extraction_error: null,
+        selected_section_id: seed?.selectedSectionId || null,
+        selected_section_title: seed?.selectedSectionTitle || null,
+        selected_section_head_line: seed?.selectedSectionHeadLine || null,
+        outline_word_control_snapshot_json: null,
+        outline_project_name: null,
+        outline_project_overview: null,
+        content_generation_options_json: null,
+        content_generation_runtime_json: null,
+      });
+      saveBidItems(seed?.bidAnalysisTasks || {}, seed?.bidAnalysisMode);
+    });
+    transaction();
+    return loadTechnicalPlan();
   }
 
   async function runBeforeCommit(beforeCommit) {
@@ -3502,6 +3645,8 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     saveIllustrationPng,
     saveContentGenerationOptions,
     saveChapterContent,
+    exportVariantSeed,
+    importVariantSeed,
     getIllustrationReviewItem,
     previewIllustrationReviewItem,
     saveIllustrationReviewItem,

@@ -657,6 +657,7 @@ export interface YibiaoBridge {
     open: (projectId: string) => Promise<BidProject>;
     close: (projectId: string) => Promise<void>;
     create: (options: BidProjectCreateOptions) => Promise<BidProject>;
+    createVariant: (sourceProjectId: string) => Promise<BidProject>;
     update: (projectId: string, patch: Partial<BidProject>) => Promise<BidProject>;
     delete: (projectId: string) => Promise<{ success: boolean; message?: string }>;
     sourceGroup: (projectId: string) => Promise<BidProject[]>;
@@ -832,6 +833,7 @@ export interface YibiaoBridge {
     suppressOutlineSelectionAutoConfirmation: (payload: { projectId?: string; taskId: string }) => Promise<{ success: boolean }>;
     startGlobalFactsGeneration: (payload: unknown) => Promise<unknown>;
     startContentGeneration: (payload: unknown) => Promise<unknown>;
+    startVariantDeduplication: (payload: { projectId: string }) => Promise<unknown>;
     pauseContentGeneration: (payload?: { projectId?: string }) => Promise<unknown>;
     startRejectionItemsExtraction: (payload: unknown) => Promise<unknown>;
     startRejectionCheck: (payload: unknown) => Promise<unknown>;

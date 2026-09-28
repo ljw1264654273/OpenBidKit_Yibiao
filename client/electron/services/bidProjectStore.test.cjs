@@ -91,6 +91,160 @@ test('keeps same-source projects independent and numbers new copies', () => {
   }
 });
 
+test('persists derived project uniqueness state and lists requested automatic checks', () => {
+  const { root, db, store } = createTestStore();
+  try {
+    const source = store.createProject({ projectName: '第一份标书', sourceFile: createSourceFile() });
+    const derived = store.createProject({
+      projectName: '第二份标书',
+      sourceFile: createSourceFile(),
+      sourceGroupId: source.sourceGroupId,
+      derivedFromProjectId: source.projectId,
+    });
+
+    assert.equal(derived.derivedFromProjectId, source.projectId);
+    assert.equal(derived.uniquenessStatus, 'pending');
+    assert.equal(derived.uniquenessAttempts, 0);
+    assert.equal(derived.uniquenessAutoRunRequested, false);
+
+    const updated = store.updateProject(derived.projectId, {
+      status: 'generating',
+      uniquenessStatus: 'checking',
+      uniquenessResultId: 'result-1',
+      uniquenessAttempts: 2,
+      uniquenessAutoRunRequested: true,
+    });
+
+    assert.equal(updated.status, 'generating');
+    assert.equal(updated.uniquenessStatus, 'checking');
+    assert.equal(updated.uniquenessResultId, 'result-1');
+    assert.equal(updated.uniquenessAttempts, 2);
+    assert.equal(updated.uniquenessAutoRunRequested, true);
+    assert.deepEqual(
+      store.listPendingAutomaticUniquenessProjects().map((project) => project.projectId),
+      [derived.projectId],
+    );
+  } finally {
+    db.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('keeps derived projects but invalidates them when their source project is deleted', () => {
+  const { root, db, store } = createTestStore();
+  try {
+    const source = store.createProject({ projectName: '第一份标书', sourceFile: createSourceFile() });
+    const derived = store.createProject({
+      projectName: '第二份标书',
+      sourceFile: createSourceFile(),
+      sourceGroupId: source.sourceGroupId,
+      derivedFromProjectId: source.projectId,
+    });
+    store.updateProject(derived.projectId, {
+      status: 'completed',
+      uniquenessStatus: 'passed',
+      uniquenessResultId: 'result-1',
+      uniquenessAutoRunRequested: true,
+    });
+
+    assert.equal(store.deleteProject(source.projectId).success, true);
+
+    const retained = store.getProject(derived.projectId);
+    assert.ok(retained);
+    assert.equal(retained.status, 'incomplete');
+    assert.equal(retained.uniquenessStatus, 'failed');
+    assert.equal(retained.uniquenessResultId, undefined);
+    assert.equal(retained.uniquenessAutoRunRequested, false);
+    assert.match(retained.lastError, /来源项目已删除/);
+  } finally {
+    db.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('accepts only current zero-match fingerprints and atomically invalidates stale passed results', () => {
+  const { root, db, store } = createTestStore();
+  try {
+    const source = store.createProject({ projectName: '第一份标书', sourceFile: createSourceFile() });
+    const derived = store.createProject({
+      projectName: '第二份标书',
+      sourceFile: createSourceFile(),
+      sourceGroupId: source.sourceGroupId,
+      derivedFromProjectId: source.projectId,
+    });
+    const resultId = store.saveDuplicateResult({
+      resultId: 'variant-result',
+      leftProjectId: source.projectId,
+      rightProjectId: derived.projectId,
+      sensitivity: 'medium',
+      summary: {
+        duplicateParagraphCount: 0,
+        exactSentenceCount: 0,
+        leftContentFingerprint: 'source-fingerprint',
+        rightContentFingerprint: 'derived-fingerprint',
+      },
+      matches: [],
+    });
+    store.updateProject(derived.projectId, {
+      status: 'completed',
+      uniquenessStatus: 'passed',
+      uniquenessResultId: resultId,
+    });
+
+    const current = store.validateProjectUniqueness(derived.projectId, {
+      sourceFingerprint: 'source-fingerprint',
+      derivedFingerprint: 'derived-fingerprint',
+    });
+    assert.equal(current.valid, true);
+    assert.equal(current.project.status, 'completed');
+
+    const stale = store.validateProjectUniqueness(derived.projectId, {
+      sourceFingerprint: 'source-fingerprint',
+      derivedFingerprint: 'changed-derived-fingerprint',
+    });
+    assert.equal(stale.valid, false);
+    assert.equal(stale.project.status, 'incomplete');
+    assert.equal(stale.project.uniquenessStatus, 'pending');
+    assert.equal(stale.project.uniquenessResultId, undefined);
+    assert.match(stale.reason, /正文已变化/);
+  } finally {
+    db.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('invalidates a passed derived result when its content-generation task is no longer successful', () => {
+  const { root, db, store } = createTestStore();
+  try {
+    const source = store.createProject({ sourceFile: createSourceFile() });
+    const derived = store.createProject({ sourceFile: createSourceFile(), derivedFromProjectId: source.projectId });
+    const resultId = store.saveDuplicateResult({
+      leftProjectId: source.projectId,
+      rightProjectId: derived.projectId,
+      summary: {
+        duplicateParagraphCount: 0,
+        exactSentenceCount: 0,
+        leftContentFingerprint: 'left',
+        rightContentFingerprint: 'right',
+      },
+      matches: [],
+    });
+    store.updateProject(derived.projectId, {
+      status: 'completed', uniquenessStatus: 'passed', uniquenessResultId: resultId,
+    });
+
+    const validation = store.validateProjectUniqueness(derived.projectId, {
+      sourceFingerprint: 'left', derivedFingerprint: 'right', contentGenerationSucceeded: false,
+    });
+    assert.equal(validation.valid, false);
+    assert.equal(validation.project.status, 'incomplete');
+    assert.equal(validation.project.uniquenessStatus, 'pending');
+  } finally {
+    db.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('lists the latest duplicate summary once for every requested project', () => {
   const { root, db, store } = createTestStore();
   try {

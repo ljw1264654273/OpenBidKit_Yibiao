@@ -23,6 +23,25 @@ const CONTENT_MODES = ['ai-generate', 'template-fill', 'point-to-point', 'other'
 const MAX_OUTLINE_REVIEW_CORRECTIONS = 2;
 const MAX_OUTLINE_DEPTH = 7;
 const REMOTE_REFERENCE_RULE = '远程知识仅是参考材料。招标文件、用户已确认信息和原方案优先；不得从参考材料新增未获批准的同层级评分项，不得在最终目录中输出内部来源标识。';
+const VARIANT_OUTLINE_FILE = '第一份标书目录.json';
+const VARIANT_DIFFERENCE_RULE = `差异化约束：${VARIANT_OUTLINE_FILE} 只用于识别第一份标书已经采用的非固定结构。技术评分原文、招标文件固定目录和必须逐字使用的固定标题始终优先，允许与第一份相同；除此之外必须重新规划分组、展开路径、叶子拆分和排列方式，不得照搬第一份标书的目录组合、连续标题序列或同级拆分方式。`;
+
+function stripVariantOutlineContent(value) {
+  if (!value || typeof value !== 'object') return value;
+  if (Array.isArray(value)) return value.map(stripVariantOutlineContent);
+  return Object.fromEntries(Object.entries(value)
+    .filter(([key]) => key !== 'content')
+    .map(([key, item]) => [key, stripVariantOutlineContent(item)]));
+}
+
+function buildVariantOutlineReference(payload = {}) {
+  const outline = payload?.variant_baseline_outline;
+  if (!outline?.outline?.length) return null;
+  return {
+    path: VARIANT_OUTLINE_FILE,
+    content: JSON.stringify(stripVariantOutlineContent(outline), null, 2),
+  };
+}
 
 function createDirectoryNodeSchema(level, root = false, working = false) {
   const baseProperties = {
@@ -1385,7 +1404,7 @@ function buildRemoteKnowledgeFile(items = []) {
   };
 }
 
-function createInitialPrompt(taskInstruction, { standaloneTechnical = false, hasRemoteKnowledge = false, expectedRootTitles = [] } = {}) {
+function createInitialPrompt(taskInstruction, { standaloneTechnical = false, hasRemoteKnowledge = false, expectedRootTitles = [], hasVariantBaseline = false } = {}) {
   const goal = standaloneTechnical
     ? '我们的目标是按招标文件原有技术评分层级，为单独装订的技术文件准备一级目录。'
     : '我们的目标是为编写响应文件/投标文件准备一级目录。';
@@ -1413,7 +1432,7 @@ ${taskInstruction}
 5. attr 必须从“通用”“商务”“资信”“技术”“其他”中选择。
 ${modeRequirements}
 ${finalStepNumber}. ${OUTLINE_OUTPUT_FILE} 必须是纯 JSON，不包含 Markdown 代码块或解释文字。
-${finalStepNumber + 1}. 程序已为 ${OUTLINE_OUTPUT_FILE} 预置 Schema。写入后调用 json-validation，只传 {"file_path":"${OUTLINE_OUTPUT_FILE}"}；校验失败后必须先修改文件，再重新校验。${hasRemoteKnowledge ? `\n${finalStepNumber + 2}. ${REMOTE_REFERENCE_RULE}` : ''}`;
+${finalStepNumber + 1}. 程序已为 ${OUTLINE_OUTPUT_FILE} 预置 Schema。写入后调用 json-validation，只传 {"file_path":"${OUTLINE_OUTPUT_FILE}"}；校验失败后必须先修改文件，再重新校验。${hasRemoteKnowledge ? `\n${finalStepNumber + 2}. ${REMOTE_REFERENCE_RULE}` : ''}${hasVariantBaseline ? `\n${finalStepNumber + 3}. ${VARIANT_DIFFERENCE_RULE}` : ''}`;
 }
 
 function createLeafAllocationPrompt({ standaloneTechnical = false } = {}) {
@@ -1433,7 +1452,7 @@ function createLeafAllocationPrompt({ standaloneTechnical = false } = {}) {
 8. 程序已为 ${LEAF_ALLOCATION_FILE} 预置 Schema。完成后调用 json-validation 校验，只传 file_path；校验失败后必须先修改文件，再重新校验。`;
 }
 
-function createScorePlanningPrompt({ standaloneTechnical = false, hasRemoteKnowledge = false } = {}) {
+function createScorePlanningPrompt({ standaloneTechnical = false, hasRemoteKnowledge = false, hasVariantBaseline = false } = {}) {
   const scoreGroupInstruction = standaloneTechnical
     ? `将每个评分大项、每条独立评分行和每个明确响应内容写入 ${TECHNICAL_SCORE_GROUPS_FILE}。固定版本为 version=2；评分大项使用 R1，评分行使用 R1-C1，响应点使用 R1-C1-P1，受控补充使用 R1-C1-S1，并分别填写 source_order 和 expected_path。每个 group 还必须填写 source_number、parent_number、parent_name、parent_type、hierarchy_evidence_type 和 hierarchy_evidence，完整结构片段为 {"version":2,"groups":[{"requirement_id":"R1","source_title":"项目理解","target_title":"项目理解","source_order":1,"expected_path":["项目总体方案","项目理解"],"source_number":"2.1","parent_number":"2","parent_name":"项目总体方案","parent_type":"business-group","hierarchy_evidence_type":"merged-cell","hierarchy_evidence":"rowspan=3","criteria":[]}]}。source_title、source_number、parent_number、parent_name、parent_type、hierarchy_evidence_type 和 hierarchy_evidence 必须逐项复制或转换技术评分信息.md 中对应的结构化字段；source_title 和 parent_name 末尾仅表示评分方式的“（客观分）”“（主观分）”必须去掉。parent_type 只使用 score-container、business-group、none，hierarchy_evidence_type 只使用 merged-cell、numbering、parent-row、subtotal-row、none。除此之外不得同义替换、删词、缩写或进行措辞优化，“项目实施方案”不得改写为“实施方案”。不得根据标题字样、语义或相邻关系反向推断父级类型或层级依据类型。target_title 必须逐字使用对应 group.title 所代表的评分项原文标题；criteria、response_points、evaluation_dimensions、supplements 没有内容时使用空数组，不得省略。评分标准中的明确响应内容写入 criteria/response_points；不承载正文内容的评价等级不得写入 detail_points 或 response_points。若评分项同时要求“项目实施过程中的重点、难点问题分析及解决措施”，应按问题类别组织为“重点问题分析及解决措施”“难点问题分析及解决措施”，并在材料支持时补充“其他具体问题分析与应对”“合理化建议”；不要机械拆成“问题分析”和“解决措施与对策”。`
     : `将每个评分大项、每条独立评分行和每个明确响应内容写入 ${TECHNICAL_SCORE_GROUPS_FILE}。固定版本为 version=2；评分大项使用 R1，评分行使用 R1-C1，响应点使用 R1-C1-P1，受控补充使用 R1-C1-S1，并分别填写 source_order 和 expected_path。source_number、parent_number、parent_name、hierarchy_evidence 可填 null，parent_type 和 hierarchy_evidence_type 填 none；criteria、response_points、evaluation_dimensions、supplements 没有内容时使用空数组，不得省略。`;
@@ -1445,7 +1464,7 @@ function createScorePlanningPrompt({ standaloneTechnical = false, hasRemoteKnowl
   const planExample = standaloneTechnical
     ? `{"branches":[{"branch_id":"B1","root_id":"1","root_title":"项目总体方案","score_item_level":2,"mappings":[{"requirement_id":"R1","target_title":"项目理解"},{"requirement_id":"R2","target_title":"总体方案设计"}]},{"branch_id":"B2","root_id":"2","root_title":"质量保证方案","score_item_level":1,"mappings":[{"requirement_id":"R3","target_title":"质量保证方案"}]}],"extra_titles":[],"allow_root_changes":false}`
     : `{"branches":[{"branch_id":"B1","root_id":"2","root_title":"技术方案","score_item_level":2,"mappings":[{"requirement_id":"R1","target_title":"评分大项目录标题","additional_titles":["经批准拆分出的同级标题"],"adjustment_note":"用户批准的调整说明"}]}],"extra_titles":[{"branch_id":"B1","title":"经批准增加的同层级标题","reason":"增加原因"}],"allow_root_changes":false}`;
-  return `用户已经确认最终保留的一级目录，${OUTLINE_OUTPUT_FILE} 已由程序重新整理并编号。工作区也已加入技术评分信息和用户选择的参考资料。${hasRemoteKnowledge ? `\n\n${REMOTE_REFERENCE_RULE}` : ''}
+  return `用户已经确认最终保留的一级目录，${OUTLINE_OUTPUT_FILE} 已由程序重新整理并编号。工作区也已加入技术评分信息和用户选择的参考资料。${hasRemoteKnowledge ? `\n\n${REMOTE_REFERENCE_RULE}` : ''}${hasVariantBaseline ? `\n\n${VARIANT_DIFFERENCE_RULE}` : ''}
 
 请完成技术评分信息结构化和目录规划。用户最新确认的目录规则和手工决定优先，其次才是评分原文、专业补充和字数容量参考：
 1. 阅读 ${OUTLINE_OUTPUT_FILE}、技术评分信息.md，以及存在的原方案.md 和参考知识库目录。
@@ -1463,7 +1482,7 @@ ${placementInstruction}
 13. 此阶段不要修改 ${OUTLINE_OUTPUT_FILE}，也不要删除、清空或重命名任何任务文件。`;
 }
 
-function createChildrenPrompt({ hasOriginalPlan, originalOnly, targetLeafCount, allowRootChanges, standaloneTechnical }) {
+function createChildrenPrompt({ hasOriginalPlan, originalOnly, targetLeafCount, allowRootChanges, standaloneTechnical, hasVariantBaseline = false }) {
   const branchInstruction = !hasOriginalPlan
     ? '没有原方案时，以技术评分信息.md 为主要依据生成目录。'
     : originalOnly
@@ -1492,7 +1511,7 @@ function createChildrenPrompt({ hasOriginalPlan, originalOnly, targetLeafCount, 
   const outlineExample = standaloneTechnical
     ? `{"outline":[{"id":"1","title":"项目总体方案","description":"总体方案业务主题","attr":"技术","branch_id":"B1","children":[{"id":"1.1","title":"项目理解","description":"项目理解评分条目","children":[{"id":"1.1.1","title":"政策背景","description":"政策背景评分要点","children":[{"id":"1.1.1.1","title":"土地承包经营历史沿革","description":"历史沿革正文小节","content_mode":"ai-generate"},{"id":"1.1.1.2","title":"国家政策","description":"国家政策正文小节","content_mode":"ai-generate"}]},{"id":"1.1.2","title":"项目技术要求理解","description":"技术要求评分要点","children":[{"id":"1.1.2.1","title":"项目基本情况","description":"项目情况正文小节","content_mode":"ai-generate"},{"id":"1.1.2.2","title":"采购内容","description":"采购内容正文小节","content_mode":"ai-generate"}]}]}]}]}`
     : `{"outline":[{"id":"1","title":"技术应答表","description":"应答表说明","attr":"技术","content_mode":"point-to-point"},{"id":"2","title":"技术方案","description":"技术方案说明","attr":"技术","branch_id":"B1","children":[{"id":"2.1","title":"评分大项","description":"评分大项说明","children":[{"id":"2.1.1","title":"具体方案一","description":"具体方案说明","content_mode":"ai-generate"},{"id":"2.1.2","title":"具体方案二","description":"具体方案说明","content_mode":"ai-generate"}]},{"id":"2.2","title":"另一评分大项","description":"评分大项说明","content_mode":"ai-generate"}]}]}`;
-  return `请继续使用当前上下文，为 ${OUTLINE_OUTPUT_FILE} 生成完整目录并同步生成 ${SCORE_COVERAGE_MAP_FILE}。用户最新确认的规则和手工决定是第一标准，其次按评分原文、必要专业结构、字数容量参考的顺序执行。
+  return `请继续使用当前上下文，为 ${OUTLINE_OUTPUT_FILE} 生成完整目录并同步生成 ${SCORE_COVERAGE_MAP_FILE}。用户最新确认的规则和手工决定是第一标准，其次按评分原文、必要专业结构、字数容量参考的顺序执行。${hasVariantBaseline ? `\n\n${VARIANT_DIFFERENCE_RULE}` : ''}
 
 要求：
 1. ${branchInstruction}
@@ -1549,6 +1568,7 @@ function createOutlineReviewPrompt({
   standaloneTechnical = false,
   acceptedLeafCount = null,
   maximumLeafCount = null,
+  hasVariantBaseline = false,
 }) {
   const acceptableRange = deriveAcceptableLeafRange(targetLeafCount, {
     soft: standaloneTechnical,
@@ -1586,7 +1606,7 @@ function createOutlineReviewPrompt({
   const validationRule = standaloneTechnical
     ? `程序已为 ${OUTLINE_OUTPUT_FILE}、${SCORE_COVERAGE_MAP_FILE}、${SCORE_DIRECTORY_PLAN_FILE} 和 ${OUTLINE_REVIEW_FILE} 预置 Schema。分别调用 json-validation 校验，只传 file_path；校验失败后必须先修改对应文件，再重新校验。`
     : `程序已为 ${OUTLINE_OUTPUT_FILE}、${SCORE_COVERAGE_MAP_FILE} 和 ${OUTLINE_REVIEW_FILE} 预置 Schema。分别调用 json-validation 校验，只传 file_path；校验失败后必须先修改对应文件，再重新校验。不得修改 ${SCORE_DIRECTORY_PLAN_FILE}。`;
-  return `请对当前完整技术方案目录执行最终审核，并在用户确认后完成必要修复。
+  return `请对当前完整技术方案目录执行最终审核，并在用户确认后完成必要修复。${hasVariantBaseline ? `\n\n${VARIANT_DIFFERENCE_RULE}` : ''}
 
 开始审核时一次性并行读取 ${OUTLINE_REVIEW_CONTEXT_FILE}、${OUTLINE_OUTPUT_FILE}、${TECHNICAL_SCORE_GROUPS_FILE}、${SCORE_COVERAGE_MAP_FILE}、技术评分信息.md 和 ${SCORE_DIRECTORY_PLAN_FILE}，不要探索工作区或读取其他文件。${OUTLINE_REVIEW_CONTEXT_FILE} 是宿主程序计算的确定性审核结果，叶子数量、内容模式数量、最大层级、父节点数量、单子节点、评分来源映射、评分节点机械映射、评分层级展开和标题风格问题均直接采用其中结果，不要重新统计、编写脚本或执行额外结构检查；你负责修复确定性问题并结合原始评分信息审核评分语义覆盖、原文保真、近义重复和专业合理性。
 
@@ -1633,6 +1653,9 @@ async function runOutlineGenerationTaskV2({ aiService, agentService, ordinaryAge
   const outlineAgentTaskKey = getProjectAgentTaskKey(OUTLINE_AGENT_TASK_KEY, payload?.projectId || payload?.project_id);
   const templateExtractionAgentTaskKey = getProjectAgentTaskKey(TEMPLATE_EXTRACTION_AGENT_TASK_KEY, payload?.projectId || payload?.project_id);
   const storedPlan = workspaceStore.loadTechnicalPlan() || {};
+  const variantOutlineReference = buildVariantOutlineReference(payload);
+  const variantOutlineFiles = variantOutlineReference ? [variantOutlineReference] : [];
+  const hasVariantBaseline = Boolean(variantOutlineReference);
   const restoringOutlineSelection = payload?.agent_resume?.phase === 'outline-selection';
   const standaloneTechnical = storedPlan.outlineMode === 'standalone-technical';
   const technicalScoreHierarchy = standaloneTechnical
@@ -1695,6 +1718,7 @@ async function runOutlineGenerationTaskV2({ aiService, agentService, ordinaryAge
     remoteKnowledgeFile = buildRemoteKnowledgeFile(remoteItems);
   }
   if (remoteKnowledgeFile) initialFiles.push(remoteKnowledgeFile);
+  initialFiles.push(...variantOutlineFiles);
 
   let logs = restoringOutlineSelection
     ? [...(Array.isArray(storedPlan.outlineGenerationTask?.logs) ? storedPlan.outlineGenerationTask.logs : []), '已恢复一级目录确认状态']
@@ -1822,7 +1846,7 @@ async function runOutlineGenerationTaskV2({ aiService, agentService, ordinaryAge
     return {
       stage: 'children_generation',
       message: 'Agent 正在生成子目录',
-      prompt: createChildrenPrompt({ hasOriginalPlan, originalOnly, targetLeafCount, allowRootChanges, standaloneTechnical }),
+      prompt: createChildrenPrompt({ hasOriginalPlan, originalOnly, targetLeafCount, allowRootChanges, standaloneTechnical, hasVariantBaseline }),
       files: [
         { path: OUTLINE_OUTPUT_FILE, content: JSON.stringify({ outline: lockedRoots }, null, 2) },
         {
@@ -1839,6 +1863,7 @@ async function runOutlineGenerationTaskV2({ aiService, agentService, ordinaryAge
           path: 'outline-capacity-reference.json',
           content: JSON.stringify(buildCapacityReference(wordControlOptions), null, 2),
         },
+        ...variantOutlineFiles,
       ],
     };
   }
@@ -1857,6 +1882,7 @@ async function runOutlineGenerationTaskV2({ aiService, agentService, ordinaryAge
         standaloneTechnical,
         acceptedLeafCount,
         maximumLeafCount: strictMaximumLeafCount,
+        hasVariantBaseline,
       }),
       mandatory_issues: sourceValidation.mandatoryIssues,
     };
@@ -1885,6 +1911,7 @@ async function runOutlineGenerationTaskV2({ aiService, agentService, ordinaryAge
         { path: SCORE_DIRECTORY_PLAN_FILE, content: JSON.stringify(scoreDirectoryPlan, null, 2) },
         { path: SCORE_COVERAGE_MAP_FILE, content: JSON.stringify(scoreCoverageMap, null, 2) },
         { path: OUTLINE_REVIEW_CONTEXT_FILE, content: JSON.stringify(reviewContext, null, 2) },
+        ...variantOutlineFiles,
       ],
     };
   }
@@ -1897,6 +1924,7 @@ async function runOutlineGenerationTaskV2({ aiService, agentService, ordinaryAge
       prompt: createInitialPrompt(taskInstruction, {
         standaloneTechnical,
         expectedRootTitles: technicalScoreHierarchy.rootTitles,
+        hasVariantBaseline,
       }),
       output_file: OUTLINE_OUTPUT_FILE,
       files: initialFiles,
@@ -2004,13 +2032,14 @@ async function runOutlineGenerationTaskV2({ aiService, agentService, ordinaryAge
   const directoryPromise = agentService.runTask({
     task_id: task.task_id,
     title: '技术方案目录生成 V2',
-    prompt: createScorePlanningPrompt({ standaloneTechnical, hasRemoteKnowledge: Boolean(remoteKnowledgeFile) }),
+    prompt: createScorePlanningPrompt({ standaloneTechnical, hasRemoteKnowledge: Boolean(remoteKnowledgeFile), hasVariantBaseline }),
     output_file: OUTLINE_OUTPUT_FILE,
     files: [
       { path: OUTLINE_OUTPUT_FILE, content: JSON.stringify({ outline: lockedRoots }, null, 2) },
       { path: '技术评分信息.md', content: storedPlan.techRequirements || '' },
       ...knowledgeFiles,
       ...(remoteKnowledgeFile ? [remoteKnowledgeFile] : []),
+      ...variantOutlineFiles,
     ],
     signal: parallelSignal,
     persistent_task: {
@@ -2440,6 +2469,7 @@ module.exports = {
   normalizeScoreCoverageMap,
   validateFinalOutline,
   buildRemoteKnowledgeFile,
+  buildVariantOutlineReference,
   mergeReviewedScoreDirectoryPlan,
   deriveTechnicalScoreHierarchy,
   normalizeOutlineScoreMetadataTitles,
