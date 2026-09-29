@@ -50,6 +50,26 @@ test('reports missing mandatory numbers directly without the recovered maximum-v
   assert.doesNotMatch(result.message, /最大值/);
 });
 
+test('treats need and should assertions as mandatory without matching demand or emergency words', () => {
+  for (const requirement of [
+    '设备数量2.5台需配置到位',
+    '设备数量2.5台应配置到位',
+    '费用2.5元报价需要符合要求',
+  ]) {
+    const [finding] = checkRequirements([requirement], requirement.replace('2.5', ''));
+    assert.equal(finding.ruleId, 'requirement.mandatory-number-missing');
+    assert.deepEqual(finding.missingNumbers, [2.5]);
+  }
+  assert.deepEqual(checkRequirements(
+    ['1.1 版本需求分析必须说明'],
+    '版本需求分析必须说明',
+  ), []);
+  assert.deepEqual(checkRequirements(
+    ['1.1 协议应急处置必须说明'],
+    '协议应急处置必须说明',
+  ), []);
+});
+
 test('ignores clause numbering and compares mandatory numeric tokens by normalized value and percent unit', () => {
   const [missing] = checkRequirements(['1. 必须提供10台设备并完成巡检'], '必须提供设备并完成巡检');
   assert.deepEqual(missing.missingNumbers, [10]);
@@ -87,8 +107,13 @@ test('compares mandatory IP CIDR version and protocol tokens as complete typed v
   const cases = [
     ['服务器地址192.168.1.1必须可达', '服务器地址192.168.1.2必须可达', '192.168.1.1'],
     ['业务网段192.168.1.0/24必须可达', '业务网段192.168.1.0/25必须可达', '192.168.1.0/24'],
+    ['系统必须兼容2.0.1版本', '系统必须兼容2.0.9版本', '2.0.1版本'],
+    ['系统必须支持TLS 1.2协议', '系统必须支持TLS 1.3协议', '1.2协议'],
     ['系统采用2.0.1版本必须兼容', '系统采用2.0.9版本必须兼容', '2.0.1版本'],
     ['系统采用1.2协议必须支持', '系统采用1.3协议必须支持', '1.2协议'],
+    ['系统版本号2.0.1必须兼容', '系统版本号2.0.9必须兼容', '版本号2.0.1'],
+    ['系统版本为2.0.1必须兼容', '系统版本为2.0.9必须兼容', '版本为2.0.1'],
+    ['系统协议1.2应支持', '系统协议1.3应支持', '协议1.2'],
   ];
   for (const [requirement, proposal, token] of cases) {
     const [finding] = checkRequirements([requirement], proposal);
@@ -119,6 +144,14 @@ test('compares mandatory IP CIDR version and protocol tokens as complete typed v
   assert.deepEqual(checkRequirements(
     ['1.1协议管理要求必须说明'],
     '协议管理要求必须说明',
+  ), []);
+  assert.deepEqual(checkRequirements(
+    ['1.1 版本需求分析必须说明'],
+    '版本需求分析必须说明',
+  ), []);
+  assert.deepEqual(checkRequirements(
+    ['1.1 协议应急处置必须说明'],
+    '协议应急处置必须说明',
   ), []);
 });
 
@@ -159,18 +192,26 @@ test('strips common Word clause numbers without deleting a leading decimal metri
   }
   assert.equal(stripClauseNumber('1.1 人员配置必须满足要求'), '人员配置必须满足要求');
   assert.equal(stripClauseNumber('1.1人员配置必须满足要求'), '人员配置必须满足要求');
+  assert.equal(stripClauseNumber('1.1人才配置必须满足要求'), '人才配置必须满足要求');
   assert.equal(stripClauseNumber('1.1 项目概况'), '项目概况');
   assert.equal(stripClauseNumber('1.1项目概况'), '项目概况');
   assert.equal(stripClauseNumber('1.1 年度服务计划'), '年度服务计划');
   assert.equal(stripClauseNumber('1.1年度服务计划'), '年度服务计划');
+  assert.equal(stripClauseNumber('1.1月度服务计划'), '月度服务计划');
   assert.equal(stripClauseNumber('1.1 地址规划必须满足要求'), '地址规划必须满足要求');
   assert.equal(stripClauseNumber('1.1 版本管理要求'), '版本管理要求');
   assert.equal(stripClauseNumber('1.1 人力资源配置'), '人力资源配置');
   assert.equal(stripClauseNumber('1.1 年限要求'), '年限要求');
   assert.equal(stripClauseNumber('1.1 站点建设'), '站点建设');
   assert.equal(stripClauseNumber('1.1站点建设'), '站点建设');
+  assert.equal(stripClauseNumber('1.1点位布置'), '点位布置');
+  assert.equal(stripClauseNumber('1.1台账管理'), '台账管理');
+  assert.equal(stripClauseNumber('1.1元数据管理'), '元数据管理');
+  assert.equal(stripClauseNumber('1.1次要事项'), '次要事项');
   assert.equal(stripClauseNumber('1.1 版本管理要求必须说明'), '版本管理要求必须说明');
   assert.equal(stripClauseNumber('1.1协议管理要求必须说明'), '协议管理要求必须说明');
+  assert.equal(stripClauseNumber('1.1 版本需求分析必须说明'), '版本需求分析必须说明');
+  assert.equal(stripClauseNumber('1.1 协议应急处置必须说明'), '协议应急处置必须说明');
   assert.equal(stripClauseNumber('（1.1）人员配置必须满足要求'), '人员配置必须满足要求');
   assert.equal(stripClauseNumber('（1.1）版本管理要求'), '版本管理要求');
   assert.equal(stripClauseNumber('（1.1）地址规划要求'), '地址规划要求');

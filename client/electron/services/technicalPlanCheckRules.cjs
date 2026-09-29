@@ -34,17 +34,24 @@ const RULE_SEVERITY = Object.freeze({
 });
 
 const NUMBER_PATTERN = String.raw`\d+(?:\.\d+)?`;
+const MANDATORY_ASSERTION_SOURCE = [
+  '不低于', '不高于', '不超过', '不少于', '应当', '必须', '不得', '需要', '至少',
+  '需(?!求)', '应(?!急)',
+].join('|');
+const TYPED_ASSERTION_SOURCE = `${MANDATORY_ASSERTION_SOURCE}|兼容|支持|为|是`;
 const FUNCTION_WORDS = [
   '以及', '并且', '而且', '同时', '对于', '按照', '根据', '通过', '结合', '依托',
-  '应当', '必须', '不得', '不低于', '不少于', '至少', '不超过', '不高于', '以上',
+  MANDATORY_ASSERTION_SOURCE, '以上',
   '以内', '支持', '提供', '满足', '具备', '采用', '配置', '要求', '实现', '包括',
   '包含', '与', '和', '及', '或', '须',
 ].join('|');
 const SPLIT_RE = new RegExp(
   String.raw`[，,、。；;：:（()）)\s\d%．./\-—_*▲★※【】\[\]{}"'“”‘’<>《》=＝]+|${FUNCTION_WORDS}`,
 );
-const REQUIREMENT_MARK_RE = /必须|应当|不应|不得|须|不低于|不少于|至少|以上|支持|具备|提供|满足|要求|▲|★|※|响应|符合|采用|配置|实现|包括/;
-const MANDATORY_RE = /▲|★|※|必须|不得|不低于|不少于|至少/;
+const REQUIREMENT_MARK_RE = new RegExp(
+  `${MANDATORY_ASSERTION_SOURCE}|不应|须|以上|支持|具备|提供|满足|要求|▲|★|※|响应|符合|采用|配置|实现|包括`,
+);
+const MANDATORY_RE = new RegExp(`▲|★|※|${MANDATORY_ASSERTION_SOURCE}`);
 const DURATION_COMPONENT_RE = new RegExp(`(${NUMBER_PATTERN})\\s*(个月|周|星期|天|日|年)`, 'g');
 const CALCULATION_RE = new RegExp(`(${NUMBER_PATTERN})\\s*([+＋\\-－×xX*])\\s*(${NUMBER_PATTERN})\\s*=\\s*(${NUMBER_PATTERN})`, 'g');
 const BUSINESS_UNITS = [
@@ -54,13 +61,21 @@ const BUSINESS_UNITS = [
   'kWh', 'kW', 'Wh', '千瓦', 'm²', 'm³', '㎡', '亩', '吨', '克', '升', '℃', '年', '月', '周',
   '天', '日', '秒', '瓦', 'W',
   '米', '元', '台', '套', '个', '项', '人', '次', '件', '份', '辆', '组', '座', '处', '家', '名',
-  '点', 'V', 'A', 'm', 'L', '度', '%', '％',
+  '点', '站', 'V', 'A', 'm', 'L', '度', '%', '％',
 ];
 const BUSINESS_SEMANTICS = ['服务器', '地址', '网段', '端口', 'IP'];
 const TYPED_DOTTED_SEMANTICS = ['版本', '协议', '版'];
-const TYPED_DOTTED_ASSERTIONS = [
-  '不低于', '不高于', '必须', '不得', '兼容', '支持', '应', '需', '为', '是',
-];
+const UNIT_COMPOUND_CONTINUATIONS = Object.freeze({
+  人: ['员', '才'],
+  项: ['目'],
+  站: ['点'],
+  点: ['位'],
+  年: ['度'],
+  月: ['度'],
+  台: ['账'],
+  元: ['数据'],
+  次: ['要'],
+});
 const PLACE_SUFFIX_LEVEL = Object.freeze({
   特别行政区: 1,
   自治区: 1,
@@ -180,21 +195,75 @@ function matchingBusinessTerm(text, terms) {
   }) || '';
 }
 
-function dottedSemanticPattern({ anchored = false, global = false } = {}) {
+function shortClauseBounds(source, start, end) {
+  const delimiters = /[，,。；;：:\n]/;
+  let clauseStart = start;
+  while (clauseStart > 0 && !delimiters.test(source[clauseStart - 1])) clauseStart -= 1;
+  let clauseEnd = end;
+  while (clauseEnd < source.length && !delimiters.test(source[clauseEnd])) clauseEnd += 1;
+  return { clauseStart, clauseEnd };
+}
+
+function hasTypedAssertionContext(source, start, end, hasLabelConnector = false) {
+  if (hasLabelConnector) return true;
+  const { clauseStart, clauseEnd } = shortClauseBounds(source, start, end);
+  const before = source.slice(clauseStart, start);
+  const after = source.slice(end, clauseEnd);
+  return new RegExp(TYPED_ASSERTION_SOURCE).test(before)
+    || new RegExp(`^\\s*(?:${TYPED_ASSERTION_SOURCE})`).test(after);
+}
+
+function dottedSemanticTokens(source) {
+  const text = String(source || '');
   const semanticPattern = termsLongestFirst(TYPED_DOTTED_SEMANTICS)
     .map(escapeRegExp)
     .join('|');
-  const assertionPattern = termsLongestFirst(TYPED_DOTTED_ASSERTIONS)
-    .map(escapeRegExp)
-    .join('|');
-  return new RegExp(
-    `${anchored ? '^' : '(?<![\\d.．])'}(\\d+(?:[.．]\\d+)+)\\s*(${semanticPattern})(?=\\s*(?:${assertionPattern}))`,
-    global ? 'g' : '',
+  const candidates = [];
+  const numberBeforeLabel = new RegExp(
+    `(?<![\\d.．])(\\d+(?:[.．]\\d+)+)\\s*(${semanticPattern})`,
+    'g',
   );
+  for (const match of text.matchAll(numberBeforeLabel)) {
+    const start = match.index;
+    const end = start + match[0].length;
+    if (!hasTypedAssertionContext(text, start, end)) continue;
+    candidates.push({
+      start,
+      end,
+      raw: match[0],
+      normalized: match[1].replaceAll('．', '.'),
+      semantic: match[2],
+    });
+  }
+
+  const labelBeforeNumber = new RegExp(
+    `(${termsLongestFirst(['版本号', ...TYPED_DOTTED_SEMANTICS]).map(escapeRegExp).join('|')})\\s*(为\\s*)?(\\d+(?:[.．]\\d+)+)`,
+    'g',
+  );
+  for (const match of text.matchAll(labelBeforeNumber)) {
+    const start = match.index;
+    const end = start + match[0].length;
+    if (!hasTypedAssertionContext(text, start, end, Boolean(match[2]))) continue;
+    candidates.push({
+      start,
+      end,
+      raw: match[0],
+      normalized: match[3].replaceAll('．', '.'),
+      semantic: match[1] === '协议' ? '协议' : '版本',
+    });
+  }
+
+  candidates.sort((left, right) => left.start - right.start || right.end - left.end);
+  const result = [];
+  for (const candidate of candidates) {
+    if (result.some((token) => candidate.start < token.end && token.start < candidate.end)) continue;
+    result.push(candidate);
+  }
+  return result;
 }
 
 function leadingDottedSemanticToken(source) {
-  return String(source || '').match(dottedSemanticPattern({ anchored: true }));
+  return dottedSemanticTokens(source).find((token) => token.start === 0 && /^\d/.test(token.raw));
 }
 
 function hasWordBoundaryAt(source, position) {
@@ -215,6 +284,9 @@ function isProtectedBusinessNumericPrefix(source, numericPrefix) {
   if (!unit) return false;
   if (!/^[\u4e00-\u9fa5]$/.test(unit)) return true;
   const unitEnd = numericPrefix[0].length + unit.length;
+  const continuations = UNIT_COMPOUND_CONTINUATIONS[unit] || [];
+  const tail = source.slice(unitEnd);
+  if (continuations.some((continuation) => tail.startsWith(continuation))) return false;
   return hasWordBoundaryAt(source, unitEnd);
 }
 
@@ -276,18 +348,16 @@ function extractNumericTokens(text) {
     });
   }
 
-  for (const match of source.matchAll(dottedSemanticPattern({ global: true }))) {
-    const start = match.index;
-    const end = start + match[0].length;
+  for (const match of dottedSemanticTokens(source)) {
+    const { start, end } = match;
     if (typedTokens.some((token) => start < token.end && token.start < end)) continue;
-    const normalized = match[1].replaceAll('．', '.');
-    const semanticType = match[2] === '协议' ? 'protocol' : 'version';
+    const semanticType = match.semantic === '协议' ? 'protocol' : 'version';
     typedTokens.push({
       type: semanticType,
-      value: normalized,
-      unit: match[2],
-      raw: match[0],
-      key: `${semanticType}|${normalized}`,
+      value: match.normalized,
+      unit: match.semantic,
+      raw: match.raw,
+      key: `${semanticType}|${match.normalized}`,
       start,
       end,
     });
