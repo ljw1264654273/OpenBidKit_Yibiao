@@ -36,6 +36,8 @@ test('splits requirement phrases and reuses a precomputed Chinese bigram corpus'
   for (const [text, phrases] of ordinaryModalWords) {
     assert.deepEqual(splitPhrases(text), phrases, text);
   }
+  assert.deepEqual(splitPhrases('业务需要分析记录10项'), ['业务需要分析记录']);
+  assert.deepEqual(splitPhrases('实际需要调研记录20项'), ['实际需要调研记录']);
   const corpus = createChineseBigramSet('甲乙丙丁');
   assert.equal(bigramCoverage('甲乙丙丁', corpus), 1);
   assert.equal(bigramCoverage('甲乙丙丁戊己', corpus), 0.6);
@@ -68,10 +70,18 @@ test('treats syntactically valid need and should assertions as mandatory without
     '设备数量2.5台需配置到位',
     '设备数量2.5台应配置到位',
     '费用2.5元报价需要符合要求',
+    '设备应为2.5台',
+    '设备2台应在现场配置',
+    '设备2台需及时提供',
+    '设备2台应全部配置',
+    '设备2台需按要求提供',
+    '需由供应商提供2.5套设备',
+    '设备严禁使用2.5台',
   ]) {
-    const [finding] = checkRequirements([requirement], requirement.replace('2.5', ''));
+    const expectedNumber = Number(requirement.match(/\d+(?:\.\d+)?/)[0]);
+    const [finding] = checkRequirements([requirement], requirement.replace(/\d+(?:\.\d+)?/, ''));
     assert.equal(finding.ruleId, 'requirement.mandatory-number-missing');
-    assert.deepEqual(finding.missingNumbers, [2.5]);
+    assert.deepEqual(finding.missingNumbers, [expectedNumber]);
   }
   for (const requirement of [
     '供应商配置10人',
@@ -82,6 +92,10 @@ test('treats syntactically valid need and should assertions as mandatory without
     '无需配置6台',
     '需方计划2023年',
     '应答文件2024年',
+    '业务需要分析记录10项',
+    '实际需要调研记录20项',
+    '设备2台应在现场，后续方案配置',
+    '设备2台应在现场持续充分优先逐步配置',
   ]) {
     assert.equal(
       checkRequirements([requirement], requirement.replace(/\d+(?:\.\d+)?/, ''))
@@ -135,7 +149,10 @@ test('compares mandatory IP CIDR version and protocol tokens as complete typed v
     ['系统采用1.2协议必须支持', '系统采用1.3协议必须支持', '1.2协议'],
     ['系统版本号2.0.1必须兼容', '系统版本号2.0.9必须兼容', '版本号2.0.1'],
     ['系统版本为2.0.1必须兼容', '系统版本为2.0.9必须兼容', '版本为2.0.1'],
+    ['系统协议是1.2并必须支持', '系统协议是1.3并必须支持', '协议是1.2'],
     ['系统协议1.2应支持', '系统协议1.3应支持', '协议1.2'],
+    ['系统版本2.0.1应由供应商提供兼容证明', '系统版本2.0.9应由供应商提供兼容证明', '版本2.0.1'],
+    ['系统版本2.0.1应及时支持旧接口', '系统版本2.0.9应及时支持旧接口', '版本2.0.1'],
   ];
   for (const [requirement, proposal, token] of cases) {
     const [finding] = checkRequirements([requirement], proposal);
@@ -177,6 +194,9 @@ test('compares mandatory IP CIDR version and protocol tokens as complete typed v
   ), []);
   assert.equal(stripClauseNumber('1.2协议应用说明'), '协议应用说明');
   assert.equal(stripClauseNumber('1.2版本响应说明'), '版本响应说明');
+  assert.equal(stripClauseNumber('1.1版本是否兼容必须说明'), '版本是否兼容必须说明');
+  assert.equal(stripClauseNumber('1.1协议是否支持必须说明'), '协议是否支持必须说明');
+  assert.equal(stripClauseNumber('1.1版本为主说明必须提交'), '版本为主说明必须提交');
 });
 
 test('strips common Word clause numbers without deleting a leading decimal metric', () => {
@@ -191,9 +211,14 @@ test('strips common Word clause numbers without deleting a leading decimal metri
   assert.equal(stripClauseNumber('1.5 %为最低比例'), '1.5 %为最低比例');
   assert.equal(stripClauseNumber('1.5 米以上'), '1.5 米以上');
   assert.equal(stripClauseNumber('2.5 台需配置'), '2.5 台需配置');
+  assert.equal(stripClauseNumber('2.5 台应在现场配置'), '2.5 台应在现场配置');
+  assert.equal(stripClauseNumber('2.5 台需按要求提供'), '2.5 台需按要求提供');
   assert.equal(stripClauseNumber('1.5 米长度不得低于'), '1.5 米长度不得低于');
   assert.equal(stripClauseNumber('1.5 年期必须'), '1.5 年期必须');
   assert.equal(stripClauseNumber('2.5 元报价需要符合'), '2.5 元报价需要符合');
+  assert.equal(stripClauseNumber('1.5 年期服务方案应当覆盖'), '1.5 年期服务方案应当覆盖');
+  assert.equal(stripClauseNumber('2.5 元报价方案必须符合'), '2.5 元报价方案必须符合');
+  assert.equal(stripClauseNumber('2.5 台核心设备应当配置'), '2.5 台核心设备应当配置');
   assert.equal(stripClauseNumber('2.0.1版本必须兼容'), '2.0.1版本必须兼容');
   assert.equal(stripClauseNumber('2.0.1 版本必须兼容'), '2.0.1 版本必须兼容');
   assert.equal(stripClauseNumber('1.2 协议应支持'), '1.2 协议应支持');

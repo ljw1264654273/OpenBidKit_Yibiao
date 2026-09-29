@@ -35,16 +35,22 @@ const RULE_SEVERITY = Object.freeze({
 
 const NUMBER_PATTERN = String.raw`\d+(?:\.\d+)?`;
 const RAW_MANDATORY_ASSERTIONS = [
-  '不低于', '不高于', '不超过', '不少于', '必须', '不得', '至少',
+  '不低于', '不高于', '不超过', '不少于', '必须', '不得', '严禁', '至少',
 ];
 const FULL_WORD_MANDATORY_ASSERTIONS = new Set(['需要', '应当']);
 const SINGLE_MODAL_ASSERTIONS = new Set(['需', '应']);
 const ACTION_VERBS = new Set([
   '提供', '配置', '配备', '满足', '支持', '具备', '采用', '达到', '完成', '提交',
   '安装', '部署', '保证', '确保', '符合', '实现', '包含', '设置', '使用', '建设',
-  '执行', '遵守', '兼容', '交付', '验收', '说明',
+  '执行', '遵守', '兼容', '交付', '验收', '说明', '覆盖', '为',
 ]);
-const TYPED_CONTEXT_ASSERTIONS = ['兼容', '支持', '为', '是'];
+const ASSERTION_MODIFIERS = new Set([
+  '在', '由', '按', '按照', '根据', '及时', '全部', '统一', '立即', '现场', '持续',
+  '充分', '优先', '逐步', '供应', '商', '供应商', '要求',
+]);
+const MODAL_COMPOUND_SUFFIXES = new Set(['求', '方', '答', '急', '用']);
+const ASSERTION_WINDOW_SIZE = 5;
+const CLAUSE_BREAK_RE = /[，,。；;：:、！？!?\n]/;
 const FUNCTION_WORDS = [
   '以及', '并且', '而且', '同时', '对于', '按照', '根据', '通过', '结合', '依托',
   '以上', '以内', '支持', '提供', '满足', '具备', '采用', '配置', '要求', '实现', '包括',
@@ -74,7 +80,7 @@ const QUANTITY_RANGE_TERMS = [
 const QUANTITY_NOUNS = [
   '长度', '宽度', '高度', '面积', '体积', '重量', '质量', '数量', '台数', '人数',
   '套数', '金额', '报价', '价格', '费用', '容量', '内存', '带宽', '速率', '期限',
-  '周期', '载重', '设备', '期',
+  '周期', '载重', '设备', '授权', '期',
 ];
 const PLACE_SUFFIX_LEVEL = Object.freeze({
   特别行政区: 1,
@@ -213,24 +219,48 @@ function literalRanges(source, terms) {
   }));
 }
 
-function findAssertionRanges(source, { includeTypedContext = false } = {}) {
+function modalActionEnd(text, segments, assertionIndex) {
+  const assertion = segments[assertionIndex];
+  let previousEnd = assertion.index + assertion.segment.length;
+  let wordCount = 0;
+  for (let index = assertionIndex + 1; index < segments.length; index += 1) {
+    const current = segments[index];
+    if (CLAUSE_BREAK_RE.test(text.slice(previousEnd, current.index))) return -1;
+    previousEnd = current.index + current.segment.length;
+    if (!current.isWordLike) {
+      if (CLAUSE_BREAK_RE.test(current.segment)) return -1;
+      continue;
+    }
+    wordCount += 1;
+    if (wordCount > ASSERTION_WINDOW_SIZE) return -1;
+    if (ACTION_VERBS.has(current.segment)) return current.index + current.segment.length;
+    if (!ASSERTION_MODIFIERS.has(current.segment)) return -1;
+  }
+  return -1;
+}
+
+function findAssertionRanges(source) {
   const text = String(source || '');
   const ranges = literalRanges(text, RAW_MANDATORY_ASSERTIONS);
   const segments = [...CHINESE_WORD_SEGMENTER.segment(text)];
   for (let index = 0; index < segments.length; index += 1) {
     const current = segments[index];
-    if (FULL_WORD_MANDATORY_ASSERTIONS.has(current.segment)) {
-      ranges.push({ start: current.index, end: current.index + current.segment.length });
-      continue;
+    const isFullWordAssertion = FULL_WORD_MANDATORY_ASSERTIONS.has(current.segment);
+    const isSingleModal = SINGLE_MODAL_ASSERTIONS.has(current.segment) && current.isWordLike;
+    if (!isFullWordAssertion && !isSingleModal) continue;
+    if (isSingleModal) {
+      const previous = segments[index - 1];
+      const nextCharacter = text[current.index + current.segment.length] || '';
+      if (
+        text[current.index - 1] === '无'
+        || previous?.segment === '无'
+        || MODAL_COMPOUND_SUFFIXES.has(nextCharacter)
+      ) continue;
     }
-    if (!SINGLE_MODAL_ASSERTIONS.has(current.segment) || !current.isWordLike) continue;
-    const previous = segments[index - 1];
-    if (text[current.index - 1] === '无' || previous?.segment === '无') continue;
-    const nextWord = segments.slice(index + 1).find((segment) => segment.isWordLike);
-    if (!nextWord || !ACTION_VERBS.has(nextWord.segment)) continue;
-    ranges.push({ start: current.index, end: current.index + current.segment.length });
+    const end = modalActionEnd(text, segments, index);
+    if (end < 0) continue;
+    ranges.push({ start: current.index, end });
   }
-  if (includeTypedContext) ranges.push(...literalRanges(text, TYPED_CONTEXT_ASSERTIONS));
   ranges.sort((left, right) => left.start - right.start || right.end - left.end);
   const result = [];
   for (const range of ranges) {
@@ -244,9 +274,50 @@ function hasAssertion(source) {
   return findAssertionRanges(source).length > 0;
 }
 
-function hasLeadingAssertion(source, options) {
-  return findAssertionRanges(source, options)
+function hasLeadingAssertion(source) {
+  return findAssertionRanges(source)
     .some((range) => String(source || '').slice(0, range.start).trim() === '');
+}
+
+function hasLeadingQuantityCopula(source) {
+  const text = String(source || '');
+  const firstWord = [...CHINESE_WORD_SEGMENTER.segment(text)].find((segment) => segment.isWordLike);
+  return Boolean(
+    firstWord
+    && (firstWord.segment === '为' || firstWord.segment === '是')
+    && text.slice(0, firstWord.index).trim() === '',
+  );
+}
+
+function hasAssertionWithinWordWindow(source, maxWordSegments) {
+  const text = String(source || '');
+  const ranges = findAssertionRanges(text);
+  return ranges.some((range) => {
+    const prefix = text.slice(0, range.start);
+    if (CLAUSE_BREAK_RE.test(prefix)) return false;
+    const wordCount = [...CHINESE_WORD_SEGMENTER.segment(prefix)]
+      .filter((segment) => segment.isWordLike).length;
+    return wordCount <= maxWordSegments;
+  });
+}
+
+function hasQuantityNounAssertion(source) {
+  const text = String(source || '');
+  let previousEnd = 0;
+  let wordCount = 0;
+  for (const segment of CHINESE_WORD_SEGMENTER.segment(text)) {
+    if (CLAUSE_BREAK_RE.test(text.slice(previousEnd, segment.index))) return false;
+    previousEnd = segment.index + segment.segment.length;
+    if (!segment.isWordLike) {
+      if (CLAUSE_BREAK_RE.test(segment.segment)) return false;
+      continue;
+    }
+    wordCount += 1;
+    if (wordCount > 3) return false;
+    if (!QUANTITY_NOUNS.includes(segment.segment)) continue;
+    return hasAssertionWithinWordWindow(text.slice(previousEnd), 3);
+  }
+  return false;
 }
 
 function shortClauseBounds(source, start, end) {
@@ -263,8 +334,7 @@ function hasTypedAssertionContext(source, start, end, hasLabelConnector = false)
   const { clauseStart, clauseEnd } = shortClauseBounds(source, start, end);
   const before = source.slice(clauseStart, start);
   const after = source.slice(end, clauseEnd);
-  return findAssertionRanges(before, { includeTypedContext: true }).length > 0
-    || hasLeadingAssertion(after, { includeTypedContext: true });
+  return findAssertionRanges(before).length > 0 || hasLeadingAssertion(after);
 }
 
 function dottedSemanticTokens(source) {
@@ -291,7 +361,7 @@ function dottedSemanticTokens(source) {
   }
 
   const labelBeforeNumber = new RegExp(
-    `(${termsLongestFirst(['版本号', ...TYPED_DOTTED_SEMANTICS]).map(escapeRegExp).join('|')})\\s*(为\\s*)?(\\d+(?:[.．]\\d+)+)`,
+    `(${termsLongestFirst(['版本号', ...TYPED_DOTTED_SEMANTICS]).map(escapeRegExp).join('|')})\\s*((?:为|是)\\s*)?(\\d+(?:[.．]\\d+)+)`,
     'g',
   );
   for (const match of text.matchAll(labelBeforeNumber)) {
@@ -331,11 +401,9 @@ function isProtectedBusinessNumericPrefix(source, numericPrefix) {
   if (unit.length > 1) return true;
   const unitEnd = numericPrefix[0].length + unit.length;
   const tail = source.slice(unitEnd).trimStart();
-  if (hasLeadingAssertion(tail, { includeTypedContext: true })) return true;
+  if (hasLeadingAssertion(tail) || hasLeadingQuantityCopula(tail)) return true;
   if (matchingBusinessTerm(tail, QUANTITY_RANGE_TERMS)) return true;
-  const quantityNoun = matchingBusinessTerm(tail, QUANTITY_NOUNS);
-  if (!quantityNoun) return false;
-  return hasLeadingAssertion(tail.slice(quantityNoun.length), { includeTypedContext: true });
+  return hasQuantityNounAssertion(tail);
 }
 
 function stripClauseNumber(text) {
