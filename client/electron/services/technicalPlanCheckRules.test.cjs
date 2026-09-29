@@ -47,6 +47,21 @@ test('reports missing mandatory numbers directly without the recovered maximum-v
   assert.doesNotMatch(result.message, /最大值/);
 });
 
+test('ignores clause numbering and compares mandatory numeric tokens by normalized value and percent unit', () => {
+  const [missing] = checkRequirements(['1. 必须提供10台设备并完成巡检'], '必须提供设备并完成巡检');
+  assert.deepEqual(missing.missingNumbers, [10]);
+  assert.deepEqual(missing.missingNumberTokens, ['10']);
+
+  assert.deepEqual(
+    checkRequirements(['1. 服务指标必须达到95%并完成验收'], '服务指标必须达到95%并完成验收'),
+    [],
+  );
+  assert.deepEqual(
+    checkRequirements(['必须提供10台设备并完成巡检'], '必须提供10.0台设备并完成巡检'),
+    [],
+  );
+});
+
 test('extracts score items only from pipe table rows and uses the same coverage thresholds', () => {
   assert.deepEqual(extractScoreItems([
     '实施方案 10分',
@@ -75,6 +90,15 @@ test('checks only internal proposal duration keywords and compares normalized da
   assert.equal(result.ruleId, 'time.inconsistent');
   assert.equal(result.severity, 'review');
   assert.deepEqual(result.values, ['1年', '300天']);
+});
+
+test('parses adjacent duration components as one duration', () => {
+  assert.deepEqual(checkTimeConflicts(['服务期为1年6个月。', '服务期为18个月。']), []);
+
+  const [result] = checkTimeConflicts(['服务期为1年30天。', '服务期为13个月。']);
+  assert.equal(result.ruleId, 'time.inconsistent');
+  assert.deepEqual(result.values, ['1年30天', '13个月']);
+  assert.deepEqual(result.days, [390, 395]);
 });
 
 test('supports only explicit addition, subtraction and multiplication calculations', () => {
@@ -142,6 +166,28 @@ test('flags a suffixed place only after two proposal occurrences and absence fro
   assert.equal(suffixResult.ruleId, 'relevance.place');
   assert.equal(suffixResult.place, '银河镇');
   assert.deepEqual(checkPlaceRelevance(['本市', '本市'], [[], [], []]), []);
+});
+
+test('normalizes common place lead-ins and continuous administrative chains', () => {
+  assert.deepEqual(checkPlaceRelevance([
+    '服务地点为江苏省南京市。',
+    '项目位于江苏省南京市。',
+  ], [
+    ['项目位于江苏省南京市。'],
+    [],
+    [],
+  ]), []);
+
+  const [result] = checkPlaceRelevance([
+    '服务地点为江苏省南京市。',
+    '项目位于江苏省南京市。',
+  ], [
+    ['项目位于浙江省杭州市。'],
+    [],
+    [],
+  ]);
+  assert.equal(result.ruleId, 'relevance.place');
+  assert.equal(result.place, '江苏省南京市');
 });
 
 test('keeps every produced rule ID in the stable severity map and summarizes severities', () => {

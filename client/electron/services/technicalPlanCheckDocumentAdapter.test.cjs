@@ -80,3 +80,16 @@ test('filters Markdown table alignment separators and decodes entities in cells'
     '服务范围 | 勘察 & 设计',
   ]);
 });
+
+test('keeps Markdown table HTML breaks inside cells and does not split escaped or code-span pipes', () => {
+  assert.deepEqual(toDocumentLines(`
+    | 类型 | 内容 | 分值 |
+    | --- | --- | --- |
+    | 实施 | 第一段<br>第二段 | 10 |
+    | 说明 | A \\| B 与 \`C | D\` | 5 |
+  `), [
+    '类型 | 内容 | 分值',
+    '实施 | 第一段 第二段 | 10',
+    '说明 | A | B 与 C | D | 5',
+  ]);
+});

@@ -30,6 +30,56 @@ function isMarkdownSeparator(cells) {
   return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell.replace(/\s+/g, '')));
 }
 
+function splitMarkdownTableCells(value) {
+  const source = String(value || '');
+  const cells = [];
+  let cell = '';
+  let codeFenceLength = 0;
+  let delimiterCount = 0;
+
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index];
+    if (character === '\\' && source[index + 1] === '|') {
+      cell += '|';
+      index += 1;
+      continue;
+    }
+    if (character === '`') {
+      let runLength = 1;
+      while (source[index + runLength] === '`') runLength += 1;
+      if (codeFenceLength === 0) codeFenceLength = runLength;
+      else if (codeFenceLength === runLength) codeFenceLength = 0;
+      cell += source.slice(index, index + runLength);
+      index += runLength - 1;
+      continue;
+    }
+    if (character === '|' && codeFenceLength === 0) {
+      cells.push(cell);
+      cell = '';
+      delimiterCount += 1;
+      continue;
+    }
+    cell += character;
+  }
+  cells.push(cell);
+
+  if (delimiterCount === 0) return [source];
+  if (!cells[0].trim()) cells.shift();
+  if (!cells.at(-1)?.trim()) cells.pop();
+  return cells;
+}
+
+function protectMarkdownTableBreaks(content) {
+  return String(content || '')
+    .split(/\r?\n/)
+    .map((line) => (
+      splitMarkdownTableCells(line).length > 1
+        ? line.replace(/<br\s*\/?\s*>/gi, ' ')
+        : line
+    ))
+    .join('\n');
+}
+
 function tableCellText($, cell) {
   const clone = $(cell).clone();
   clone.find('br').replaceWith(' ');
@@ -44,18 +94,14 @@ function parseLine(value) {
   if (!line || /^\s*```/.test(line)) return null;
   if (!line.includes('|')) return stripInlineMarkers(line) || null;
 
-  const cells = line
-    .replace(/^\s*\|/, '')
-    .replace(/\|\s*$/, '')
-    .split('|')
-    .map(stripInlineMarkers);
+  const cells = splitMarkdownTableCells(line).map(stripInlineMarkers);
   if (isMarkdownSeparator(cells)) return null;
   if (!cells.some(Boolean)) return null;
   return cells.join(' | ');
 }
 
 function htmlToText(content) {
-  const $ = cheerio.load(String(content || ''), null, false);
+  const $ = cheerio.load(protectMarkdownTableBreaks(content), null, false);
 
   $('table').each((_, table) => {
     const tableLines = [];

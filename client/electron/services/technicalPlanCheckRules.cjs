@@ -43,7 +43,7 @@ const SPLIT_RE = new RegExp(
 const REQUIREMENT_MARK_RE = /必须|应当|不应|不得|须|不低于|不少于|至少|以上|支持|具备|提供|满足|要求|▲|★|※|响应|符合|采用|配置|实现|包括/;
 const CLAUSE_NUMBER_RE = /^\s*(?:[（(]?[一二三四五六七八九十]+[)）]|[（(]\d+[)）]|[一二三四五六七八九十]+、|\d+(?:[.、)])|第[一二三四五六七八九十\d]+条)/;
 const MANDATORY_RE = /▲|★|※|必须|不得|不低于|不少于|至少/;
-const DURATION_RE = new RegExp(`(${NUMBER_PATTERN})\\s*(个月|周|星期|天|日|年)(?![\\d年月日])`, 'g');
+const DURATION_COMPONENT_RE = new RegExp(`(${NUMBER_PATTERN})\\s*(个月|周|星期|天|日|年)`, 'g');
 const CALCULATION_RE = new RegExp(`(${NUMBER_PATTERN})\\s*([+＋\\-－×xX*])\\s*(${NUMBER_PATTERN})\\s*=\\s*(${NUMBER_PATTERN})`, 'g');
 const PLACE_RE = /[\u4e00-\u9fa5]{2,12}(?:省|市|县|区|镇|乡|村|街道)/g;
 
@@ -107,18 +107,14 @@ function extractRequirements(lines, minLength = 12) {
   return requirements;
 }
 
-function extractNumbers(text) {
-  return [...String(text || '').matchAll(new RegExp(NUMBER_PATTERN, 'g'))].map((match) => Number(match[0]));
-}
-
-function numberPattern(value) {
-  const formatted = Number.isInteger(value) ? String(value) : String(value);
-  return formatted.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function hasStandaloneNumber(text, value) {
-  const source = numberPattern(value);
-  return new RegExp(`(?<![\\d.])${source}\\s*(?![\\d.%])`).test(String(text || ''));
+function extractNumericTokens(text) {
+  return [...String(text || '').matchAll(new RegExp(`(?<![\\d.])(${NUMBER_PATTERN})\\s*(%)?`, 'g'))]
+    .map((match) => ({
+      value: Number(match[1]),
+      unit: match[2] || '',
+      raw: `${match[1]}${match[2] || ''}`,
+      key: `${Number(match[1])}|${match[2] || ''}`,
+    }));
 }
 
 function coverageFor(text, proposalText, proposalBigrams) {
@@ -135,19 +131,32 @@ function coverageFor(text, proposalText, proposalBigrams) {
 function checkRequirements(requirements, proposal) {
   const proposalText = String(proposal || '');
   const proposalBigrams = createChineseBigramSet(proposalText);
+  const proposalNumberKeys = new Set(extractNumericTokens(proposalText).map((token) => token.key));
   const findings = [];
 
   for (const requirement of requirements || []) {
     const text = String(requirement || '');
     const { coverage, missing } = coverageFor(text, proposalText, proposalBigrams);
-    const missingNumbers = [...new Set(extractNumbers(text).filter((value) => !hasStandaloneNumber(proposalText, value)))];
-    if (missingNumbers.length && MANDATORY_RE.test(text)) {
+    const requirementBody = text.replace(CLAUSE_NUMBER_RE, '').trim();
+    const missingNumberTokens = [...new Map(
+      extractNumericTokens(requirementBody)
+        .filter((token) => !proposalNumberKeys.has(token.key))
+        .map((token) => [token.key, token]),
+    ).values()];
+    const missingNumbers = [...new Set(missingNumberTokens.map((token) => token.value))];
+    if (missingNumberTokens.length && MANDATORY_RE.test(text)) {
       findings.push(createFinding(
         'requirement.mandatory-number-missing',
         '采购需求',
-        `强制需求中的数值未在方案中找到：${missingNumbers.join('、')}`,
+        `强制需求中的数值未在方案中找到：${missingNumberTokens.map((token) => token.raw).join('、')}`,
         [text],
-        { requirement: text, missing, missingNumbers, coverage: Number(coverage.toFixed(3)) },
+        {
+          requirement: text,
+          missing,
+          missingNumbers,
+          missingNumberTokens: missingNumberTokens.map((token) => token.raw),
+          coverage: Number(coverage.toFixed(3)),
+        },
       ));
     } else if (coverage < 0.6) {
       const ruleId = coverage >= 0.35 ? 'requirement.partial' : 'requirement.missing';
@@ -204,10 +213,44 @@ function checkScoreItems(items, proposal) {
 }
 
 function findDurations(text) {
-  return [...String(text || '').matchAll(DURATION_RE)].map((match) => ({
-    value: Number(match[1]),
-    unit: match[2],
-  }));
+  const source = String(text || '');
+  const groups = [];
+  let current = null;
+  for (const match of source.matchAll(DURATION_COMPONENT_RE)) {
+    const component = {
+      value: Number(match[1]),
+      unit: match[2],
+      start: match.index,
+      end: match.index + match[0].length,
+    };
+    const gap = current ? source.slice(current.end, component.start) : '';
+    const canAppend = current
+      && /^\s*$/.test(gap)
+      && !current.components.some((item) => item.unit === component.unit);
+    if (!canAppend) {
+      if (current) groups.push(current);
+      current = { components: [], end: component.end };
+    }
+    current.components.push(component);
+    current.end = component.end;
+  }
+  if (current) groups.push(current);
+
+  return groups.map((group) => {
+    const components = group.components.map(({ value, unit }) => ({ value, unit }));
+    const monthsOnly = components.every(({ unit }) => unit === '年' || unit === '个月');
+    const months = monthsOnly
+      ? components.reduce((total, item) => total + item.value * (item.unit === '年' ? 12 : 1), 0)
+      : null;
+    return {
+      components,
+      label: components.map((item) => `${item.value}${item.unit}`).join(''),
+      days: components.reduce((total, item) => total + durationToDays(item.value, item.unit), 0),
+      months,
+      value: components.length === 1 ? components[0].value : undefined,
+      unit: components.length === 1 ? components[0].unit : undefined,
+    };
+  });
 }
 
 function durationToDays(value, unit) {
@@ -227,8 +270,9 @@ function checkTimeConflicts(lines) {
       for (const duration of durations) {
         values.push({
           line,
-          days: durationToDays(duration.value, duration.unit),
-          label: `${duration.value}${duration.unit}`,
+          days: duration.days,
+          months: duration.months,
+          label: duration.label,
         });
       }
       byKeyword.set(keyword, values);
@@ -237,9 +281,13 @@ function checkTimeConflicts(lines) {
 
   const findings = [];
   for (const [keyword, entries] of byKeyword) {
-    const days = [...new Set(entries.map((entry) => Math.round(entry.days)))].sort((left, right) => left - right);
-    if (days.length <= 1) continue;
+    const compareByMonths = entries.every((entry) => entry.months !== null);
+    const comparisonValues = [...new Set(entries.map((entry) => Math.round(
+      compareByMonths ? entry.months : entry.days,
+    )))].sort((left, right) => left - right);
+    if (comparisonValues.length <= 1) continue;
     const values = [...new Set(entries.map((entry) => entry.label))];
+    const days = [...new Set(entries.map((entry) => Math.round(entry.days)))].sort((left, right) => left - right);
     findings.push(createFinding(
       'time.inconsistent',
       '时间一致性',
@@ -371,7 +419,11 @@ function flattenReferenceLines(referenceDocuments) {
 }
 
 function extractPlaces(text) {
-  return new Set(String(text || '').match(PLACE_RE) || []);
+  const normalized = String(text || '').replace(
+    /(?:服务地点为?|项目所在地为?|项目地点为?|项目位于|建设地点为?|实施地点为?|服务区域为?|地点为?|位于)/g,
+    '\n',
+  );
+  return new Set(normalized.match(PLACE_RE) || []);
 }
 
 function checkPlaceRelevance(proposalLines, referenceDocuments) {
