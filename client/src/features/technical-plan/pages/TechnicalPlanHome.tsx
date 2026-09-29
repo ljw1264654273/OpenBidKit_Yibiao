@@ -12,7 +12,7 @@ import { trackPageView } from '../../../shared/analytics/analytics';
 import { AppDialog, ToolbarArrowLeftIcon, ToolbarArrowRightIcon, ToolbarDocumentIcon, ToolbarHomeIcon, useToast } from '../../../shared/ui';
 import type { FloatingToolbarAction } from '../../../shared/ui';
 import type { BackgroundTaskState, BidAnalysisTasks, ContentGenerationOptions, GlobalFactGroupState, GlobalFactsMode, RemoteKnowledgeScope, SaveOutlineRequest, SaveOutlineSelectionRequest, TechnicalPlanState, TechnicalPlanStep, TechnicalPlanWorkflowKind } from '../types';
-import { DEFAULT_OUTLINE_WORD_CONTROL_OPTIONS } from '../../../shared/types';
+import { DEFAULT_OUTLINE_MINIMUM_DEPTH, DEFAULT_OUTLINE_WORD_CONTROL_OPTIONS } from '../../../shared/types';
 import type { OutlineData, OutlineItem, OutlineWordControlOptions } from '../../../shared/types';
 import type { SectionId } from '../../../shared/types/navigation';
 import { showRemoteKnowledgeDecision } from '../../../shared/navigation/appNavigation';
@@ -101,6 +101,8 @@ const resetState = {
   outlineExpansionMode: 'ai-complement' as const,
   outlineWordControlOptions: { ...DEFAULT_OUTLINE_WORD_CONTROL_OPTIONS },
   outlineWordControlSnapshot: undefined,
+  outlineMinimumDepth: DEFAULT_OUTLINE_MINIMUM_DEPTH,
+  outlineMinimumDepthSnapshot: undefined,
   referenceKnowledgeDocumentIds: [] as string[],
   remoteKnowledgeScopes: [],
   bidSectionExtractionTask: undefined,
@@ -575,6 +577,7 @@ function TechnicalPlanHome({ workflowKind, projectId, registerLeaveGuard, onSect
             techRequirements: technicalPlan.techRequirements ?? prev.techRequirements,
             outlineData: hasOwnField(technicalPlan, 'outlineData') ? (technicalPlan.outlineData || null) : prev.outlineData,
             outlineWordControlSnapshot: hasOwnField(technicalPlan, 'outlineWordControlSnapshot') ? technicalPlan.outlineWordControlSnapshot : prev.outlineWordControlSnapshot,
+            outlineMinimumDepthSnapshot: hasOwnField(technicalPlan, 'outlineMinimumDepthSnapshot') ? technicalPlan.outlineMinimumDepthSnapshot : prev.outlineMinimumDepthSnapshot,
             outlineGenerationTask: hasOwnField(technicalPlan, 'outlineGenerationTask') ? trimTaskLogs(technicalPlan.outlineGenerationTask) : prev.outlineGenerationTask,
             referenceKnowledgeDocumentIds: Array.isArray(technicalPlan.referenceKnowledgeDocumentIds) ? technicalPlan.referenceKnowledgeDocumentIds : prev.referenceKnowledgeDocumentIds,
             remoteKnowledgeScopes: Array.isArray(technicalPlan.remoteKnowledgeScopes) ? technicalPlan.remoteKnowledgeScopes : prev.remoteKnowledgeScopes,
@@ -618,6 +621,7 @@ function TechnicalPlanHome({ workflowKind, projectId, registerLeaveGuard, onSect
             contentIllustrationPlan: outlineDataReset ? undefined : prev.contentIllustrationPlan,
             contentGenerationRuntime: outlineDataReset ? undefined : prev.contentGenerationRuntime,
             outlineWordControlSnapshot: outlineDataReset ? undefined : prev.outlineWordControlSnapshot,
+            outlineMinimumDepthSnapshot: outlineDataReset ? undefined : prev.outlineMinimumDepthSnapshot,
             outlineData: hasOwnField(technicalPlan, 'outlineData') ? (technicalPlan.outlineData || null) : prev.outlineData,
           };
         }
@@ -634,6 +638,8 @@ function TechnicalPlanHome({ workflowKind, projectId, registerLeaveGuard, onSect
             outlineExpansionMode: technicalPlan.outlineExpansionMode ?? prev.outlineExpansionMode,
             outlineWordControlOptions: technicalPlan.outlineWordControlOptions ?? prev.outlineWordControlOptions,
             outlineWordControlSnapshot: hasOwnField(technicalPlan, 'outlineWordControlSnapshot') ? technicalPlan.outlineWordControlSnapshot : prev.outlineWordControlSnapshot,
+            outlineMinimumDepth: technicalPlan.outlineMinimumDepth ?? prev.outlineMinimumDepth,
+            outlineMinimumDepthSnapshot: hasOwnField(technicalPlan, 'outlineMinimumDepthSnapshot') ? technicalPlan.outlineMinimumDepthSnapshot : prev.outlineMinimumDepthSnapshot,
             referenceKnowledgeDocumentIds: Array.isArray(technicalPlan.referenceKnowledgeDocumentIds)
               ? technicalPlan.referenceKnowledgeDocumentIds
               : prev.referenceKnowledgeDocumentIds,
@@ -713,6 +719,7 @@ function TechnicalPlanHome({ workflowKind, projectId, registerLeaveGuard, onSect
             ...prev,
             contentGenerationTask: latestTask || trimTaskLogs(technicalPlan.contentGenerationTask),
             outlineWordControlSnapshot: hasOwnField(technicalPlan, 'outlineWordControlSnapshot') ? technicalPlan.outlineWordControlSnapshot : prev.outlineWordControlSnapshot,
+            outlineMinimumDepthSnapshot: hasOwnField(technicalPlan, 'outlineMinimumDepthSnapshot') ? technicalPlan.outlineMinimumDepthSnapshot : prev.outlineMinimumDepthSnapshot,
             outlineMode: technicalPlan.outlineMode ?? prev.outlineMode,
             referenceKnowledgeDocumentIds: Array.isArray(technicalPlan.referenceKnowledgeDocumentIds)
               ? technicalPlan.referenceKnowledgeDocumentIds
@@ -922,13 +929,16 @@ function TechnicalPlanHome({ workflowKind, projectId, registerLeaveGuard, onSect
     outlineMode: TechnicalPlanState['outlineMode'];
     outlineExpansionMode: TechnicalPlanState['outlineExpansionMode'];
     wordControlOptions: OutlineWordControlOptions;
+    minimumDepth?: TechnicalPlanState['outlineMinimumDepth'];
   }) => {
-    await window.yibiao!.technicalPlan.saveOutlineConfig({ ...config, projectId });
+    const minimumDepth = config.minimumDepth ?? state.outlineMinimumDepth;
+    await window.yibiao!.technicalPlan.saveOutlineConfig({ ...config, minimumDepth, projectId });
     setState((prev) => ({
       ...prev,
       outlineMode: config.outlineMode,
       outlineExpansionMode: config.outlineExpansionMode,
       outlineWordControlOptions: config.wordControlOptions,
+      outlineMinimumDepth: minimumDepth,
       referenceKnowledgeDocumentIds: config.referenceKnowledgeDocumentIds,
       remoteKnowledgeScopes: config.remoteKnowledgeScopes,
     }));
@@ -1111,6 +1121,8 @@ function TechnicalPlanHome({ workflowKind, projectId, registerLeaveGuard, onSect
             outlineExpansionMode={state.outlineExpansionMode || 'ai-complement'}
           outlineWordControlOptions={state.outlineWordControlOptions}
           outlineWordControlSnapshot={state.outlineWordControlSnapshot}
+          outlineMinimumDepth={state.outlineMinimumDepth}
+          outlineMinimumDepthSnapshot={state.outlineMinimumDepthSnapshot}
           referenceKnowledgeDocumentIds={state.referenceKnowledgeDocumentIds}
           remoteKnowledgeScopes={state.remoteKnowledgeScopes}
           outlineData={state.outlineData}

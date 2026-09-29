@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { DEFAULT_OUTLINE_WORD_CONTROL_OPTIONS } from '../../../shared/types';
+import { DEFAULT_OUTLINE_MINIMUM_DEPTH, DEFAULT_OUTLINE_WORD_CONTROL_OPTIONS } from '../../../shared/types';
 import { technicalPlanStorage } from '../services/technicalPlanStorage';
 import type { GlobalFactsMode, TechnicalPlanState } from '../types';
 
@@ -28,6 +28,8 @@ const initialState: TechnicalPlanState = {
   outlineExpansionMode: 'ai-complement',
   outlineWordControlOptions: { ...DEFAULT_OUTLINE_WORD_CONTROL_OPTIONS },
   outlineWordControlSnapshot: undefined,
+  outlineMinimumDepth: DEFAULT_OUTLINE_MINIMUM_DEPTH,
+  outlineMinimumDepthSnapshot: undefined,
   referenceKnowledgeDocumentIds: [],
   remoteKnowledgeScopes: [],
   bidSectionExtractionTask: undefined,

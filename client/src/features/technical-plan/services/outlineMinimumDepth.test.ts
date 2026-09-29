@@ -2,11 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 // @ts-expect-error allowImportingTsExtensions 仅影响测试运行方式
-import {
-  formatOutlineMinimumDepth,
-  isOutlineConfigLocked,
-  normalizeOutlineMinimumDepth,
-} from './outlineMinimumDepth.ts';
+import { formatOutlineMinimumDepth, isOutlineConfigLocked, normalizeOutlineMinimumDepth } from './outlineMinimumDepth.ts';
 
 test('目录最低层级只接受默认、三级、四级、五级', () => {
   assert.equal(normalizeOutlineMinimumDepth(undefined), 0);

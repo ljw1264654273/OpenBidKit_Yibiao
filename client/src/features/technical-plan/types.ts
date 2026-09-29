@@ -1,4 +1,4 @@
-import type { OutlineContentMode, OutlineData, OutlineExpansionMode, OutlineMode, OutlineWordControlOptions } from '../../shared/types';
+import type { OutlineContentMode, OutlineData, OutlineExpansionMode, OutlineMinimumDepth, OutlineMode, OutlineWordControlOptions } from '../../shared/types';
 
 export type TechnicalPlanStep = 'document-analysis' | 'bid-analysis' | 'outline-generation' | 'global-facts' | 'content-edit' | 'expand';
 export type TechnicalPlanWorkflowKind = 'technical-plan' | 'existing-plan-expansion';
@@ -130,6 +130,7 @@ export interface BackgroundTaskState {
         outline_mode?: OutlineMode;
         outline_expansion_mode?: OutlineExpansionMode;
         word_control_options?: OutlineWordControlOptions;
+        minimum_outline_depth?: OutlineMinimumDepth;
       };
     };
     outline_selection?: OutlineSelectionState;
@@ -429,6 +430,8 @@ export interface TechnicalPlanState {
   outlineExpansionMode: OutlineExpansionMode;
   outlineWordControlOptions: OutlineWordControlOptions;
   outlineWordControlSnapshot?: OutlineWordControlOptions;
+  outlineMinimumDepth: OutlineMinimumDepth;
+  outlineMinimumDepthSnapshot?: OutlineMinimumDepth;
   referenceKnowledgeDocumentIds: string[];
   remoteKnowledgeScopes: RemoteKnowledgeScope[];
   bidSectionExtractionTask?: BackgroundTaskState;

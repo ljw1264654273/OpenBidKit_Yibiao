@@ -8,7 +8,7 @@ import type { KnowledgeBaseIndex, KnowledgeDocument, KnowledgeFolder } from '../
 import type { KnowledgeBaseId } from '../../knowledge-base/knowledgeBaseCatalog';
 import { KNOWLEDGE_BASE_CATALOG, getKnowledgeBaseCatalogItem } from '../../knowledge-base/knowledgeBaseCatalog';
 import { OUTLINE_CONTENT_MODE_LABELS } from '../../../shared/types';
-import type { OutlineContentMode, OutlineData, OutlineExpansionMode, OutlineItem, OutlineMode, OutlineWordControlOptions } from '../../../shared/types';
+import type { OutlineContentMode, OutlineData, OutlineExpansionMode, OutlineItem, OutlineMinimumDepth, OutlineMode, OutlineWordControlOptions } from '../../../shared/types';
 import type { ExportFormatConfig } from '../../../shared/types/exportFormat';
 import { DEFAULT_EXPORT_FORMAT } from '../../../shared/types/exportFormat';
 import { formatOutlineTitle } from '../../../shared/utils/outlineNumbering';
@@ -29,6 +29,8 @@ interface OutlineEditPageProps {
   outlineExpansionMode: OutlineExpansionMode;
   outlineWordControlOptions: OutlineWordControlOptions;
   outlineWordControlSnapshot?: OutlineWordControlOptions;
+  outlineMinimumDepth: OutlineMinimumDepth;
+  outlineMinimumDepthSnapshot?: OutlineMinimumDepth;
   referenceKnowledgeDocumentIds: string[];
   remoteKnowledgeScopes: RemoteKnowledgeScope[];
   outlineData: OutlineData | null;
@@ -399,6 +401,8 @@ function OutlineEditPage({
   outlineExpansionMode,
   outlineWordControlOptions,
   outlineWordControlSnapshot,
+  outlineMinimumDepth,
+  outlineMinimumDepthSnapshot,
   referenceKnowledgeDocumentIds,
   remoteKnowledgeScopes,
   outlineData,
@@ -987,6 +991,7 @@ function OutlineEditPage({
         outline_mode: nextOutlineMode,
         outline_expansion_mode: nextOutlineExpansionMode,
         word_control_options: wordControlOptions,
+        minimum_outline_depth: outlineMinimumDepth,
       });
       trackConfigUsage({
         outline_mode: isExpansionWorkflow ? nextOutlineExpansionMode : nextOutlineMode,

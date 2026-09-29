@@ -241,6 +241,11 @@ function hasOwn(value, field) {
   return Object.prototype.hasOwnProperty.call(value || {}, field);
 }
 
+function normalizeOutlineMinimumDepth(value) {
+  const number = Number(value);
+  return number === 3 || number === 4 || number === 5 ? number : 0;
+}
+
 function copyPatchFields(target, source, fields) {
   for (const field of fields) {
     if (hasOwn(source, field)) {
@@ -265,6 +270,8 @@ function createTechnicalPlanUserSettings(state = {}) {
     'outlineExpansionMode',
     'outlineWordControlOptions',
     'outlineWordControlSnapshot',
+    'outlineMinimumDepth',
+    'outlineMinimumDepthSnapshot',
     'referenceKnowledgeDocumentIds',
     'contentGenerationOptions',
   ]);
@@ -451,6 +458,7 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
         copyPatchFields(patch, state, [
           'outlineData',
           'outlineWordControlSnapshot',
+          'outlineMinimumDepthSnapshot',
           'outlineGenerationTask',
           'globalFactsTask',
           'globalFactsAdjustmentTask',
@@ -479,6 +487,7 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
         'techRequirements',
         'outlineData',
         'outlineWordControlSnapshot',
+        'outlineMinimumDepthSnapshot',
         'outlineGenerationTask',
         'referenceKnowledgeDocumentIds',
         'globalFactsTask',
@@ -499,6 +508,8 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
         'outlineExpansionMode',
         'outlineWordControlOptions',
         'outlineWordControlSnapshot',
+        'outlineMinimumDepth',
+        'outlineMinimumDepthSnapshot',
         'referenceKnowledgeDocumentIds',
         'globalFactsTask',
         'globalFactsAdjustmentTask',
@@ -543,7 +554,7 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
     }
 
     if (task.type === 'content-generation') {
-      copyPatchFields(patch, state, ['outlineWordControlSnapshot', 'contentIllustrationPlan', 'contentGenerationRuntime']);
+      copyPatchFields(patch, state, ['outlineWordControlSnapshot', 'outlineMinimumDepthSnapshot', 'contentIllustrationPlan', 'contentGenerationRuntime']);
       if (!isActiveTaskStatus(task.status)) {
         copyPatchFields(patch, state, [
           'outlineData',
@@ -1756,16 +1767,19 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
       const taskPayload = {
         ...payload,
         outline_mode: outlineMode,
+        minimum_outline_depth: normalizeOutlineMinimumDepth(payload?.minimum_outline_depth),
         ...(baselineOutline ? { variant_baseline_outline: baselineOutline } : {}),
       };
       return startManagedTask('outline-generation', taskPayload, taskRunners.outlineGeneration || runOutlineGenerationTaskV2, {
         outlineMode,
         outlineExpansionMode: payload?.outline_expansion_mode === 'original-only' ? 'original-only' : 'ai-complement',
         outlineWordControlOptions: payload?.word_control_options,
+        outlineMinimumDepth: normalizeOutlineMinimumDepth(payload?.minimum_outline_depth),
         referenceKnowledgeDocumentIds: Array.isArray(payload?.reference_knowledge_document_ids) ? payload.reference_knowledge_document_ids : [],
         bidTemplateExists: false,
         outlineData: null,
         outlineWordControlSnapshot: undefined,
+        outlineMinimumDepthSnapshot: undefined,
         outlineAdjustmentTask: undefined,
         globalFactsTask: undefined,
         globalFactsAdjustmentTask: undefined,
@@ -1813,6 +1827,9 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
       const technicalPlan = getTechnicalPlanStore(getProjectId(payload)).loadTechnicalPlan();
       if (!technicalPlan.outlineWordControlSnapshot) {
         throw new Error('当前目录没有字数控制生效快照，请重新生成目录');
+      }
+      if (technicalPlan.outlineMinimumDepthSnapshot === undefined) {
+        throw new Error('当前目录没有目录层级生效快照，请重新生成目录');
       }
       const projectId = getProjectId(payload);
       const project = bidProjectManager?.getProject?.(projectId);

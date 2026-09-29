@@ -6,7 +6,7 @@ import type { RejectionCheckWorkspacePatch, RejectionCheckWorkspaceState, Reject
 import type { BidAnalysisMode, BidAnalysisTaskState, BidSectionMode, ContentGenerationOptions, ContentGenerationPlanState, ContentGenerationProgressDetail, ContentGenerationRuntimeState, ContentGenerationSectionState, DetectedBidSection, GlobalFactGroupState, GlobalFactsMode, SaveOutlineRequest, SaveOutlineSelectionRequest, TechnicalPlanState, TechnicalPlanStep, TechnicalPlanWorkflowKind } from '../../features/technical-plan/types';
 import type { FeasibilityProjectInfo, FeasibilityReportState, FeasibilityReportStep, FeasibilitySaveOutlineRequest, FeasibilitySourceFile } from '../../features/feasibility-report/types';
 import type { ExportFormatConfig, ExportTemplateRecord } from './exportFormat';
-import type { OutlineData, OutlineExpansionMode, OutlineMode, OutlineWordControlOptions } from './outline';
+import type { OutlineData, OutlineExpansionMode, OutlineMinimumDepth, OutlineMode, OutlineWordControlOptions } from './outline';
 import type { BidContentDuplicateDecision, BidContentDuplicateResult, BidContentDuplicateRewriteRequest, BidContentDuplicateRewriteResult, BidContentDuplicateTargetSide, BidProject, BidProjectContent, BidProjectCreateOptions, BidProjectDuplicateSummary, BidProjectImportPreview, ExpansionProjectImportOptions, ExpansionProjectImportPreview } from '../../features/bid-project/types';
 
 export type ContentAiEditMode = 'rewrite' | 'continue';
@@ -159,6 +159,7 @@ export interface StartOutlineGenerationPayload {
   outline_mode: string;
   outline_expansion_mode: string;
   word_control_options: OutlineWordControlOptions;
+  minimum_outline_depth: OutlineMinimumDepth;
 }
 
 export interface RemoteKnowledgeDocumentPage {
@@ -755,7 +756,7 @@ export interface YibiaoBridge {
     readOriginalPlanMarkdown: (payload?: { projectId?: string }) => Promise<string>;
     updateStep: (payload: { projectId?: string; step: TechnicalPlanStep } | TechnicalPlanStep) => Promise<void>;
     saveBidAnalysisConfig: (payload: { projectId?: string; mode: BidAnalysisMode; selectedTaskIds: string[]; bidSectionMode?: BidSectionMode }) => Promise<void>;
-    saveOutlineConfig: (payload: { projectId?: string; referenceKnowledgeDocumentIds: string[]; remoteKnowledgeScopes?: RemoteKnowledgeScope[]; outlineMode?: OutlineMode; outlineExpansionMode?: OutlineExpansionMode; wordControlOptions: OutlineWordControlOptions }) => Promise<void>;
+    saveOutlineConfig: (payload: { projectId?: string; referenceKnowledgeDocumentIds: string[]; remoteKnowledgeScopes?: RemoteKnowledgeScope[]; outlineMode?: OutlineMode; outlineExpansionMode?: OutlineExpansionMode; wordControlOptions: OutlineWordControlOptions; minimumDepth: OutlineMinimumDepth }) => Promise<void>;
     saveOutlineSelection: (payload: SaveOutlineSelectionRequest) => Promise<{ success: boolean }>;
     saveOutline: (payload: SaveOutlineRequest & { projectId?: string }) => Promise<Partial<TechnicalPlanState>>;
     saveOutlineNodeKnowledge: (payload: { projectId?: string; nodeId: string; knowledgeFolderIds: string[]; knowledgeDocumentIds?: string[] }) => Promise<Partial<TechnicalPlanState>>;
