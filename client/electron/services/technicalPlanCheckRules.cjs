@@ -77,49 +77,17 @@ const QUANTITY_RANGE_TERMS = [
   '不低于', '不高于', '不超过', '不少于', '至少', '至多', '以上', '以下', '以内',
   '以外', '大于', '小于', '高于', '低于',
 ];
-const NON_UNIT_COMPOUNDS = new Set([
-  '台账', '套件', '年度', '年会', '月度', '月报', '点位', '点检', '站点', '站务',
-  '人防', '项下', '元数据', '元宇宙', '次要',
-]);
-const SINGLE_UNIT_QUANTITY_CONTEXTS = new Map([
-  ['项', ['服务', '措施', '工作', '内容', '风险', '检查', '任务', '要求']],
-  ['套', ['设备', '组件', '系统', '软件', '授权', '材料', '工具']],
-  ['年', ['期', '期限', '周期', '服务', '质保', '运维', '时间']],
-  ['月', ['期', '期限', '周期', '服务', '质保', '运维', '时间']],
-  ['周', ['周期', '工期', '服务', '时间']],
-  ['天', ['工期', '周期', '期限', '时间', '服务']],
-  ['日', ['工期', '周期', '期限', '时间', '服务']],
-  ['人', ['服务', '驻场', '人员', '团队', '培训']],
-  ['台', ['设备', '服务器', '终端', '机器', '主机']],
-  ['元', ['报价', '费用', '金额', '价格', '成本']],
-  ['米', ['长度', '宽度', '高度', '距离', '半径']],
-  ['亩', ['面积', '用地']],
-  ['吨', ['载重', '重量', '质量']],
-  ['克', ['重量', '质量']],
-  ['升', ['容量', '体积']],
-  ['℃', ['温度']],
-  ['次', ['检查', '培训', '服务', '演练']],
-  ['个', ['设备', '组件', '系统', '模块', '功能', '接口', '节点', '账号', '文件', '项目']],
-  ['件', ['设备', '材料', '产品', '成果', '文件']],
-  ['份', ['文件', '报告', '材料', '方案', '证明', '成果']],
-  ['辆', ['车辆', '汽车', '运输车']],
-  ['组', ['设备', '数据', '参数', '人员', '组件']],
-  ['座', ['建筑', '桥梁', '站点', '机房']],
-  ['处', ['位置', '场所', '站点', '地点']],
-  ['家', ['供应商', '单位', '企业', '机构']],
-  ['名', ['人员', '专家', '成员', '工程师']],
-  ['点', ['点位', '站点', '监测点', '检查点']],
-  ['站', ['站点', '场站', '基站']],
-  ['秒', ['时间', '响应', '时延', '延迟']],
-  ['瓦', ['功率', '容量']],
-  ['W', ['功率', '容量']],
-  ['V', ['电压']],
-  ['A', ['电流']],
-  ['m', ['长度', '宽度', '高度', '距离', '半径']],
-  ['L', ['容量', '体积']],
-  ['度', ['温度', '电量', '角度']],
-  ['%', ['比例', '占比', '率']],
-  ['％', ['比例', '占比', '率']],
+const SINGLE_UNIT_LEXICAL_CONTINUATIONS = new Map([
+  ['年', ['会', '度', '龄', '级', '轻', '限']],
+  ['月', ['报', '度', '刊', '末', '初', '中']],
+  ['台', ['账', '湾', '阶', '风', '面', '词', '历']],
+  ['项', ['目', '下', '圈']],
+  ['人', ['员', '防', '民', '才', '工', '口', '生', '物', '力']],
+  ['元', ['数据', '宇宙', '素', '件']],
+  ['次', ['要', '序', '数']],
+  ['点', ['位', '检', '击', '心']],
+  ['站', ['点', '务', '立']],
+  ['套', ['件', '路', '话']],
 ]);
 const TYPED_TITLE_SUFFIXES = new Set([
   '管理', '说明', '事项', '方案', '章节', '概述', '设计', '响应', '要求', '能力',
@@ -370,20 +338,16 @@ function hasLeadingQuantityCopula(source) {
 }
 
 function isOrdinaryCompoundPrefix(source, unit) {
-  const firstWord = [...CHINESE_WORD_SEGMENTER.segment(String(source || ''))]
+  const text = String(source || '');
+  const firstWord = [...CHINESE_WORD_SEGMENTER.segment(text)]
     .find((segment) => segment.isWordLike);
   if (
     firstWord?.index === 0
     && firstWord.segment.length > unit.length
     && firstWord.segment.startsWith(unit)
   ) return true;
-  return [...NON_UNIT_COMPOUNDS]
-    .some((compound) => compound.startsWith(unit) && String(source || '').startsWith(compound));
-}
-
-function hasUnitQuantityContext(unit, context) {
-  return (SINGLE_UNIT_QUANTITY_CONTEXTS.get(unit) || [])
-    .some((term) => String(context || '').includes(term));
+  return (SINGLE_UNIT_LEXICAL_CONTINUATIONS.get(unit) || [])
+    .some((continuation) => text.startsWith(`${unit}${continuation}`));
 }
 
 function shortClauseBounds(source, start, end) {
@@ -466,8 +430,7 @@ function isProtectedBusinessNumericPrefix(source, numericPrefix) {
   if (matchingBusinessTerm(tail, QUANTITY_RANGE_TERMS)) return true;
   const clause = tail.split(QUANTITY_SENTENCE_BREAK_RE, 1)[0];
   const [firstAssertion] = findAssertionRanges(clause);
-  if (!firstAssertion) return false;
-  return hasUnitQuantityContext(unit, clause.slice(0, firstAssertion.start));
+  return Boolean(firstAssertion);
 }
 
 function stripChineseChapterPrefixes(text) {

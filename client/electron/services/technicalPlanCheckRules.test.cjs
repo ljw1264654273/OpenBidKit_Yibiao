@@ -452,6 +452,15 @@ test('rejects single-character units that are prefixes of ordinary compound word
     ['3.2 人员数量必须达到10人', '人员数量必须达到10人'],
     ['1.1 年会安排必须说明', '年会安排必须说明'],
     ['1.1 套件管理必须说明', '套件管理必须说明'],
+    ['1.1 年龄要求必须说明', '年龄要求必须说明'],
+    ['1.1 台湾地区必须说明', '台湾地区必须说明'],
+    ['1.1 项圈设计必须说明', '项圈设计必须说明'],
+    ['1.1 人口统计必须说明', '人口统计必须说明'],
+    ['1.1 元件管理必须说明', '元件管理必须说明'],
+    ['1.1 次序安排必须说明', '次序安排必须说明'],
+    ['1.1 点击操作必须说明', '点击操作必须说明'],
+    ['1.1 站立训练必须说明', '站立训练必须说明'],
+    ['1.1 套路说明必须提交', '套路说明必须提交'],
   ]) {
     assert.equal(stripClauseNumber(source), expected, source);
   }
@@ -477,13 +486,24 @@ test('rejects single-character units that are prefixes of ordinary compound word
 });
 
 test('protects a valid single-character quantity when its sentence contains an assertion', () => {
-  const businessValue = '1.5 项服务必须提供';
-  assert.equal(stripClauseNumber(businessValue), businessValue);
-  assert.equal(
-    checkRequirements(['必须提供1.5项服务'], businessValue)
-      .some((finding) => finding.ruleId === 'requirement.mandatory-number-missing'),
-    false,
-  );
+  for (const [requirement, businessValue] of [
+    ['必须提供1.5项服务', '1.5 项服务必须提供'],
+    ['必须铺设1.5米管线', '1.5米管线必须铺设'],
+    ['必须提供1.5项功能', '1.5项功能必须提供'],
+    ['必须配置2.5台摄像机', '2.5台摄像机必须配置'],
+    ['必须提供1.5套课程', '1.5套课程必须提供'],
+    ['必须满足1.5项指标', '1.5项指标必须满足'],
+    ['必须完成1.5次维护', '1.5次维护必须完成'],
+    ['必须提供1.5年售后保障', '1.5年售后保障必须提供'],
+  ]) {
+    assert.equal(stripClauseNumber(businessValue), businessValue, businessValue);
+    assert.equal(
+      checkRequirements([requirement], businessValue)
+        .some((finding) => finding.ruleId === 'requirement.mandatory-number-missing'),
+      false,
+      businessValue,
+    );
+  }
 });
 
 test('extracts score items only from pipe table rows and uses the same coverage thresholds', () => {
