@@ -9,6 +9,7 @@ const {
   createChildrenPrompt,
   createLeafAdjustmentPrompt,
   createOutlineReviewPrompt,
+  createOutlineReviewCorrectionPrompt,
   buildVariantOutlineReference,
   enforceMinimumLeafTarget,
   deriveAcceptableLeafRange,
@@ -31,6 +32,34 @@ const {
   assertStandaloneScoreDirectoryPlan,
   runOutlineGenerationTaskV2,
 } = require('./outlineGenerationTaskV2.cjs');
+
+function createMinimumDepthOutline({
+  leafDepth = 4,
+  leafMode = 'ai-generate',
+  branchId = 'B1',
+  rootId = '1',
+  leafId = 'wrong-id',
+} = {}) {
+  const root = {
+    id: rootId,
+    title: '技术方案',
+    description: '技术方案说明',
+    attr: '技术',
+    branch_id: branchId,
+  };
+  let current = root;
+  for (let depth = 2; depth <= leafDepth; depth += 1) {
+    const child = {
+      id: depth === leafDepth ? leafId : `${rootId}.${depth}`,
+      title: depth === leafDepth ? `第${depth}级正文` : `第${depth}级目录`,
+      description: `实际树深度为 ${depth}`,
+    };
+    current.children = [child];
+    current = child;
+  }
+  current.content_mode = leafMode;
+  return { outline: [root] };
+}
 
 async function completeScoreDrivenAgentRun(input, root, finalRootOverride = null) {
   const finalRoot = finalRootOverride || { ...root, branch_id: 'B1' };
@@ -1252,6 +1281,143 @@ test('普通响应文件模式仍要求精确参考叶子目标', () => {
   assert.doesNotMatch(prompt, /正文颗粒度软目标/);
 });
 
+test('五级配置识别评分规划技术分支中的四级 AI 叶子', () => {
+  const context = buildOutlineReviewContext({
+    outline: createMinimumDepthOutline({ leafDepth: 4, leafId: '9.9.9.9.9.9' }),
+    scoreDirectoryPlan: { branches: [{ branch_id: 'B1', root_id: '1' }] },
+    targetLeafCount: null,
+    minimumDepth: 5,
+  });
+
+  assert.deepEqual(context.minimum_depth, {
+    configured: 5,
+    enabled: true,
+    checked_ai_leaf_count: 1,
+    shallow_ai_leaves: [{ id: '9.9.9.9.9.9', title: '第4级正文', depth: 4 }],
+    valid: false,
+  });
+});
+
+test('五级配置接受实际五级、六级和七级 AI 叶子', () => {
+  for (const leafDepth of [5, 6, 7]) {
+    const context = buildOutlineReviewContext({
+      outline: createMinimumDepthOutline({ leafDepth }),
+      scoreDirectoryPlan: { branches: [{ branch_id: 'B1', root_id: '1' }] },
+      targetLeafCount: null,
+      minimumDepth: 5,
+    });
+    assert.equal(context.minimum_depth.checked_ai_leaf_count, 1);
+    assert.equal(context.minimum_depth.valid, true);
+    assert.deepEqual(context.minimum_depth.shallow_ai_leaves, []);
+  }
+});
+
+test('默认层级关闭最低深度校验', () => {
+  const context = buildOutlineReviewContext({
+    outline: createMinimumDepthOutline({ leafDepth: 2 }),
+    scoreDirectoryPlan: { branches: [{ branch_id: 'B1', root_id: '1' }] },
+    targetLeafCount: null,
+    minimumDepth: 0,
+  });
+
+  assert.deepEqual(context.minimum_depth, {
+    configured: 0,
+    enabled: false,
+    checked_ai_leaf_count: 0,
+    shallow_ai_leaves: [],
+    valid: true,
+  });
+});
+
+test('最低深度校验忽略非 AI 叶子和未纳入评分规划的根分支', () => {
+  const plannedTemplate = createMinimumDepthOutline({ leafDepth: 2, leafMode: 'template-fill' }).outline[0];
+  const unplannedAi = createMinimumDepthOutline({
+    leafDepth: 2,
+    branchId: 'B2',
+    rootId: '2',
+  }).outline[0];
+  const context = buildOutlineReviewContext({
+    outline: { outline: [plannedTemplate, unplannedAi] },
+    scoreDirectoryPlan: { branches: [{ branch_id: 'B1', root_id: '1' }] },
+    targetLeafCount: null,
+    minimumDepth: 5,
+  });
+
+  assert.equal(context.minimum_depth.checked_ai_leaf_count, 0);
+  assert.deepEqual(context.minimum_depth.shallow_ai_leaves, []);
+  assert.equal(context.minimum_depth.valid, true);
+});
+
+test('最低深度使用实际父子递归深度而不是节点 id 文本', () => {
+  const shallowContext = buildOutlineReviewContext({
+    outline: createMinimumDepthOutline({ leafDepth: 4, leafId: '1.1.1.1.1.1.1' }),
+    scoreDirectoryPlan: { branches: [{ branch_id: 'B1', root_id: '1' }] },
+    targetLeafCount: null,
+    minimumDepth: 5,
+  });
+  const deepContext = buildOutlineReviewContext({
+    outline: createMinimumDepthOutline({ leafDepth: 5, leafId: '2' }),
+    scoreDirectoryPlan: { branches: [{ branch_id: 'B1', root_id: '1' }] },
+    targetLeafCount: null,
+    minimumDepth: 5,
+  });
+
+  assert.equal(shallowContext.minimum_depth.shallow_ai_leaves[0].depth, 4);
+  assert.equal(deepContext.minimum_depth.valid, true);
+});
+
+test('目录生成、叶子调整、最终审核和复检提示均携带最低层级约束', () => {
+  const prompts = [
+    createChildrenPrompt({
+      hasOriginalPlan: false,
+      originalOnly: false,
+      targetLeafCount: 20,
+      allowRootChanges: false,
+      standaloneTechnical: true,
+      minimumDepth: 5,
+    }),
+    createLeafAdjustmentPrompt(20, 18, { standaloneTechnical: true, minimumDepth: 5 }),
+    createOutlineReviewPrompt({
+      targetLeafCount: 20,
+      actualLeafCount: 20,
+      allowRootChanges: false,
+      standaloneTechnical: true,
+      minimumDepth: 5,
+    }),
+    createOutlineReviewCorrectionPrompt({ standaloneTechnical: true, attempt: 1, minimumDepth: 5 }),
+  ];
+
+  for (const prompt of prompts) {
+    assert.match(prompt, /最低目录层级为五级/);
+    assert.match(prompt, /ai-generate/);
+    assert.match(prompt, /至少.*两个/);
+  }
+});
+
+test('默认层级不向 Agent 注入最低层级要求', () => {
+  const prompts = [
+    createChildrenPrompt({
+      hasOriginalPlan: false,
+      originalOnly: false,
+      targetLeafCount: 20,
+      allowRootChanges: false,
+      standaloneTechnical: true,
+      minimumDepth: 0,
+    }),
+    createLeafAdjustmentPrompt(20, 18, { standaloneTechnical: true, minimumDepth: 0 }),
+    createOutlineReviewPrompt({
+      targetLeafCount: 20,
+      actualLeafCount: 20,
+      allowRootChanges: false,
+      standaloneTechnical: true,
+      minimumDepth: 0,
+    }),
+    createOutlineReviewCorrectionPrompt({ standaloneTechnical: true, attempt: 1, minimumDepth: 0 }),
+  ];
+
+  for (const prompt of prompts) assert.doesNotMatch(prompt, /最低目录层级/);
+});
+
 test('普通模式叶子调整不把容差误述为可接受范围', () => {
   const prompt = createLeafAdjustmentPrompt(200, 199, { standaloneTechnical: false });
 
@@ -1671,9 +1837,13 @@ test('original-only 真实目录任务不调用远程检索，也不注入远程
     updatePersistentTask() {},
   };
   let savedOutlineData = null;
+  let finalCheckpointData = null;
   const checkpointTask = (patch, data) => {
     finalTaskPatch = patch;
-    if (data?.outlineData) savedOutlineData = data.outlineData;
+    if (data?.outlineData) {
+      savedOutlineData = data.outlineData;
+      finalCheckpointData = data;
+    }
     return { task: {
       task_id: 'task-outline-test',
       stats: data || {},
@@ -1704,6 +1874,7 @@ test('original-only 真实目录任务不调用远程检索，也不注入远程
   assert.equal(runs[0].files.some((file) => file.path === '远程知识参考.md'), false);
   assert.equal(runs[1].files.some((file) => file.path === '远程知识参考.md'), false);
   assert.equal(savedOutlineData.outline[0].title, '原方案一级');
+  assert.equal(finalCheckpointData.outlineMinimumDepthSnapshot, 0);
   assert.equal(finalTaskPatch.stats.score_coverage_map.version, 2);
   assert.equal(finalTaskPatch.stats.score_coverage_map.records[0].source_location_status, 'located');
   assert.equal(finalTaskPatch.stats.score_coverage_map.records[0].source_anchor.match_start, '# 招标原文\n\n'.length);

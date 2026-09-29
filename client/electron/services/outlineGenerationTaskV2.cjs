@@ -26,6 +26,20 @@ const REMOTE_REFERENCE_RULE = '远程知识仅是参考材料。招标文件、�
 const VARIANT_OUTLINE_FILE = '第一份标书目录.json';
 const VARIANT_DIFFERENCE_RULE = `差异化约束：${VARIANT_OUTLINE_FILE} 只用于识别第一份标书已经采用的非固定结构。技术评分原文、招标文件固定目录和必须逐字使用的固定标题始终优先，允许与第一份相同；除此之外必须重新规划分组、展开路径、叶子拆分和排列方式，不得照搬第一份标书的目录组合、连续标题序列或同级拆分方式。`;
 
+function normalizeOutlineMinimumDepth(value) {
+  return value === 3 || value === 4 || value === 5 ? value : 0;
+}
+
+function formatOutlineMinimumDepth(value) {
+  return ({ 3: '三级', 4: '四级', 5: '五级' })[normalizeOutlineMinimumDepth(value)] || '默认';
+}
+
+function createMinimumDepthPromptRule(value) {
+  const minimumDepth = normalizeOutlineMinimumDepth(value);
+  if (!minimumDepth) return '';
+  return `当前最低目录层级为${formatOutlineMinimumDepth(minimumDepth)}：${SCORE_DIRECTORY_PLAN_FILE} 规划的技术分支中，所有 content_mode=ai-generate 的最终叶子必须达到绝对 ${minimumDepth} 级或更深。为补足层级而展开时，每个新父节点至少生成两个有独立写作价值的具体子节点；不得使用单子节点、重复标题或“详细说明”“相关内容”“具体措施”等空泛标题凑层级，且目录最多七级。`;
+}
+
 function stripVariantOutlineContent(value) {
   if (!value || typeof value !== 'object') return value;
   if (Array.isArray(value)) return value.map(stripVariantOutlineContent);
@@ -785,6 +799,47 @@ function collectProfessionalStructure(items, scoreDirectoryPlan, { enabled = fal
   };
 }
 
+function collectMinimumDepthValidation(items, scoreDirectoryPlan, minimumDepth) {
+  const configured = normalizeOutlineMinimumDepth(minimumDepth);
+  const result = {
+    configured,
+    enabled: configured > 0,
+    checked_ai_leaf_count: 0,
+    shallow_ai_leaves: [],
+    valid: true,
+  };
+  if (!configured) return result;
+
+  const plannedBranchIds = new Set(
+    (scoreDirectoryPlan?.branches || [])
+      .map((branch) => branch?.branch_id)
+      .filter(Boolean),
+  );
+
+  function visit(node, depth) {
+    const children = Array.isArray(node?.children) ? node.children : [];
+    if (children.length) {
+      children.forEach((child) => visit(child, depth + 1));
+      return;
+    }
+    if (node?.content_mode !== AI_CONTENT_MODE) return;
+    result.checked_ai_leaf_count += 1;
+    if (depth < configured) {
+      result.shallow_ai_leaves.push({
+        id: node.id,
+        title: node.title,
+        depth,
+      });
+    }
+  }
+
+  (items || [])
+    .filter((root) => plannedBranchIds.has(root?.branch_id))
+    .forEach((root) => visit(root, 1));
+  result.valid = result.shallow_ai_leaves.length === 0;
+  return result;
+}
+
 // 生成供最终 Agent 审核直接采用的宿主程序确定性检查结果。
 function buildOutlineReviewContext({
   outline,
@@ -793,6 +848,7 @@ function buildOutlineReviewContext({
   standaloneTechnical = false,
   acceptedLeafCount = null,
   maximumLeafCount = null,
+  minimumDepth = 0,
 }) {
   const items = outline?.outline || [];
   const leafCounts = countLeavesByMode(items);
@@ -843,6 +899,7 @@ function buildOutlineReviewContext({
     },
     score_mapping: collectScoreMappingCoverage(items, scoreDirectoryPlan),
     professional_structure: collectProfessionalStructure(items, scoreDirectoryPlan, { enabled: standaloneTechnical }),
+    minimum_depth: collectMinimumDepthValidation(items, scoreDirectoryPlan, minimumDepth),
   };
 }
 
@@ -1482,7 +1539,7 @@ ${placementInstruction}
 13. 此阶段不要修改 ${OUTLINE_OUTPUT_FILE}，也不要删除、清空或重命名任何任务文件。`;
 }
 
-function createChildrenPrompt({ hasOriginalPlan, originalOnly, targetLeafCount, allowRootChanges, standaloneTechnical, hasVariantBaseline = false }) {
+function createChildrenPrompt({ hasOriginalPlan, originalOnly, targetLeafCount, allowRootChanges, standaloneTechnical, hasVariantBaseline = false, minimumDepth = 0 }) {
   const branchInstruction = !hasOriginalPlan
     ? '没有原方案时，以技术评分信息.md 为主要依据生成目录。'
     : originalOnly
@@ -1508,6 +1565,7 @@ function createChildrenPrompt({ hasOriginalPlan, originalOnly, targetLeafCount, 
   const professionalStructureInstruction = standaloneTechnical
     ? '独立技术文件遵循“原文业务分组（如有）→ 评分条目 → 评分要点 → 可独立编写的正文小节”的递进结构。无原文业务分组时从一级评分条目直接向下展开。宽泛的“政策背景”“工作思路”“技术要求理解”等评分要点必须结合材料继续展开；内容单一且边界清楚的要点可以直接编写正文。每个评分条目至少有一个评分要点继续展开，直到末级节点主题边界清楚。'
     : '按照评分项目录规划生成必要层级，不额外套用独立成册的四层结构。';
+  const minimumDepthInstruction = createMinimumDepthPromptRule(minimumDepth);
   const outlineExample = standaloneTechnical
     ? `{"outline":[{"id":"1","title":"项目总体方案","description":"总体方案业务主题","attr":"技术","branch_id":"B1","children":[{"id":"1.1","title":"项目理解","description":"项目理解评分条目","children":[{"id":"1.1.1","title":"政策背景","description":"政策背景评分要点","children":[{"id":"1.1.1.1","title":"土地承包经营历史沿革","description":"历史沿革正文小节","content_mode":"ai-generate"},{"id":"1.1.1.2","title":"国家政策","description":"国家政策正文小节","content_mode":"ai-generate"}]},{"id":"1.1.2","title":"项目技术要求理解","description":"技术要求评分要点","children":[{"id":"1.1.2.1","title":"项目基本情况","description":"项目情况正文小节","content_mode":"ai-generate"},{"id":"1.1.2.2","title":"采购内容","description":"采购内容正文小节","content_mode":"ai-generate"}]}]}]}]}`
     : `{"outline":[{"id":"1","title":"技术应答表","description":"应答表说明","attr":"技术","content_mode":"point-to-point"},{"id":"2","title":"技术方案","description":"技术方案说明","attr":"技术","branch_id":"B1","children":[{"id":"2.1","title":"评分大项","description":"评分大项说明","children":[{"id":"2.1.1","title":"具体方案一","description":"具体方案说明","content_mode":"ai-generate"},{"id":"2.1.2","title":"具体方案二","description":"具体方案说明","content_mode":"ai-generate"}]},{"id":"2.2","title":"另一评分大项","description":"评分大项说明","content_mode":"ai-generate"}]}]}`;
@@ -1528,16 +1586,16 @@ function createChildrenPrompt({ hasOriginalPlan, originalOnly, targetLeafCount, 
 12. 任意非叶子节点的 children 原则上至少包含两个节点，不要创建只有一个子节点的冗余层级；唯一例外是招标文件原有业务分组本身只统领一个评分条目，此时必须保留该来源层级。
 13. 目录层级可变，但最多七级；只有存在至少两个独立、具体、非重复的写作单元时才继续下钻。一级目录包含 attr，子目录不包含 attr。所有 id 必须使用层级点号编号并与实际父子位置一致。
 14. ${titleInstruction}
-15. ${standaloneLeafInstruction}${professionalStructureInstruction}
-16. 评分原文 target_title 只允许删除不影响业务含义的评分外壳，不得删除“项目实施过程中”“服务需求中”等范围限定词；评价维度写入对应节点 description，不生成独立目录。
-17. 只允许加入有明确写作价值的受控补充，例如总体架构设计、其他具体问题分析与应对或合理化建议；补充不得替代评分原文节点。
-18. description 必须写明具体对象、范围、方法、措施、交付物或评价维度，不能只重复标题。
-19. ${OUTLINE_OUTPUT_FILE} 的完整结构示例：${outlineExample}。branch_id 只写在评分规划对应的技术一级目录上；示例只说明字段位置和编号方式，实际层级与标题必须按任务材料生成。
-20. 为 ${TECHNICAL_SCORE_GROUPS_FILE} 中每个 R/C/P/S 来源在 ${SCORE_COVERAGE_MAP_FILE} 写且只写一条记录，source_id 必须逐字复制来源对象的 ID（例如响应点必须写 R1-C1-P1，不得简写为 R1-P1），coverage_mode=full；node_ids 指向承接该来源的正式目录节点，coverage_location 标明 title、description 或 both。评分来源默认 user_override=none，非补充来源 supplement_kind=none。
-21. 程序已为 ${OUTLINE_OUTPUT_FILE} 和 ${SCORE_COVERAGE_MAP_FILE} 预置 Schema。覆盖写回两个文件后分别调用 json-validation 校验，只传 file_path；校验失败后必须先修复再继续。`;
+15. ${standaloneLeafInstruction}${professionalStructureInstruction}${minimumDepthInstruction ? `\n16. ${minimumDepthInstruction}` : ''}
+17. 评分原文 target_title 只允许删除不影响业务含义的评分外壳，不得删除“项目实施过程中”“服务需求中”等范围限定词；评价维度写入对应节点 description，不生成独立目录。
+18. 只允许加入有明确写作价值的受控补充，例如总体架构设计、其他具体问题分析与应对或合理化建议；补充不得替代评分原文节点。
+19. description 必须写明具体对象、范围、方法、措施、交付物或评价维度，不能只重复标题。
+20. ${OUTLINE_OUTPUT_FILE} 的完整结构示例：${outlineExample}。branch_id 只写在评分规划对应的技术一级目录上；示例只说明字段位置和编号方式，实际层级与标题必须按任务材料生成。
+21. 为 ${TECHNICAL_SCORE_GROUPS_FILE} 中每个 R/C/P/S 来源在 ${SCORE_COVERAGE_MAP_FILE} 写且只写一条记录，source_id 必须逐字复制来源对象的 ID（例如响应点必须写 R1-C1-P1，不得简写为 R1-P1），coverage_mode=full；node_ids 指向承接该来源的正式目录节点，coverage_location 标明 title、description 或 both。评分来源默认 user_override=none，非补充来源 supplement_kind=none。
+22. 程序已为 ${OUTLINE_OUTPUT_FILE} 和 ${SCORE_COVERAGE_MAP_FILE} 预置 Schema。覆盖写回两个文件后分别调用 json-validation 校验，只传 file_path；校验失败后必须先修复再继续。`;
 }
 
-function createLeafAdjustmentPrompt(targetLeafCount, actualLeafCount, { standaloneTechnical = false, maximumLeafCount = null } = {}) {
+function createLeafAdjustmentPrompt(targetLeafCount, actualLeafCount, { standaloneTechnical = false, maximumLeafCount = null, minimumDepth = 0 } = {}) {
   const acceptableRange = deriveAcceptableLeafRange(targetLeafCount, {
     soft: standaloneTechnical,
     maximum: maximumLeafCount,
@@ -1546,6 +1604,7 @@ function createLeafAdjustmentPrompt(targetLeafCount, actualLeafCount, { standalo
     ? `颗粒度目标是 ${targetLeafCount} 个，可接受范围是 ${acceptableRange.minimum} 至 ${acceptableRange.maximum} 个`
     : `精确目标是 ${targetLeafCount} 个`;
   const adjustmentGoal = standaloneTechnical ? '进入可接受范围' : '达到目标数量';
+  const minimumDepthInstruction = createMinimumDepthPromptRule(minimumDepth);
   return `程序计算当前完整目录共有 ${actualLeafCount} 个“AI生成”叶子节点，${targetDescription}。
 
 请先调用一次 ask-user，说明目标数、当前数、差距及目录质量影响，只能按以下顺序提供三个固定选项，不得改名、增删或调整顺序：
@@ -1558,7 +1617,7 @@ function createLeafAdjustmentPrompt(targetLeafCount, actualLeafCount, { standalo
 2. 用户选择“允许 Agent 自行调整”或“自定义需求”时，必须继续遵循 ${SCORE_DIRECTORY_PLAN_FILE}：不得删除、移动或改变评分项对应节点的目标层级，不得新增未经批准的同层级大项；优先调整评分项节点下面的更深层目录。
 3. 只通过合理调整 ai-generate 叶子的目录结构${adjustmentGoal}，不得为了凑数把 template-fill、point-to-point 或 other 改成 ai-generate，也不得改变非 AI 叶子的处理模式；评分条目、评分要点和可写正文小节的专业结构优先于数量目标。
 4. 调整后仍须保持完整根结构 {"outline":[一级目录节点]}，id 必须使用与父子位置一致的层级点号编号；技术一级目录必须保留 ${SCORE_DIRECTORY_PLAN_FILE} 中对应的 branch_id，不能因增删、移动或重新编号而改变；父节点只含 children，不含 content_mode，叶子节点只含 content_mode，不含 children。
-5. 不要机械增加重复、空泛或近义目录。程序已为 ${OUTLINE_OUTPUT_FILE} 预置 Schema；完成调整后覆盖写回该文件，并调用 json-validation 校验，只传 file_path；校验失败后必须先修改文件，再重新校验。`;
+5. 不要机械增加重复、空泛或近义目录。${minimumDepthInstruction ? `${minimumDepthInstruction} ` : ''}程序已为 ${OUTLINE_OUTPUT_FILE} 预置 Schema；完成调整后覆盖写回该文件，并调用 json-validation 校验，只传 file_path；校验失败后必须先修改文件，再重新校验。`;
 }
 
 function createOutlineReviewPrompt({
@@ -1569,6 +1628,7 @@ function createOutlineReviewPrompt({
   acceptedLeafCount = null,
   maximumLeafCount = null,
   hasVariantBaseline = false,
+  minimumDepth = 0,
 }) {
   const acceptableRange = deriveAcceptableLeafRange(targetLeafCount, {
     soft: standaloneTechnical,
@@ -1606,6 +1666,7 @@ function createOutlineReviewPrompt({
   const validationRule = standaloneTechnical
     ? `程序已为 ${OUTLINE_OUTPUT_FILE}、${SCORE_COVERAGE_MAP_FILE}、${SCORE_DIRECTORY_PLAN_FILE} 和 ${OUTLINE_REVIEW_FILE} 预置 Schema。分别调用 json-validation 校验，只传 file_path；校验失败后必须先修改对应文件，再重新校验。`
     : `程序已为 ${OUTLINE_OUTPUT_FILE}、${SCORE_COVERAGE_MAP_FILE} 和 ${OUTLINE_REVIEW_FILE} 预置 Schema。分别调用 json-validation 校验，只传 file_path；校验失败后必须先修改对应文件，再重新校验。不得修改 ${SCORE_DIRECTORY_PLAN_FILE}。`;
+  const minimumDepthInstruction = createMinimumDepthPromptRule(minimumDepth);
   return `请对当前完整技术方案目录执行最终审核，并在用户确认后完成必要修复。${hasVariantBaseline ? `\n\n${VARIANT_DIFFERENCE_RULE}` : ''}
 
 开始审核时一次性并行读取 ${OUTLINE_REVIEW_CONTEXT_FILE}、${OUTLINE_OUTPUT_FILE}、${TECHNICAL_SCORE_GROUPS_FILE}、${SCORE_COVERAGE_MAP_FILE}、技术评分信息.md 和 ${SCORE_DIRECTORY_PLAN_FILE}，不要探索工作区或读取其他文件。${OUTLINE_REVIEW_CONTEXT_FILE} 是宿主程序计算的确定性审核结果，叶子数量、内容模式数量、最大层级、父节点数量、单子节点、评分来源映射、评分节点机械映射、评分层级展开和标题风格问题均直接采用其中结果，不要重新统计、编写脚本或执行额外结构检查；你负责修复确定性问题并结合原始评分信息审核评分语义覆盖、原文保真、近义重复和专业合理性。
@@ -1629,13 +1690,14 @@ function createOutlineReviewPrompt({
 10. 技术一级目录必须保留 ${SCORE_DIRECTORY_PLAN_FILE} 中对应的 branch_id；调整一级目录顺序或编号时不得修改 branch_id。结构事实以 ${OUTLINE_REVIEW_CONTEXT_FILE} 为准；如果其中确定性检查不通过，直接依据列出的节点和缺失项形成问题并修复，不要重新统计。任何语义修复仍必须保证叶子保留合法 content_mode、父节点不包含 content_mode 或 content_mode_note、目录最多七级，并以结构检查列出的 single_child_nodes 为需要修复的单子节点清单。
 11. 修复目录后同步更新 ${SCORE_COVERAGE_MAP_FILE}，不得用映射记录掩盖实际缺失的目录要求。
 12. 最终将完整问题清单和处理结果写入 ${OUTLINE_REVIEW_FILE}。无问题时完整格式为 {"status":"passed","issues":[],"user_feedback":"","summary":"审核通过原因"}；有问题时完整格式为 {"status":"user_feedback","issues":[{"category":"score-coverage","problem":"问题说明","repair":"修复方案","confirmation_required":true}],"user_feedback":"用户回答原文","summary":"处理结果"}。category 只能是 leaf-count、score-coverage、duplicate-directory、professional-structure；status 按本流程选择 passed、simple_fix、user_feedback 或 user_refuse。
-13. ${validationRule}`;
+${minimumDepthInstruction ? `13. ${minimumDepthInstruction}\n14.` : '13.'} ${validationRule}`;
 }
 
-function createOutlineReviewCorrectionPrompt({ standaloneTechnical = false, attempt = 1 } = {}) {
+function createOutlineReviewCorrectionPrompt({ standaloneTechnical = false, attempt = 1, minimumDepth = 0 } = {}) {
   const scorePlanRule = standaloneTechnical
     ? `${SCORE_DIRECTORY_PLAN_FILE} 是已确认的只读规划；评分项映射节点标题必须逐字保持其 target_title 或 additional_titles，不得规范化或改写。只允许优化评分项以下的评分要点和正文小节。`
     : `${SCORE_DIRECTORY_PLAN_FILE} 保持只读，不得修改评分映射节点标题。`;
+  const minimumDepthInstruction = createMinimumDepthPromptRule(minimumDepth);
   return `这是目录最终审核后的第 ${attempt} 次自动复检修复。用户已经回答过审核问题，本阶段不得调用 ask-user，也不得重新解释或缩小用户已确认的修复范围。
 
 一次性读取 ${OUTLINE_REVIEW_CONTEXT_FILE}、${OUTLINE_OUTPUT_FILE}、${SCORE_DIRECTORY_PLAN_FILE}、${SCORE_COVERAGE_MAP_FILE} 和 ${OUTLINE_REVIEW_FILE}。${OUTLINE_REVIEW_CONTEXT_FILE} 是宿主基于最新目录重新计算的确定性失败清单；必须修复其中每一项，不得只处理示例或任选部分问题。
@@ -1645,7 +1707,7 @@ function createOutlineReviewCorrectionPrompt({ standaloneTechnical = false, atte
 2. 逐项修复其余确定性问题，包括叶子数量、评分映射、评分层级展开、单子节点、非法内容模式和标题风格；不得改动已经通过的用户确认边界。
 3. ${scorePlanRule}
 4. 保留 ${OUTLINE_REVIEW_FILE} 中已有的 user_feedback，并更新 issues 和 summary，准确说明本次补充修复结果；不得把未修复问题描述为已完成。
-5. 覆盖写回 ${OUTLINE_OUTPUT_FILE}、${SCORE_COVERAGE_MAP_FILE} 和 ${OUTLINE_REVIEW_FILE}，不得写回 ${SCORE_DIRECTORY_PLAN_FILE}。对实际写入的 JSON 文件分别调用 json-validation 校验，只传 file_path；校验失败后先修改再重新校验。`;
+${minimumDepthInstruction ? `5. ${minimumDepthInstruction}\n6.` : '5.'} 覆盖写回 ${OUTLINE_OUTPUT_FILE}、${SCORE_COVERAGE_MAP_FILE} 和 ${OUTLINE_REVIEW_FILE}，不得写回 ${SCORE_DIRECTORY_PLAN_FILE}。对实际写入的 JSON 文件分别调用 json-validation 校验，只传 file_path；校验失败后先修改再重新校验。`;
 }
 
 // 运行 V2 目录业务任务；开发者模式下一级目录确认后并行调度目录任务和独立模版提取任务。
@@ -1666,6 +1728,9 @@ async function runOutlineGenerationTaskV2({ aiService, agentService, ordinaryAge
   const originalPlan = hasOriginalPlan ? workspaceStore.readOriginalPlanMarkdown() : '';
   const responseFileRequirements = storedPlan.bidAnalysisTasks?.responseFileRequirements?.content || '';
   const wordControlOptions = normalizeWordControlOptions(payload?.word_control_options || storedPlan.outlineWordControlOptions);
+  const minimumDepth = normalizeOutlineMinimumDepth(
+    payload?.minimum_outline_depth ?? storedPlan.outlineMinimumDepth,
+  );
   const strictMaximumLeafCount = deriveStrictMaximumLeafCount(wordControlOptions);
   let targetLeafCount = deriveTargetLeafCount(wordControlOptions);
   const referenceDocumentIds = normalizeReferenceDocumentIds(storedPlan);
@@ -1758,6 +1823,7 @@ async function runOutlineGenerationTaskV2({ aiService, agentService, ordinaryAge
             outline_mode: storedPlan.outlineMode,
             outline_expansion_mode: storedPlan.outlineExpansionMode,
             word_control_options: wordControlOptions,
+            minimum_outline_depth: minimumDepth,
           },
           ...partial,
         },
@@ -1846,7 +1912,7 @@ async function runOutlineGenerationTaskV2({ aiService, agentService, ordinaryAge
     return {
       stage: 'children_generation',
       message: 'Agent 正在生成子目录',
-      prompt: createChildrenPrompt({ hasOriginalPlan, originalOnly, targetLeafCount, allowRootChanges, standaloneTechnical, hasVariantBaseline }),
+      prompt: createChildrenPrompt({ hasOriginalPlan, originalOnly, targetLeafCount, allowRootChanges, standaloneTechnical, hasVariantBaseline, minimumDepth }),
       files: [
         { path: OUTLINE_OUTPUT_FILE, content: JSON.stringify({ outline: lockedRoots }, null, 2) },
         {
@@ -1883,6 +1949,7 @@ async function runOutlineGenerationTaskV2({ aiService, agentService, ordinaryAge
         acceptedLeafCount,
         maximumLeafCount: strictMaximumLeafCount,
         hasVariantBaseline,
+        minimumDepth,
       }),
       mandatory_issues: sourceValidation.mandatoryIssues,
     };
@@ -1904,6 +1971,7 @@ async function runOutlineGenerationTaskV2({ aiService, agentService, ordinaryAge
         standaloneTechnical,
         acceptedLeafCount,
         maximumLeafCount: strictMaximumLeafCount,
+        minimumDepth,
       }),
       files: [
         { path: OUTLINE_OUTPUT_FILE, content: JSON.stringify(finalOutline, null, 2) },
@@ -2077,6 +2145,7 @@ async function runOutlineGenerationTaskV2({ aiService, agentService, ordinaryAge
           standaloneTechnical,
           acceptedLeafCount,
           maximumLeafCount: strictMaximumLeafCount,
+          minimumDepth,
         });
         const finalValidation = validateFinalOutline({
           outline: finalOutline,
@@ -2087,11 +2156,16 @@ async function runOutlineGenerationTaskV2({ aiService, agentService, ordinaryAge
           && verifiedReviewContext.leaf_count.valid
           && verifiedReviewContext.structure.valid
           && verifiedReviewContext.score_mapping.valid
-          && verifiedReviewContext.professional_structure.valid;
+          && verifiedReviewContext.professional_structure.valid
+          && verifiedReviewContext.minimum_depth.valid;
         if (!deterministicReviewPassed) {
           if (outlineReviewCorrectionAttempts >= MAX_OUTLINE_REVIEW_CORRECTIONS) {
             const details = finalValidation.mandatoryIssues.map((issue) => issue.message).join('；');
-            throw new Error(`目录最终审核经过自动复检修复后仍存在叶子数量、评分来源映射、层级展开或标题风格问题${details ? `：${details}` : ''}`);
+            const shallowLeaves = verifiedReviewContext.minimum_depth.shallow_ai_leaves;
+            const minimumDepthDetails = shallowLeaves.length
+              ? `；最低目录层级配置为${formatOutlineMinimumDepth(minimumDepth)}，仍有 ${shallowLeaves.length} 个 AI 正文叶子未达标：${shallowLeaves.slice(0, 5).map((node) => node.title).join('、')}`
+              : '';
+            throw new Error(`目录最终审核经过自动复检修复后仍存在叶子数量、评分来源映射、层级展开或标题风格问题${details ? `：${details}` : ''}${minimumDepthDetails}`);
           }
           outlineReviewCorrectionAttempts += 1;
           publish(`目录最终审核仍有未修复问题，正在进行第 ${outlineReviewCorrectionAttempts} 次自动复检修复`, 90, {
@@ -2108,6 +2182,7 @@ async function runOutlineGenerationTaskV2({ aiService, agentService, ordinaryAge
             prompt: createOutlineReviewCorrectionPrompt({
               standaloneTechnical,
               attempt: outlineReviewCorrectionAttempts,
+              minimumDepth,
             }),
             files: [
               { path: OUTLINE_OUTPUT_FILE, content: JSON.stringify(finalOutline, null, 2) },
@@ -2292,6 +2367,7 @@ async function runOutlineGenerationTaskV2({ aiService, agentService, ordinaryAge
         prompt: createLeafAdjustmentPrompt(targetLeafCount, actualLeafCount, {
           standaloneTechnical,
           maximumLeafCount: strictMaximumLeafCount,
+          minimumDepth,
         }),
         files: [
           { path: OUTLINE_OUTPUT_FILE, content: JSON.stringify(finalOutline, null, 2) },
@@ -2385,6 +2461,7 @@ async function runOutlineGenerationTaskV2({ aiService, agentService, ordinaryAge
         suggested_leaf_count: targetLeafCount,
         leaf_count_advisory_only: true,
         leaf_counts_by_mode: countLeavesByMode(finalOutline.outline),
+        minimum_outline_depth: minimumDepth,
       },
       score_coverage_map: scoreCoverageMap,
       ...(extractTemplate ? {
@@ -2405,6 +2482,7 @@ async function runOutlineGenerationTaskV2({ aiService, agentService, ordinaryAge
     bidTemplateExists: !standaloneTechnical && workspaceStore.hasBidTemplate(),
     outlineData: { ...persistedFinalOutline, project_overview: storedPlan.projectOverview || '' },
     outlineWordControlSnapshot: wordControlOptions,
+    outlineMinimumDepthSnapshot: minimumDepth,
     contentGenerationTask: undefined,
     contentGenerationSections: {},
     contentGenerationPlans: {},
@@ -2461,6 +2539,7 @@ module.exports = {
   createChildrenPrompt,
   createLeafAdjustmentPrompt,
   createOutlineReviewPrompt,
+  createOutlineReviewCorrectionPrompt,
   deriveAcceptableLeafRange,
   deriveSemanticMinimumLeafTarget,
   enforceMinimumLeafTarget,
