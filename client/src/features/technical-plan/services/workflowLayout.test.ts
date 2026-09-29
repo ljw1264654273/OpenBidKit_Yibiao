@@ -289,6 +289,22 @@ test('确认流程图不自动触发 AI 图片生成，AI 图片由独立按钮�
   assert.match(pageSource, /重新生成 AI 图片/);
 });
 
+test('图片审核首次打开即可生成 AI 图片并自动保存待确认流程结构', () => {
+  const pageSource = readFileSync(new URL('../pages/ContentEditPage.tsx', import.meta.url), 'utf8');
+  const convertStart = pageSource.indexOf('const convertMermaidReviewItem = async');
+  const convertEnd = pageSource.indexOf('const redrawCurrentIllustration = async', convertStart);
+  const convertSource = pageSource.slice(convertStart, convertEnd);
+  const actionMarker = 'className="secondary-action content-illustration-adopt-action"';
+  const actionIndex = pageSource.indexOf(actionMarker);
+  const actionSource = pageSource.slice(Math.max(0, actionIndex - 500), actionIndex + 500);
+
+  assert.match(convertSource, /getMermaidReviewStatus\(item\) === 'pending'[\s\S]*confirmIllustrationReviewItem/);
+  assert.match(convertSource, /confirmIllustrationReviewItem[\s\S]*convertMermaidIllustrationReviewItem/);
+  assert.ok(actionIndex >= 0, '应渲染重新生成 AI 图片按钮');
+  assert.doesNotMatch(actionSource, /getMermaidReviewStatus\(selectedMermaidReviewItem\) === 'confirmed'/);
+  assert.match(pageSource, /可直接点击“重新生成 AI 图片”生成候选/);
+});
+
 test('流程图审核阶段优先显示 Mermaid 结构，采用候选后才显示最终 AI 图片', () => {
   const pageSource = readFileSync(new URL('../pages/ContentEditPage.tsx', import.meta.url), 'utf8');
   assert.match(pageSource, /selectedMermaidReviewItem\?\.kind === 'mermaid' && selectedMermaidReviewCode && !selectedMermaidReviewItem\.generation\?\.asset_url/);
@@ -382,6 +398,20 @@ test('正文生成把导出 Word 放在上一步后面且不再渲染悬浮工�
   assert.match(navigationSource, /\?\s*\[homeAction,\s*previousStepAction,\s*exportWordAction\]/);
   assert.doesNotMatch(homeSource, /<FloatingToolbar/);
   assert.doesNotMatch(homeSource, /toolbarGroups/);
+});
+
+test('正文首次生成直接启动，仅完整正文重新生成时请求覆盖确认', () => {
+  const pageSource = readFileSync(new URL('../pages/ContentEditPage.tsx', import.meta.url), 'utf8');
+  const handlerStart = pageSource.indexOf('const handleGenerationButtonClick');
+  const handlerEnd = pageSource.indexOf('const launchContentGeneration', handlerStart);
+  const handlerSource = pageSource.slice(handlerStart, handlerEnd);
+
+  assert.match(handlerSource, /resolvedCount === leaves\.length[\s\S]*setRegenerateConfirmOpen\(true\)/);
+  assert.match(handlerSource, /startGeneration\(false, 'saved'\)/);
+  assert.doesNotMatch(handlerSource, /openGenerationDialog/);
+  assert.match(pageSource, /title="是否覆盖原有正文内容？"/);
+  assert.match(pageSource, /确认后将清空并重新生成现有正文内容/);
+  assert.match(pageSource, /确认覆盖并重新生成/);
 });
 
 test('正文未生成时禁止导出空目录，并复用统一 Word 导出弹窗', () => {

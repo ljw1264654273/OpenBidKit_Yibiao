@@ -376,6 +376,8 @@ function ContentEditPage({
   const [workspacePane, setWorkspacePane] = useState<WorkspacePane>('navigation');
   const [imageModelStatus, setImageModelStatus] = useState<ImageModelStatus>('untested');
   const [generationDialogOpen, setGenerationDialogOpen] = useState(false);
+  const [regenerateConfirmOpen, setRegenerateConfirmOpen] = useState(false);
+  const [regenerateStarting, setRegenerateStarting] = useState(false);
   const [continuePostProcessingDialogOpen, setContinuePostProcessingDialogOpen] = useState(false);
   const [draftGenerationOptions, setDraftGenerationOptions] = useState<ContentGenerationOptions>(defaultContentGenerationOptions);
   const [htmlImageTypesDialogOpen, setHtmlImageTypesDialogOpen] = useState(false);
@@ -1434,8 +1436,14 @@ function ContentEditPage({
   const convertMermaidReviewItem = async () => {
     const item = requireSelectedMermaidReviewItem();
     if (!item || item.kind !== 'mermaid') return;
-    if (getMermaidReviewStatus(item) !== 'confirmed') {
-      showToast('请先确认流程图结构', 'info');
+    const reviewStatus = getMermaidReviewStatus(item);
+    if (reviewStatus === 'skipped') {
+      showToast('请先重置已跳过的流程图', 'info');
+      return;
+    }
+    if (reviewStatus === 'pending' && !selectedMermaidReviewCode) {
+      setMermaidReviewError('当前流程图没有可生成图片的预览');
+      showToast('当前流程图没有可生成图片的预览', 'info');
       return;
     }
 
@@ -1444,6 +1452,14 @@ function ContentEditPage({
     setMermaidAiBusyItemId(item.item_id);
     setMermaidReviewError('');
     try {
+      if (getMermaidReviewStatus(item) === 'pending') {
+        const confirmPatch = await window.yibiao?.technicalPlan.confirmIllustrationReviewItem({
+          projectId,
+          itemId: item.item_id,
+          code: selectedMermaidReviewCode,
+        });
+        applyPlanPatch(confirmPatch);
+      }
       const patch = await window.yibiao?.technicalPlan.convertMermaidIllustrationReviewItem({
         projectId,
         itemId: item.item_id,
@@ -1546,10 +1562,10 @@ function ContentEditPage({
       return;
     }
     if (resolvedCount === leaves.length && leaves.length) {
-      void openGenerationDialog();
+      setRegenerateConfirmOpen(true);
       return;
     }
-    void openGenerationDialog();
+    void startGeneration(false, 'saved');
   };
 
   const launchContentGeneration = async ({
@@ -1623,10 +1639,10 @@ function ContentEditPage({
       : regenerate ? '正文重新生成任务已在后台启动' : '正文生成任务已在后台启动', 'success');
   };
 
-  const startGeneration = async (simulatePartialFailures = false) => {
+  const startGeneration = async (simulatePartialFailures = false, optionsSource: 'draft' | 'saved' = 'draft') => {
     if (!outlineData?.outline?.length) {
       showToast('请先生成目录', 'info');
-      return;
+      return false;
     }
 
     try {
@@ -1634,7 +1650,13 @@ function ContentEditPage({
       const nextImageModelStatus = config?.image_model?.status || 'untested';
       const nextImageModelAvailable = nextImageModelStatus === 'available';
       setImageModelStatus(nextImageModelStatus);
-      const savedGenerationOptions = await saveDraftGenerationOptions(false, nextImageModelAvailable);
+      const savedGenerationOptions = optionsSource === 'draft'
+        ? await saveDraftGenerationOptions(false, nextImageModelAvailable)
+        : normalizeGenerationOptions(contentGenerationOptions, nextImageModelAvailable, leaves.length, isExpansionWorkflow, false);
+      if (optionsSource === 'saved') {
+        await onContentGenerationOptionsChange(savedGenerationOptions);
+        setDraftGenerationOptions(normalizeGenerationOptions(savedGenerationOptions, nextImageModelAvailable, leaves.length, isExpansionWorkflow));
+      }
       const regenerate = leaves.length > 0 && resolvedCount === leaves.length;
       const contentGenerationAction: ContentGenerationAction = regenerate
           ? 'regenerate'
@@ -1642,8 +1664,22 @@ function ContentEditPage({
             ? 'continue'
             : 'start';
       await launchContentGeneration({ savedGenerationOptions, nextImageModelAvailable, config, regenerate, contentGenerationAction, simulatePartialFailures });
+      return true;
     } catch (error) {
       showToast(error instanceof Error ? error.message : '启动正文生成任务失败', 'error');
+      return false;
+    }
+  };
+
+  const confirmRegenerateContent = async () => {
+    setRegenerateStarting(true);
+    try {
+      const started = await startGeneration(false, 'saved');
+      if (started) {
+        setRegenerateConfirmOpen(false);
+      }
+    } finally {
+      setRegenerateStarting(false);
     }
   };
 
@@ -2254,15 +2290,15 @@ ${selectedMermaidReviewCode}
                           ) : (
                           <p>
                             {selectedMermaidReviewItem?.generation?.redraw_error
-                              || (selectedMermaidReviewItem?.kind === 'mermaid' && getMermaidReviewStatus(selectedMermaidReviewItem) === 'pending'
-                                ? '先确认流程图结构，确认后正文会保留 Mermaid 流程图；如需 AI 图片，请点击“重新生成 AI 图片”。'
+                              || (selectedMermaidReviewItem?.kind === 'mermaid'
+                                ? '暂无候选，可直接点击“重新生成 AI 图片”生成候选。'
                                 : '暂无候选，请在下方填写 AI 重绘要求。')}
                           </p>
                           )}
                       </div>
                     </div>
                     {selectedMermaidReviewItem?.kind === 'mermaid'
-                      && getMermaidReviewStatus(selectedMermaidReviewItem) === 'confirmed'
+                      && getMermaidReviewStatus(selectedMermaidReviewItem) !== 'skipped'
                       && selectedMermaidReviewItem.generation?.redraw_status !== 'success'
                       && selectedMermaidReviewItem.generation?.redraw_status !== 'running' && (
                         <button
@@ -2334,6 +2370,23 @@ ${selectedMermaidReviewCode}
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
+
+      <AppDialog
+        open={regenerateConfirmOpen}
+        onOpenChange={(open) => !regenerateStarting && setRegenerateConfirmOpen(open)}
+        kicker="重新生成正文"
+        title="是否覆盖原有正文内容？"
+        description="确认后将清空并重新生成现有正文内容，原有正文将无法恢复。"
+        preventClose={regenerateStarting}
+        actions={(
+          <>
+            <button type="button" className="secondary-action" onClick={() => setRegenerateConfirmOpen(false)} disabled={regenerateStarting}>取消</button>
+            <button type="button" className="danger-action" onClick={() => void confirmRegenerateContent()} disabled={regenerateStarting}>
+              {regenerateStarting ? '正在启动...' : '确认覆盖并重新生成'}
+            </button>
+          </>
+        )}
+      />
 
       <Dialog.Root open={continuePostProcessingDialogOpen} onOpenChange={setContinuePostProcessingDialogOpen}>
         <Dialog.Portal>
