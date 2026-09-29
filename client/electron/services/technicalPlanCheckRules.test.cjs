@@ -304,7 +304,6 @@ test('removes Chinese chapter prefixes before indexing proposal numeric tokens',
     '第一篇 1.1版本管理\n系统必须提供兼容证明',
     '第一卷 1.1版本管理\n系统必须提供兼容证明',
     '第一章 技术方案 1.1版本管理\n系统必须提供兼容证明',
-    '第一章 技术方案 版本 1.1 管理\n系统必须提供兼容证明',
     toDocumentLines(`
       <h1>第一章 1.1 版本管理说明</h1>
       <p>系统必须提供兼容证明</p>
@@ -327,7 +326,13 @@ test('removes Chinese chapter prefixes before indexing proposal numeric tokens',
   for (const [requirement, proposal] of [
     ['系统必须采用1.1版本', '第一章 系统采用1.1版本'],
     ['系统版本为1.1必须兼容', '第一章 系统版本为1.1'],
+    ['系统必须兼容1.1版本', '第一章 系统版本1.1'],
+    ['系统必须兼容1.1版本', '第一章 系统版本号1.1'],
+    ['系统必须兼容1.1版本', '第一章 技术方案 版本 1.1 管理'],
     ['系统必须支持1.2协议', '第一章 系统支持1.2协议'],
+    ['系统必须支持1.2协议', '第一章 系统协议1.2'],
+    ['系统必须支持1.2协议', '第一章 技术方案 协议 1.2 管理'],
+    ['系统必须兼容1.1版本', '第一章 1.1版本必须兼容'],
   ]) {
     assert.equal(
       checkRequirements([requirement], proposal)
@@ -342,18 +347,13 @@ test('removes Chinese chapter prefixes before indexing proposal numeric tokens',
     '第一章 系统兼容1.1版本管理，其他内容必须说明',
     '第一章 技术方案 1.1版本管理',
     '第一章 技术方案 1.1版本管理，其他内容必须说明',
+    '第一章 必须提供材料 1.1版本响应',
+    '第一章 系统支持能力 1.1版本要求',
   ]) {
     const [finding] = checkRequirements(['系统必须兼容1.1版本'], proposal);
     assert.equal(finding.ruleId, 'requirement.mandatory-number-missing', proposal);
     assert.deepEqual(finding.missingNumberTokens, ['1.1版本'], proposal);
   }
-
-  const [protocolFinding] = checkRequirements(
-    ['系统必须支持1.2协议'],
-    '第一章 技术方案 协议 1.2 管理\n系统必须提供协议支持证明',
-  );
-  assert.equal(protocolFinding.ruleId, 'requirement.mandatory-number-missing');
-  assert.deepEqual(protocolFinding.missingNumberTokens, ['1.2协议']);
 });
 
 test('strips common Word clause numbers without deleting a leading decimal metric', () => {
@@ -450,6 +450,8 @@ test('rejects single-character units that are prefixes of ordinary compound word
     ['1.5 年度服务期限必须满足要求', '年度服务期限必须满足要求'],
     ['2.5 台账与设备管理必须符合要求', '台账与设备管理必须符合要求'],
     ['3.2 人员数量必须达到10人', '人员数量必须达到10人'],
+    ['1.1 年会安排必须说明', '年会安排必须说明'],
+    ['1.1 套件管理必须说明', '套件管理必须说明'],
   ]) {
     assert.equal(stripClauseNumber(source), expected, source);
   }
@@ -460,6 +462,18 @@ test('rejects single-character units that are prefixes of ordinary compound word
   );
   assert.equal(finding.ruleId, 'requirement.mandatory-number-missing');
   assert.deepEqual(finding.missingNumberTokens, ['1.1']);
+
+  for (const [requirement, proposal] of [
+    ['服务期必须达到1.1年', '1.1 年会安排必须说明'],
+    ['必须提供1.1套设备', '1.1 套件管理必须说明'],
+  ]) {
+    assert.equal(
+      checkRequirements([requirement], proposal)
+        .some((result) => result.ruleId === 'requirement.mandatory-number-missing'),
+      true,
+      proposal,
+    );
+  }
 });
 
 test('protects a valid single-character quantity when its sentence contains an assertion', () => {

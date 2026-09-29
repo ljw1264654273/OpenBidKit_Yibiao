@@ -78,10 +78,52 @@ const QUANTITY_RANGE_TERMS = [
   '以外', '大于', '小于', '高于', '低于',
 ];
 const NON_UNIT_COMPOUNDS = new Set([
-  '台账', '月度', '月报', '点位', '点检', '站点', '站务', '人防', '项下',
-  '元数据', '元宇宙', '次要',
+  '台账', '套件', '年度', '年会', '月度', '月报', '点位', '点检', '站点', '站务',
+  '人防', '项下', '元数据', '元宇宙', '次要',
 ]);
-const TYPED_TITLE_SUFFIXES = new Set(['管理', '说明', '事项', '方案', '章节', '概述', '设计']);
+const SINGLE_UNIT_QUANTITY_CONTEXTS = new Map([
+  ['项', ['服务', '措施', '工作', '内容', '风险', '检查', '任务', '要求']],
+  ['套', ['设备', '组件', '系统', '软件', '授权', '材料', '工具']],
+  ['年', ['期', '期限', '周期', '服务', '质保', '运维', '时间']],
+  ['月', ['期', '期限', '周期', '服务', '质保', '运维', '时间']],
+  ['周', ['周期', '工期', '服务', '时间']],
+  ['天', ['工期', '周期', '期限', '时间', '服务']],
+  ['日', ['工期', '周期', '期限', '时间', '服务']],
+  ['人', ['服务', '驻场', '人员', '团队', '培训']],
+  ['台', ['设备', '服务器', '终端', '机器', '主机']],
+  ['元', ['报价', '费用', '金额', '价格', '成本']],
+  ['米', ['长度', '宽度', '高度', '距离', '半径']],
+  ['亩', ['面积', '用地']],
+  ['吨', ['载重', '重量', '质量']],
+  ['克', ['重量', '质量']],
+  ['升', ['容量', '体积']],
+  ['℃', ['温度']],
+  ['次', ['检查', '培训', '服务', '演练']],
+  ['个', ['设备', '组件', '系统', '模块', '功能', '接口', '节点', '账号', '文件', '项目']],
+  ['件', ['设备', '材料', '产品', '成果', '文件']],
+  ['份', ['文件', '报告', '材料', '方案', '证明', '成果']],
+  ['辆', ['车辆', '汽车', '运输车']],
+  ['组', ['设备', '数据', '参数', '人员', '组件']],
+  ['座', ['建筑', '桥梁', '站点', '机房']],
+  ['处', ['位置', '场所', '站点', '地点']],
+  ['家', ['供应商', '单位', '企业', '机构']],
+  ['名', ['人员', '专家', '成员', '工程师']],
+  ['点', ['点位', '站点', '监测点', '检查点']],
+  ['站', ['站点', '场站', '基站']],
+  ['秒', ['时间', '响应', '时延', '延迟']],
+  ['瓦', ['功率', '容量']],
+  ['W', ['功率', '容量']],
+  ['V', ['电压']],
+  ['A', ['电流']],
+  ['m', ['长度', '宽度', '高度', '距离', '半径']],
+  ['L', ['容量', '体积']],
+  ['度', ['温度', '电量', '角度']],
+  ['%', ['比例', '占比', '率']],
+  ['％', ['比例', '占比', '率']],
+]);
+const TYPED_TITLE_SUFFIXES = new Set([
+  '管理', '说明', '事项', '方案', '章节', '概述', '设计', '响应', '要求', '能力',
+]);
 const TYPED_BUSINESS_PREDICATES = new Set([
   '采用', '使用', '兼容', '支持', '运行', '升级', '适配', '解析', '基于',
 ]);
@@ -339,6 +381,11 @@ function isOrdinaryCompoundPrefix(source, unit) {
     .some((compound) => compound.startsWith(unit) && String(source || '').startsWith(compound));
 }
 
+function hasUnitQuantityContext(unit, context) {
+  return (SINGLE_UNIT_QUANTITY_CONTEXTS.get(unit) || [])
+    .some((term) => String(context || '').includes(term));
+}
+
 function shortClauseBounds(source, start, end) {
   const delimiters = /[，,。；;：:\n]/;
   let clauseStart = start;
@@ -419,7 +466,8 @@ function isProtectedBusinessNumericPrefix(source, numericPrefix) {
   if (matchingBusinessTerm(tail, QUANTITY_RANGE_TERMS)) return true;
   const clause = tail.split(QUANTITY_SENTENCE_BREAK_RE, 1)[0];
   const [firstAssertion] = findAssertionRanges(clause);
-  return Boolean(firstAssertion);
+  if (!firstAssertion) return false;
+  return hasUnitQuantityContext(unit, clause.slice(0, firstAssertion.start));
 }
 
 function stripChineseChapterPrefixes(text) {
@@ -445,25 +493,18 @@ function proposalClauseBounds(source, start, end) {
   return { clauseStart, clauseEnd };
 }
 
-function hasDirectAssertionAction(clause) {
-  return findAssertionRanges(clause).some((assertion) => {
-    const tail = clause.slice(assertion.end).trimStart();
-    return Boolean(matchingBusinessTerm(tail, ACTION_VERBS));
-  });
-}
-
 function shouldKeepChapterTypedToken(source, token) {
   const { clauseStart, clauseEnd } = proposalClauseBounds(source, token.start, token.end);
-  const clause = source.slice(clauseStart, clauseEnd);
+  const prefix = source.slice(clauseStart, token.start);
   const suffix = source.slice(token.end, clauseEnd).trimStart();
+  if (/^(?:版本|协议)(?:号)?\s*(?:(?:为|是|[:：=])\s*)?\d+(?:[.．]\d+)+$/.test(token.raw)) {
+    return true;
+  }
   if (matchingBusinessTerm(suffix, TYPED_TITLE_SUFFIXES)) return false;
-  if (/^(?:版本|协议)(?:号)?\s*(?:为|是|[:：=])\s*\d+(?:[.．]\d+)+$/.test(token.raw)) {
+  if ([...TYPED_BUSINESS_PREDICATES].some((predicate) => prefix.includes(predicate))) {
     return true;
   }
-  if ([...TYPED_BUSINESS_PREDICATES].some((predicate) => clause.includes(predicate))) {
-    return true;
-  }
-  return hasDirectAssertionAction(clause);
+  return hasLeadingAssertion(suffix);
 }
 
 function sanitizeChapterTypedTokens(text) {
