@@ -35,30 +35,19 @@ const RULE_SEVERITY = Object.freeze({
 
 const NUMBER_PATTERN = String.raw`\d+(?:\.\d+)?`;
 const RAW_MANDATORY_ASSERTIONS = [
-  '不低于', '不高于', '不超过', '不少于', '必须', '不得', '严禁', '至少',
+  '不低于', '不高于', '不超过', '不少于', '必须', '不得', '严禁', '应当', '至少',
 ];
-const FULL_WORD_MANDATORY_ASSERTIONS = new Set(['需要', '应当']);
+const NEED_ASSERTION = '需要';
 const SINGLE_MODAL_ASSERTIONS = new Set(['需', '应']);
 const ACTION_VERBS = new Set([
   '提供', '配置', '配备', '满足', '支持', '具备', '采用', '达到', '完成', '提交',
   '安装', '部署', '保证', '确保', '符合', '实现', '包含', '设置', '使用', '建设',
-  '执行', '遵守', '兼容', '交付', '验收', '说明', '覆盖', '为',
+  '执行', '遵守', '兼容', '交付', '验收', '说明', '覆盖',
 ]);
-const ASSERTION_MODIFIERS = new Set([
-  '在', '由', '按', '按照', '根据', '及时', '全部', '统一', '立即', '现场', '持续',
-  '充分', '优先', '逐步', '供应', '商', '供应商', '要求',
-]);
-const MODAL_COMPOUND_SUFFIXES = new Set(['求', '方', '答', '急', '用']);
-const ASSERTION_WINDOW_SIZE = 5;
+const MODAL_COMPOUND_SUFFIXES = new Set(['方', '答']);
+const NEED_ACTION_WINDOW_SIZE = 5;
 const CLAUSE_BREAK_RE = /[，,。；;：:、！？!?\n]/;
-const FUNCTION_WORDS = [
-  '以及', '并且', '而且', '同时', '对于', '按照', '根据', '通过', '结合', '依托',
-  '以上', '以内', '支持', '提供', '满足', '具备', '采用', '配置', '要求', '实现', '包括',
-  '包含', '与', '和', '及', '或', '须',
-].join('|');
-const SPLIT_RE = new RegExp(
-  String.raw`[，,、。；;：:（()）)\s\d%．./\-—_*▲★※【】\[\]{}"'“”‘’<>《》=＝]+|${FUNCTION_WORDS}`,
-);
+const SPLIT_RE = /[，,、。；;：:（()）)\s\d%．./\-—_*▲★※【】\[\]{}"'“”‘’<>《》=＝]+/;
 const REQUIREMENT_MARK_RE = /不应|须|以上|支持|具备|提供|满足|要求|▲|★|※|响应|符合|采用|配置|实现|包括/;
 const DURATION_COMPONENT_RE = new RegExp(`(${NUMBER_PATTERN})\\s*(个月|周|星期|天|日|年)`, 'g');
 const CALCULATION_RE = new RegExp(`(${NUMBER_PATTERN})\\s*([+＋\\-－×xX*])\\s*(${NUMBER_PATTERN})\\s*=\\s*(${NUMBER_PATTERN})`, 'g');
@@ -219,24 +208,38 @@ function literalRanges(source, terms) {
   }));
 }
 
-function modalActionEnd(text, segments, assertionIndex) {
+function hasActionVerbAhead(text, segments, assertionIndex) {
   const assertion = segments[assertionIndex];
   let previousEnd = assertion.index + assertion.segment.length;
   let wordCount = 0;
   for (let index = assertionIndex + 1; index < segments.length; index += 1) {
     const current = segments[index];
-    if (CLAUSE_BREAK_RE.test(text.slice(previousEnd, current.index))) return -1;
+    if (CLAUSE_BREAK_RE.test(text.slice(previousEnd, current.index))) return false;
     previousEnd = current.index + current.segment.length;
     if (!current.isWordLike) {
-      if (CLAUSE_BREAK_RE.test(current.segment)) return -1;
+      if (CLAUSE_BREAK_RE.test(current.segment)) return false;
       continue;
     }
     wordCount += 1;
-    if (wordCount > ASSERTION_WINDOW_SIZE) return -1;
-    if (ACTION_VERBS.has(current.segment)) return current.index + current.segment.length;
-    if (!ASSERTION_MODIFIERS.has(current.segment)) return -1;
+    if (wordCount > NEED_ACTION_WINDOW_SIZE) return false;
+    if (ACTION_VERBS.has(current.segment)) return true;
   }
-  return -1;
+  return false;
+}
+
+function hasBusinessNumericToken(source) {
+  const text = String(source || '');
+  const ordinaryPattern = new RegExp(`(?<![\\d.．])(${NUMBER_PATTERN})`, 'g');
+  for (const match of text.matchAll(ordinaryPattern)) {
+    const tail = text.slice(match.index + match[0].length);
+    const whitespace = tail.match(/^[ \t]*/)?.[0] || '';
+    const unit = matchingBusinessTerm(tail.slice(whitespace.length), BUSINESS_UNITS);
+    if (!unit) continue;
+    const value = Number(match[1]);
+    if (value >= 1900 && value <= 2099 && ['年', '月', '日'].includes(unit)) continue;
+    return true;
+  }
+  return false;
 }
 
 function findAssertionRanges(source) {
@@ -245,21 +248,28 @@ function findAssertionRanges(source) {
   const segments = [...CHINESE_WORD_SEGMENTER.segment(text)];
   for (let index = 0; index < segments.length; index += 1) {
     const current = segments[index];
-    const isFullWordAssertion = FULL_WORD_MANDATORY_ASSERTIONS.has(current.segment);
     const isSingleModal = SINGLE_MODAL_ASSERTIONS.has(current.segment) && current.isWordLike;
-    if (!isFullWordAssertion && !isSingleModal) continue;
-    if (isSingleModal) {
-      const previous = segments[index - 1];
-      const nextCharacter = text[current.index + current.segment.length] || '';
-      if (
-        text[current.index - 1] === '无'
-        || previous?.segment === '无'
-        || MODAL_COMPOUND_SUFFIXES.has(nextCharacter)
-      ) continue;
+    if (current.segment === NEED_ASSERTION) {
+      const { clauseStart, clauseEnd } = shortClauseBounds(
+        text,
+        current.index,
+        current.index + current.segment.length,
+      );
+      const clause = text.slice(clauseStart, clauseEnd);
+      if (hasBusinessNumericToken(clause) || hasActionVerbAhead(text, segments, index)) {
+        ranges.push({ start: current.index, end: current.index + current.segment.length });
+      }
+      continue;
     }
-    const end = modalActionEnd(text, segments, index);
-    if (end < 0) continue;
-    ranges.push({ start: current.index, end });
+    if (!isSingleModal) continue;
+    const previous = segments[index - 1];
+    const nextCharacter = text[current.index + current.segment.length] || '';
+    if (
+      text[current.index - 1] === '无'
+      || previous?.segment === '无'
+      || MODAL_COMPOUND_SUFFIXES.has(nextCharacter)
+    ) continue;
+    ranges.push({ start: current.index, end: current.index + current.segment.length });
   }
   ranges.sort((left, right) => left.start - right.start || right.end - left.end);
   const result = [];
@@ -289,35 +299,9 @@ function hasLeadingQuantityCopula(source) {
   );
 }
 
-function hasAssertionWithinWordWindow(source, maxWordSegments) {
-  const text = String(source || '');
-  const ranges = findAssertionRanges(text);
-  return ranges.some((range) => {
-    const prefix = text.slice(0, range.start);
-    if (CLAUSE_BREAK_RE.test(prefix)) return false;
-    const wordCount = [...CHINESE_WORD_SEGMENTER.segment(prefix)]
-      .filter((segment) => segment.isWordLike).length;
-    return wordCount <= maxWordSegments;
-  });
-}
-
-function hasQuantityNounAssertion(source) {
-  const text = String(source || '');
-  let previousEnd = 0;
-  let wordCount = 0;
-  for (const segment of CHINESE_WORD_SEGMENTER.segment(text)) {
-    if (CLAUSE_BREAK_RE.test(text.slice(previousEnd, segment.index))) return false;
-    previousEnd = segment.index + segment.segment.length;
-    if (!segment.isWordLike) {
-      if (CLAUSE_BREAK_RE.test(segment.segment)) return false;
-      continue;
-    }
-    wordCount += 1;
-    if (wordCount > 3) return false;
-    if (!QUANTITY_NOUNS.includes(segment.segment)) continue;
-    return hasAssertionWithinWordWindow(text.slice(previousEnd), 3);
-  }
-  return false;
+function hasQuantityNoun(source) {
+  return [...CHINESE_WORD_SEGMENTER.segment(String(source || ''))]
+    .some((segment) => segment.isWordLike && QUANTITY_NOUNS.includes(segment.segment));
 }
 
 function shortClauseBounds(source, start, end) {
@@ -327,14 +311,6 @@ function shortClauseBounds(source, start, end) {
   let clauseEnd = end;
   while (clauseEnd < source.length && !delimiters.test(source[clauseEnd])) clauseEnd += 1;
   return { clauseStart, clauseEnd };
-}
-
-function hasTypedAssertionContext(source, start, end, hasLabelConnector = false) {
-  if (hasLabelConnector) return true;
-  const { clauseStart, clauseEnd } = shortClauseBounds(source, start, end);
-  const before = source.slice(clauseStart, start);
-  const after = source.slice(end, clauseEnd);
-  return findAssertionRanges(before).length > 0 || hasLeadingAssertion(after);
 }
 
 function dottedSemanticTokens(source) {
@@ -350,7 +326,6 @@ function dottedSemanticTokens(source) {
   for (const match of text.matchAll(numberBeforeLabel)) {
     const start = match.index;
     const end = start + match[0].length;
-    if (!hasTypedAssertionContext(text, start, end)) continue;
     candidates.push({
       start,
       end,
@@ -361,19 +336,18 @@ function dottedSemanticTokens(source) {
   }
 
   const labelBeforeNumber = new RegExp(
-    `(${termsLongestFirst(['版本号', ...TYPED_DOTTED_SEMANTICS]).map(escapeRegExp).join('|')})\\s*((?:为|是)\\s*)?(\\d+(?:[.．]\\d+)+)`,
+    `(${termsLongestFirst(['版本号', '协议号', ...TYPED_DOTTED_SEMANTICS]).map(escapeRegExp).join('|')})\\s*((?:为|是|[:：=])\\s*)?(\\d+(?:[.．]\\d+)+)`,
     'g',
   );
   for (const match of text.matchAll(labelBeforeNumber)) {
     const start = match.index;
     const end = start + match[0].length;
-    if (!hasTypedAssertionContext(text, start, end, Boolean(match[2]))) continue;
     candidates.push({
       start,
       end,
       raw: match[0],
       normalized: match[3].replaceAll('．', '.'),
-      semantic: match[1] === '协议' ? '协议' : '版本',
+      semantic: match[1].startsWith('协议') ? '协议' : '版本',
     });
   }
 
@@ -386,13 +360,17 @@ function dottedSemanticTokens(source) {
   return result;
 }
 
-function leadingDottedSemanticToken(source) {
-  return dottedSemanticTokens(source).find((token) => token.start === 0 && /^\d/.test(token.raw));
+function isLeadingTypedBusinessValue(source) {
+  const text = String(source || '');
+  const semanticPattern = termsLongestFirst(TYPED_DOTTED_SEMANTICS).map(escapeRegExp).join('|');
+  const match = text.match(new RegExp(`^(\\d+(?:[.．]\\d+)+)\\s*(${semanticPattern})`));
+  if (!match) return false;
+  return hasLeadingAssertion(text.slice(match[0].length));
 }
 
 function isProtectedBusinessNumericPrefix(source, numericPrefix) {
   if (isValidIpv4Prefix(source)) return true;
-  if (leadingDottedSemanticToken(source)) return true;
+  if (isLeadingTypedBusinessValue(source)) return true;
   if (/[)）]/.test(numericPrefix[0])) return false;
   const rest = source.slice(numericPrefix[0].length);
   if (!numericPrefix[2] && matchingBusinessTerm(rest, BUSINESS_SEMANTICS)) return true;
@@ -403,7 +381,12 @@ function isProtectedBusinessNumericPrefix(source, numericPrefix) {
   const tail = source.slice(unitEnd).trimStart();
   if (hasLeadingAssertion(tail) || hasLeadingQuantityCopula(tail)) return true;
   if (matchingBusinessTerm(tail, QUANTITY_RANGE_TERMS)) return true;
-  return hasQuantityNounAssertion(tail);
+  const clause = tail.split(CLAUSE_BREAK_RE, 1)[0].slice(0, 28);
+  const [firstAssertion] = findAssertionRanges(clause);
+  if (!firstAssertion) return false;
+  const context = clause.slice(0, firstAssertion.start);
+  return hasQuantityNoun(context)
+    || QUANTITY_RANGE_TERMS.some((term) => context.includes(term));
 }
 
 function stripClauseNumber(text) {
