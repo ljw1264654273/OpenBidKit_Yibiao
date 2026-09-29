@@ -138,9 +138,10 @@ test('flags a suffixed place only after two proposal occurrences and absence fro
     [['星河镇'], references[1], references[2]],
   ), []);
 
-  const [suffixResult] = checkPlaceRelevance(['河镇', '河镇'], [['星河镇'], [], []]);
+  const [suffixResult] = checkPlaceRelevance(['银河镇', '银河镇'], [['星银河镇'], [], []]);
   assert.equal(suffixResult.ruleId, 'relevance.place');
-  assert.equal(suffixResult.place, '河镇');
+  assert.equal(suffixResult.place, '银河镇');
+  assert.deepEqual(checkPlaceRelevance(['本市', '本市'], [[], [], []]), []);
 });
 
 test('keeps every produced rule ID in the stable severity map and summarizes severities', () => {

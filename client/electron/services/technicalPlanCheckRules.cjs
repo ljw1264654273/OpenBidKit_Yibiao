@@ -45,7 +45,7 @@ const CLAUSE_NUMBER_RE = /^\s*(?:[（(]?[一二三四五六七八九十]+[)）]|
 const MANDATORY_RE = /▲|★|※|必须|不得|不低于|不少于|至少/;
 const DURATION_RE = new RegExp(`(${NUMBER_PATTERN})\\s*(个月|周|星期|天|日|年)(?![\\d年月日])`, 'g');
 const CALCULATION_RE = new RegExp(`(${NUMBER_PATTERN})\\s*([+＋\\-－×xX*])\\s*(${NUMBER_PATTERN})\\s*=\\s*(${NUMBER_PATTERN})`, 'g');
-const PLACE_RE = /[\u4e00-\u9fa5]{1,12}(?:街道|省|市|县|区|镇|乡|村)/g;
+const PLACE_RE = /[\u4e00-\u9fa5]{2,12}(?:省|市|县|区|镇|乡|村|街道)/g;
 
 function createFinding(ruleId, category, message, contexts = [], details = {}) {
   const severity = RULE_SEVERITY[ruleId];
