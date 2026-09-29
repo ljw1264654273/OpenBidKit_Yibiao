@@ -48,6 +48,8 @@ const DURATION_COMPONENT_RE = new RegExp(`(${NUMBER_PATTERN})\\s*(个月|周|星
 const CALCULATION_RE = new RegExp(`(${NUMBER_PATTERN})\\s*([+＋\\-－×xX*])\\s*(${NUMBER_PATTERN})\\s*=\\s*(${NUMBER_PATTERN})`, 'g');
 const PLACE_SUFFIX_LEVEL = Object.freeze({ 省: 1, 市: 2, 县: 3, 区: 3, 镇: 4, 乡: 4, 街道: 4, 村: 5 });
 const MAX_PLACE_DEPTH = 5;
+const PLACE_SUFFIXES = ['街道', '省', '市', '县', '区', '镇', '乡', '村'];
+const CHINESE_WORD_SEGMENTER = new Intl.Segmenter('zh-CN', { granularity: 'word' });
 
 function createFinding(ruleId, category, message, contexts = [], details = {}) {
   const severity = RULE_SEVERITY[ruleId];
@@ -93,11 +95,19 @@ function bigramCoverage(text, corpusOrBigrams) {
 
 function stripClauseNumber(text) {
   const source = String(text || '').trim();
+  const numericPrefix = source.match(/^\s*[（(]?\s*(\d+(?:[.．]\d+)+)\s*[)）]?\s*/);
+  if (numericPrefix) {
+    const rest = source.slice(numericPrefix[0].length);
+    const componentCount = numericPrefix[1].split(/[.．]/).length;
+    if (/^(?:年|个月|月|天|日|小时|分钟|秒|[%％])/.test(rest)) return source;
+    if (
+      componentCount >= 3
+      && /^(?:版本|服务器|协议|地址|端口|IP\b)/i.test(rest)
+    ) return source;
+  }
   const patterns = [
     /^\s*[（(]\s*\d+(?:[.．]\d+)+\s*[)）]\s*[、.]?\s*/,
-    /^\s*\d+(?:[.．]\d+){2,}\s*[、.)）]?\s*/,
-    /^\s*\d+(?:[.．]\d+)+[、)）]\s*/,
-    /^\s*\d+(?:[.．]\d+)+(?=\s)\s*/,
+    /^\s*\d+(?:[.．]\d+)+\s*[、.)）]?\s*/,
     /^\s*(?:[（(]?[一二三四五六七八九十]+[)）]|[（(]\d+[)）]|[一二三四五六七八九十]+、|\d+(?:[、)]|[.．](?!\d))|第[一二三四五六七八九十\d]+条)\s*/,
   ];
   for (const pattern of patterns) {
@@ -230,10 +240,16 @@ function checkScoreItems(items, proposal) {
 }
 
 function findDurations(text) {
-  const source = String(text || '').replace(
-    /(?:(?:19|20)\d{2}\s*年(?:\s*\d{1,2}\s*月(?:\s*\d{1,2}\s*[日号])?)?|\d{1,2}\s*月\s*\d{1,2}\s*[日号])/g,
-    (value) => ' '.repeat(value.length),
-  );
+  const mask = (value) => ' '.repeat(value.length);
+  const source = String(text || '')
+    .replace(
+      /(?:(?:19|20)\d{2}\s*年\s*)?\d{1,2}\s*月\s*\d{1,2}\s*[日号]\s*(?:至|到|[-—–~～])\s*(?:(?:19|20)\d{2}\s*年\s*)?(?:\d{1,2}\s*月\s*)?\d{1,2}\s*[日号]/g,
+      mask,
+    )
+    .replace(
+      /(?:(?:19|20)\d{2}\s*年(?:\s*\d{1,2}\s*月(?:\s*\d{1,2}\s*[日号])?)?|\d{1,2}\s*月\s*\d{1,2}\s*[日号])/g,
+      mask,
+    );
   const groups = [];
   let current = null;
   for (const match of source.matchAll(DURATION_COMPONENT_RE)) {
@@ -439,86 +455,135 @@ function flattenReferenceLines(referenceDocuments) {
   return result.map((line) => String(line || ''));
 }
 
-function isOrdinaryPlaceWord(run, token) {
-  const previous = run[token.index - 1] || '';
-  const next = run[token.index + token.value.length] || '';
-  return (token.value === '市' && next === '场')
-    || (token.value === '区' && next === '域')
-    || (token.value === '乡' && next === '村')
-    || (token.value === '村' && previous === '乡');
+function isChineseWord(segment) {
+  return Boolean(segment?.isWordLike) && /^[\u4e00-\u9fa5]+$/.test(segment.segment);
 }
 
-function placeTokens(run) {
-  return [...run.matchAll(/街道|省|市|县|区|镇|乡|村/g)]
-    .map((match) => ({
-      value: match[0],
-      index: match.index,
-      end: match.index + match[0].length,
-      level: PLACE_SUFFIX_LEVEL[match[0]],
-    }))
-    .filter((token) => !isOrdinaryPlaceWord(run, token));
+function placeSuffix(value) {
+  return PLACE_SUFFIXES.find((suffix) => value.endsWith(suffix)) || '';
 }
 
-function candidatesForChineseRun(run) {
-  const tokens = placeTokens(run);
-  const candidates = [];
-  for (let startIndex = 0; startIndex < tokens.length; startIndex += 1) {
-    const first = tokens[startIndex];
-    const firstNameStart = Math.max(0, first.index - 12);
-    const firstName = run.slice(firstNameStart, first.index);
-    if (firstName.length < 2) continue;
+function startsWithPlaceSuffix(value) {
+  return PLACE_SUFFIXES.find((suffix) => value.startsWith(suffix) && value.length > suffix.length) || '';
+}
 
-    let depth = 1;
-    let previous = first;
-    let endIndex = startIndex;
-    while (depth < MAX_PLACE_DEPTH && endIndex + 1 < tokens.length) {
-      const next = tokens[endIndex + 1];
-      const segmentLength = next.index - previous.end;
-      if (next.level <= previous.level || segmentLength < 2 || segmentLength > 12) break;
-      depth += 1;
-      endIndex += 1;
-      previous = next;
+function segmentedPlaceTokens(text) {
+  const raw = [...CHINESE_WORD_SEGMENTER.segment(String(text || ''))];
+  const segments = [];
+  for (let index = 0; index < raw.length; index += 1) {
+    const segment = raw[index];
+    const leadingSuffix = isChineseWord(segment) ? startsWithPlaceSuffix(segment.segment) : '';
+    const previousLevel = index >= 2 && isChineseWord(raw[index - 2])
+      ? PLACE_SUFFIX_LEVEL[placeSuffix(raw[index - 2].segment)]
+      : undefined;
+    if (leadingSuffix && previousLevel && PLACE_SUFFIX_LEVEL[leadingSuffix] > previousLevel) {
+      segments.push({
+        segment: leadingSuffix,
+        index: segment.index,
+        isWordLike: true,
+      });
+      segments.push({
+        segment: segment.segment.slice(leadingSuffix.length),
+        index: segment.index + leadingSuffix.length,
+        isWordLike: true,
+      });
+    } else {
+      segments.push(segment);
+    }
+  }
+  return segments;
+}
+
+function wordRunBounds(segments, index) {
+  let start = index;
+  let end = index;
+  while (
+    start > 0
+    && isChineseWord(segments[start - 1])
+    && segments[start - 1].index + segments[start - 1].segment.length === segments[start].index
+  ) start -= 1;
+  while (
+    end + 1 < segments.length
+    && isChineseWord(segments[end + 1])
+    && segments[end].index + segments[end].segment.length === segments[end + 1].index
+  ) end += 1;
+  return { start, end };
+}
+
+function nameForStandaloneSuffix(segments, index) {
+  const { start: runStart, end: runEnd } = wordRunBounds(segments, index);
+  if (index === runEnd && index - runStart <= 2) {
+    const completeName = segments.slice(runStart, index).map((segment) => segment.segment).join('');
+    if (completeName.length >= 2 && completeName.length <= 12) {
+      return { name: completeName, start: runStart };
+    }
+  }
+
+  let name = '';
+  let start = index;
+  for (let cursor = index - 1; cursor >= runStart && name.length < 2; cursor -= 1) {
+    const value = segments[cursor].segment;
+    if (placeSuffix(value)) break;
+    name = `${value}${name}`;
+    start = cursor;
+  }
+  if (name.length < 2 || name.length > 12) return null;
+  return { name, start };
+}
+
+function placeComponents(text) {
+  const segments = segmentedPlaceTokens(text);
+  const components = [];
+  for (let index = 0; index < segments.length; index += 1) {
+    const segment = segments[index];
+    if (!isChineseWord(segment)) continue;
+    const suffix = placeSuffix(segment.segment);
+    if (!suffix) continue;
+
+    const inlineName = segment.segment.slice(0, -suffix.length);
+    if (inlineName) {
+      if (inlineName.length < 2 || inlineName.length > 12) continue;
+      components.push({
+        place: segment.segment,
+        suffix,
+        level: PLACE_SUFFIX_LEVEL[suffix],
+        start: index,
+        end: index,
+      });
+      continue;
     }
 
-    candidates.push({
-      firstName,
-      tail: run.slice(first.index, previous.end),
-      place: run.slice(firstNameStart, previous.end),
-      depth,
+    const name = nameForStandaloneSuffix(segments, index);
+    if (!name) continue;
+    components.push({
+      place: `${name.name}${suffix}`,
+      suffix,
+      level: PLACE_SUFFIX_LEVEL[suffix],
+      start: name.start,
+      end: index,
     });
-    if (depth > 1) startIndex = endIndex;
   }
-  return candidates;
+  return components;
 }
 
 function extractPlaceCandidates(text) {
+  const components = placeComponents(text);
   const candidates = [];
-  for (const run of String(text || '').match(/[\u4e00-\u9fa5]+/g) || []) {
-    candidates.push(...candidatesForChineseRun(run));
+  for (let index = 0; index < components.length; index += 1) {
+    const chain = [components[index]];
+    while (chain.length < MAX_PLACE_DEPTH && index + 1 < components.length) {
+      const previous = chain.at(-1);
+      const next = components[index + 1];
+      if (next.start !== previous.end + 1 || next.level <= previous.level) break;
+      chain.push(next);
+      index += 1;
+    }
+    candidates.push({
+      place: chain.map((component) => component.place).join(''),
+      depth: chain.length,
+    });
   }
   return candidates;
-}
-
-function longestRepeatedName(candidates) {
-  const suffixCounts = new Map();
-  for (const candidate of candidates) {
-    const maxLength = Math.min(12, candidate.firstName.length);
-    for (let length = 2; length <= maxLength; length += 1) {
-      const suffix = candidate.firstName.slice(-length);
-      suffixCounts.set(suffix, (suffixCounts.get(suffix) || 0) + 1);
-    }
-  }
-  return [...suffixCounts.entries()]
-    .filter(([, count]) => count >= 2)
-    .sort((left, right) => right[0].length - left[0].length)[0]?.[0] || '';
-}
-
-function referenceContainsPlace(referenceCandidates, firstName, tail) {
-  return referenceCandidates.some((candidate) => {
-    if (candidate.tail !== tail || !candidate.firstName.endsWith(firstName)) return false;
-    const prefixLength = candidate.firstName.length - firstName.length;
-    return prefixLength === 0 || prefixLength >= 2;
-  });
 }
 
 function checkPlaceRelevance(proposalLines, referenceDocuments) {
@@ -526,19 +591,14 @@ function checkPlaceRelevance(proposalLines, referenceDocuments) {
   const referenceText = flattenReferenceLines(referenceDocuments).join('\n');
   const proposalCandidates = extractPlaceCandidates(proposalText);
   const referenceCandidates = extractPlaceCandidates(referenceText);
-  const byTail = new Map();
+  const referencePlaces = new Set(referenceCandidates.map((candidate) => candidate.place));
+  const counts = new Map();
   for (const candidate of proposalCandidates) {
-    const values = byTail.get(candidate.tail) || [];
-    values.push(candidate);
-    byTail.set(candidate.tail, values);
+    counts.set(candidate.place, (counts.get(candidate.place) || 0) + 1);
   }
   const findings = [];
-  for (const [tail, candidates] of byTail) {
-    const firstName = longestRepeatedName(candidates);
-    if (!firstName) continue;
-    const count = candidates.filter((candidate) => candidate.firstName.endsWith(firstName)).length;
-    if (referenceContainsPlace(referenceCandidates, firstName, tail)) continue;
-    const place = `${firstName}${tail}`;
+  for (const [place, count] of counts) {
+    if (count < 2 || referencePlaces.has(place)) continue;
     findings.push(createFinding(
       'relevance.place',
       '内容相关性',

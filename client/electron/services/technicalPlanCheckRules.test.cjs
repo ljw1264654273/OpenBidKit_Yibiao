@@ -78,11 +78,17 @@ test('ignores clause numbering and compares mandatory numeric tokens by normaliz
 });
 
 test('strips common Word clause numbers without deleting a leading decimal metric', () => {
+  assert.equal(stripClauseNumber('1.1必须提供服务'), '必须提供服务');
+  assert.equal(stripClauseNumber('1．1服务要求'), '服务要求');
   assert.equal(stripClauseNumber('1.1.1服务要求'), '服务要求');
   assert.equal(stripClauseNumber('1．1．1 服务要求'), '服务要求');
   assert.equal(stripClauseNumber('1.1.1、服务要求'), '服务要求');
   assert.equal(stripClauseNumber('（1.1）服务要求'), '服务要求');
   assert.equal(stripClauseNumber('1.5个月内完成'), '1.5个月内完成');
+  assert.equal(stripClauseNumber('1.5 个月内完成'), '1.5 个月内完成');
+  assert.equal(stripClauseNumber('1.5 %为最低比例'), '1.5 %为最低比例');
+  assert.equal(stripClauseNumber('2.0.1版本必须兼容'), '2.0.1版本必须兼容');
+  assert.equal(stripClauseNumber('192.168.1.1服务器必须可达'), '192.168.1.1服务器必须可达');
 });
 
 test('extracts score items only from pipe table rows and uses the same coverage thresholds', () => {
@@ -146,6 +152,19 @@ test('does not parse complete calendar dates or date ranges as durations', () =>
 
   assert.deepEqual(
     findDurations('服务期自2026年9月29日至2027年9月28日，实际履约期限为30天。')
+      .map((duration) => duration.label),
+    ['30天'],
+  );
+  for (const rangeText of [
+    '2026年9月29日至30日',
+    '9月29日至30日',
+    '2026年9月29日—30日',
+    '2026年9月29号到30号',
+  ]) {
+    assert.deepEqual(findDurations(rangeText), [], rangeText);
+  }
+  assert.deepEqual(
+    findDurations('服务期自2026年9月29日至30日，真实履约时间为30天。')
       .map((duration) => duration.label),
     ['30天'],
   );
@@ -254,7 +273,7 @@ test('extracts only maximal legal administrative chains with bounded candidates'
       .map((candidate) => candidate.place),
     ['黑龙江省哈尔滨市南岗区', '呼和浩特市', '东山镇'],
   );
-  assert.deepEqual(extractPlaceCandidates('市场活跃，覆盖区域广，服务乡村振兴。'), []);
+  assert.deepEqual(extractPlaceCandidates('市场活跃，覆盖区域广，服务乡村振兴，推进市政、乡镇、县级、村镇建设。'), []);
 
   const longText = `${'市场区域乡村普通说明。'.repeat(5000)}江苏省南京市鼓楼区。`;
   assert.deepEqual(
@@ -281,6 +300,22 @@ test('keeps single cities and townships distinct from surrounding prose', () => 
     '本次履约覆盖东山镇全域。',
   ], [[], [], []]);
   assert.equal(town.place, '东山镇');
+});
+
+test('uses exact normalized places for repeated sentences and reference matching', () => {
+  assert.deepEqual(checkPlaceRelevance([
+    '项目位于南京市。',
+    '项目位于南京市。',
+  ], [['南京市'], [], []]), []);
+  assert.deepEqual(checkPlaceRelevance([
+    '施工地点为东山镇。',
+    '施工地点为东山镇。',
+  ], [['东山镇'], [], []]), []);
+
+  const [town] = checkPlaceRelevance(['东山镇', '东山镇'], [['西安东山镇'], [], []]);
+  assert.equal(town.place, '东山镇');
+  const [galaxy] = checkPlaceRelevance(['银河镇', '银河镇'], [['星银河镇'], [], []]);
+  assert.equal(galaxy.place, '银河镇');
 });
 
 test('keeps every produced rule ID in the stable severity map and summarizes severities', () => {
