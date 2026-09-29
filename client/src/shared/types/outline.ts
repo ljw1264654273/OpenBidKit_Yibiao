@@ -25,6 +25,9 @@ export interface OutlineItem {
 
 export type OutlineMode = 'aligned' | 'response-file' | 'standalone-technical';
 export type OutlineExpansionMode = 'original-only' | 'ai-complement';
+export type OutlineMinimumDepth = 0 | 3 | 4 | 5;
+
+export const DEFAULT_OUTLINE_MINIMUM_DEPTH: OutlineMinimumDepth = 0;
 
 export interface OutlineWordControlOptions {
   minimumWords: number;
