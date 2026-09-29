@@ -30,6 +30,15 @@ function isMarkdownSeparator(cells) {
   return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell.replace(/\s+/g, '')));
 }
 
+function tableCellText($, cell) {
+  const clone = $(cell).clone();
+  clone.find('br').replaceWith(' ');
+  clone.find(blockTags.join(',')).each((_, element) => {
+    $(element).after(' ');
+  });
+  return normalizeVisibleText(clone.text().replace(/\s+/g, ' '));
+}
+
 function parseLine(value) {
   const line = normalizeVisibleText(value);
   if (!line || /^\s*```/.test(line)) return null;
@@ -48,15 +57,15 @@ function parseLine(value) {
 function htmlToText(content) {
   const $ = cheerio.load(String(content || ''), null, false);
 
-  $('br').replaceWith('\n');
   $('table').each((_, table) => {
     const tableLines = [];
     $(table).find('tr').each((__, row) => {
-      const cells = $(row).children('th, td').map((___, cell) => normalizeVisibleText($(cell).text())).get();
+      const cells = $(row).children('th, td').map((___, cell) => tableCellText($, cell)).get();
       if (cells.some(Boolean)) tableLines.push(cells.join(' | '));
     });
     $(table).replaceWith(`\n${tableLines.join('\n')}\n`);
   });
+  $('br').replaceWith('\n');
   $(blockTags.join(',')).each((_, element) => {
     $(element).after('\n');
   });

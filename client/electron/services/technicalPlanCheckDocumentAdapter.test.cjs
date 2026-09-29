@@ -4,6 +4,11 @@ const test = require('node:test');
 const { toDocumentLines } = require('./technicalPlanCheckDocumentAdapter.cjs');
 
 test('normalizes equivalent HTML, Markdown and MinerU score tables to the same line', () => {
+  const expected = [
+    '评分说明',
+    '评分因素 | 评分内容 | 分值',
+    '评分因素 | 实施方案 | 10',
+  ];
   const fixtures = [
     `
       <p>评分说明</p>
@@ -30,10 +35,20 @@ test('normalizes equivalent HTML, Markdown and MinerU score tables to the same l
   ];
 
   for (const fixture of fixtures) {
-    const lines = toDocumentLines(fixture);
-    assert.ok(lines.includes('评分因素 | 实施方案 | 10'), lines.join('\n'));
-    assert.ok(lines.includes('评分说明'), lines.join('\n'));
+    assert.deepEqual(toDocumentLines(fixture), expected);
   }
+});
+
+test('keeps HTML table cell breaks and block paragraphs inside one normalized cell', () => {
+  assert.deepEqual(toDocumentLines(`
+    <table>
+      <tr><td>评分因素</td><td>实施方案<br>重点说明</td><td>10</td></tr>
+      <tr><td>评分因素</td><td><p>多段</p><p>内容</p></td><td>5</td></tr>
+    </table>
+  `), [
+    '评分因素 | 实施方案 重点说明 | 10',
+    '评分因素 | 多段 内容 | 5',
+  ]);
 });
 
 test('strips Markdown and HTML markers without swallowing visible paragraph text', () => {

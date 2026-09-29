@@ -10,8 +10,11 @@ const RULE_SEVERITY = Object.freeze({
   'language.repeated-char': 'review',
   'relevance.place': 'review',
   'format.chapter-score': 'review',
-  'format.numbering': 'review',
-  'format.English': 'review',
+  'format.numbering-mixed': 'review',
+  'format.numbering-manual-styles': 'review',
+  'format.numbering-auto-styles': 'review',
+  'language.english-unknown': 'review',
+  'language.english-variant': 'review',
   'calculation.mismatch': 'issue',
   'language.unbalanced-pair': 'issue',
   'format.alignment': 'issue',
@@ -42,7 +45,7 @@ const CLAUSE_NUMBER_RE = /^\s*(?:[（(]?[一二三四五六七八九十]+[)）]|
 const MANDATORY_RE = /▲|★|※|必须|不得|不低于|不少于|至少/;
 const DURATION_RE = new RegExp(`(${NUMBER_PATTERN})\\s*(个月|周|星期|天|日|年)(?![\\d年月日])`, 'g');
 const CALCULATION_RE = new RegExp(`(${NUMBER_PATTERN})\\s*([+＋\\-－×xX*])\\s*(${NUMBER_PATTERN})\\s*=\\s*(${NUMBER_PATTERN})`, 'g');
-const PLACE_RE = /[\u4e00-\u9fa5]{2,12}(?:街道|省|市|县|区|镇|乡|村)/g;
+const PLACE_RE = /[\u4e00-\u9fa5]{1,12}(?:街道|省|市|县|区|镇|乡|村)/g;
 
 function createFinding(ruleId, category, message, contexts = [], details = {}) {
   const severity = RULE_SEVERITY[ruleId];
@@ -367,14 +370,19 @@ function flattenReferenceLines(referenceDocuments) {
   return result.map((line) => String(line || ''));
 }
 
+function extractPlaces(text) {
+  return new Set(String(text || '').match(PLACE_RE) || []);
+}
+
 function checkPlaceRelevance(proposalLines, referenceDocuments) {
   const proposalText = (proposalLines || []).map((line) => String(line || '')).join('\n');
   const referenceText = flattenReferenceLines(referenceDocuments).join('\n');
-  const candidates = [...new Set(proposalText.match(PLACE_RE) || [])].sort();
+  const candidates = [...extractPlaces(proposalText)].sort();
+  const referencePlaces = extractPlaces(referenceText);
   const findings = [];
   for (const place of candidates) {
     const count = proposalText.split(place).length - 1;
-    if (count < 2 || referenceText.includes(place)) continue;
+    if (count < 2 || referencePlaces.has(place)) continue;
     findings.push(createFinding(
       'relevance.place',
       '内容相关性',
@@ -386,12 +394,30 @@ function checkPlaceRelevance(proposalLines, referenceDocuments) {
   return findings;
 }
 
-function summarizeFindings(findings) {
-  const summary = { total: 0, issue: 0, review: 0, info: 0 };
+function summarizeResults(findings) {
+  const summary = {
+    total: 0,
+    issue: 0,
+    review: 0,
+    info: 0,
+    req_unresp: 0,
+    req_part: 0,
+    score_uncov: 0,
+    score_pcov: 0,
+    internal_total: 0,
+  };
   for (const finding of findings || []) {
     summary.total += 1;
     if (Object.prototype.hasOwnProperty.call(summary, finding?.severity)) {
       summary[finding.severity] += 1;
+    }
+    const ruleId = String(finding?.ruleId || '');
+    if (ruleId === 'requirement.missing') summary.req_unresp += 1;
+    if (ruleId === 'requirement.partial') summary.req_part += 1;
+    if (ruleId === 'score.missing') summary.score_uncov += 1;
+    if (ruleId === 'score.partial') summary.score_pcov += 1;
+    if (/^(?:time|calculation|logic|language|relevance|format)\./.test(ruleId)) {
+      summary.internal_total += 1;
     }
   }
   return summary;
@@ -413,5 +439,6 @@ module.exports = {
   checkLogicConflicts,
   checkLanguage,
   checkPlaceRelevance,
-  summarizeFindings,
+  summarizeResults,
+  summarizeFindings: summarizeResults,
 };

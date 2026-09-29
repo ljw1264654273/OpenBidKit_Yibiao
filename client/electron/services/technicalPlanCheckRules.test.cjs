@@ -15,7 +15,7 @@ const {
   checkLogicConflicts,
   checkLanguage,
   checkPlaceRelevance,
-  summarizeFindings,
+  summarizeResults,
 } = require('./technicalPlanCheckRules.cjs');
 
 test('splits requirement phrases and reuses a precomputed Chinese bigram corpus', () => {
@@ -135,8 +135,12 @@ test('flags a suffixed place only after two proposal occurrences and absence fro
   assert.equal(result.count, 2);
   assert.deepEqual(checkPlaceRelevance(
     ['星河镇，开展服务。', '星河镇，设置驻点。'],
-    [['招标地点为星河镇。'], references[1], references[2]],
+    [['星河镇'], references[1], references[2]],
   ), []);
+
+  const [suffixResult] = checkPlaceRelevance(['河镇', '河镇'], [['星河镇'], [], []]);
+  assert.equal(suffixResult.ruleId, 'relevance.place');
+  assert.equal(suffixResult.place, '河镇');
 });
 
 test('keeps every produced rule ID in the stable severity map and summarizes severities', () => {
@@ -154,14 +158,43 @@ test('keeps every produced rule ID in the stable severity map and summarizes sev
     assert.equal(finding.severity, RULE_SEVERITY[finding.ruleId], finding.ruleId);
   }
   assert.equal(RULE_SEVERITY['format.chapter-score'], 'review');
-  assert.equal(RULE_SEVERITY['format.English'], 'review');
+  assert.equal(RULE_SEVERITY['format.numbering-mixed'], 'review');
+  assert.equal(RULE_SEVERITY['format.numbering-manual-styles'], 'review');
+  assert.equal(RULE_SEVERITY['format.numbering-auto-styles'], 'review');
+  assert.equal(RULE_SEVERITY['language.english-unknown'], 'review');
+  assert.equal(RULE_SEVERITY['language.english-variant'], 'review');
   assert.equal(RULE_SEVERITY['format.font-family'], 'issue');
   assert.equal(RULE_SEVERITY['check.statistics'], 'info');
+  assert.equal(RULE_SEVERITY['format.numbering'], undefined);
+  assert.equal(RULE_SEVERITY['format.English'], undefined);
+});
 
-  assert.deepEqual(summarizeFindings(findings), {
-    total: findings.length,
-    issue: findings.filter((item) => item.severity === 'issue').length,
-    review: findings.filter((item) => item.severity === 'review').length,
-    info: findings.filter((item) => item.severity === 'info').length,
+test('restores recovered summary fields by rule ID and excludes requirement and score from internal total', () => {
+  const findings = [
+    { ruleId: 'requirement.missing', severity: 'review' },
+    { ruleId: 'requirement.partial', severity: 'review' },
+    { ruleId: 'score.missing', severity: 'review' },
+    { ruleId: 'score.partial', severity: 'review' },
+    { ruleId: 'time.inconsistent', severity: 'review' },
+    { ruleId: 'calculation.mismatch', severity: 'issue' },
+    { ruleId: 'logic.inconsistent', severity: 'review' },
+    { ruleId: 'language.placeholder', severity: 'review' },
+    { ruleId: 'language.repeated-char', severity: 'review' },
+    { ruleId: 'language.unbalanced-pair', severity: 'issue' },
+    { ruleId: 'relevance.place', severity: 'review' },
+    { ruleId: 'format.alignment', severity: 'issue' },
+    { ruleId: 'check.statistics', severity: 'info' },
+  ];
+
+  assert.deepEqual(summarizeResults(findings), {
+    total: 13,
+    issue: 3,
+    review: 9,
+    info: 1,
+    req_unresp: 1,
+    req_part: 1,
+    score_uncov: 1,
+    score_pcov: 1,
+    internal_total: 8,
   });
 });
