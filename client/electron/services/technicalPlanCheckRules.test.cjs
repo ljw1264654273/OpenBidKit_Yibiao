@@ -87,8 +87,8 @@ test('compares mandatory IP CIDR version and protocol tokens as complete typed v
   const cases = [
     ['服务器地址192.168.1.1必须可达', '服务器地址192.168.1.2必须可达', '192.168.1.1'],
     ['业务网段192.168.1.0/24必须可达', '业务网段192.168.1.0/25必须可达', '192.168.1.0/24'],
-    ['系统必须兼容2.0.1版本', '系统必须兼容2.0.9版本', '2.0.1版本'],
-    ['系统必须支持1.2协议', '系统必须支持1.3协议', '1.2协议'],
+    ['系统采用2.0.1版本必须兼容', '系统采用2.0.9版本必须兼容', '2.0.1版本'],
+    ['系统采用1.2协议必须支持', '系统采用1.3协议必须支持', '1.2协议'],
   ];
   for (const [requirement, proposal, token] of cases) {
     const [finding] = checkRequirements([requirement], proposal);
@@ -105,12 +105,20 @@ test('compares mandatory IP CIDR version and protocol tokens as complete typed v
     '业务网段192.168.1.0/24必须可达',
   ), []);
   assert.deepEqual(checkRequirements(
-    ['系统必须兼容2．0．1 版本'],
-    '系统必须兼容2.0.1版本',
+    ['系统采用2．0．1 版本必须兼容'],
+    '系统采用2.0.1版本必须兼容',
   ), []);
   assert.deepEqual(checkRequirements(
-    ['系统必须支持1．2 协议'],
-    '系统必须支持1.2协议',
+    ['系统采用1．2 协议应支持'],
+    '系统采用1.2协议应支持',
+  ), []);
+  assert.deepEqual(checkRequirements(
+    ['1.1 版本管理要求必须说明'],
+    '版本管理要求必须说明',
+  ), []);
+  assert.deepEqual(checkRequirements(
+    ['1.1协议管理要求必须说明'],
+    '协议管理要求必须说明',
   ), []);
 });
 
@@ -125,12 +133,12 @@ test('strips common Word clause numbers without deleting a leading decimal metri
   assert.equal(stripClauseNumber('1.5 个月内完成'), '1.5 个月内完成');
   assert.equal(stripClauseNumber('1.5 %为最低比例'), '1.5 %为最低比例');
   assert.equal(stripClauseNumber('1.5 米以上'), '1.5 米以上');
-  assert.equal(stripClauseNumber('2.5 元以上'), '2.5 元以上');
-  assert.equal(stripClauseNumber('3.5 台设备'), '3.5 台设备');
-  assert.equal(stripClauseNumber('4.5 人以上'), '4.5 人以上');
+  assert.equal(stripClauseNumber('2.5 台需配置'), '2.5 台需配置');
+  assert.equal(stripClauseNumber('1.5 年期服务'), '1.5 年期服务');
+  assert.equal(stripClauseNumber('2.5 元报价'), '2.5 元报价');
   assert.equal(stripClauseNumber('2.0.1版本必须兼容'), '2.0.1版本必须兼容');
   assert.equal(stripClauseNumber('2.0.1 版本必须兼容'), '2.0.1 版本必须兼容');
-  assert.equal(stripClauseNumber('1.2 协议必须支持'), '1.2 协议必须支持');
+  assert.equal(stripClauseNumber('1.2 协议应支持'), '1.2 协议应支持');
   assert.equal(stripClauseNumber('192.168.1.1服务器必须可达'), '192.168.1.1服务器必须可达');
   for (const businessValue of [
     '1.5米为最低长度',
@@ -150,13 +158,19 @@ test('strips common Word clause numbers without deleting a leading decimal metri
     assert.equal(stripClauseNumber(businessValue), businessValue);
   }
   assert.equal(stripClauseNumber('1.1 人员配置必须满足要求'), '人员配置必须满足要求');
+  assert.equal(stripClauseNumber('1.1人员配置必须满足要求'), '人员配置必须满足要求');
   assert.equal(stripClauseNumber('1.1 项目概况'), '项目概况');
+  assert.equal(stripClauseNumber('1.1项目概况'), '项目概况');
   assert.equal(stripClauseNumber('1.1 年度服务计划'), '年度服务计划');
+  assert.equal(stripClauseNumber('1.1年度服务计划'), '年度服务计划');
   assert.equal(stripClauseNumber('1.1 地址规划必须满足要求'), '地址规划必须满足要求');
-  assert.equal(stripClauseNumber('1.1 版本管理要求'), '1.1 版本管理要求');
+  assert.equal(stripClauseNumber('1.1 版本管理要求'), '版本管理要求');
   assert.equal(stripClauseNumber('1.1 人力资源配置'), '人力资源配置');
   assert.equal(stripClauseNumber('1.1 年限要求'), '年限要求');
   assert.equal(stripClauseNumber('1.1 站点建设'), '站点建设');
+  assert.equal(stripClauseNumber('1.1站点建设'), '站点建设');
+  assert.equal(stripClauseNumber('1.1 版本管理要求必须说明'), '版本管理要求必须说明');
+  assert.equal(stripClauseNumber('1.1协议管理要求必须说明'), '协议管理要求必须说明');
   assert.equal(stripClauseNumber('（1.1）人员配置必须满足要求'), '人员配置必须满足要求');
   assert.equal(stripClauseNumber('（1.1）版本管理要求'), '版本管理要求');
   assert.equal(stripClauseNumber('（1.1）地址规划要求'), '地址规划要求');
@@ -443,6 +457,14 @@ test('rejects generic suffix words and merges legal prefecture-to-county chains'
   assert.deepEqual(
     extractPlaceCandidates('江苏省苏州市昆山市周市镇。').map((candidate) => candidate.place),
     ['江苏省苏州市昆山市周市镇'],
+  );
+  assert.deepEqual(
+    extractPlaceCandidates('南京市上海市。').map((candidate) => candidate.place),
+    ['南京市', '上海市'],
+  );
+  assert.deepEqual(
+    extractPlaceCandidates('北京市上海市。').map((candidate) => candidate.place),
+    ['北京市', '上海市'],
   );
 });
 

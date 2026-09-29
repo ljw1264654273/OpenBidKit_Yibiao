@@ -1,4 +1,5 @@
 const { parsePipeTableRow } = require('./technicalPlanCheckDocumentAdapter.cjs');
+const { areaList } = require('@vant/area-data');
 
 const RULE_SEVERITY = Object.freeze({
   'requirement.partial': 'review',
@@ -53,12 +54,12 @@ const BUSINESS_UNITS = [
   'kWh', 'kW', 'Wh', '千瓦', 'm²', 'm³', '㎡', '亩', '吨', '克', '升', '℃', '年', '月', '周',
   '天', '日', '秒', '瓦', 'W',
   '米', '元', '台', '套', '个', '项', '人', '次', '件', '份', '辆', '组', '座', '处', '家', '名',
-  '点', '站', 'V', 'A', 'm', 'L', '度', '%', '％',
+  '点', 'V', 'A', 'm', 'L', '度', '%', '％',
 ];
-const BUSINESS_SEMANTICS = ['版本', '服务器', '协议', '地址', '网段', '端口', 'IP', '版'];
+const BUSINESS_SEMANTICS = ['服务器', '地址', '网段', '端口', 'IP'];
 const TYPED_DOTTED_SEMANTICS = ['版本', '协议', '版'];
-const QUANTITY_FOLLOWERS = [
-  '不超过', '以上', '以下', '以内', '以外', '为', '必须', '设备', '配置', '数量', '最低', '最高', '不少',
+const TYPED_DOTTED_ASSERTIONS = [
+  '不低于', '不高于', '必须', '不得', '兼容', '支持', '应', '需', '为', '是',
 ];
 const PLACE_SUFFIX_LEVEL = Object.freeze({
   特别行政区: 1,
@@ -80,6 +81,8 @@ const PLACE_SUFFIX_LEVEL = Object.freeze({
 const MAX_PLACE_DEPTH = 5;
 const PLACE_SUFFIXES = ['特别行政区', '自治区', '自治州', '自治县', '新区', '街道', '省', '市', '县', '区', '镇', '乡', '村', '盟', '旗'];
 const PREFECTURE_PLACE_SUFFIXES = new Set(['市', '自治州', '盟']);
+const CITY_AREA_CODES_BY_NAME = areaCodesByName(areaList.city_list);
+const COUNTY_AREA_CODES_BY_NAME = areaCodesByName(areaList.county_list);
 const SPECIAL_ADMIN_REGIONS = [
   '内蒙古自治区',
   '广西壮族自治区',
@@ -157,6 +160,16 @@ function escapeRegExp(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+function areaCodesByName(areaEntries) {
+  const result = new Map();
+  for (const [code, name] of Object.entries(areaEntries || {})) {
+    const codes = result.get(name) || [];
+    codes.push(code);
+    result.set(name, codes);
+  }
+  return result;
+}
+
 function matchingBusinessTerm(text, terms) {
   const source = String(text || '').toLocaleLowerCase('en-US');
   return termsLongestFirst(terms).find((term) => {
@@ -167,13 +180,29 @@ function matchingBusinessTerm(text, terms) {
   }) || '';
 }
 
-function leadingDottedSemanticToken(source) {
+function dottedSemanticPattern({ anchored = false, global = false } = {}) {
   const semanticPattern = termsLongestFirst(TYPED_DOTTED_SEMANTICS)
     .map(escapeRegExp)
     .join('|');
-  return String(source || '').match(
-    new RegExp(`^(\\d+(?:[.．]\\d+)+)\\s*(${semanticPattern})`),
+  const assertionPattern = termsLongestFirst(TYPED_DOTTED_ASSERTIONS)
+    .map(escapeRegExp)
+    .join('|');
+  return new RegExp(
+    `${anchored ? '^' : '(?<![\\d.．])'}(\\d+(?:[.．]\\d+)+)\\s*(${semanticPattern})(?=\\s*(?:${assertionPattern}))`,
+    global ? 'g' : '',
   );
+}
+
+function leadingDottedSemanticToken(source) {
+  return String(source || '').match(dottedSemanticPattern({ anchored: true }));
+}
+
+function hasWordBoundaryAt(source, position) {
+  for (const segment of CHINESE_WORD_SEGMENTER.segment(String(source || ''))) {
+    if (segment.index + segment.segment.length === position) return true;
+    if (segment.index > position) break;
+  }
+  return false;
 }
 
 function isProtectedBusinessNumericPrefix(source, numericPrefix) {
@@ -184,10 +213,9 @@ function isProtectedBusinessNumericPrefix(source, numericPrefix) {
   if (!numericPrefix[2] && matchingBusinessTerm(rest, BUSINESS_SEMANTICS)) return true;
   const unit = matchingBusinessTerm(rest, BUSINESS_UNITS);
   if (!unit) return false;
-  if (!numericPrefix[2] || !/^[\u4e00-\u9fa5]$/.test(unit)) return true;
-  const quantityTail = rest.slice(unit.length).trimStart();
-  return !quantityTail || termsLongestFirst(QUANTITY_FOLLOWERS)
-    .some((follower) => quantityTail.startsWith(follower));
+  if (!/^[\u4e00-\u9fa5]$/.test(unit)) return true;
+  const unitEnd = numericPrefix[0].length + unit.length;
+  return hasWordBoundaryAt(source, unitEnd);
 }
 
 function stripClauseNumber(text) {
@@ -248,14 +276,7 @@ function extractNumericTokens(text) {
     });
   }
 
-  const semanticPattern = termsLongestFirst(TYPED_DOTTED_SEMANTICS)
-    .map(escapeRegExp)
-    .join('|');
-  const dottedSemanticPattern = new RegExp(
-    `(?<![\\d.．])(\\d+(?:[.．]\\d+)+)\\s*(${semanticPattern})`,
-    'g',
-  );
-  for (const match of source.matchAll(dottedSemanticPattern)) {
+  for (const match of source.matchAll(dottedSemanticPattern({ global: true }))) {
     const start = match.index;
     const end = start + match[0].length;
     if (typedTokens.some((token) => start < token.end && token.start < end)) continue;
@@ -722,10 +743,25 @@ function specialRegionComponents(source) {
   return components;
 }
 
-function canFollowPlaceComponent(previous, next) {
+function canFollowPlaceSuffix(previous, next) {
   if (!previous || !next) return false;
   if (next.level > previous.level) return true;
   return PREFECTURE_PLACE_SUFFIXES.has(previous.suffix) && next.suffix === '市';
+}
+
+function isVerifiedCountyChild(previous, next) {
+  if (!PREFECTURE_PLACE_SUFFIXES.has(previous.suffix) || next.suffix !== '市') return false;
+  const cityCodes = CITY_AREA_CODES_BY_NAME.get(previous.place) || [];
+  const countyCodes = COUNTY_AREA_CODES_BY_NAME.get(next.place) || [];
+  return cityCodes.some((cityCode) => (
+    countyCodes.some((countyCode) => countyCode.slice(0, 4) === cityCode.slice(0, 4))
+  ));
+}
+
+function canMergePlaceComponents(previous, next) {
+  if (!previous || !next) return false;
+  if (next.level > previous.level) return true;
+  return isVerifiedCountyChild(previous, next);
 }
 
 function placeComponents(text) {
@@ -775,7 +811,7 @@ function placeComponents(text) {
     const child = suffixMatches[index + 1];
     const hasChildSuffix = Boolean(
       child
-      && canFollowPlaceComponent(match, child)
+      && canFollowPlaceSuffix(match, child)
       && child.start >= match.end
       && /^[\u4e00-\u9fa5]+$/.test(source.slice(match.end, child.start)),
     );
@@ -792,7 +828,7 @@ function placeComponents(text) {
     const isConfirmedChainComponent = Boolean(
       !endsAtWordBoundary
       && previous
-      && canFollowPlaceComponent(previous, match)
+      && canFollowPlaceSuffix(previous, match)
       && hasChildSuffix
       && child.start > match.end
       && previous.end <= match.start
@@ -837,7 +873,7 @@ function extractPlaceCandidates(text) {
     while (chain.length < MAX_PLACE_DEPTH && index + 1 < components.length) {
       const previous = chain.at(-1);
       const next = components[index + 1];
-      if (next.start !== previous.end || !canFollowPlaceComponent(previous, next)) break;
+      if (next.start !== previous.end || !canMergePlaceComponents(previous, next)) break;
       chain.push(next);
       index += 1;
     }
