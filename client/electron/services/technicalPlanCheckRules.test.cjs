@@ -461,6 +461,9 @@ test('rejects single-character units that are prefixes of ordinary compound word
     ['1.1 点击操作必须说明', '点击操作必须说明'],
     ['1.1 站立训练必须说明', '站立训练必须说明'],
     ['1.1 套路说明必须提交', '套路说明必须提交'],
+    ['1.1 年费要求必须说明', '年费要求必须说明'],
+    ['1.1 月台建设必须说明', '月台建设必须说明'],
+    ['1.1 组装设备必须配置', '组装设备必须配置'],
   ]) {
     assert.equal(stripClauseNumber(source), expected, source);
   }
@@ -475,6 +478,8 @@ test('rejects single-character units that are prefixes of ordinary compound word
   for (const [requirement, proposal] of [
     ['服务期必须达到1.1年', '1.1 年会安排必须说明'],
     ['必须提供1.1套设备', '1.1 套件管理必须说明'],
+    ['服务期限必须达到1.1年', '1.1 年费要求必须说明'],
+    ['必须配置1.1组设备', '1.1 组装设备必须配置'],
   ]) {
     assert.equal(
       checkRequirements([requirement], proposal)
