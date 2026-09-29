@@ -1,3 +1,5 @@
+const { parsePipeTableRow } = require('./technicalPlanCheckDocumentAdapter.cjs');
+
 const RULE_SEVERITY = Object.freeze({
   'requirement.partial': 'review',
   'requirement.missing': 'review',
@@ -41,7 +43,7 @@ const SPLIT_RE = new RegExp(
   String.raw`[，,、。；;：:（()）)\s\d%．./\-—_*▲★※【】\[\]{}"'“”‘’<>《》=＝]+|${FUNCTION_WORDS}`,
 );
 const REQUIREMENT_MARK_RE = /必须|应当|不应|不得|须|不低于|不少于|至少|以上|支持|具备|提供|满足|要求|▲|★|※|响应|符合|采用|配置|实现|包括/;
-const CLAUSE_NUMBER_RE = /^\s*(?:[（(]?[一二三四五六七八九十]+[)）]|[（(]\d+[)）]|[一二三四五六七八九十]+、|\d+(?:[.、)])|第[一二三四五六七八九十\d]+条)/;
+const CLAUSE_NUMBER_RE = /^\s*(?:[（(]?[一二三四五六七八九十]+[)）]|[（(]\d+[)）]|[一二三四五六七八九十]+、|\d+(?:\.\d+)+(?:[.、)）]|(?=\s|$))|\d+(?:[.、)])|第[一二三四五六七八九十\d]+条)/;
 const MANDATORY_RE = /▲|★|※|必须|不得|不低于|不少于|至少/;
 const DURATION_COMPONENT_RE = new RegExp(`(${NUMBER_PATTERN})\\s*(个月|周|星期|天|日|年)`, 'g');
 const CALCULATION_RE = new RegExp(`(${NUMBER_PATTERN})\\s*([+＋\\-－×xX*])\\s*(${NUMBER_PATTERN})\\s*=\\s*(${NUMBER_PATTERN})`, 'g');
@@ -108,12 +110,12 @@ function extractRequirements(lines, minLength = 12) {
 }
 
 function extractNumericTokens(text) {
-  return [...String(text || '').matchAll(new RegExp(`(?<![\\d.])(${NUMBER_PATTERN})\\s*(%)?`, 'g'))]
+  return [...String(text || '').matchAll(new RegExp(`(?<![\\d.])(${NUMBER_PATTERN})\\s*([%％])?`, 'g'))]
     .map((match) => ({
       value: Number(match[1]),
-      unit: match[2] || '',
+      unit: match[2] ? '%' : '',
       raw: `${match[1]}${match[2] || ''}`,
-      key: `${Number(match[1])}|${match[2] || ''}`,
+      key: `${Number(match[1])}|${match[2] ? '%' : ''}`,
     }));
 }
 
@@ -177,8 +179,8 @@ function extractScoreItems(lines) {
   const seen = new Set();
   for (const line of lines || []) {
     const text = String(line || '');
-    if (!text.includes('|')) continue;
-    const cells = text.split('|').map((cell) => cell.trim());
+    const cells = parsePipeTableRow(text).map((cell) => cell.trim());
+    if (cells.length < 2) continue;
     for (let index = 0; index < cells.length; index += 1) {
       if (!new RegExp(`^${NUMBER_PATTERN}\\s*分?$`).test(cells[index])) continue;
       if (index === 0) break;
@@ -213,7 +215,10 @@ function checkScoreItems(items, proposal) {
 }
 
 function findDurations(text) {
-  const source = String(text || '');
+  const source = String(text || '').replace(
+    /(?:19|20)\d{2}\s*年\s*\d{1,2}\s*月\s*\d{1,2}\s*日/g,
+    (value) => ' '.repeat(value.length),
+  );
   const groups = [];
   let current = null;
   for (const match of source.matchAll(DURATION_COMPONENT_RE)) {
@@ -225,7 +230,7 @@ function findDurations(text) {
     };
     const gap = current ? source.slice(current.end, component.start) : '';
     const canAppend = current
-      && /^\s*$/.test(gap)
+      && /^\s*(?:零|又|和|及)?\s*$/.test(gap)
       && !current.components.some((item) => item.unit === component.unit);
     if (!canAppend) {
       if (current) groups.push(current);
@@ -282,12 +287,13 @@ function checkTimeConflicts(lines) {
   const findings = [];
   for (const [keyword, entries] of byKeyword) {
     const compareByMonths = entries.every((entry) => entry.months !== null);
-    const comparisonValues = [...new Set(entries.map((entry) => Math.round(
+    const exactValue = (value) => Number(Number(value).toFixed(9));
+    const comparisonValues = [...new Set(entries.map((entry) => exactValue(
       compareByMonths ? entry.months : entry.days,
     )))].sort((left, right) => left - right);
     if (comparisonValues.length <= 1) continue;
     const values = [...new Set(entries.map((entry) => entry.label))];
-    const days = [...new Set(entries.map((entry) => Math.round(entry.days)))].sort((left, right) => left - right);
+    const days = [...new Set(entries.map((entry) => exactValue(entry.days)))].sort((left, right) => left - right);
     findings.push(createFinding(
       'time.inconsistent',
       '时间一致性',
@@ -419,11 +425,30 @@ function flattenReferenceLines(referenceDocuments) {
 }
 
 function extractPlaces(text) {
-  const normalized = String(text || '').replace(
-    /(?:服务地点为?|项目所在地为?|项目地点为?|项目位于|建设地点为?|实施地点为?|服务区域为?|地点为?|位于)/g,
-    '\n',
-  );
-  return new Set(normalized.match(PLACE_RE) || []);
+  const places = new Set();
+  const chineseRuns = String(text || '').match(/[\u4e00-\u9fa5]+/g) || [];
+  for (const run of chineseRuns) {
+    const suffixes = [...run.matchAll(/街道|省|市|县|区|镇|乡|村/g)];
+    if (suffixes.length < 2) {
+      for (const place of run.match(PLACE_RE) || []) places.add(place);
+      continue;
+    }
+    for (let startIndex = 0; startIndex < suffixes.length - 1; startIndex += 1) {
+      const first = suffixes[startIndex];
+      const candidateStart = first.index - 2;
+      if (candidateStart < 0) continue;
+      let previousEnd = first.index + first[0].length;
+      for (let endIndex = startIndex + 1; endIndex < suffixes.length; endIndex += 1) {
+        const next = suffixes[endIndex];
+        const segmentLength = next.index - previousEnd;
+        if (segmentLength < 2 || segmentLength > 12) break;
+        const candidateEnd = next.index + next[0].length;
+        places.add(run.slice(candidateStart, candidateEnd));
+        previousEnd = candidateEnd;
+      }
+    }
+  }
+  return places;
 }
 
 function checkPlaceRelevance(proposalLines, referenceDocuments) {

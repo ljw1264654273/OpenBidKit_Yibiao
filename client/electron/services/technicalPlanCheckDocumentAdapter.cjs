@@ -69,6 +69,12 @@ function splitMarkdownTableCells(value) {
   return cells;
 }
 
+function serializePipeTableCells(cells) {
+  return (cells || [])
+    .map((cell) => String(cell || '').replace(/\|/g, '\\|'))
+    .join(' | ');
+}
+
 function protectMarkdownTableBreaks(content) {
   return String(content || '')
     .split(/\r?\n/)
@@ -97,7 +103,7 @@ function parseLine(value) {
   const cells = splitMarkdownTableCells(line).map(stripInlineMarkers);
   if (isMarkdownSeparator(cells)) return null;
   if (!cells.some(Boolean)) return null;
-  return cells.join(' | ');
+  return serializePipeTableCells(cells);
 }
 
 function htmlToText(content) {
@@ -107,7 +113,7 @@ function htmlToText(content) {
     const tableLines = [];
     $(table).find('tr').each((__, row) => {
       const cells = $(row).children('th, td').map((___, cell) => tableCellText($, cell)).get();
-      if (cells.some(Boolean)) tableLines.push(cells.join(' | '));
+      if (cells.some(Boolean)) tableLines.push(serializePipeTableCells(cells));
     });
     $(table).replaceWith(`\n${tableLines.join('\n')}\n`);
   });
@@ -128,4 +134,6 @@ function toDocumentLines(content) {
 
 module.exports = {
   toDocumentLines,
+  parsePipeTableRow: splitMarkdownTableCells,
+  serializePipeTableCells,
 };

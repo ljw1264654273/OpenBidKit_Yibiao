@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 
 const { toDocumentLines } = require('./technicalPlanCheckDocumentAdapter.cjs');
+const { extractScoreItems } = require('./technicalPlanCheckRules.cjs');
 
 test('normalizes equivalent HTML, Markdown and MinerU score tables to the same line', () => {
   const expected = [
@@ -90,6 +91,12 @@ test('keeps Markdown table HTML breaks inside cells and does not split escaped o
   `), [
     '类型 | 内容 | 分值',
     '实施 | 第一段 第二段 | 10',
-    '说明 | A | B 与 C | D | 5',
+    '说明 | A \\| B 与 C \\| D | 5',
   ]);
+});
+
+test('preserves literal pipes through adapter serialization and score extraction', () => {
+  const lines = toDocumentLines('| 评分因素 | A \\| B 与 `C | D` | 10 |');
+  assert.deepEqual(lines, ['评分因素 | A \\| B 与 C \\| D | 10']);
+  assert.deepEqual(extractScoreItems(lines), [{ desc: 'A | B 与 C | D', score: 10 }]);
 });

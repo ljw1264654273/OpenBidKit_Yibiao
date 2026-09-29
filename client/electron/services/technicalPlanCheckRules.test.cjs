@@ -52,8 +52,20 @@ test('ignores clause numbering and compares mandatory numeric tokens by normaliz
   assert.deepEqual(missing.missingNumbers, [10]);
   assert.deepEqual(missing.missingNumberTokens, ['10']);
 
+  for (const clause of ['1.1', '1.1.1']) {
+    const [nestedMissing] = checkRequirements(
+      [`${clause} 必须提供10台设备并完成巡检`],
+      '必须提供设备并完成巡检',
+    );
+    assert.deepEqual(nestedMissing.missingNumbers, [10]);
+  }
+
   assert.deepEqual(
-    checkRequirements(['1. 服务指标必须达到95%并完成验收'], '服务指标必须达到95%并完成验收'),
+    checkRequirements(['1.1 服务指标必须达到95％并完成验收'], '服务指标必须达到95%并完成验收'),
+    [],
+  );
+  assert.deepEqual(
+    checkRequirements(['1.1.1 服务指标必须达到95%并完成验收'], '服务指标必须达到95％并完成验收'),
     [],
   );
   assert.deepEqual(
@@ -94,11 +106,24 @@ test('checks only internal proposal duration keywords and compares normalized da
 
 test('parses adjacent duration components as one duration', () => {
   assert.deepEqual(checkTimeConflicts(['服务期为1年6个月。', '服务期为18个月。']), []);
+  assert.deepEqual(checkTimeConflicts(['服务期为1年零6个月。', '服务期为18个月。']), []);
+  assert.deepEqual(checkTimeConflicts(['服务期为1年又6个月。', '服务期为18个月。']), []);
 
   const [result] = checkTimeConflicts(['服务期为1年30天。', '服务期为13个月。']);
   assert.equal(result.ruleId, 'time.inconsistent');
   assert.deepEqual(result.values, ['1年30天', '13个月']);
   assert.deepEqual(result.days, [390, 395]);
+
+  const [decimalResult] = checkTimeConflicts(['服务期为1.1个月。', '服务期为1.2个月。']);
+  assert.equal(decimalResult.ruleId, 'time.inconsistent');
+  assert.deepEqual(decimalResult.values, ['1.1个月', '1.2个月']);
+});
+
+test('does not parse complete calendar dates or date ranges as durations', () => {
+  assert.deepEqual(checkTimeConflicts([
+    '服务期自2026年9月29日至2027年9月28日。',
+    '服务期安排以合同日期为准。',
+  ]), []);
 });
 
 test('supports only explicit addition, subtraction and multiplication calculations', () => {
@@ -170,19 +195,19 @@ test('flags a suffixed place only after two proposal occurrences and absence fro
 
 test('normalizes common place lead-ins and continuous administrative chains', () => {
   assert.deepEqual(checkPlaceRelevance([
-    '服务地点为江苏省南京市。',
-    '项目位于江苏省南京市。',
+    '团队将在江苏省南京市开展驻场服务。',
+    '本次履约覆盖江苏省南京市全部范围。',
   ], [
-    ['项目位于江苏省南京市。'],
+    ['采购范围明确为江苏省南京市。'],
     [],
     [],
   ]), []);
 
   const [result] = checkPlaceRelevance([
-    '服务地点为江苏省南京市。',
-    '项目位于江苏省南京市。',
+    '团队将在江苏省南京市开展驻场服务。',
+    '本次履约覆盖江苏省南京市全部范围。',
   ], [
-    ['项目位于浙江省杭州市。'],
+    ['采购范围明确为浙江省杭州市。'],
     [],
     [],
   ]);
