@@ -53,6 +53,7 @@ const variantOutlineWordControlOptions = Object.freeze({
   sectionWords: 1800,
   strictSectionWords: false,
 });
+const defaultOutlineMinimumDepth = 0;
 const variantContentGenerationOptions = Object.freeze({
   imagePreset: 'text-only',
   useAiImages: false,
@@ -86,6 +87,8 @@ const initialState = {
   outlineExpansionMode: 'ai-complement',
   outlineWordControlOptions: { ...defaultOutlineWordControlOptions },
   outlineWordControlSnapshot: undefined,
+  outlineMinimumDepth: defaultOutlineMinimumDepth,
+  outlineMinimumDepthSnapshot: undefined,
   referenceKnowledgeDocumentIds: [],
   remoteKnowledgeScopes: [],
   bidSectionExtractionTask: undefined,
@@ -221,6 +224,11 @@ function normalizeOutlineWordControlOptions(value) {
     sectionWords,
     strictSectionWords: sectionWords > 0 && Boolean(value?.strictSectionWords),
   };
+}
+
+function normalizeOutlineMinimumDepth(value) {
+  const number = Number(value);
+  return number === 3 || number === 4 || number === 5 ? number : defaultOutlineMinimumDepth;
 }
 
 function isValidStep(value) {
@@ -2426,6 +2434,7 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       outline_mode: defaultOutlineModeForWorkflow(ensureMetaRow().workflow_kind),
       outline_expansion_mode: 'ai-complement',
       outline_word_control_snapshot_json: null,
+      outline_minimum_depth_snapshot: null,
       outline_project_name: null,
       outline_project_overview: null,
       global_facts_mode: 'omit',
@@ -2464,6 +2473,7 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       content_generation_options_json: null,
       content_generation_runtime_json: null,
       outline_word_control_snapshot_json: null,
+      outline_minimum_depth_snapshot: null,
       outline_project_name: null,
       outline_project_overview: null,
     });
@@ -2525,6 +2535,7 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       outline_project_overview: null,
       content_generation_runtime_json: null,
       outline_word_control_snapshot_json: null,
+      outline_minimum_depth_snapshot: null,
     });
   }
 
@@ -2712,6 +2723,14 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
         ? null
         : JSON.stringify(normalizeOutlineWordControlOptions(partial.outlineWordControlSnapshot));
     }
+    if (hasOwn(partial, 'outlineMinimumDepth')) {
+      metaUpdates.outline_minimum_depth = normalizeOutlineMinimumDepth(partial.outlineMinimumDepth);
+    }
+    if (hasOwn(partial, 'outlineMinimumDepthSnapshot')) {
+      metaUpdates.outline_minimum_depth_snapshot = partial.outlineMinimumDepthSnapshot === undefined || partial.outlineMinimumDepthSnapshot === null
+        ? null
+        : normalizeOutlineMinimumDepth(partial.outlineMinimumDepthSnapshot);
+    }
     if (hasOwn(partial, 'contentGenerationOptions')) metaUpdates.content_generation_options_json = jsonOrNull(partial.contentGenerationOptions);
     if (!invalidatesContentGeneration && hasOwn(partial, 'contentGenerationRuntime')) metaUpdates.content_generation_runtime_json = jsonOrNull(partial.contentGenerationRuntime);
 
@@ -2744,11 +2763,12 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
           outline_project_name: null,
           outline_project_overview: null,
           outline_word_control_snapshot_json: null,
+          outline_minimum_depth_snapshot: null,
         });
       } else {
         saveOutlineData(partial.outlineData);
         if (!partial.outlineData?.outline?.length) {
-          updateMeta({ outline_word_control_snapshot_json: null });
+          updateMeta({ outline_word_control_snapshot_json: null, outline_minimum_depth_snapshot: null });
         }
       }
     }
@@ -2821,6 +2841,10 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       outlineWordControlSnapshot: meta.outline_word_control_snapshot_json
         ? normalizeOutlineWordControlOptions(safeJsonParse(meta.outline_word_control_snapshot_json, defaultOutlineWordControlOptions))
         : undefined,
+      outlineMinimumDepth: normalizeOutlineMinimumDepth(meta.outline_minimum_depth),
+      outlineMinimumDepthSnapshot: meta.outline_minimum_depth_snapshot === null || meta.outline_minimum_depth_snapshot === undefined
+        ? (outlineData?.outline?.length ? defaultOutlineMinimumDepth : undefined)
+        : normalizeOutlineMinimumDepth(meta.outline_minimum_depth_snapshot),
       referenceKnowledgeDocumentIds: loadReferenceDocumentIds(),
       remoteKnowledgeScopes: loadRemoteKnowledgeScopes(),
       ...tasks,
@@ -2888,7 +2912,7 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     throw new Error('项目类型固定，请返回项目列表创建新项目');
   }
 
-  function saveOutlineConfig({ referenceKnowledgeDocumentIds, remoteKnowledgeScopes, outlineMode, outlineExpansionMode, wordControlOptions } = {}) {
+  function saveOutlineConfig({ referenceKnowledgeDocumentIds, remoteKnowledgeScopes, outlineMode, outlineExpansionMode, wordControlOptions, minimumDepth } = {}) {
     const transaction = db.transaction(() => {
       replaceReferenceDocumentIds(referenceKnowledgeDocumentIds);
       replaceRemoteKnowledgeScopes(remoteKnowledgeScopes);
@@ -2896,6 +2920,7 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
         outlineMode: isValidOutlineMode(outlineMode) ? outlineMode : defaultOutlineModeForWorkflow(ensureMetaRow().workflow_kind),
         outlineExpansionMode: isValidOutlineExpansionMode(outlineExpansionMode) ? outlineExpansionMode : 'ai-complement',
         outlineWordControlOptions: normalizeOutlineWordControlOptions(wordControlOptions),
+        outlineMinimumDepth: normalizeOutlineMinimumDepth(minimumDepth),
       });
     });
     transaction();
@@ -3030,7 +3055,7 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       savedOutlineData = outlineToSave;
       saveOutlineData(outlineToSave);
       if (!outlineToSave?.outline?.length) {
-        updateMeta({ outline_word_control_snapshot_json: null });
+        updateMeta({ outline_word_control_snapshot_json: null, outline_minimum_depth_snapshot: null });
       }
       const rows = flattenOutlineItems(outlineToSave?.outline || []);
       const nextIds = new Set(rows.map((row) => row.node_id));
@@ -3196,6 +3221,7 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       selectedSectionId: state.tenderFile.selectedSectionId,
       selectedSectionTitle: state.tenderFile.selectedSectionTitle,
       selectedSectionHeadLine: meta.selected_section_head_line || undefined,
+      outlineMinimumDepth: state.outlineMinimumDepth,
     };
   }
 
@@ -3272,6 +3298,8 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
         selected_section_head_line: seed?.selectedSectionHeadLine || null,
         outline_word_control_options_json: JSON.stringify(variantOutlineWordControlOptions),
         outline_word_control_snapshot_json: null,
+        outline_minimum_depth: normalizeOutlineMinimumDepth(seed?.outlineMinimumDepth),
+        outline_minimum_depth_snapshot: null,
         outline_project_name: null,
         outline_project_overview: null,
         content_generation_options_json: JSON.stringify(variantContentGenerationOptions),
