@@ -18,6 +18,7 @@ import TenderSourcePanel from '../components/TenderSourcePanel';
 import type { TenderSourcePanelProps } from '../components/TenderSourcePanel';
 import { formatKnowledgeReferenceSummary, isRemoteScopeStale } from '../remoteKnowledgeSelection';
 import { canAddOutlineChild } from '../services/outlineDepth';
+import { buildOutlineAiChildrenMessages, normalizeGeneratedChildren } from '../services/outlineAiChildren';
 import { collectOutlineSourceRecords } from '../services/outlineSourceMatcher';
 import { getDocumentsForFolder, getFoldersForKnowledgeBase, mergeFolderDocumentSelection } from '../services/nodeKnowledgeSelection';
 
@@ -1444,7 +1445,7 @@ function OutlineEditPage({
   };
 
   const addAiChildren = async () => {
-    if (!outlineData || !selectedItem || outlineMutationLocked || sorting || aiChildrenBusy) return;
+    if (!outlineData || !selectedItem || !selectedItemPath || outlineMutationLocked || sorting || aiChildrenBusy) return;
     const requirement = aiChildrenRequirement.trim();
     if (!requirement) {
       showToast('请先输入对子目录的要求', 'info');
@@ -1457,47 +1458,26 @@ function OutlineEditPage({
 
     setAiChildrenBusy(true);
     try {
-      const result = await window.yibiao?.ai?.requestJson<{
-        children?: Array<{ title?: string; description?: string; content_mode?: OutlineContentMode; content_mode_note?: string }>;
-      }>({
+      const minimumDepth = outlineMinimumDepth;
+      const result = await window.yibiao?.ai?.requestJson<unknown>({
         progressLabel: 'AI 添加子目录',
         failureMessage: 'AI 添加子目录失败，请稍后重试',
         max_retries: 1,
-        messages: [
-          {
-            role: 'system',
-            content: '你是专业投标文件目录设计助手。只返回 JSON，不要输出 Markdown 或解释。根据当前目录标题和用户要求，生成 2 到 8 个直接可写正文的叶子子目录。标题具体、互不重复、覆盖用户要求；不要生成 children。每个对象必须有 title、description、content_mode，其中 content_mode 只能是 ai-generate、template-fill、point-to-point、other。',
-          },
-          {
-            role: 'user',
-            content: JSON.stringify({
-              current_title: selectedItem.title,
-              current_description: selectedItem.description,
-              user_requirement: requirement,
-              output_shape: { children: [{ title: '子目录标题', description: '该叶子需要编写的具体内容', content_mode: 'ai-generate' }] },
-            }),
-          },
-        ],
+        messages: buildOutlineAiChildrenMessages({
+          title: selectedItem.title,
+          description: selectedItem.description,
+          requirement,
+          parentDepth: selectedItemPath.length,
+          minimumDepth,
+        }),
       });
-      const rawChildren = Array.isArray(result?.children) ? result.children : [];
-      const children = rawChildren
-        .map((child) => ({
-          title: String(child?.title || '').trim(),
-          description: String(child?.description || '').trim(),
-          content_mode: child?.content_mode && ['ai-generate', 'template-fill', 'point-to-point', 'other'].includes(child.content_mode)
-            ? child.content_mode
-            : 'ai-generate' as const,
-          ...(child?.content_mode === 'other' && String(child?.content_mode_note || '').trim()
-            ? { content_mode_note: String(child.content_mode_note).trim() }
-            : {}),
-        }))
-        .filter((child) => child.title)
-        .filter((child, index, list) => list.findIndex((candidate) => candidate.title === child.title) === index)
-        .map((child) => ({ ...child, description: child.description || child.title }))
-        .slice(0, 8);
-      if (!children.length) throw new Error('AI 未返回有效的子目录');
       const nextIndex = (selectedItem.children?.length || 0) + 1;
-      const nextChildren = children.map((child, index) => ({ ...child, id: `${selectedItem.id}.${nextIndex + index}` }));
+      const nextChildren = normalizeGeneratedChildren(result, {
+        parentId: selectedItem.id,
+        parentDepth: selectedItemPath.length,
+        minimumDepth,
+        startIndex: nextIndex,
+      });
       await saveOutlineChange(updateOutlineItem(outlineData.outline, selectedItem.id, (item) => ({
         ...item,
         children: [...(item.children || []), ...nextChildren],
