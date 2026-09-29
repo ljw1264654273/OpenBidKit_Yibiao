@@ -77,14 +77,15 @@ const QUANTITY_RANGE_TERMS = [
   '不低于', '不高于', '不超过', '不少于', '至少', '至多', '以上', '以下', '以内',
   '以外', '大于', '小于', '高于', '低于',
 ];
-const QUANTITY_NOUNS = [
-  '长度', '宽度', '高度', '面积', '体积', '重量', '质量', '数量', '台数', '人数',
-  '套数', '金额', '报价', '价格', '费用', '容量', '内存', '带宽', '速率', '期限',
-  '周期', '载重', '设备', '授权', '期',
-];
 const NON_UNIT_COMPOUNDS = new Set([
-  '台账', '月度', '点位', '站务', '人防', '项下', '元宇宙', '次要',
+  '台账', '月度', '月报', '点位', '点检', '站点', '站务', '人防', '项下',
+  '元数据', '元宇宙', '次要',
 ]);
+const TYPED_TITLE_SUFFIXES = new Set(['管理', '说明', '事项', '方案', '章节', '概述', '设计']);
+const TYPED_BUSINESS_PREDICATES = new Set([
+  '采用', '使用', '兼容', '支持', '运行', '升级', '适配', '解析', '基于',
+]);
+const PROPOSAL_CLAUSE_BREAK_RE = /[，,。；;\n]/;
 const PLACE_SUFFIX_LEVEL = Object.freeze({
   特别行政区: 1,
   自治区: 1,
@@ -326,11 +327,6 @@ function hasLeadingQuantityCopula(source) {
   );
 }
 
-function hasQuantityNoun(source) {
-  return [...CHINESE_WORD_SEGMENTER.segment(String(source || ''))]
-    .some((segment) => segment.isWordLike && QUANTITY_NOUNS.includes(segment.segment));
-}
-
 function isOrdinaryCompoundPrefix(source, unit) {
   const firstWord = [...CHINESE_WORD_SEGMENTER.segment(String(source || ''))]
     .find((segment) => segment.isWordLike);
@@ -423,10 +419,7 @@ function isProtectedBusinessNumericPrefix(source, numericPrefix) {
   if (matchingBusinessTerm(tail, QUANTITY_RANGE_TERMS)) return true;
   const clause = tail.split(QUANTITY_SENTENCE_BREAK_RE, 1)[0];
   const [firstAssertion] = findAssertionRanges(clause);
-  if (!firstAssertion) return false;
-  const context = clause.slice(0, firstAssertion.start);
-  return hasQuantityNoun(context)
-    || QUANTITY_RANGE_TERMS.some((term) => context.includes(term));
+  return Boolean(firstAssertion);
 }
 
 function stripChineseChapterPrefixes(text) {
@@ -440,7 +433,40 @@ function stripChineseChapterPrefixes(text) {
   return { text: source, chapterPrefixed };
 }
 
-function stripTypedDottedTokens(text) {
+function proposalClauseBounds(source, start, end) {
+  let clauseStart = start;
+  while (clauseStart > 0 && !PROPOSAL_CLAUSE_BREAK_RE.test(source[clauseStart - 1])) {
+    clauseStart -= 1;
+  }
+  let clauseEnd = end;
+  while (clauseEnd < source.length && !PROPOSAL_CLAUSE_BREAK_RE.test(source[clauseEnd])) {
+    clauseEnd += 1;
+  }
+  return { clauseStart, clauseEnd };
+}
+
+function hasDirectAssertionAction(clause) {
+  return findAssertionRanges(clause).some((assertion) => {
+    const tail = clause.slice(assertion.end).trimStart();
+    return Boolean(matchingBusinessTerm(tail, ACTION_VERBS));
+  });
+}
+
+function shouldKeepChapterTypedToken(source, token) {
+  const { clauseStart, clauseEnd } = proposalClauseBounds(source, token.start, token.end);
+  const clause = source.slice(clauseStart, clauseEnd);
+  const suffix = source.slice(token.end, clauseEnd).trimStart();
+  if (matchingBusinessTerm(suffix, TYPED_TITLE_SUFFIXES)) return false;
+  if (/^(?:版本|协议)(?:号)?\s*(?:为|是|[:：=])\s*\d+(?:[.．]\d+)+$/.test(token.raw)) {
+    return true;
+  }
+  if ([...TYPED_BUSINESS_PREDICATES].some((predicate) => clause.includes(predicate))) {
+    return true;
+  }
+  return hasDirectAssertionAction(clause);
+}
+
+function sanitizeChapterTypedTokens(text) {
   const source = String(text || '');
   const tokens = dottedSemanticTokens(source);
   if (!tokens.length) return source;
@@ -448,6 +474,7 @@ function stripTypedDottedTokens(text) {
   const chunks = [];
   for (const token of tokens) {
     chunks.push(source.slice(cursor, token.start));
+    if (shouldKeepChapterTypedToken(source, token)) chunks.push(source.slice(token.start, token.end));
     cursor = token.end;
   }
   chunks.push(source.slice(cursor));
@@ -457,8 +484,8 @@ function stripTypedDottedTokens(text) {
 function sanitizeProposalNumericLine(line) {
   const { text, chapterPrefixed } = stripChineseChapterPrefixes(line);
   const sanitized = stripClauseNumber(text);
-  if (!chapterPrefixed || hasAssertion(line)) return sanitized;
-  return stripTypedDottedTokens(sanitized);
+  if (!chapterPrefixed) return sanitized;
+  return sanitizeChapterTypedTokens(sanitized);
 }
 
 function stripClauseNumber(text) {

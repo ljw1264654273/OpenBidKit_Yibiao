@@ -324,6 +324,29 @@ test('removes Chinese chapter prefixes before indexing proposal numeric tokens',
     ['系统必须兼容1.1版本'],
     '第一章 系统必须兼容1.1版本',
   ), []);
+  for (const [requirement, proposal] of [
+    ['系统必须采用1.1版本', '第一章 系统采用1.1版本'],
+    ['系统版本为1.1必须兼容', '第一章 系统版本为1.1'],
+    ['系统必须支持1.2协议', '第一章 系统支持1.2协议'],
+  ]) {
+    assert.equal(
+      checkRequirements([requirement], proposal)
+        .some((finding) => finding.ruleId === 'requirement.mandatory-number-missing'),
+      false,
+      proposal,
+    );
+  }
+
+  for (const proposal of [
+    '第一章 必须响应事项 1.1版本管理',
+    '第一章 系统兼容1.1版本管理，其他内容必须说明',
+    '第一章 技术方案 1.1版本管理',
+    '第一章 技术方案 1.1版本管理，其他内容必须说明',
+  ]) {
+    const [finding] = checkRequirements(['系统必须兼容1.1版本'], proposal);
+    assert.equal(finding.ruleId, 'requirement.mandatory-number-missing', proposal);
+    assert.deepEqual(finding.missingNumberTokens, ['1.1版本'], proposal);
+  }
 
   const [protocolFinding] = checkRequirements(
     ['系统必须支持1.2协议'],
@@ -437,6 +460,16 @@ test('rejects single-character units that are prefixes of ordinary compound word
   );
   assert.equal(finding.ruleId, 'requirement.mandatory-number-missing');
   assert.deepEqual(finding.missingNumberTokens, ['1.1']);
+});
+
+test('protects a valid single-character quantity when its sentence contains an assertion', () => {
+  const businessValue = '1.5 项服务必须提供';
+  assert.equal(stripClauseNumber(businessValue), businessValue);
+  assert.equal(
+    checkRequirements(['必须提供1.5项服务'], businessValue)
+      .some((finding) => finding.ruleId === 'requirement.mandatory-number-missing'),
+    false,
+  );
 });
 
 test('extracts score items only from pipe table rows and uses the same coverage thresholds', () => {
