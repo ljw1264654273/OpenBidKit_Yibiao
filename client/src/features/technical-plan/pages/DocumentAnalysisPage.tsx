@@ -11,12 +11,14 @@ import type {
   ContentTableRequirement,
   DetectedBidSection,
   TechnicalPlanOriginalPlanFile,
+  RemoteKnowledgeScope,
   TechnicalPlanState,
   TechnicalPlanTenderFile,
   TechnicalPlanTenderSourceFile,
   TechnicalPlanWorkflowKind,
 } from '../types';
 import BidSectionSelectorDialog from '../components/BidSectionSelectorDialog';
+import KnowledgeReferenceQuickConfig from '../components/KnowledgeReferenceQuickConfig';
 import {
   IMAGE_PRESET_LABELS,
   QUICK_CONFIG_IMAGE_OPTIONS,
@@ -85,6 +87,8 @@ interface DocumentAnalysisPageProps {
   outlineMinimumDepth: OutlineMinimumDepth;
   outlineConfigLocked: boolean;
   contentGenerationOptions?: ContentGenerationOptions;
+  referenceKnowledgeDocumentIds: string[];
+  remoteKnowledgeScopes: RemoteKnowledgeScope[];
   contentTaskStatus?: BackgroundTaskStatus;
   hasDownstreamData: boolean;
   onFileImported: (state: TechnicalPlanState, markdown: string) => void;
@@ -92,6 +96,7 @@ interface DocumentAnalysisPageProps {
   onOutlineWordControlChange: (options: OutlineWordControlOptions) => Promise<void>;
   onOutlineMinimumDepthChange: (minimumDepth: OutlineMinimumDepth) => Promise<void>;
   onContentGenerationOptionsChange: (options: ContentGenerationOptions) => Promise<void>;
+  onKnowledgeReferenceChange: (referenceKnowledgeDocumentIds: string[], remoteKnowledgeScopes: RemoteKnowledgeScope[]) => Promise<void>;
   onResetBidSectionDownstream: () => Promise<void>;
   onStateRefresh: () => Promise<void>;
   onCustomPageStateChange?: (state: { selected: boolean; draft: string }) => void;
@@ -160,6 +165,8 @@ function DocumentAnalysisPage({
   outlineMinimumDepth,
   outlineConfigLocked,
   contentGenerationOptions,
+  referenceKnowledgeDocumentIds,
+  remoteKnowledgeScopes,
   contentTaskStatus,
   hasDownstreamData,
   onFileImported,
@@ -167,6 +174,7 @@ function DocumentAnalysisPage({
   onOutlineWordControlChange,
   onOutlineMinimumDepthChange,
   onContentGenerationOptionsChange,
+  onKnowledgeReferenceChange,
   onResetBidSectionDownstream,
   onStateRefresh,
   onCustomPageStateChange,
@@ -1080,6 +1088,13 @@ function DocumentAnalysisPage({
                 </div>
               </div>
             </div>
+
+            <KnowledgeReferenceQuickConfig
+              referenceKnowledgeDocumentIds={referenceKnowledgeDocumentIds}
+              remoteKnowledgeScopes={remoteKnowledgeScopes}
+              disabled={outlineConfigLocked}
+              onChange={onKnowledgeReferenceChange}
+            />
           </div>
         )}
       </section>

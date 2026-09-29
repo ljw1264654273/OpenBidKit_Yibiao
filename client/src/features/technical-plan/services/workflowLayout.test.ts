@@ -532,6 +532,34 @@ test('STEP 01 快速配置默认收起并收敛正文为全屏查看入口', () 
   assert.match(source, /fullscreenTriggerOnly/);
 });
 
+test('STEP 01 快速配置末行提供分类与归属地知识库多选弹窗', () => {
+  const source = readFileSync(new URL('../pages/DocumentAnalysisPage.tsx', import.meta.url), 'utf8');
+  const home = readFileSync(new URL('../pages/TechnicalPlanHome.tsx', import.meta.url), 'utf8');
+  const picker = componentSource('KnowledgeReferenceQuickConfig');
+  const css = readFileSync(new URL('../../../styles/feature-technical-plan.css', import.meta.url), 'utf8');
+
+  assert.match(source, /<KnowledgeReferenceQuickConfig/);
+  assert.match(source, /referenceKnowledgeDocumentIds/);
+  assert.match(source, /remoteKnowledgeScopes/);
+  assert.match(source, /onKnowledgeReferenceChange/);
+  assert.match(home, /referenceKnowledgeDocumentIds={state\.referenceKnowledgeDocumentIds}/);
+  assert.match(home, /remoteKnowledgeScopes={state\.remoteKnowledgeScopes}/);
+  assert.match(home, /onKnowledgeReferenceChange=\{async \(referenceKnowledgeDocumentIds, remoteKnowledgeScopes\) =>/);
+  assert.match(picker, /<AppDialog/);
+  assert.match(picker, /选择参考知识库/);
+  assert.match(picker, /role="tablist"/);
+  assert.match(picker, /本地知识库/);
+  assert.match(picker, /远程知识库/);
+  assert.match(picker, /KNOWLEDGE_BASE_CATALOG/);
+  assert.match(picker, /归属地/);
+  assert.match(picker, /搜索文件夹或文档/);
+  assert.match(picker, /选择当前筛选结果/);
+  assert.match(picker, /已选择/);
+  assert.match(picker, /确认选择/);
+  assert.match(css, /\.knowledge-reference-dialog\s*\{[^}]*width:\s*min\(960px,\s*calc\(100vw - 40px\)\)/s);
+  assert.match(css, /\.knowledge-reference-dialog-body\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s+280px/s);
+});
+
 test('STEP 01 已确认投标范围不再显示重复提示条', () => {
   const source = readFileSync(new URL('../pages/DocumentAnalysisPage.tsx', import.meta.url), 'utf8');
 

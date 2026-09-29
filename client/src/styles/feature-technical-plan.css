@@ -7434,6 +7434,380 @@
   font-size: 12px;
 }
 
+.knowledge-reference-quick-body {
+  flex-wrap: nowrap;
+}
+
+.knowledge-reference-quick-summary {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.knowledge-reference-chip {
+  display: inline-flex;
+  flex: 0 1 auto;
+  max-width: 210px;
+  min-height: 26px;
+  align-items: center;
+  padding: 3px 9px;
+  overflow: hidden;
+  color: var(--yb-text-soft);
+  font-size: 11.5px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: rgba(33, 116, 253, .06);
+  border: 1px solid rgba(33, 116, 253, .16);
+  border-radius: var(--yb-radius-pill);
+}
+
+.knowledge-reference-chip.is-count {
+  flex: 0 0 auto;
+  color: var(--yb-primary-deep);
+  font-weight: 700;
+}
+
+.knowledge-reference-dialog {
+  width: min(960px, calc(100vw - 40px));
+  height: min(720px, calc(100vh - 40px));
+  max-height: calc(100vh - 40px);
+}
+
+.knowledge-reference-dialog-content {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.knowledge-reference-local-shell {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.knowledge-reference-source-tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 38px;
+  border-bottom: 1px solid var(--yb-border-soft);
+}
+
+.knowledge-reference-source-tabs > button,
+.knowledge-reference-category-filter button {
+  min-height: 28px;
+  padding: 4px 9px;
+  color: var(--yb-text-soft);
+  font-size: 12px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--technical-workbench-control-radius);
+}
+
+.knowledge-reference-source-tabs > button.is-active,
+.knowledge-reference-category-filter button.is-active {
+  color: var(--yb-primary-deep);
+  font-weight: 700;
+  background: rgba(33, 116, 253, .08);
+  border-color: rgba(33, 116, 253, .22);
+}
+
+.knowledge-reference-source-tabs > span {
+  margin-left: auto;
+  color: var(--yb-text-muted);
+  font-size: 12px;
+}
+
+.knowledge-reference-filters {
+  display: grid;
+  gap: 8px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--yb-border-soft);
+}
+
+.knowledge-reference-category-filter,
+.knowledge-reference-location-filter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.knowledge-reference-category-filter > span,
+.knowledge-reference-location-filter > span {
+  flex: 0 0 48px;
+  color: var(--yb-text-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.knowledge-reference-location-filter select,
+.knowledge-reference-location-filter input {
+  min-height: 30px;
+  color: var(--yb-text-soft);
+  font-size: 12px;
+  background: var(--yb-surface);
+  border: 1px solid var(--yb-border);
+  border-radius: var(--technical-workbench-control-radius);
+  outline: none;
+}
+
+.knowledge-reference-location-filter select {
+  width: 126px;
+}
+
+.knowledge-reference-location-filter input {
+  flex: 1 1 220px;
+  min-width: 140px;
+  padding: 4px 10px;
+}
+
+.knowledge-reference-location-filter :is(select, input):focus {
+  border-color: rgba(33, 116, 253, .5);
+  box-shadow: var(--yb-focus-ring);
+}
+
+.knowledge-reference-dialog-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 10px;
+  min-height: 0;
+  padding-top: 10px;
+  overflow: hidden;
+}
+
+.knowledge-reference-browser,
+.knowledge-reference-selected-pane,
+.knowledge-reference-remote-pane {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: rgba(248, 250, 253, .72);
+  border: 1px solid var(--yb-border-soft);
+  border-radius: var(--yb-radius-md);
+}
+
+.knowledge-reference-browser,
+.knowledge-reference-selected-pane {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.knowledge-reference-pane-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 42px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--yb-border-soft);
+}
+
+.knowledge-reference-pane-head > div {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.knowledge-reference-pane-head strong {
+  color: var(--yb-text);
+  font-size: 13px;
+}
+
+.knowledge-reference-pane-head small {
+  color: var(--yb-text-muted);
+  font-size: 11px;
+}
+
+.knowledge-reference-folder-list,
+.knowledge-reference-selected-list {
+  min-height: 0;
+  padding: 8px;
+  overflow: auto;
+}
+
+.knowledge-reference-folder {
+  overflow: hidden;
+  background: var(--yb-surface);
+  border: 1px solid var(--yb-border-soft);
+  border-radius: var(--technical-workbench-control-radius);
+}
+
+.knowledge-reference-folder + .knowledge-reference-folder {
+  margin-top: 7px;
+}
+
+.knowledge-reference-folder-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 5px 8px;
+}
+
+.knowledge-reference-folder-toggle {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--yb-text-soft);
+  text-align: left;
+  background: transparent;
+  border: 0;
+}
+
+.knowledge-reference-folder-toggle strong,
+.knowledge-reference-folder-toggle small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.knowledge-reference-folder-toggle strong {
+  font-size: 12px;
+}
+
+.knowledge-reference-folder-toggle small {
+  color: var(--yb-text-muted);
+  font-size: 11px;
+}
+
+.knowledge-reference-folder-head > label {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  color: var(--yb-text-muted);
+  font-size: 11px;
+}
+
+.knowledge-reference-document-list {
+  display: grid;
+  gap: 3px;
+  padding: 4px 8px 8px 30px;
+  border-top: 1px solid var(--yb-border-soft);
+}
+
+.knowledge-reference-document-list label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 5px 7px;
+  color: var(--yb-text-soft);
+  font-size: 12px;
+  border-radius: var(--technical-workbench-control-radius);
+}
+
+.knowledge-reference-document-list label.is-selected {
+  color: var(--yb-primary-deep);
+  background: rgba(33, 116, 253, .07);
+}
+
+.knowledge-reference-document-list label span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.knowledge-reference-selected-list {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+}
+
+.knowledge-reference-selected-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  padding: 8px;
+  background: var(--yb-surface);
+  border: 1px solid var(--yb-border-soft);
+  border-radius: var(--technical-workbench-control-radius);
+}
+
+.knowledge-reference-selected-item > div {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 3px 6px;
+  min-width: 0;
+}
+
+.knowledge-reference-selected-item strong {
+  overflow: hidden;
+  color: var(--yb-text-soft);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.knowledge-reference-selected-item small {
+  grid-column: 2;
+  color: var(--yb-text-muted);
+  font-size: 10.5px;
+}
+
+.knowledge-reference-selected-item > button {
+  width: 24px;
+  height: 24px;
+  color: var(--yb-text-muted);
+  background: transparent;
+  border: 0;
+  border-radius: 50%;
+}
+
+.knowledge-reference-selected-item > button:hover {
+  color: var(--yb-danger);
+  background: rgba(220, 38, 38, .08);
+}
+
+.knowledge-reference-remote-pane {
+  margin-top: 10px;
+  overflow: auto;
+}
+
+.knowledge-reference-remote-pane .remote-knowledge-picker {
+  min-height: 100%;
+  border: 0;
+}
+
+.knowledge-reference-dialog-footnote {
+  margin-right: auto;
+  color: var(--yb-text-muted);
+  font-size: 11px;
+}
+
+@media (max-width: 900px) {
+  .knowledge-reference-dialog-body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(280px, 1fr) minmax(120px, 180px);
+  }
+
+  .knowledge-reference-category-filter {
+    flex-wrap: wrap;
+  }
+
+  .knowledge-reference-location-filter {
+    flex-wrap: wrap;
+  }
+
+  .knowledge-reference-location-filter input {
+    flex-basis: 100%;
+    margin-left: 54px;
+  }
+}
+
 .quick-config-ladder {
   display: flex;
   flex: 1 1 560px;

@@ -1071,6 +1071,8 @@ function TechnicalPlanHome({ workflowKind, projectId, registerLeaveGuard, onSect
           outlineMinimumDepth={state.outlineMinimumDepth}
           outlineConfigLocked={outlineConfigLocked}
           contentGenerationOptions={state.contentGenerationOptions}
+          referenceKnowledgeDocumentIds={state.referenceKnowledgeDocumentIds}
+          remoteKnowledgeScopes={state.remoteKnowledgeScopes}
           contentTaskStatus={state.contentGenerationTask?.status}
           hasDownstreamData={hasDownstreamData}
           onFileImported={(nextState, markdown) => {
@@ -1107,6 +1109,16 @@ function TechnicalPlanHome({ workflowKind, projectId, registerLeaveGuard, onSect
             });
           }}
           onContentGenerationOptionsChange={saveContentGenerationOptions}
+          onKnowledgeReferenceChange={async (referenceKnowledgeDocumentIds, remoteKnowledgeScopes) => {
+            await saveOutlineConfig({
+              referenceKnowledgeDocumentIds,
+              remoteKnowledgeScopes,
+              outlineMode: state.outlineMode,
+              outlineExpansionMode: state.outlineExpansionMode || 'ai-complement',
+              wordControlOptions: state.outlineWordControlOptions,
+              minimumDepth: state.outlineMinimumDepth,
+            });
+          }}
           onResetBidSectionDownstream={resetBidSectionDownstream}
           onCustomPageStateChange={handleCustomPageStateChange}
           onStateRefresh={async () => {
