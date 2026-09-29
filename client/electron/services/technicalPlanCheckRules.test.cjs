@@ -23,6 +23,19 @@ const {
 
 test('splits requirement phrases and reuses a precomputed Chinese bigram corpus', () => {
   assert.deepEqual(splitPhrases('必须按照规范，提供现场服务'), ['规范', '现场服务']);
+  const ordinaryModalWords = [
+    ['供应商配置10人', ['供应商']],
+    ['响应时间5秒', ['响应时间']],
+    ['应用系统配置3台', ['应用系统']],
+    ['对应岗位配置2人', ['对应岗位']],
+    ['按需配置4套', ['按需']],
+    ['无需配置6台', ['无需']],
+    ['需方计划2023年', ['需方计划']],
+    ['应答文件2024年', ['应答文件']],
+  ];
+  for (const [text, phrases] of ordinaryModalWords) {
+    assert.deepEqual(splitPhrases(text), phrases, text);
+  }
   const corpus = createChineseBigramSet('甲乙丙丁');
   assert.equal(bigramCoverage('甲乙丙丁', corpus), 1);
   assert.equal(bigramCoverage('甲乙丙丁戊己', corpus), 0.6);
@@ -50,7 +63,7 @@ test('reports missing mandatory numbers directly without the recovered maximum-v
   assert.doesNotMatch(result.message, /最大值/);
 });
 
-test('treats need and should assertions as mandatory without matching demand or emergency words', () => {
+test('treats syntactically valid need and should assertions as mandatory without matching ordinary words', () => {
   for (const requirement of [
     '设备数量2.5台需配置到位',
     '设备数量2.5台应配置到位',
@@ -60,14 +73,23 @@ test('treats need and should assertions as mandatory without matching demand or 
     assert.equal(finding.ruleId, 'requirement.mandatory-number-missing');
     assert.deepEqual(finding.missingNumbers, [2.5]);
   }
-  assert.deepEqual(checkRequirements(
-    ['1.1 版本需求分析必须说明'],
-    '版本需求分析必须说明',
-  ), []);
-  assert.deepEqual(checkRequirements(
-    ['1.1 协议应急处置必须说明'],
-    '协议应急处置必须说明',
-  ), []);
+  for (const requirement of [
+    '供应商配置10人',
+    '响应时间5秒',
+    '应用系统配置3台',
+    '对应岗位配置2人',
+    '按需配置4套',
+    '无需配置6台',
+    '需方计划2023年',
+    '应答文件2024年',
+  ]) {
+    assert.equal(
+      checkRequirements([requirement], requirement.replace(/\d+(?:\.\d+)?/, ''))
+        .some((finding) => finding.ruleId === 'requirement.mandatory-number-missing'),
+      false,
+      requirement,
+    );
+  }
 });
 
 test('ignores clause numbering and compares mandatory numeric tokens by normalized value and percent unit', () => {
@@ -153,6 +175,8 @@ test('compares mandatory IP CIDR version and protocol tokens as complete typed v
     ['1.1 协议应急处置必须说明'],
     '协议应急处置必须说明',
   ), []);
+  assert.equal(stripClauseNumber('1.2协议应用说明'), '协议应用说明');
+  assert.equal(stripClauseNumber('1.2版本响应说明'), '版本响应说明');
 });
 
 test('strips common Word clause numbers without deleting a leading decimal metric', () => {
@@ -167,8 +191,9 @@ test('strips common Word clause numbers without deleting a leading decimal metri
   assert.equal(stripClauseNumber('1.5 %为最低比例'), '1.5 %为最低比例');
   assert.equal(stripClauseNumber('1.5 米以上'), '1.5 米以上');
   assert.equal(stripClauseNumber('2.5 台需配置'), '2.5 台需配置');
-  assert.equal(stripClauseNumber('1.5 年期服务'), '1.5 年期服务');
-  assert.equal(stripClauseNumber('2.5 元报价'), '2.5 元报价');
+  assert.equal(stripClauseNumber('1.5 米长度不得低于'), '1.5 米长度不得低于');
+  assert.equal(stripClauseNumber('1.5 年期必须'), '1.5 年期必须');
+  assert.equal(stripClauseNumber('2.5 元报价需要符合'), '2.5 元报价需要符合');
   assert.equal(stripClauseNumber('2.0.1版本必须兼容'), '2.0.1版本必须兼容');
   assert.equal(stripClauseNumber('2.0.1 版本必须兼容'), '2.0.1 版本必须兼容');
   assert.equal(stripClauseNumber('1.2 协议应支持'), '1.2 协议应支持');
@@ -208,6 +233,12 @@ test('strips common Word clause numbers without deleting a leading decimal metri
   assert.equal(stripClauseNumber('1.1台账管理'), '台账管理');
   assert.equal(stripClauseNumber('1.1元数据管理'), '元数据管理');
   assert.equal(stripClauseNumber('1.1次要事项'), '次要事项');
+  assert.equal(stripClauseNumber('1.1元宇宙平台必须说明'), '元宇宙平台必须说明');
+  assert.equal(stripClauseNumber('1.1站务管理必须说明'), '站务管理必须说明');
+  assert.equal(stripClauseNumber('1.1月报管理必须说明'), '月报管理必须说明');
+  assert.equal(stripClauseNumber('1.1点检管理必须说明'), '点检管理必须说明');
+  assert.equal(stripClauseNumber('1.1人防系统必须说明'), '人防系统必须说明');
+  assert.equal(stripClauseNumber('1.1项下管理必须说明'), '项下管理必须说明');
   assert.equal(stripClauseNumber('1.1 版本管理要求必须说明'), '版本管理要求必须说明');
   assert.equal(stripClauseNumber('1.1协议管理要求必须说明'), '协议管理要求必须说明');
   assert.equal(stripClauseNumber('1.1 版本需求分析必须说明'), '版本需求分析必须说明');

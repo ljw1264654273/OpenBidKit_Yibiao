@@ -34,24 +34,26 @@ const RULE_SEVERITY = Object.freeze({
 });
 
 const NUMBER_PATTERN = String.raw`\d+(?:\.\d+)?`;
-const MANDATORY_ASSERTION_SOURCE = [
-  '不低于', '不高于', '不超过', '不少于', '应当', '必须', '不得', '需要', '至少',
-  '需(?!求)', '应(?!急)',
-].join('|');
-const TYPED_ASSERTION_SOURCE = `${MANDATORY_ASSERTION_SOURCE}|兼容|支持|为|是`;
+const RAW_MANDATORY_ASSERTIONS = [
+  '不低于', '不高于', '不超过', '不少于', '必须', '不得', '至少',
+];
+const FULL_WORD_MANDATORY_ASSERTIONS = new Set(['需要', '应当']);
+const SINGLE_MODAL_ASSERTIONS = new Set(['需', '应']);
+const ACTION_VERBS = new Set([
+  '提供', '配置', '配备', '满足', '支持', '具备', '采用', '达到', '完成', '提交',
+  '安装', '部署', '保证', '确保', '符合', '实现', '包含', '设置', '使用', '建设',
+  '执行', '遵守', '兼容', '交付', '验收', '说明',
+]);
+const TYPED_CONTEXT_ASSERTIONS = ['兼容', '支持', '为', '是'];
 const FUNCTION_WORDS = [
   '以及', '并且', '而且', '同时', '对于', '按照', '根据', '通过', '结合', '依托',
-  MANDATORY_ASSERTION_SOURCE, '以上',
-  '以内', '支持', '提供', '满足', '具备', '采用', '配置', '要求', '实现', '包括',
+  '以上', '以内', '支持', '提供', '满足', '具备', '采用', '配置', '要求', '实现', '包括',
   '包含', '与', '和', '及', '或', '须',
 ].join('|');
 const SPLIT_RE = new RegExp(
   String.raw`[，,、。；;：:（()）)\s\d%．./\-—_*▲★※【】\[\]{}"'“”‘’<>《》=＝]+|${FUNCTION_WORDS}`,
 );
-const REQUIREMENT_MARK_RE = new RegExp(
-  `${MANDATORY_ASSERTION_SOURCE}|不应|须|以上|支持|具备|提供|满足|要求|▲|★|※|响应|符合|采用|配置|实现|包括`,
-);
-const MANDATORY_RE = new RegExp(`▲|★|※|${MANDATORY_ASSERTION_SOURCE}`);
+const REQUIREMENT_MARK_RE = /不应|须|以上|支持|具备|提供|满足|要求|▲|★|※|响应|符合|采用|配置|实现|包括/;
 const DURATION_COMPONENT_RE = new RegExp(`(${NUMBER_PATTERN})\\s*(个月|周|星期|天|日|年)`, 'g');
 const CALCULATION_RE = new RegExp(`(${NUMBER_PATTERN})\\s*([+＋\\-－×xX*])\\s*(${NUMBER_PATTERN})\\s*=\\s*(${NUMBER_PATTERN})`, 'g');
 const BUSINESS_UNITS = [
@@ -65,17 +67,15 @@ const BUSINESS_UNITS = [
 ];
 const BUSINESS_SEMANTICS = ['服务器', '地址', '网段', '端口', 'IP'];
 const TYPED_DOTTED_SEMANTICS = ['版本', '协议', '版'];
-const UNIT_COMPOUND_CONTINUATIONS = Object.freeze({
-  人: ['员', '才'],
-  项: ['目'],
-  站: ['点'],
-  点: ['位'],
-  年: ['度'],
-  月: ['度'],
-  台: ['账'],
-  元: ['数据'],
-  次: ['要'],
-});
+const QUANTITY_RANGE_TERMS = [
+  '不低于', '不高于', '不超过', '不少于', '至少', '至多', '以上', '以下', '以内',
+  '以外', '大于', '小于', '高于', '低于',
+];
+const QUANTITY_NOUNS = [
+  '长度', '宽度', '高度', '面积', '体积', '重量', '质量', '数量', '台数', '人数',
+  '套数', '金额', '报价', '价格', '费用', '容量', '内存', '带宽', '速率', '期限',
+  '周期', '载重', '设备', '期',
+];
 const PLACE_SUFFIX_LEVEL = Object.freeze({
   特别行政区: 1,
   自治区: 1,
@@ -130,7 +130,16 @@ function createFinding(ruleId, category, message, contexts = [], details = {}) {
 }
 
 function splitPhrases(text) {
-  return String(text || '')
+  const source = String(text || '');
+  const ranges = findAssertionRanges(source);
+  let cursor = 0;
+  const chunks = [];
+  for (const range of ranges) {
+    chunks.push(source.slice(cursor, range.start), '，');
+    cursor = range.end;
+  }
+  chunks.push(source.slice(cursor));
+  return chunks.join('')
     .split(SPLIT_RE)
     .map((part) => part.trim())
     .filter((part) => part.length >= 2);
@@ -195,6 +204,51 @@ function matchingBusinessTerm(text, terms) {
   }) || '';
 }
 
+function literalRanges(source, terms) {
+  const pattern = termsLongestFirst(terms).map(escapeRegExp).join('|');
+  if (!pattern) return [];
+  return [...String(source || '').matchAll(new RegExp(pattern, 'g'))].map((match) => ({
+    start: match.index,
+    end: match.index + match[0].length,
+  }));
+}
+
+function findAssertionRanges(source, { includeTypedContext = false } = {}) {
+  const text = String(source || '');
+  const ranges = literalRanges(text, RAW_MANDATORY_ASSERTIONS);
+  const segments = [...CHINESE_WORD_SEGMENTER.segment(text)];
+  for (let index = 0; index < segments.length; index += 1) {
+    const current = segments[index];
+    if (FULL_WORD_MANDATORY_ASSERTIONS.has(current.segment)) {
+      ranges.push({ start: current.index, end: current.index + current.segment.length });
+      continue;
+    }
+    if (!SINGLE_MODAL_ASSERTIONS.has(current.segment) || !current.isWordLike) continue;
+    const previous = segments[index - 1];
+    if (text[current.index - 1] === '无' || previous?.segment === '无') continue;
+    const nextWord = segments.slice(index + 1).find((segment) => segment.isWordLike);
+    if (!nextWord || !ACTION_VERBS.has(nextWord.segment)) continue;
+    ranges.push({ start: current.index, end: current.index + current.segment.length });
+  }
+  if (includeTypedContext) ranges.push(...literalRanges(text, TYPED_CONTEXT_ASSERTIONS));
+  ranges.sort((left, right) => left.start - right.start || right.end - left.end);
+  const result = [];
+  for (const range of ranges) {
+    if (result.some((existing) => range.start < existing.end && existing.start < range.end)) continue;
+    result.push(range);
+  }
+  return result;
+}
+
+function hasAssertion(source) {
+  return findAssertionRanges(source).length > 0;
+}
+
+function hasLeadingAssertion(source, options) {
+  return findAssertionRanges(source, options)
+    .some((range) => String(source || '').slice(0, range.start).trim() === '');
+}
+
 function shortClauseBounds(source, start, end) {
   const delimiters = /[，,。；;：:\n]/;
   let clauseStart = start;
@@ -209,8 +263,8 @@ function hasTypedAssertionContext(source, start, end, hasLabelConnector = false)
   const { clauseStart, clauseEnd } = shortClauseBounds(source, start, end);
   const before = source.slice(clauseStart, start);
   const after = source.slice(end, clauseEnd);
-  return new RegExp(TYPED_ASSERTION_SOURCE).test(before)
-    || new RegExp(`^\\s*(?:${TYPED_ASSERTION_SOURCE})`).test(after);
+  return findAssertionRanges(before, { includeTypedContext: true }).length > 0
+    || hasLeadingAssertion(after, { includeTypedContext: true });
 }
 
 function dottedSemanticTokens(source) {
@@ -266,14 +320,6 @@ function leadingDottedSemanticToken(source) {
   return dottedSemanticTokens(source).find((token) => token.start === 0 && /^\d/.test(token.raw));
 }
 
-function hasWordBoundaryAt(source, position) {
-  for (const segment of CHINESE_WORD_SEGMENTER.segment(String(source || ''))) {
-    if (segment.index + segment.segment.length === position) return true;
-    if (segment.index > position) break;
-  }
-  return false;
-}
-
 function isProtectedBusinessNumericPrefix(source, numericPrefix) {
   if (isValidIpv4Prefix(source)) return true;
   if (leadingDottedSemanticToken(source)) return true;
@@ -282,12 +328,14 @@ function isProtectedBusinessNumericPrefix(source, numericPrefix) {
   if (!numericPrefix[2] && matchingBusinessTerm(rest, BUSINESS_SEMANTICS)) return true;
   const unit = matchingBusinessTerm(rest, BUSINESS_UNITS);
   if (!unit) return false;
-  if (!/^[\u4e00-\u9fa5]$/.test(unit)) return true;
+  if (unit.length > 1) return true;
   const unitEnd = numericPrefix[0].length + unit.length;
-  const continuations = UNIT_COMPOUND_CONTINUATIONS[unit] || [];
-  const tail = source.slice(unitEnd);
-  if (continuations.some((continuation) => tail.startsWith(continuation))) return false;
-  return hasWordBoundaryAt(source, unitEnd);
+  const tail = source.slice(unitEnd).trimStart();
+  if (hasLeadingAssertion(tail, { includeTypedContext: true })) return true;
+  if (matchingBusinessTerm(tail, QUANTITY_RANGE_TERMS)) return true;
+  const quantityNoun = matchingBusinessTerm(tail, QUANTITY_NOUNS);
+  if (!quantityNoun) return false;
+  return hasLeadingAssertion(tail.slice(quantityNoun.length), { includeTypedContext: true });
 }
 
 function stripClauseNumber(text) {
@@ -314,7 +362,7 @@ function extractRequirements(lines, minLength = 12) {
     const text = String(line || '').trim();
     if (
       text.length >= minLength
-      && REQUIREMENT_MARK_RE.test(text)
+      && (REQUIREMENT_MARK_RE.test(text) || hasAssertion(text))
       && (stripClauseNumber(text) !== text || text.includes('|') || text.length >= 20)
       && !seen.has(text)
     ) {
@@ -417,7 +465,7 @@ function checkRequirements(requirements, proposal) {
         .map((token) => [token.key, token]),
     ).values()];
     const missingNumbers = [...new Set(missingNumberTokens.map((token) => token.value))];
-    if (missingNumberTokens.length && MANDATORY_RE.test(text)) {
+    if (missingNumberTokens.length && (/▲|★|※/.test(text) || hasAssertion(text))) {
       findings.push(createFinding(
         'requirement.mandatory-number-missing',
         '采购需求',
