@@ -47,8 +47,8 @@ function runVariantMigrationAssertions(previousSchema) {
     database.close();
 
     database = createSqliteDatabase(app);
-    assert.equal(database.schemaVersion, 36);
-    assert.equal(database.db.pragma('user_version', { simple: true }), 36);
+    assert.equal(database.schemaVersion, 37);
+    assert.equal(database.db.pragma('user_version', { simple: true }), 37);
     assert.deepEqual(
       database.db.prepare('SELECT name, province, city FROM knowledge_folders WHERE folder_id = ?').get('folder'),
       {

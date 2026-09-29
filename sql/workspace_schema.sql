@@ -143,6 +143,9 @@ CREATE TABLE IF NOT EXISTS technical_plan_meta (
   -- v18 Step03 当前可编辑字数设置，以及当前目录生成成功时固化的生效快照。
   outline_word_control_options_json TEXT,
   outline_word_control_snapshot_json TEXT,
+  -- v37 Step03 当前可编辑目录最低层级，以及当前目录生成成功时固化的生效快照；0 表示默认动态层级。
+  outline_minimum_depth INTEGER NOT NULL DEFAULT 0,
+  outline_minimum_depth_snapshot INTEGER,
   outline_project_name TEXT,
   outline_project_overview TEXT,
   content_generation_options_json TEXT,

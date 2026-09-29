@@ -3,7 +3,7 @@ const path = require('node:path');
 const Database = require('better-sqlite3');
 const { getWorkspaceDatabasePath } = require('../utils/paths.cjs');
 
-const schemaVersion = 36;
+const schemaVersion = 37;
 
 function safeProjectTablePart(projectId) {
   return String(projectId || '')
@@ -58,6 +58,8 @@ function createTechnicalPlanProjectSchema(db, projectId) {
       global_facts_mode TEXT NOT NULL DEFAULT 'omit',
       outline_word_control_options_json TEXT,
       outline_word_control_snapshot_json TEXT,
+      outline_minimum_depth INTEGER NOT NULL DEFAULT 0,
+      outline_minimum_depth_snapshot INTEGER,
       outline_project_name TEXT,
       outline_project_overview TEXT,
       content_generation_options_json TEXT,
@@ -247,6 +249,8 @@ function createInitialSchema(db) {
       global_facts_mode TEXT NOT NULL DEFAULT 'omit',
       outline_word_control_options_json TEXT,
       outline_word_control_snapshot_json TEXT,
+      outline_minimum_depth INTEGER NOT NULL DEFAULT 0,
+      outline_minimum_depth_snapshot INTEGER,
       outline_project_name TEXT,
       outline_project_overview TEXT,
       content_generation_options_json TEXT,
@@ -524,6 +528,19 @@ function addTechnicalPlanIllustrationPlan(db) {
 function addTechnicalPlanOutlineWordControl(db) {
   addColumnIfMissing(db, 'technical_plan_meta', 'outline_word_control_options_json', 'TEXT');
   addColumnIfMissing(db, 'technical_plan_meta', 'outline_word_control_snapshot_json', 'TEXT');
+}
+
+function addTechnicalPlanOutlineMinimumDepth(db) {
+  const tables = db.prepare(`
+    SELECT name
+    FROM sqlite_master
+    WHERE type = 'table'
+      AND (name = 'technical_plan_meta' OR name GLOB 'technical_plan_project_*_meta')
+  `).all();
+  for (const { name } of tables) {
+    addColumnIfMissing(db, name, 'outline_minimum_depth', 'INTEGER NOT NULL DEFAULT 0');
+    addColumnIfMissing(db, name, 'outline_minimum_depth_snapshot', 'INTEGER');
+  }
 }
 
 // 目录叶子内容处理模式；父节点保持为空，旧测试目录不补默认值。
@@ -1795,6 +1812,14 @@ const schemaHealthColumnGroups = [
     },
   },
   {
+    version: 37,
+    table: 'technical_plan_meta',
+    columns: {
+      outline_minimum_depth: 'INTEGER NOT NULL DEFAULT 0',
+      outline_minimum_depth_snapshot: 'INTEGER',
+    },
+  },
+  {
     version: 19,
     table: 'technical_plan_outline_nodes',
     columns: {
@@ -1922,6 +1947,9 @@ function ensureWorkspaceSchemaHealth(db, targetVersion = schemaVersion, onStatus
   }
   if (targetVersion >= 35) {
     addBidProjectVariantState(db);
+  }
+  if (targetVersion >= 37) {
+    addTechnicalPlanOutlineMinimumDepth(db);
   }
 }
 
@@ -2105,6 +2133,11 @@ const migrations = [
     version: 36,
     description: '技术方案全局事实补全模式默认改为标准模式',
     up: migrateTechnicalPlanGlobalFactsModeToOmit,
+  },
+  {
+    version: 37,
+    description: '技术方案新增目录最低层级设置和生效快照',
+    up: addTechnicalPlanOutlineMinimumDepth,
   },
 ];
 
