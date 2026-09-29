@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AppDialog, isLibreOfficeRequiredMessage, MarkdownFullscreenViewer, MarkdownRenderer, UploadBoard, UploadEmpty, UploadFilePill, UploadRow, useDocumentParseNotice, useToast } from '../../../shared/ui';
-import type { OutlineWordControlOptions } from '../../../shared/types';
+import type { OutlineMinimumDepth, OutlineWordControlOptions } from '../../../shared/types';
 import type {
   BackgroundTaskState,
   BackgroundTaskStatus,
@@ -39,6 +39,7 @@ import {
   resolveCustomPageDraft,
   resolvePageLadderKey,
 } from '../services/quickConfig';
+import { formatOutlineMinimumDepth } from '../services/outlineMinimumDepth';
 
 type TechnicalPlanUploadBusy = 'tender' | 'originalPlan' | null;
 type PendingResetAction = () => Promise<void>;
@@ -81,12 +82,15 @@ interface DocumentAnalysisPageProps {
   bidSectionExtractionStatus: BidSectionExtractionStatus;
   bidSectionExtractionError?: string;
   outlineWordControlOptions: OutlineWordControlOptions;
+  outlineMinimumDepth: OutlineMinimumDepth;
+  outlineConfigLocked: boolean;
   contentGenerationOptions?: ContentGenerationOptions;
   contentTaskStatus?: BackgroundTaskStatus;
   hasDownstreamData: boolean;
   onFileImported: (state: TechnicalPlanState, markdown: string) => void;
   onOriginalPlanImported: (state: TechnicalPlanState, markdown: string) => void;
   onOutlineWordControlChange: (options: OutlineWordControlOptions) => Promise<void>;
+  onOutlineMinimumDepthChange: (minimumDepth: OutlineMinimumDepth) => Promise<void>;
   onContentGenerationOptionsChange: (options: ContentGenerationOptions) => Promise<void>;
   onResetBidSectionDownstream: () => Promise<void>;
   onStateRefresh: () => Promise<void>;
@@ -98,6 +102,12 @@ const tableDensityOptions: Array<{ value: ContentTableRequirement; label: string
   { value: 'light', label: '少量', description: '正文中存在必要表格' },
   { value: 'moderate', label: '适中', description: '正文中设计包含表格' },
   { value: 'heavy', label: '丰富', description: '正文中设计表格' },
+];
+const outlineMinimumDepthOptions: Array<{ value: OutlineMinimumDepth; label: string }> = [
+  { value: 0, label: '默认' },
+  { value: 3, label: '三级' },
+  { value: 4, label: '四级' },
+  { value: 5, label: '五级' },
 ];
 
 function EditableLimit({ label, ariaLabel = label, value, disabled, onCommit }: { label: string; ariaLabel?: string; value: number; disabled: boolean; onCommit: (value: number) => void }) {
@@ -147,12 +157,15 @@ function DocumentAnalysisPage({
   bidSectionExtractionStatus,
   bidSectionExtractionError,
   outlineWordControlOptions,
+  outlineMinimumDepth,
+  outlineConfigLocked,
   contentGenerationOptions,
   contentTaskStatus,
   hasDownstreamData,
   onFileImported,
   onOriginalPlanImported,
   onOutlineWordControlChange,
+  onOutlineMinimumDepthChange,
   onContentGenerationOptionsChange,
   onResetBidSectionDownstream,
   onStateRefresh,
@@ -443,6 +456,22 @@ function DocumentAnalysisPage({
       await onOutlineWordControlChange(preset.options);
     } catch (error) {
       showToast(error instanceof Error ? error.message : '保存标书篇幅失败', 'error');
+    } finally {
+      setQuickConfigSaving(null);
+    }
+  };
+
+  const applyOutlineMinimumDepth = async (minimumDepth: OutlineMinimumDepth) => {
+    if (outlineConfigLocked) {
+      showToast('目录或正文任务进行中，请等待任务结束后再调整目录层级', 'info');
+      return;
+    }
+    if (minimumDepth === outlineMinimumDepth) return;
+    setQuickConfigSaving(`outlineDepth:${minimumDepth}`);
+    try {
+      await onOutlineMinimumDepthChange(minimumDepth);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '保存目录层级失败', 'error');
     } finally {
       setQuickConfigSaving(null);
     }
@@ -841,6 +870,7 @@ function DocumentAnalysisPage({
           </div>
           <div className="quick-config-summary-values" aria-label="当前快速配置">
             <span>篇幅 <b>{quickConfigPageSummary}</b></span>
+            <span>目录 <b>{formatOutlineMinimumDepth(outlineMinimumDepth)}</b></span>
             <span>表格 <b>{hasTableDensitySelection ? quickConfigTableSummary : '待选择'}</b></span>
             <span>图片 <b>{quickConfigImageSummary}</b></span>
           </div>
@@ -958,6 +988,31 @@ function DocumentAnalysisPage({
                       : `换算为全文 ${PAGE_LADDER_PRESETS[activePresetKey].description}，STEP 03 可精确调整上下限与单节字数。`}
                 </small>
                 <small className="quick-config-note">STEP 03 目录生成时仍可调整。</small>
+              </div>
+            </div>
+
+            <div className="quick-config-row">
+              <div className="quick-config-label"><strong>目录层级</strong><small>AI 正文目录最低深度</small></div>
+              <div className="quick-config-row-body quick-config-ladder-row">
+                <div className="quick-config-ladder" role="radiogroup" aria-label="目录最低层级">
+                  {outlineMinimumDepthOptions.map(({ value, label }) => {
+                    const active = outlineMinimumDepth === value;
+                    return (
+                      <button
+                        key={value}
+                        type="button"
+                        role="radio"
+                        aria-checked={active}
+                        className={`quick-config-pill${active ? ' is-active' : ''}`}
+                        onClick={() => { void applyOutlineMinimumDepth(value); }}
+                        disabled={quickConfigSaving !== null || outlineConfigLocked}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <small className="quick-config-note">STEP 03 目录生成时仍可调整，复杂内容最多可展开到七级。</small>
               </div>
             </div>
 

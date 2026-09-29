@@ -19,6 +19,7 @@ import type { TenderSourcePanelProps } from '../components/TenderSourcePanel';
 import { formatKnowledgeReferenceSummary, isRemoteScopeStale } from '../remoteKnowledgeSelection';
 import { canAddOutlineChild } from '../services/outlineDepth';
 import { buildOutlineAiChildrenMessages, normalizeGeneratedChildren } from '../services/outlineAiChildren';
+import { formatOutlineMinimumDepth } from '../services/outlineMinimumDepth';
 import { collectOutlineSourceRecords } from '../services/outlineSourceMatcher';
 import { getDocumentsForFolder, getFoldersForKnowledgeBase, mergeFolderDocumentSelection } from '../services/nodeKnowledgeSelection';
 
@@ -32,6 +33,7 @@ interface OutlineEditPageProps {
   outlineWordControlSnapshot?: OutlineWordControlOptions;
   outlineMinimumDepth: OutlineMinimumDepth;
   outlineMinimumDepthSnapshot?: OutlineMinimumDepth;
+  outlineConfigLocked: boolean;
   referenceKnowledgeDocumentIds: string[];
   remoteKnowledgeScopes: RemoteKnowledgeScope[];
   outlineData: OutlineData | null;
@@ -42,7 +44,7 @@ interface OutlineEditPageProps {
   onReloadTenderMarkdown: () => void;
   contentTaskStatus?: BackgroundTaskState['status'];
   aiAdjustmentRunning?: boolean;
-  onOutlineConfigChange: (config: { referenceKnowledgeDocumentIds: string[]; remoteKnowledgeScopes: RemoteKnowledgeScope[]; outlineMode: OutlineMode; outlineExpansionMode: OutlineExpansionMode; wordControlOptions: OutlineWordControlOptions }) => Promise<void>;
+  onOutlineConfigChange: (config: { referenceKnowledgeDocumentIds: string[]; remoteKnowledgeScopes: RemoteKnowledgeScope[]; outlineMode: OutlineMode; outlineExpansionMode: OutlineExpansionMode; wordControlOptions: OutlineWordControlOptions; minimumDepth: OutlineMinimumDepth }) => Promise<void>;
   onOutlineSaved: (request: SaveOutlineRequest) => Promise<void>;
   onOutlineNodeKnowledgeSaved: (nodeId: string, knowledgeFolderIds: string[], knowledgeDocumentIds: string[]) => Promise<void>;
   onOutlineSelectionSaved: (request: SaveOutlineSelectionRequest) => Promise<void>;
@@ -404,6 +406,7 @@ function OutlineEditPage({
   outlineWordControlSnapshot,
   outlineMinimumDepth,
   outlineMinimumDepthSnapshot,
+  outlineConfigLocked,
   referenceKnowledgeDocumentIds,
   remoteKnowledgeScopes,
   outlineData,
@@ -443,6 +446,7 @@ function OutlineEditPage({
   const [draftMaximumWords, setDraftMaximumWords] = useState(formatWordCountDraft(outlineWordControlOptions.maximumWords));
   const [draftSectionWords, setDraftSectionWords] = useState(formatWordCountDraft(outlineWordControlOptions.sectionWords));
   const [draftStrictSectionWords, setDraftStrictSectionWords] = useState(outlineWordControlOptions.strictSectionWords);
+  const [draftMinimumDepth, setDraftMinimumDepth] = useState<OutlineMinimumDepth>(outlineMinimumDepth);
   const [savingOutlineConfig, setSavingOutlineConfig] = useState(false);
   const [knowledgeSearch, setKnowledgeSearch] = useState('');
   const [knowledgeTab, setKnowledgeTab] = useState<'local' | 'remote'>('local');
@@ -611,6 +615,14 @@ function OutlineEditPage({
     strictSectionWords: parsedDraftSectionWords > 0 && draftStrictSectionWords,
   };
   const wordControlRequiresRegeneration = Boolean(outlineData && !areWordControlOptionsEqual(normalizedDraftOptions, outlineWordControlSnapshot));
+  const depthRequiresRegeneration = Boolean(
+    outlineData && outlineMinimumDepthSnapshot !== undefined
+    && outlineMinimumDepth !== outlineMinimumDepthSnapshot,
+  );
+  const draftDepthRequiresRegeneration = Boolean(
+    outlineData && outlineMinimumDepthSnapshot !== undefined
+    && draftMinimumDepth !== outlineMinimumDepthSnapshot,
+  );
   const outlineModeRequiresRegeneration = Boolean(outlineData && !isExpansionWorkflow && draftOutlineMode !== outlineMode);
 
   const showSourcePane = () => {
@@ -821,10 +833,11 @@ function OutlineEditPage({
     setDraftOutlineExpansionMode(isExpansionWorkflow ? outlineExpansionMode : 'ai-complement');
     setDraftKnowledgeDocumentIds(referenceKnowledgeDocumentIds);
     setDraftRemoteKnowledgeScopes(remoteKnowledgeScopes);
+    setDraftMinimumDepth(outlineMinimumDepth);
     initializeWordControlDraft();
     setKnowledgeSearch('');
     void loadKnowledgeIndex();
-  }, [generationDialogOpen, isExpansionWorkflow, outlineMode, outlineExpansionMode, outlineWordControlOptions, referenceKnowledgeDocumentIds, remoteKnowledgeScopes]);
+  }, [generationDialogOpen, isExpansionWorkflow, outlineMode, outlineExpansionMode, outlineWordControlOptions, outlineMinimumDepth, referenceKnowledgeDocumentIds, remoteKnowledgeScopes]);
 
   useEffect(() => {
     const unsubscribe = window.yibiao?.knowledgeBase.onEvent((event) => {
@@ -903,6 +916,7 @@ function OutlineEditPage({
     setDraftOutlineExpansionMode(isExpansionWorkflow ? outlineExpansionMode : 'ai-complement');
     setDraftKnowledgeDocumentIds(referenceKnowledgeDocumentIds);
     setDraftRemoteKnowledgeScopes(remoteKnowledgeScopes);
+    setDraftMinimumDepth(outlineMinimumDepth);
     initializeWordControlDraft();
     setKnowledgeSearch('');
     setGenerationDialogOpen(true);
@@ -947,6 +961,7 @@ function OutlineEditPage({
         outlineMode: isExpansionWorkflow ? 'aligned' : draftOutlineMode,
         outlineExpansionMode: isExpansionWorkflow ? draftOutlineExpansionMode : 'ai-complement',
         wordControlOptions,
+        minimumDepth: draftMinimumDepth,
       });
       applyNormalizedWordControlDraft(wordControlOptions);
       setGenerationDialogOpen(false);
@@ -983,6 +998,7 @@ function OutlineEditPage({
         outlineMode: nextOutlineMode,
         outlineExpansionMode: nextOutlineExpansionMode,
         wordControlOptions,
+        minimumDepth: draftMinimumDepth,
       });
       setGenerationDialogOpen(false);
       await window.yibiao?.tasks.startOutlineGeneration({
@@ -992,7 +1008,7 @@ function OutlineEditPage({
         outline_mode: nextOutlineMode,
         outline_expansion_mode: nextOutlineExpansionMode,
         word_control_options: wordControlOptions,
-        minimum_outline_depth: outlineMinimumDepth,
+        minimum_outline_depth: draftMinimumDepth,
       });
       trackConfigUsage({
         outline_mode: isExpansionWorkflow ? nextOutlineExpansionMode : nextOutlineMode,
@@ -1001,6 +1017,7 @@ function OutlineEditPage({
         maximum_words: wordControlOptions.maximumWords,
         section_words: wordControlOptions.sectionWords,
         strict_section_words: wordControlOptions.strictSectionWords,
+        minimum_outline_depth: draftMinimumDepth,
       });
       showToast('目录生成任务已在后台启动', 'success');
     } catch (error) {
@@ -1077,6 +1094,7 @@ function OutlineEditPage({
   };
 
   const getMutationLockMessage = () => {
+    if (outlineConfigLocked) return '目录或正文任务正在运行或暂停中，请结束后再调整目录配置';
     if (generating) return '目录生成任务正在运行，当前目录暂不可编辑';
     if (contentMutationLocked) return '正文生成任务正在运行或暂停中，请结束后再调整目录';
     if (savingNodeKnowledge) return '知识库关联正在保存，请完成后再生成目录';
@@ -2032,7 +2050,7 @@ function OutlineEditPage({
             type="button"
             className="outline-config-action"
             onClick={openGenerationDialog}
-            disabled={generating || sorting || contentMutationLocked || savingNodeKnowledge || !projectOverview}
+            disabled={outlineConfigLocked || generating || sorting || contentMutationLocked || savingNodeKnowledge || !projectOverview}
             aria-label="打开目录生成配置"
             title="目录生成配置"
           >
@@ -2041,7 +2059,7 @@ function OutlineEditPage({
               <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.05.05a2 2 0 0 1-2.83 2.83l-.05-.05a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.04 1.56V21a2 2 0 0 1-4 0v-.08a1.7 1.7 0 0 0-1.04-1.56 1.7 1.7 0 0 0-1.87.34l-.05.05a2 2 0 0 1-2.83-2.83l.05-.05A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1.04H3a2 2 0 0 1 0-4h.08A1.7 1.7 0 0 0 4.6 8.93a1.7 1.7 0 0 0-.34-1.87l-.05-.05a2 2 0 0 1 2.83-2.83l.05.05a1.7 1.7 0 0 0 1.87.34A1.7 1.7 0 0 0 10 3.01V3a2 2 0 0 1 4 0v.08a1.7 1.7 0 0 0 1.04 1.56 1.7 1.7 0 0 0 1.87-.34l.05-.05a2 2 0 0 1 2.83 2.83l-.05.05a1.7 1.7 0 0 0-.34 1.87 1.7 1.7 0 0 0 1.56 1.04H21a2 2 0 0 1 0 4h-.08A1.7 1.7 0 0 0 19.4 15Z" />
             </svg>
           </button>
-          <button type="button" className="primary-action" onClick={openGenerationDialog} disabled={generating || sorting || contentMutationLocked || savingNodeKnowledge || !projectOverview}>
+          <button type="button" className="primary-action" onClick={openGenerationDialog} disabled={outlineConfigLocked || generating || sorting || contentMutationLocked || savingNodeKnowledge || !projectOverview}>
             {generating ? 'AI 正在生成目录' : outlineData ? '重新生成目录' : '生成目录'}
           </button>
         </div>
@@ -2555,6 +2573,38 @@ function OutlineEditPage({
               <div className="outline-generation-config-left">
                 {renderTechnicalDocumentModePicker()}
                 {renderOutlineExpansionModePicker()}
+                <section className="outline-generation-config-section outline-minimum-depth-section">
+                  <div className="outline-generation-config-head">
+                    <strong>最小目录层级</strong>
+                    <span>
+                      {draftMinimumDepth === 0
+                        ? '由 AI 按招标文件和评分项复杂度动态展开'
+                        : `AI 生成的技术正文叶子至少达到${formatOutlineMinimumDepth(draftMinimumDepth)}`}
+                    </span>
+                  </div>
+                  <div className="outline-minimum-depth-options" role="radiogroup" aria-label="最小目录层级">
+                    {([0, 3, 4, 5] as OutlineMinimumDepth[]).map((minimumDepth) => {
+                      const active = draftMinimumDepth === minimumDepth;
+                      return (
+                        <button
+                          type="button"
+                          role="radio"
+                          aria-checked={active}
+                          className={`quick-config-pill${active ? ' is-active' : ''}`}
+                          key={minimumDepth}
+                          onClick={() => setDraftMinimumDepth(minimumDepth)}
+                          disabled={outlineConfigLocked || savingOutlineConfig}
+                        >
+                          {formatOutlineMinimumDepth(minimumDepth)}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <small className="quick-config-note">复杂内容仍可继续展开，但目录最多七级。</small>
+                  {(depthRequiresRegeneration || draftDepthRequiresRegeneration) && (
+                    <div className="outline-word-control-notice">目录层级设置已修改，需要重新生成目录后才能生效。</div>
+                  )}
+                </section>
                 <section className="outline-generation-config-section outline-word-control-section">
                   <div className="content-generation-config-row">
                     <span>
@@ -2633,10 +2683,10 @@ function OutlineEditPage({
 
             <div className="content-regenerate-actions">
               <Dialog.Close className="secondary-action" type="button">取消</Dialog.Close>
-              <button type="button" className="secondary-action" onClick={() => { void saveOutlineConfig(); }} disabled={generating || contentMutationLocked || savingOutlineConfig}>
+              <button type="button" className="secondary-action" onClick={() => { void saveOutlineConfig(); }} disabled={outlineConfigLocked || generating || contentMutationLocked || savingOutlineConfig}>
                 {savingOutlineConfig ? '正在保存...' : '保存配置'}
               </button>
-              <button type="button" className="primary-action" onClick={generateOutline} disabled={generating || contentMutationLocked || savingNodeKnowledge || savingOutlineConfig || !projectOverview}>
+              <button type="button" className="primary-action" onClick={generateOutline} disabled={outlineConfigLocked || generating || contentMutationLocked || savingNodeKnowledge || savingOutlineConfig || !projectOverview}>
                 {outlineData ? '重新生成目录' : '开始生成'}
               </button>
             </div>

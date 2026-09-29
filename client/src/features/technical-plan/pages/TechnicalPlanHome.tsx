@@ -19,6 +19,7 @@ import { showRemoteKnowledgeDecision } from '../../../shared/navigation/appNavig
 import { countReadableWords } from '../../../shared/utils/wordCount';
 import { hasGeneratedContent } from '../../export-format/services/wordExportUi';
 import { getQuickConfigMissingItems, isQuickConfigComplete, isValidCustomPageCount, resolvePageLadderKey } from '../services/quickConfig';
+import { isOutlineConfigLocked } from '../services/outlineMinimumDepth';
 import type { BidProject } from '../../bid-project/types';
 
 interface TechnicalPlanHomeProps {
@@ -340,7 +341,7 @@ function TechnicalPlanHome({ workflowKind, projectId, registerLeaveGuard, onSect
   const isNextDisabled = activeIndex >= steps.length - 1
     || (state.step === 'document-analysis' && (!state.tenderFile || (requiresOriginalPlan && !state.originalPlanFile) || !quickConfigComplete))
     || (state.step === 'bid-analysis' && !bidAnalysisReady)
-    || (state.step === 'outline-generation' && (!state.outlineData || !state.outlineWordControlSnapshot))
+    || (state.step === 'outline-generation' && (!state.outlineData || !state.outlineWordControlSnapshot || state.outlineMinimumDepthSnapshot === undefined))
     || (state.step === 'global-facts' && (!globalFactsReady || isGlobalFactsAdjusting));
   const nextTooltip = (() => {
     if (state.step === 'document-analysis' && !state.tenderFile) {
@@ -375,6 +376,9 @@ function TechnicalPlanHome({ workflowKind, projectId, registerLeaveGuard, onSect
     }
     if (state.step === 'outline-generation' && !state.outlineWordControlSnapshot) {
       return '当前目录缺少字数控制生效配置，请重新生成目录';
+    }
+    if (state.step === 'outline-generation' && state.outlineMinimumDepthSnapshot === undefined) {
+      return '当前目录缺少目录层级生效配置，请重新生成目录';
     }
     if (state.step === 'global-facts' && isGlobalFactsAdjusting) {
       return '全局事实正在 AI 调整，请等待结束后再进入正文生成';
@@ -948,6 +952,11 @@ function TechnicalPlanHome({ workflowKind, projectId, registerLeaveGuard, onSect
   const isOutlineGenerating = outlineGenerationStatus === 'running' || outlineGenerationStatus === 'pausing';
   const outlineAdjustmentStatus = state.outlineAdjustmentTask?.status;
   const isOutlineAdjusting = outlineAdjustmentStatus === 'running' || outlineAdjustmentStatus === 'pausing';
+  const outlineConfigLocked = isOutlineConfigLocked({
+    outline: outlineGenerationStatus,
+    adjustment: outlineAdjustmentStatus,
+    content: contentTaskStatus,
+  });
   const isGlobalFactsGenerating = state.globalFactsTask?.status === 'running' || state.globalFactsTask?.status === 'pausing';
   const homeAction: FloatingToolbarAction = {
     id: 'home',
@@ -1059,6 +1068,8 @@ function TechnicalPlanHome({ workflowKind, projectId, registerLeaveGuard, onSect
           bidSectionExtractionStatus={state.bidSectionExtractionStatus}
           bidSectionExtractionError={state.bidSectionExtractionError}
           outlineWordControlOptions={state.outlineWordControlOptions}
+          outlineMinimumDepth={state.outlineMinimumDepth}
+          outlineConfigLocked={outlineConfigLocked}
           contentGenerationOptions={state.contentGenerationOptions}
           contentTaskStatus={state.contentGenerationTask?.status}
           hasDownstreamData={hasDownstreamData}
@@ -1082,6 +1093,17 @@ function TechnicalPlanHome({ workflowKind, projectId, registerLeaveGuard, onSect
               outlineMode: state.outlineMode,
               outlineExpansionMode: state.outlineExpansionMode || 'ai-complement',
               wordControlOptions,
+              minimumDepth: state.outlineMinimumDepth,
+            });
+          }}
+          onOutlineMinimumDepthChange={async (minimumDepth) => {
+            await saveOutlineConfig({
+              referenceKnowledgeDocumentIds: state.referenceKnowledgeDocumentIds,
+              remoteKnowledgeScopes: state.remoteKnowledgeScopes,
+              outlineMode: state.outlineMode,
+              outlineExpansionMode: state.outlineExpansionMode || 'ai-complement',
+              wordControlOptions: state.outlineWordControlOptions,
+              minimumDepth,
             });
           }}
           onContentGenerationOptionsChange={saveContentGenerationOptions}
@@ -1123,6 +1145,7 @@ function TechnicalPlanHome({ workflowKind, projectId, registerLeaveGuard, onSect
           outlineWordControlSnapshot={state.outlineWordControlSnapshot}
           outlineMinimumDepth={state.outlineMinimumDepth}
           outlineMinimumDepthSnapshot={state.outlineMinimumDepthSnapshot}
+          outlineConfigLocked={outlineConfigLocked}
           referenceKnowledgeDocumentIds={state.referenceKnowledgeDocumentIds}
           remoteKnowledgeScopes={state.remoteKnowledgeScopes}
           outlineData={state.outlineData}

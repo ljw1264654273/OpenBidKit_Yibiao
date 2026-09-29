@@ -3919,6 +3919,17 @@
   font-size: 13px;
 }
 
+.outline-minimum-depth-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.outline-minimum-depth-section > .quick-config-note {
+  display: block;
+  margin-top: 8px;
+}
+
 .outline-generation-config-body {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);

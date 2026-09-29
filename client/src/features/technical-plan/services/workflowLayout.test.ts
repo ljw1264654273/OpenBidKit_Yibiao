@@ -677,6 +677,19 @@ test('STEP 03 技术文件结构默认独立成册', () => {
   assert.match(store, /outline_mode: defaultOutlineModeForWorkflow\(ensureMetaRow\(\)\.workflow_kind\)/);
 });
 
+test('STEP 03 配置同一目录最低层级并提示配置快照失配', () => {
+  const page = readFileSync(new URL('../pages/OutlineEditPage.tsx', import.meta.url), 'utf8');
+
+  assert.match(page, /draftMinimumDepth/);
+  assert.match(page, /最小目录层级/);
+  assert.match(page, /\[0, 3, 4, 5\]/);
+  assert.match(page, /outlineMinimumDepthSnapshot !== undefined/);
+  assert.match(page, /outlineMinimumDepth !== outlineMinimumDepthSnapshot/);
+  assert.match(page, /目录层级设置已修改，需要重新生成目录后才能生效/);
+  assert.match(page, /minimumDepth: draftMinimumDepth/);
+  assert.match(page, /minimum_outline_depth: draftMinimumDepth/);
+});
+
 test('扩写步骤只优化真实占位状态而不伪造业务控件', () => {
   const source = readFileSync(new URL('../pages/TechnicalPlanHome.tsx', import.meta.url), 'utf8');
   const placeholder = source.split("state.step === 'expand'")[1]?.split('<AppDialog')[0] || '';

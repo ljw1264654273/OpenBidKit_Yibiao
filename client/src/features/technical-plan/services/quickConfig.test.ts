@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
 // Node 的类型擦除测试运行器需要显式扩展名，产品代码仍使用标准无扩展名导入。
 // @ts-expect-error allowImportingTsExtensions 仅影响测试运行方式
 import { DEFAULT_CONTENT_GENERATION_OPTIONS, DEFAULT_PAGE_LADDER_KEY, PAGE_LADDER_KEYS, PAGE_LADDER_PRESETS, TABLE_DENSITY_LIMITS, createCustomPageOptions, getQuickConfigMissingItems, isQuickConfigComplete, isQuickConfigLocked, isQuickConfigOptionLocked, isValidCustomPageCount, mergeContentGenerationOptionsForQuickConfig, normalizeTableRequirement, resolveContentGenerationOptionsForQuickConfig, resolveCustomPageCount, resolveCustomPageDraft, resolvePageLadderKey } from './quickConfig.ts';
@@ -242,4 +243,21 @@ test('快速配置未全部设置时返回缺少项，全部设置后才算完�
       useHtmlImages: true,
     },
   }), true);
+});
+
+test('STEP 01 快速配置提供同步的目录最低层级选项和摘要', () => {
+  const page = readFileSync(new URL('../pages/DocumentAnalysisPage.tsx', import.meta.url), 'utf8');
+  const home = readFileSync(new URL('../pages/TechnicalPlanHome.tsx', import.meta.url), 'utf8');
+
+  assert.match(page, /outlineMinimumDepth: OutlineMinimumDepth/);
+  assert.match(page, /outlineConfigLocked: boolean/);
+  assert.match(page, /onOutlineMinimumDepthChange/);
+  assert.match(page, /目录 <b>\{formatOutlineMinimumDepth\(outlineMinimumDepth\)\}<\/b>/);
+  assert.match(page, /<strong>目录层级<\/strong><small>AI 正文目录最低深度<\/small>/);
+  for (const label of ['默认', '三级', '四级', '五级']) assert.match(page, new RegExp(label));
+  assert.match(page, /STEP 03 目录生成时仍可调整，复杂内容最多可展开到七级/);
+
+  assert.match(home, /isOutlineConfigLocked/);
+  assert.match(home, /outlineConfigLocked=\{outlineConfigLocked\}/);
+  assert.match(home, /onOutlineMinimumDepthChange/);
 });
