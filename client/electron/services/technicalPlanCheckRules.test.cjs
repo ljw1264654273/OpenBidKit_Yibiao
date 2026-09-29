@@ -75,6 +75,43 @@ test('ignores clause numbering and compares mandatory numeric tokens by normaliz
     checkRequirements(['必须提供10台设备并完成巡检'], '必须提供10.0台设备并完成巡检'),
     [],
   );
+  const [unitMismatch] = checkRequirements(
+    ['必须提供10台设备并完成巡检'],
+    '必须提供10人并完成巡检',
+  );
+  assert.equal(unitMismatch.ruleId, 'requirement.mandatory-number-missing');
+  assert.deepEqual(unitMismatch.missingNumberTokens, ['10']);
+});
+
+test('compares mandatory IP CIDR version and protocol tokens as complete typed values', () => {
+  const cases = [
+    ['服务器地址192.168.1.1必须可达', '服务器地址192.168.1.2必须可达', '192.168.1.1'],
+    ['业务网段192.168.1.0/24必须可达', '业务网段192.168.1.0/25必须可达', '192.168.1.0/24'],
+    ['系统必须兼容2.0.1版本', '系统必须兼容2.0.9版本', '2.0.1版本'],
+    ['系统必须支持1.2协议', '系统必须支持1.3协议', '1.2协议'],
+  ];
+  for (const [requirement, proposal, token] of cases) {
+    const [finding] = checkRequirements([requirement], proposal);
+    assert.equal(finding.ruleId, 'requirement.mandatory-number-missing');
+    assert.deepEqual(finding.missingNumberTokens, [token]);
+  }
+
+  assert.deepEqual(checkRequirements(
+    ['服务器地址192.168.1.1必须可达'],
+    '服务器地址192.168.1.1必须可达',
+  ), []);
+  assert.deepEqual(checkRequirements(
+    ['业务网段192.168.1.0/24必须可达'],
+    '业务网段192.168.1.0/24必须可达',
+  ), []);
+  assert.deepEqual(checkRequirements(
+    ['系统必须兼容2．0．1 版本'],
+    '系统必须兼容2.0.1版本',
+  ), []);
+  assert.deepEqual(checkRequirements(
+    ['系统必须支持1．2 协议'],
+    '系统必须支持1.2协议',
+  ), []);
 });
 
 test('strips common Word clause numbers without deleting a leading decimal metric', () => {
@@ -87,7 +124,13 @@ test('strips common Word clause numbers without deleting a leading decimal metri
   assert.equal(stripClauseNumber('1.5个月内完成'), '1.5个月内完成');
   assert.equal(stripClauseNumber('1.5 个月内完成'), '1.5 个月内完成');
   assert.equal(stripClauseNumber('1.5 %为最低比例'), '1.5 %为最低比例');
+  assert.equal(stripClauseNumber('1.5 米以上'), '1.5 米以上');
+  assert.equal(stripClauseNumber('2.5 元以上'), '2.5 元以上');
+  assert.equal(stripClauseNumber('3.5 台设备'), '3.5 台设备');
+  assert.equal(stripClauseNumber('4.5 人以上'), '4.5 人以上');
   assert.equal(stripClauseNumber('2.0.1版本必须兼容'), '2.0.1版本必须兼容');
+  assert.equal(stripClauseNumber('2.0.1 版本必须兼容'), '2.0.1 版本必须兼容');
+  assert.equal(stripClauseNumber('1.2 协议必须支持'), '1.2 协议必须支持');
   assert.equal(stripClauseNumber('192.168.1.1服务器必须可达'), '192.168.1.1服务器必须可达');
   for (const businessValue of [
     '1.5米为最低长度',
@@ -110,7 +153,7 @@ test('strips common Word clause numbers without deleting a leading decimal metri
   assert.equal(stripClauseNumber('1.1 项目概况'), '项目概况');
   assert.equal(stripClauseNumber('1.1 年度服务计划'), '年度服务计划');
   assert.equal(stripClauseNumber('1.1 地址规划必须满足要求'), '地址规划必须满足要求');
-  assert.equal(stripClauseNumber('1.1 版本管理要求'), '版本管理要求');
+  assert.equal(stripClauseNumber('1.1 版本管理要求'), '1.1 版本管理要求');
   assert.equal(stripClauseNumber('1.1 人力资源配置'), '人力资源配置');
   assert.equal(stripClauseNumber('1.1 年限要求'), '年限要求');
   assert.equal(stripClauseNumber('1.1 站点建设'), '站点建设');
@@ -378,6 +421,29 @@ test('uses exact normalized places for repeated sentences and reference matching
   assert.equal(town.place, '东山镇');
   const [galaxy] = checkPlaceRelevance(['银河镇', '银河镇'], [['星银河镇'], [], []]);
   assert.equal(galaxy.place, '银河镇');
+});
+
+test('rejects generic suffix words and merges legal prefecture-to-county chains', () => {
+  assert.deepEqual(checkPlaceRelevance(
+    ['开展市政工程和乡镇服务', '开展市政工程和乡镇服务'],
+    [[], [], []],
+  ), []);
+  assert.deepEqual(checkPlaceRelevance(
+    ['本项目设置服务区和休息区', '本项目设置服务区和休息区'],
+    [[], [], []],
+  ), []);
+  assert.deepEqual(
+    extractPlaceCandidates('苏州市昆山市。').map((candidate) => candidate.place),
+    ['苏州市昆山市'],
+  );
+  assert.deepEqual(
+    extractPlaceCandidates('延边朝鲜族自治州延吉市。').map((candidate) => candidate.place),
+    ['延边朝鲜族自治州延吉市'],
+  );
+  assert.deepEqual(
+    extractPlaceCandidates('江苏省苏州市昆山市周市镇。').map((candidate) => candidate.place),
+    ['江苏省苏州市昆山市周市镇'],
+  );
 });
 
 test('keeps every produced rule ID in the stable severity map and summarizes severities', () => {

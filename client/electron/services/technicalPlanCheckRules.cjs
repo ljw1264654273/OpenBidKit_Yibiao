@@ -56,6 +56,10 @@ const BUSINESS_UNITS = [
   '点', '站', 'V', 'A', 'm', 'L', '度', '%', '％',
 ];
 const BUSINESS_SEMANTICS = ['版本', '服务器', '协议', '地址', '网段', '端口', 'IP', '版'];
+const TYPED_DOTTED_SEMANTICS = ['版本', '协议', '版'];
+const QUANTITY_FOLLOWERS = [
+  '不超过', '以上', '以下', '以内', '以外', '为', '必须', '设备', '配置', '数量', '最低', '最高', '不少',
+];
 const PLACE_SUFFIX_LEVEL = Object.freeze({
   特别行政区: 1,
   自治区: 1,
@@ -75,6 +79,7 @@ const PLACE_SUFFIX_LEVEL = Object.freeze({
 });
 const MAX_PLACE_DEPTH = 5;
 const PLACE_SUFFIXES = ['特别行政区', '自治区', '自治州', '自治县', '新区', '街道', '省', '市', '县', '区', '镇', '乡', '村', '盟', '旗'];
+const PREFECTURE_PLACE_SUFFIXES = new Set(['市', '自治州', '盟']);
 const SPECIAL_ADMIN_REGIONS = [
   '内蒙古自治区',
   '广西壮族自治区',
@@ -84,7 +89,9 @@ const SPECIAL_ADMIN_REGIONS = [
   '香港特别行政区',
   '澳门特别行政区',
 ];
-const NON_PLACE_WORDS = new Set(['市场', '区域', '乡村', '村镇', '市政', '乡镇', '县级']);
+const NON_PLACE_WORDS = new Set([
+  '市场', '区域', '乡村', '村镇', '市政', '乡镇', '县级', '服务区', '休息区',
+]);
 const PLACE_CONNECTORS = new Set([
   '在', '于', '为', '至', '到', '和', '及', '与', '的', '将', '由', '从', '往', '向',
   '位于', '覆盖', '包括', '包含', '面向', '负责', '进入', '遍及',
@@ -142,9 +149,17 @@ function isValidIpv4Prefix(source) {
   return match[5] === undefined || Number(match[5]) <= 32;
 }
 
+function termsLongestFirst(terms) {
+  return [...terms].sort((left, right) => right.length - left.length || left.localeCompare(right, 'zh-CN'));
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function matchingBusinessTerm(text, terms) {
   const source = String(text || '').toLocaleLowerCase('en-US');
-  return terms.find((term) => {
+  return termsLongestFirst(terms).find((term) => {
     const normalizedTerm = term.toLocaleLowerCase('en-US');
     if (!source.startsWith(normalizedTerm)) return false;
     if (!/[a-z]$/i.test(term)) return true;
@@ -152,14 +167,27 @@ function matchingBusinessTerm(text, terms) {
   }) || '';
 }
 
+function leadingDottedSemanticToken(source) {
+  const semanticPattern = termsLongestFirst(TYPED_DOTTED_SEMANTICS)
+    .map(escapeRegExp)
+    .join('|');
+  return String(source || '').match(
+    new RegExp(`^(\\d+(?:[.．]\\d+)+)\\s*(${semanticPattern})`),
+  );
+}
+
 function isProtectedBusinessNumericPrefix(source, numericPrefix) {
   if (isValidIpv4Prefix(source)) return true;
+  if (leadingDottedSemanticToken(source)) return true;
   if (/[)）]/.test(numericPrefix[0])) return false;
   const rest = source.slice(numericPrefix[0].length);
   if (!numericPrefix[2] && matchingBusinessTerm(rest, BUSINESS_SEMANTICS)) return true;
   const unit = matchingBusinessTerm(rest, BUSINESS_UNITS);
   if (!unit) return false;
-  return !numericPrefix[2] || !/^[\u4e00-\u9fa5]$/.test(unit);
+  if (!numericPrefix[2] || !/^[\u4e00-\u9fa5]$/.test(unit)) return true;
+  const quantityTail = rest.slice(unit.length).trimStart();
+  return !quantityTail || termsLongestFirst(QUANTITY_FOLLOWERS)
+    .some((follower) => quantityTail.startsWith(follower));
 }
 
 function stripClauseNumber(text) {
@@ -198,13 +226,77 @@ function extractRequirements(lines, minLength = 12) {
 }
 
 function extractNumericTokens(text) {
-  return [...String(text || '').matchAll(new RegExp(`(?<![\\d.])(${NUMBER_PATTERN})\\s*([%％])?`, 'g'))]
-    .map((match) => ({
+  const source = String(text || '');
+  const typedTokens = [];
+  const ipv4Pattern = /(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})(?:\/(\d{1,2}))?/g;
+  for (const match of source.matchAll(ipv4Pattern)) {
+    const before = source[match.index - 1] || '';
+    const after = source[match.index + match[0].length] || '';
+    if (/[\d.]/.test(before) || /[\d./]/.test(after)) continue;
+    if (match.slice(1, 5).some((part) => Number(part) > 255)) continue;
+    if (match[5] !== undefined && Number(match[5]) > 32) continue;
+    const address = match.slice(1, 5).map((part) => String(Number(part))).join('.');
+    const normalized = match[5] === undefined ? address : `${address}/${Number(match[5])}`;
+    typedTokens.push({
+      type: match[5] === undefined ? 'ip' : 'cidr',
+      value: normalized,
+      unit: '',
+      raw: match[0],
+      key: `${match[5] === undefined ? 'ip' : 'cidr'}|${normalized}`,
+      start: match.index,
+      end: match.index + match[0].length,
+    });
+  }
+
+  const semanticPattern = termsLongestFirst(TYPED_DOTTED_SEMANTICS)
+    .map(escapeRegExp)
+    .join('|');
+  const dottedSemanticPattern = new RegExp(
+    `(?<![\\d.．])(\\d+(?:[.．]\\d+)+)\\s*(${semanticPattern})`,
+    'g',
+  );
+  for (const match of source.matchAll(dottedSemanticPattern)) {
+    const start = match.index;
+    const end = start + match[0].length;
+    if (typedTokens.some((token) => start < token.end && token.start < end)) continue;
+    const normalized = match[1].replaceAll('．', '.');
+    const semanticType = match[2] === '协议' ? 'protocol' : 'version';
+    typedTokens.push({
+      type: semanticType,
+      value: normalized,
+      unit: match[2],
+      raw: match[0],
+      key: `${semanticType}|${normalized}`,
+      start,
+      end,
+    });
+  }
+
+  typedTokens.sort((left, right) => left.start - right.start || left.end - right.end);
+  const ordinaryTokens = [];
+  const ordinaryPattern = new RegExp(`(?<![\\d.．])(${NUMBER_PATTERN})`, 'g');
+  for (const match of source.matchAll(ordinaryPattern)) {
+    const start = match.index;
+    const numberEnd = start + match[0].length;
+    if (typedTokens.some((token) => start < token.end && token.start < numberEnd)) continue;
+    const tail = source.slice(numberEnd);
+    const whitespace = tail.match(/^[ \t]*/)?.[0] || '';
+    const unit = matchingBusinessTerm(tail.slice(whitespace.length), BUSINESS_UNITS);
+    const normalizedUnit = unit === '％' ? '%' : unit.replace(/[A-Za-z]+/g, (value) => value.toLowerCase());
+    const end = numberEnd + (unit ? whitespace.length + unit.length : 0);
+    ordinaryTokens.push({
+      type: 'number',
       value: Number(match[1]),
-      unit: match[2] ? '%' : '',
-      raw: `${match[1]}${match[2] || ''}`,
-      key: `${Number(match[1])}|${match[2] ? '%' : ''}`,
-    }));
+      unit: normalizedUnit,
+      raw: `${match[1]}${normalizedUnit === '%' ? unit : ''}`,
+      key: `${Number(match[1])}|${normalizedUnit}`,
+      start,
+      end,
+    });
+  }
+  return [...typedTokens, ...ordinaryTokens]
+    .sort((left, right) => left.start - right.start || left.end - right.end)
+    .map(({ start, end, ...token }) => token);
 }
 
 function coverageFor(text, proposalText, proposalBigrams) {
@@ -630,12 +722,21 @@ function specialRegionComponents(source) {
   return components;
 }
 
+function canFollowPlaceComponent(previous, next) {
+  if (!previous || !next) return false;
+  if (next.level > previous.level) return true;
+  return PREFECTURE_PLACE_SUFFIXES.has(previous.suffix) && next.suffix === '市';
+}
+
 function placeComponents(text) {
   const source = String(text || '');
   const segments = [...CHINESE_WORD_SEGMENTER.segment(source)];
   const specialComponents = specialRegionComponents(source)
     .sort((left, right) => left.start - right.start || left.end - right.end);
-  const suffixPattern = new RegExp(PLACE_SUFFIXES.join('|'), 'g');
+  const suffixPattern = new RegExp(
+    termsLongestFirst(PLACE_SUFFIXES).map(escapeRegExp).join('|'),
+    'g',
+  );
   const suffixMatches = [...source.matchAll(suffixPattern)].map((match) => ({
     suffix: match[0],
     start: match.index,
@@ -674,10 +775,30 @@ function placeComponents(text) {
     const child = suffixMatches[index + 1];
     const hasChildSuffix = Boolean(
       child
-      && child.level > match.level
+      && canFollowPlaceComponent(match, child)
       && child.start >= match.end
       && /^[\u4e00-\u9fa5]+$/.test(source.slice(match.end, child.start)),
     );
+    let endingSegmentCursor = segmentCursor;
+    while (
+      endingSegmentCursor + 1 < segments.length
+      && segments[endingSegmentCursor].index + segments[endingSegmentCursor].segment.length < match.end
+    ) endingSegmentCursor += 1;
+    const endingSegment = segments[endingSegmentCursor];
+    const endsAtWordBoundary = Boolean(
+      isChineseWord(endingSegment)
+      && endingSegment.index + endingSegment.segment.length === match.end
+    );
+    const isConfirmedChainComponent = Boolean(
+      !endsAtWordBoundary
+      && previous
+      && canFollowPlaceComponent(previous, match)
+      && hasChildSuffix
+      && child.start > match.end
+      && previous.end <= match.start
+      && /^[\u4e00-\u9fa5]+$/.test(source.slice(previous.end, match.start))
+    );
+    if (!endsAtWordBoundary && !isConfirmedChainComponent) continue;
     const start = standalonePlaceNameStart(
       source,
       segments,
@@ -716,7 +837,7 @@ function extractPlaceCandidates(text) {
     while (chain.length < MAX_PLACE_DEPTH && index + 1 < components.length) {
       const previous = chain.at(-1);
       const next = components[index + 1];
-      if (next.start !== previous.end || next.level <= previous.level) break;
+      if (next.start !== previous.end || !canFollowPlaceComponent(previous, next)) break;
       chain.push(next);
       index += 1;
     }
