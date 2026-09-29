@@ -6,15 +6,18 @@ const {
   splitPhrases,
   createChineseBigramSet,
   bigramCoverage,
+  stripClauseNumber,
   extractRequirements,
   checkRequirements,
   extractScoreItems,
   checkScoreItems,
+  findDurations,
   checkTimeConflicts,
   checkCalculations,
   checkLogicConflicts,
   checkLanguage,
   checkPlaceRelevance,
+  extractPlaceCandidates,
   summarizeResults,
 } = require('./technicalPlanCheckRules.cjs');
 
@@ -74,6 +77,14 @@ test('ignores clause numbering and compares mandatory numeric tokens by normaliz
   );
 });
 
+test('strips common Word clause numbers without deleting a leading decimal metric', () => {
+  assert.equal(stripClauseNumber('1.1.1服务要求'), '服务要求');
+  assert.equal(stripClauseNumber('1．1．1 服务要求'), '服务要求');
+  assert.equal(stripClauseNumber('1.1.1、服务要求'), '服务要求');
+  assert.equal(stripClauseNumber('（1.1）服务要求'), '服务要求');
+  assert.equal(stripClauseNumber('1.5个月内完成'), '1.5个月内完成');
+});
+
 test('extracts score items only from pipe table rows and uses the same coverage thresholds', () => {
   assert.deepEqual(extractScoreItems([
     '实施方案 10分',
@@ -120,6 +131,24 @@ test('parses adjacent duration components as one duration', () => {
 });
 
 test('does not parse complete calendar dates or date ranges as durations', () => {
+  for (const dateText of [
+    '2026年',
+    '2026年9月',
+    '2026年9月29日',
+    '2026年9月29号',
+    '9月29日',
+    '9月29号',
+    '2026年9月至2027年3月',
+    '9月29日至10月1日',
+  ]) {
+    assert.deepEqual(findDurations(dateText), [], dateText);
+  }
+
+  assert.deepEqual(
+    findDurations('服务期自2026年9月29日至2027年9月28日，实际履约期限为30天。')
+      .map((duration) => duration.label),
+    ['30天'],
+  );
   assert.deepEqual(checkTimeConflicts([
     '服务期自2026年9月29日至2027年9月28日。',
     '服务期安排以合同日期为准。',
@@ -213,6 +242,45 @@ test('normalizes common place lead-ins and continuous administrative chains', ()
   ]);
   assert.equal(result.ruleId, 'relevance.place');
   assert.equal(result.place, '江苏省南京市');
+});
+
+test('extracts only maximal legal administrative chains with bounded candidates', () => {
+  assert.deepEqual(
+    extractPlaceCandidates('江苏省南京市鼓楼区。').map((candidate) => candidate.place),
+    ['江苏省南京市鼓楼区'],
+  );
+  assert.deepEqual(
+    extractPlaceCandidates('黑龙江省哈尔滨市南岗区，呼和浩特市，东山镇。')
+      .map((candidate) => candidate.place),
+    ['黑龙江省哈尔滨市南岗区', '呼和浩特市', '东山镇'],
+  );
+  assert.deepEqual(extractPlaceCandidates('市场活跃，覆盖区域广，服务乡村振兴。'), []);
+
+  const longText = `${'市场区域乡村普通说明。'.repeat(5000)}江苏省南京市鼓楼区。`;
+  assert.deepEqual(
+    extractPlaceCandidates(longText).map((candidate) => candidate.place),
+    ['江苏省南京市鼓楼区'],
+  );
+});
+
+test('keeps single cities and townships distinct from surrounding prose', () => {
+  const [city] = checkPlaceRelevance([
+    '团队将在南京市开展服务。',
+    '本次履约覆盖南京市全域。',
+  ], [['采购地点为北京市。'], [], []]);
+  assert.equal(city.place, '南京市');
+
+  const [longCity] = checkPlaceRelevance([
+    '团队将在呼和浩特市开展服务。',
+    '本次履约覆盖呼和浩特市全域。',
+  ], [[], [], []]);
+  assert.equal(longCity.place, '呼和浩特市');
+
+  const [town] = checkPlaceRelevance([
+    '团队将在东山镇开展服务。',
+    '本次履约覆盖东山镇全域。',
+  ], [[], [], []]);
+  assert.equal(town.place, '东山镇');
 });
 
 test('keeps every produced rule ID in the stable severity map and summarizes severities', () => {

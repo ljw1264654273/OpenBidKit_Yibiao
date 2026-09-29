@@ -43,11 +43,11 @@ const SPLIT_RE = new RegExp(
   String.raw`[，,、。；;：:（()）)\s\d%．./\-—_*▲★※【】\[\]{}"'“”‘’<>《》=＝]+|${FUNCTION_WORDS}`,
 );
 const REQUIREMENT_MARK_RE = /必须|应当|不应|不得|须|不低于|不少于|至少|以上|支持|具备|提供|满足|要求|▲|★|※|响应|符合|采用|配置|实现|包括/;
-const CLAUSE_NUMBER_RE = /^\s*(?:[（(]?[一二三四五六七八九十]+[)）]|[（(]\d+[)）]|[一二三四五六七八九十]+、|\d+(?:\.\d+)+(?:[.、)）]|(?=\s|$))|\d+(?:[.、)])|第[一二三四五六七八九十\d]+条)/;
 const MANDATORY_RE = /▲|★|※|必须|不得|不低于|不少于|至少/;
 const DURATION_COMPONENT_RE = new RegExp(`(${NUMBER_PATTERN})\\s*(个月|周|星期|天|日|年)`, 'g');
 const CALCULATION_RE = new RegExp(`(${NUMBER_PATTERN})\\s*([+＋\\-－×xX*])\\s*(${NUMBER_PATTERN})\\s*=\\s*(${NUMBER_PATTERN})`, 'g');
-const PLACE_RE = /[\u4e00-\u9fa5]{2,12}(?:省|市|县|区|镇|乡|村|街道)/g;
+const PLACE_SUFFIX_LEVEL = Object.freeze({ 省: 1, 市: 2, 县: 3, 区: 3, 镇: 4, 乡: 4, 街道: 4, 村: 5 });
+const MAX_PLACE_DEPTH = 5;
 
 function createFinding(ruleId, category, message, contexts = [], details = {}) {
   const severity = RULE_SEVERITY[ruleId];
@@ -91,6 +91,21 @@ function bigramCoverage(text, corpusOrBigrams) {
   return matched / expected.size;
 }
 
+function stripClauseNumber(text) {
+  const source = String(text || '').trim();
+  const patterns = [
+    /^\s*[（(]\s*\d+(?:[.．]\d+)+\s*[)）]\s*[、.]?\s*/,
+    /^\s*\d+(?:[.．]\d+){2,}\s*[、.)）]?\s*/,
+    /^\s*\d+(?:[.．]\d+)+[、)）]\s*/,
+    /^\s*\d+(?:[.．]\d+)+(?=\s)\s*/,
+    /^\s*(?:[（(]?[一二三四五六七八九十]+[)）]|[（(]\d+[)）]|[一二三四五六七八九十]+、|\d+(?:[、)]|[.．](?!\d))|第[一二三四五六七八九十\d]+条)\s*/,
+  ];
+  for (const pattern of patterns) {
+    if (pattern.test(source)) return source.replace(pattern, '').trim();
+  }
+  return source;
+}
+
 function extractRequirements(lines, minLength = 12) {
   const requirements = [];
   const seen = new Set();
@@ -99,7 +114,7 @@ function extractRequirements(lines, minLength = 12) {
     if (
       text.length >= minLength
       && REQUIREMENT_MARK_RE.test(text)
-      && (CLAUSE_NUMBER_RE.test(text) || text.includes('|') || text.length >= 20)
+      && (stripClauseNumber(text) !== text || text.includes('|') || text.length >= 20)
       && !seen.has(text)
     ) {
       seen.add(text);
@@ -139,7 +154,7 @@ function checkRequirements(requirements, proposal) {
   for (const requirement of requirements || []) {
     const text = String(requirement || '');
     const { coverage, missing } = coverageFor(text, proposalText, proposalBigrams);
-    const requirementBody = text.replace(CLAUSE_NUMBER_RE, '').trim();
+    const requirementBody = stripClauseNumber(text);
     const missingNumberTokens = [...new Map(
       extractNumericTokens(requirementBody)
         .filter((token) => !proposalNumberKeys.has(token.key))
@@ -216,7 +231,7 @@ function checkScoreItems(items, proposal) {
 
 function findDurations(text) {
   const source = String(text || '').replace(
-    /(?:19|20)\d{2}\s*年\s*\d{1,2}\s*月\s*\d{1,2}\s*日/g,
+    /(?:(?:19|20)\d{2}\s*年(?:\s*\d{1,2}\s*月(?:\s*\d{1,2}\s*[日号])?)?|\d{1,2}\s*月\s*\d{1,2}\s*[日号])/g,
     (value) => ' '.repeat(value.length),
   );
   const groups = [];
@@ -424,42 +439,106 @@ function flattenReferenceLines(referenceDocuments) {
   return result.map((line) => String(line || ''));
 }
 
-function extractPlaces(text) {
-  const places = new Set();
-  const chineseRuns = String(text || '').match(/[\u4e00-\u9fa5]+/g) || [];
-  for (const run of chineseRuns) {
-    const suffixes = [...run.matchAll(/街道|省|市|县|区|镇|乡|村/g)];
-    if (suffixes.length < 2) {
-      for (const place of run.match(PLACE_RE) || []) places.add(place);
-      continue;
+function isOrdinaryPlaceWord(run, token) {
+  const previous = run[token.index - 1] || '';
+  const next = run[token.index + token.value.length] || '';
+  return (token.value === '市' && next === '场')
+    || (token.value === '区' && next === '域')
+    || (token.value === '乡' && next === '村')
+    || (token.value === '村' && previous === '乡');
+}
+
+function placeTokens(run) {
+  return [...run.matchAll(/街道|省|市|县|区|镇|乡|村/g)]
+    .map((match) => ({
+      value: match[0],
+      index: match.index,
+      end: match.index + match[0].length,
+      level: PLACE_SUFFIX_LEVEL[match[0]],
+    }))
+    .filter((token) => !isOrdinaryPlaceWord(run, token));
+}
+
+function candidatesForChineseRun(run) {
+  const tokens = placeTokens(run);
+  const candidates = [];
+  for (let startIndex = 0; startIndex < tokens.length; startIndex += 1) {
+    const first = tokens[startIndex];
+    const firstNameStart = Math.max(0, first.index - 12);
+    const firstName = run.slice(firstNameStart, first.index);
+    if (firstName.length < 2) continue;
+
+    let depth = 1;
+    let previous = first;
+    let endIndex = startIndex;
+    while (depth < MAX_PLACE_DEPTH && endIndex + 1 < tokens.length) {
+      const next = tokens[endIndex + 1];
+      const segmentLength = next.index - previous.end;
+      if (next.level <= previous.level || segmentLength < 2 || segmentLength > 12) break;
+      depth += 1;
+      endIndex += 1;
+      previous = next;
     }
-    for (let startIndex = 0; startIndex < suffixes.length - 1; startIndex += 1) {
-      const first = suffixes[startIndex];
-      const candidateStart = first.index - 2;
-      if (candidateStart < 0) continue;
-      let previousEnd = first.index + first[0].length;
-      for (let endIndex = startIndex + 1; endIndex < suffixes.length; endIndex += 1) {
-        const next = suffixes[endIndex];
-        const segmentLength = next.index - previousEnd;
-        if (segmentLength < 2 || segmentLength > 12) break;
-        const candidateEnd = next.index + next[0].length;
-        places.add(run.slice(candidateStart, candidateEnd));
-        previousEnd = candidateEnd;
-      }
+
+    candidates.push({
+      firstName,
+      tail: run.slice(first.index, previous.end),
+      place: run.slice(firstNameStart, previous.end),
+      depth,
+    });
+    if (depth > 1) startIndex = endIndex;
+  }
+  return candidates;
+}
+
+function extractPlaceCandidates(text) {
+  const candidates = [];
+  for (const run of String(text || '').match(/[\u4e00-\u9fa5]+/g) || []) {
+    candidates.push(...candidatesForChineseRun(run));
+  }
+  return candidates;
+}
+
+function longestRepeatedName(candidates) {
+  const suffixCounts = new Map();
+  for (const candidate of candidates) {
+    const maxLength = Math.min(12, candidate.firstName.length);
+    for (let length = 2; length <= maxLength; length += 1) {
+      const suffix = candidate.firstName.slice(-length);
+      suffixCounts.set(suffix, (suffixCounts.get(suffix) || 0) + 1);
     }
   }
-  return places;
+  return [...suffixCounts.entries()]
+    .filter(([, count]) => count >= 2)
+    .sort((left, right) => right[0].length - left[0].length)[0]?.[0] || '';
+}
+
+function referenceContainsPlace(referenceCandidates, firstName, tail) {
+  return referenceCandidates.some((candidate) => {
+    if (candidate.tail !== tail || !candidate.firstName.endsWith(firstName)) return false;
+    const prefixLength = candidate.firstName.length - firstName.length;
+    return prefixLength === 0 || prefixLength >= 2;
+  });
 }
 
 function checkPlaceRelevance(proposalLines, referenceDocuments) {
   const proposalText = (proposalLines || []).map((line) => String(line || '')).join('\n');
   const referenceText = flattenReferenceLines(referenceDocuments).join('\n');
-  const candidates = [...extractPlaces(proposalText)].sort();
-  const referencePlaces = extractPlaces(referenceText);
+  const proposalCandidates = extractPlaceCandidates(proposalText);
+  const referenceCandidates = extractPlaceCandidates(referenceText);
+  const byTail = new Map();
+  for (const candidate of proposalCandidates) {
+    const values = byTail.get(candidate.tail) || [];
+    values.push(candidate);
+    byTail.set(candidate.tail, values);
+  }
   const findings = [];
-  for (const place of candidates) {
-    const count = proposalText.split(place).length - 1;
-    if (count < 2 || referencePlaces.has(place)) continue;
+  for (const [tail, candidates] of byTail) {
+    const firstName = longestRepeatedName(candidates);
+    if (!firstName) continue;
+    const count = candidates.filter((candidate) => candidate.firstName.endsWith(firstName)).length;
+    if (referenceContainsPlace(referenceCandidates, firstName, tail)) continue;
+    const place = `${firstName}${tail}`;
     findings.push(createFinding(
       'relevance.place',
       '内容相关性',
@@ -468,7 +547,7 @@ function checkPlaceRelevance(proposalLines, referenceDocuments) {
       { place, count },
     ));
   }
-  return findings;
+  return findings.sort((left, right) => left.place.localeCompare(right.place, 'zh-CN'));
 }
 
 function summarizeResults(findings) {
@@ -505,6 +584,7 @@ module.exports = {
   splitPhrases,
   createChineseBigramSet,
   bigramCoverage,
+  stripClauseNumber,
   extractRequirements,
   checkRequirements,
   extractScoreItems,
@@ -515,6 +595,7 @@ module.exports = {
   checkCalculations,
   checkLogicConflicts,
   checkLanguage,
+  extractPlaceCandidates,
   checkPlaceRelevance,
   summarizeResults,
   summarizeFindings: summarizeResults,
