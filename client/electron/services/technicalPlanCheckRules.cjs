@@ -43,8 +43,10 @@ const ACTION_VERBS = new Set([
   '提供', '配置', '配备', '满足', '支持', '具备', '采用', '达到', '完成', '提交',
   '安装', '部署', '保证', '确保', '符合', '实现', '包含', '设置', '使用', '建设',
   '执行', '遵守', '兼容', '交付', '验收', '覆盖', '升级', '校验', '评估',
+  '适配', '解析', '编制',
 ]);
 const AMBIGUOUS_ACTION_VERBS = new Set(['分析', '调研', '说明']);
+const NEED_NOUN_PREDECESSORS = new Set(['业务', '实际', '用户']);
 const MODAL_COMPOUND_SUFFIXES = new Set(['方', '答']);
 const CLAUSE_BREAK_RE = /[，,。；;：:、！？!?\n]/;
 const QUANTITY_SENTENCE_BREAK_RE = /[。；;！？!?\n]/;
@@ -263,6 +265,10 @@ function isNeedAssertion(text, assertion) {
   if (action) return true;
   const ambiguousAction = matchingBusinessTerm(tail, AMBIGUOUS_ACTION_VERBS);
   if (!ambiguousAction) return false;
+  const previousWord = [...CHINESE_WORD_SEGMENTER.segment(text.slice(0, assertion.index))]
+    .filter((segment) => segment.isWordLike)
+    .at(-1)?.segment;
+  if (NEED_NOUN_PREDECESSORS.has(previousWord)) return false;
   return leadingBusinessNumericLength(tail.slice(ambiguousAction.length)) > 0;
 }
 
@@ -399,13 +405,19 @@ function isProtectedBusinessNumericPrefix(source, numericPrefix) {
   const tail = source.slice(unitEnd).trimStart();
   if (hasLeadingAssertion(tail) || hasLeadingQuantityCopula(tail)) return true;
   if (matchingBusinessTerm(tail, QUANTITY_RANGE_TERMS)) return true;
-  const clause = tail.split(QUANTITY_SENTENCE_BREAK_RE, 1)[0].slice(0, 28);
+  const clause = tail.split(QUANTITY_SENTENCE_BREAK_RE, 1)[0];
   const [firstAssertion] = findAssertionRanges(clause);
   if (!firstAssertion) return false;
   const context = clause.slice(0, firstAssertion.start);
-  if ((context.match(/[，,]/g) || []).length > 1) return false;
   return hasQuantityNoun(context)
     || QUANTITY_RANGE_TERMS.some((term) => context.includes(term));
+}
+
+function stripChineseChapterPrefix(text) {
+  return String(text || '').replace(
+    /^[\s（(【\[]*第[一二三四五六七八九十百零〇0-9]+(?:章|节|部分)[\s）)】\]、，,。.．:：；;—-]*/,
+    '',
+  );
 }
 
 function stripClauseNumber(text) {
@@ -430,10 +442,11 @@ function extractRequirements(lines, minLength = 12) {
   const seen = new Set();
   for (const line of lines || []) {
     const text = String(line || '').trim();
-    const hasNumericAssertion = hasAssertion(text) && hasBusinessNumericToken(text);
+    const containsAssertion = hasAssertion(text);
+    const hasNumericAssertion = containsAssertion && hasBusinessNumericToken(text);
     if (
-      text.length >= minLength
-      && (REQUIREMENT_MARK_RE.test(text) || hasAssertion(text))
+      (hasNumericAssertion || text.length >= minLength)
+      && (REQUIREMENT_MARK_RE.test(text) || containsAssertion)
       && (hasNumericAssertion || stripClauseNumber(text) !== text || text.includes('|') || text.length >= 20)
       && !seen.has(text)
     ) {
@@ -525,7 +538,7 @@ function checkRequirements(requirements, proposal) {
   const proposalBigrams = createChineseBigramSet(proposalText);
   const proposalNumericText = proposalText
     .split(/\r?\n/)
-    .map((line) => stripClauseNumber(line))
+    .map((line) => stripClauseNumber(stripChineseChapterPrefix(line)))
     .join('\n');
   const proposalNumberKeys = new Set(
     extractNumericTokens(proposalNumericText).map((token) => token.key),

@@ -1,6 +1,8 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 
+const { toDocumentLines } = require('./technicalPlanCheckDocumentAdapter.cjs');
+
 const {
   RULE_SEVERITY,
   splitPhrases,
@@ -148,6 +150,40 @@ test('treats syntactically valid need and should assertions as mandatory without
   assert.deepEqual(shortFinding.missingNumbers, [2.5]);
 });
 
+test('recognizes newly supported action verbs after need as mandatory assertions', () => {
+  for (const requirement of [
+    '系统需要适配2.0.1版本',
+    '系统需要解析1.2协议',
+    '系统需要编制2.5项措施',
+  ]) {
+    const numericText = requirement.match(/\d+(?:\.\d+)+|\d+(?:\.\d+)?/)[0];
+    const [finding] = checkRequirements([requirement], requirement.replace(numericText, ''));
+    assert.ok(finding, requirement);
+    assert.equal(finding.ruleId, 'requirement.mandatory-number-missing', requirement);
+  }
+});
+
+test('treats need before ambiguous actions as noun usage after business actual or user', () => {
+  for (const requirement of [
+    '业务需要说明2台历史设备',
+    '业务需要分析10项',
+    '实际需要分析10项',
+    '用户需要调研3人',
+  ]) {
+    assert.equal(
+      checkRequirements([requirement], requirement.replace(/\d+(?:\.\d+)?/, ''))
+        .some((finding) => finding.ruleId === 'requirement.mandatory-number-missing'),
+      false,
+      requirement,
+    );
+  }
+});
+
+test('extracts an assertion with a business numeric token below the minimum length', () => {
+  const requirement = '系统必须兼容1.1版本';
+  assert.deepEqual(extractRequirements([requirement]), [requirement]);
+});
+
 test('ignores clause numbering and compares mandatory numeric tokens by normalized value and percent unit', () => {
   const [missing] = checkRequirements(['1. 必须提供10台设备并完成巡检'], '必须提供设备并完成巡检');
   assert.deepEqual(missing.missingNumbers, [10]);
@@ -259,6 +295,28 @@ test('compares mandatory IP CIDR version and protocol tokens as complete typed v
   assert.equal(stripClauseNumber('1.1版本为主说明必须提交'), '版本为主说明必须提交');
 });
 
+test('removes Chinese chapter prefixes before indexing proposal numeric tokens', () => {
+  for (const proposal of [
+    '第一章 1.1 版本管理说明\n系统必须提供兼容证明',
+    '第2节：1.1 版本管理说明\n系统必须提供兼容证明',
+    '第三部分、1.1 版本管理说明\n系统必须提供兼容证明',
+    toDocumentLines(`
+      <h1>第一章 1.1 版本管理说明</h1>
+      <p>系统必须提供兼容证明</p>
+    `).join('\n'),
+  ]) {
+    const [finding] = checkRequirements(['系统必须兼容1.1版本'], proposal);
+    assert.ok(finding, proposal);
+    assert.equal(finding.ruleId, 'requirement.mandatory-number-missing', proposal);
+    assert.deepEqual(finding.missingNumberTokens, ['1.1版本'], proposal);
+  }
+
+  assert.deepEqual(checkRequirements(
+    ['系统必须兼容1.1版本'],
+    '系统必须兼容1.1版本',
+  ), []);
+});
+
 test('strips common Word clause numbers without deleting a leading decimal metric', () => {
   assert.equal(stripClauseNumber('1.1必须提供服务'), '必须提供服务');
   assert.equal(stripClauseNumber('1．1服务要求'), '服务要求');
@@ -336,6 +394,15 @@ test('strips common Word clause numbers without deleting a leading decimal metri
   assert.equal(stripClauseNumber('（1.1）人员配置必须满足要求'), '人员配置必须满足要求');
   assert.equal(stripClauseNumber('（1.1）版本管理要求'), '版本管理要求');
   assert.equal(stripClauseNumber('（1.1）地址规划要求'), '地址规划要求');
+});
+
+test('protects leading quantities across the complete sentence fragment', () => {
+  for (const businessValue of [
+    '2.5台关键设备，核心系统设备，必须配置',
+    '2.5台用于面向复杂业务场景持续运行并承担核心生产任务的关键核心生产设备，必须配置',
+  ]) {
+    assert.equal(stripClauseNumber(businessValue), businessValue);
+  }
 });
 
 test('extracts score items only from pipe table rows and uses the same coverage thresholds', () => {
