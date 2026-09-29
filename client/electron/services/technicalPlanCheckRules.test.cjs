@@ -22,28 +22,31 @@ const {
 } = require('./technicalPlanCheckRules.cjs');
 
 test('splits requirement phrases and reuses a precomputed Chinese bigram corpus', () => {
-  assert.deepEqual(splitPhrases('必须按照规范，提供现场服务'), ['按照规范', '提供现场服务']);
+  assert.deepEqual(splitPhrases('必须按照规范，提供现场服务'), ['规范', '现场服务']);
   const ordinaryModalWords = [
-    ['供应商配置10人', ['供应商配置']],
+    ['供应商配置10人', ['供应商']],
     ['响应时间5秒', ['响应时间']],
-    ['应用系统配置3台', ['应用系统配置']],
-    ['对应岗位配置2人', ['对应岗位配置']],
-    ['按需配置4套', ['按需配置']],
-    ['无需配置6台', ['无需配置']],
+    ['应用系统配置3台', ['应用系统']],
+    ['对应岗位配置2人', ['对应岗位']],
+    ['按需配置4套', ['按需']],
+    ['无需配置6台', ['无需']],
     ['需方计划2023年', ['需方计划']],
     ['应答文件2024年', ['应答文件']],
   ];
   for (const [text, phrases] of ordinaryModalWords) {
     assert.deepEqual(splitPhrases(text), phrases, text);
   }
-  assert.deepEqual(splitPhrases('需由项目经理负责提供2台设备'), ['由项目经理负责提供', '台设备']);
-  assert.deepEqual(splitPhrases('应在指定地点配置2.5台'), ['在指定地点配置']);
-  assert.deepEqual(splitPhrases('应按招标文件要求配置2.5套'), ['按招标文件要求配置']);
+  assert.deepEqual(splitPhrases('需由项目经理负责提供2台设备'), ['由项目经理负责', '台设备']);
+  assert.deepEqual(splitPhrases('应在指定地点配置2.5台'), ['在指定地点']);
+  assert.deepEqual(splitPhrases('应按招标文件要求配置2.5套'), ['按招标文件']);
   assert.deepEqual(splitPhrases('业务需要分析记录2025年历史'), ['业务需要分析记录', '年历史']);
   assert.deepEqual(splitPhrases('实际需要调研记录2024年历史'), ['实际需要调研记录', '年历史']);
   const corpus = createChineseBigramSet('甲乙丙丁');
   assert.equal(bigramCoverage('甲乙丙丁', corpus), 1);
   assert.equal(bigramCoverage('甲乙丙丁戊己', corpus), 0.6);
+  assert.deepEqual(checkRequirements(['必须提供现场服务'], '现场服务'), []);
+  assert.deepEqual(checkRequirements(['必须按照规范配置设备'], '规范设备'), []);
+  assert.deepEqual(checkRequirements(['应当采用国产设备'], '国产设备'), []);
 });
 
 test('extracts unique marked requirements and classifies coverage thresholds', () => {
@@ -85,19 +88,26 @@ test('treats syntactically valid need and should assertions as mandatory without
     '应在项目现场配置2台设备',
     '应根据合同要求配置2台设备',
     '项目需要2台设备',
+    '项目需要不少于2台设备',
     '现场需要3人驻场',
     '系统需要4GB内存',
     '系统需要分析2.5项风险',
+    '系统需要升级至2.0.1版本',
+    '系统需要校验1.2协议',
+    '系统需要评估2.5项风险',
     '系统需由项目经理负责提供2.5套授权',
     '设备应在指定地点配置2.5台',
     '系统应按招标文件要求配置2.5套',
     '设备2台应在现场，后续方案配置',
     '设备2台应在现场持续充分优先逐步配置',
   ]) {
-    const expectedNumber = Number(requirement.match(/\d+(?:\.\d+)?/)[0]);
-    const [finding] = checkRequirements([requirement], requirement.replace(/\d+(?:\.\d+)?/, ''));
+    const numericText = requirement.match(/\d+(?:\.\d+)+|\d+(?:\.\d+)?/)[0];
+    const [finding] = checkRequirements([requirement], requirement.replace(numericText, ''));
     assert.equal(finding.ruleId, 'requirement.mandatory-number-missing');
-    assert.deepEqual(finding.missingNumbers, [expectedNumber]);
+    assert.ok(
+      finding.missingNumberTokens.some((token) => token.includes(numericText)),
+      requirement,
+    );
   }
   for (const requirement of [
     '供应商配置10人',
@@ -112,6 +122,9 @@ test('treats syntactically valid need and should assertions as mandatory without
     '实际需要调研记录2024年历史资料',
     '业务需要分析记录2025月历史资料',
     '实际需要调研记录2024日历史资料',
+    '业务需要分析报告引用10项历史数据',
+    '业务需要分析记录10项',
+    '用户需要调研包含3人历史访谈',
   ]) {
     assert.equal(
       checkRequirements([requirement], requirement.replace(/\d+(?:\.\d+)?/, ''))
@@ -124,6 +137,15 @@ test('treats syntactically valid need and should assertions as mandatory without
     '业务需要分析记录2025年历史资料并形成背景说明',
     '实际需要调研记录2024年历史资料并形成背景说明',
   ]), []);
+
+  const shortRequirement = '设备应在指定地点配置2.5台并完成验收';
+  assert.deepEqual(extractRequirements([shortRequirement]), [shortRequirement]);
+  const [shortFinding] = checkRequirements(
+    extractRequirements([shortRequirement]),
+    '设备应在指定地点配置并完成验收',
+  );
+  assert.equal(shortFinding.ruleId, 'requirement.mandatory-number-missing');
+  assert.deepEqual(shortFinding.missingNumbers, [2.5]);
 });
 
 test('ignores clause numbering and compares mandatory numeric tokens by normalized value and percent unit', () => {
@@ -217,6 +239,19 @@ test('compares mandatory IP CIDR version and protocol tokens as complete typed v
     ['1.1 协议应急处置必须说明'],
     '协议应急处置必须说明',
   ), []);
+  for (const [requirement, proposal, token] of [
+    ['系统版本1.1必须兼容', '1.1 版本管理说明\n系统必须提供兼容证明', '版本1.1'],
+    ['系统协议1.2必须支持', '1.2 协议管理说明\n系统必须提供支持证明', '协议1.2'],
+    ['系统版本2.0.1必须兼容', '2.0.1 版本管理说明\n系统必须提供兼容证明', '版本2.0.1'],
+  ]) {
+    const [finding] = checkRequirements([requirement], proposal);
+    assert.equal(finding.ruleId, 'requirement.mandatory-number-missing');
+    assert.deepEqual(finding.missingNumberTokens, [token]);
+  }
+  assert.deepEqual(checkRequirements(
+    ['系统版本2.0.1必须兼容'],
+    '2.0.1版本必须兼容',
+  ), []);
   assert.equal(stripClauseNumber('1.2协议应用说明'), '协议应用说明');
   assert.equal(stripClauseNumber('1.2版本响应说明'), '版本响应说明');
   assert.equal(stripClauseNumber('1.1版本是否兼容必须说明'), '版本是否兼容必须说明');
@@ -247,6 +282,8 @@ test('strips common Word clause numbers without deleting a leading decimal metri
   assert.equal(stripClauseNumber('2.5 台关键核心生产设备必须配置'), '2.5 台关键核心生产设备必须配置');
   assert.equal(stripClauseNumber('1.5 年长期运维服务期限必须满足'), '1.5 年长期运维服务期限必须满足');
   assert.equal(stripClauseNumber('2.5 元最终综合报价方案必须符合'), '2.5 元最终综合报价方案必须符合');
+  assert.equal(stripClauseNumber('2.5 台关键核心设备，必须配置'), '2.5 台关键核心设备，必须配置');
+  assert.equal(stripClauseNumber('1.5 年长期运维服务期限,必须满足'), '1.5 年长期运维服务期限,必须满足');
   assert.equal(stripClauseNumber('2.0.1版本必须兼容'), '2.0.1版本必须兼容');
   assert.equal(stripClauseNumber('2.0.1 版本必须兼容'), '2.0.1 版本必须兼容');
   assert.equal(stripClauseNumber('1.2 协议应支持'), '1.2 协议应支持');

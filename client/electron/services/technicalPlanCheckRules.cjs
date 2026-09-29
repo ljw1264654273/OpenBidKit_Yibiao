@@ -42,12 +42,21 @@ const SINGLE_MODAL_ASSERTIONS = new Set(['需', '应']);
 const ACTION_VERBS = new Set([
   '提供', '配置', '配备', '满足', '支持', '具备', '采用', '达到', '完成', '提交',
   '安装', '部署', '保证', '确保', '符合', '实现', '包含', '设置', '使用', '建设',
-  '执行', '遵守', '兼容', '交付', '验收', '说明', '覆盖',
+  '执行', '遵守', '兼容', '交付', '验收', '覆盖', '升级', '校验', '评估',
 ]);
+const AMBIGUOUS_ACTION_VERBS = new Set(['分析', '调研', '说明']);
 const MODAL_COMPOUND_SUFFIXES = new Set(['方', '答']);
-const NEED_ACTION_WINDOW_SIZE = 5;
 const CLAUSE_BREAK_RE = /[，,。；;：:、！？!?\n]/;
-const SPLIT_RE = /[，,、。；;：:（()）)\s\d%．./\-—_*▲★※【】\[\]{}"'“”‘’<>《》=＝]+/;
+const QUANTITY_SENTENCE_BREAK_RE = /[。；;！？!?\n]/;
+const FUNCTION_WORDS = [
+  '以及', '并且', '而且', '同时', '对于', '按照', '根据', '通过', '结合', '依托',
+  '应当', '必须', '不得', '严禁', '不低于', '不少于', '至少', '不超过', '不高于',
+  '以上', '以内', '支持', '提供', '满足', '具备', '采用', '配置', '要求', '实现',
+  '包括', '包含', '与', '和', '及', '或', '须',
+].join('|');
+const SPLIT_RE = new RegExp(
+  String.raw`[，,、。；;：:（()）)\s\d%．./\-—_*▲★※【】\[\]{}"'“”‘’<>《》=＝]+|${FUNCTION_WORDS}`,
+);
 const REQUIREMENT_MARK_RE = /不应|须|以上|支持|具备|提供|满足|要求|▲|★|※|响应|符合|采用|配置|实现|包括/;
 const DURATION_COMPONENT_RE = new RegExp(`(${NUMBER_PATTERN})\\s*(个月|周|星期|天|日|年)`, 'g');
 const CALCULATION_RE = new RegExp(`(${NUMBER_PATTERN})\\s*([+＋\\-－×xX*])\\s*(${NUMBER_PATTERN})\\s*=\\s*(${NUMBER_PATTERN})`, 'g');
@@ -208,27 +217,24 @@ function literalRanges(source, terms) {
   }));
 }
 
-function hasActionVerbAhead(text, segments, assertionIndex) {
-  const assertion = segments[assertionIndex];
-  let previousEnd = assertion.index + assertion.segment.length;
-  let wordCount = 0;
-  for (let index = assertionIndex + 1; index < segments.length; index += 1) {
-    const current = segments[index];
-    if (CLAUSE_BREAK_RE.test(text.slice(previousEnd, current.index))) return false;
-    previousEnd = current.index + current.segment.length;
-    if (!current.isWordLike) {
-      if (CLAUSE_BREAK_RE.test(current.segment)) return false;
-      continue;
-    }
-    wordCount += 1;
-    if (wordCount > NEED_ACTION_WINDOW_SIZE) return false;
-    if (ACTION_VERBS.has(current.segment)) return true;
-  }
-  return false;
+function leadingBusinessNumericLength(source) {
+  const text = String(source || '').trimStart();
+  const typedToken = dottedSemanticTokens(text).find((token) => token.start === 0);
+  if (typedToken) return typedToken.end;
+  const match = text.match(new RegExp(`^(${NUMBER_PATTERN})`));
+  if (!match) return 0;
+  const tail = text.slice(match[0].length);
+  const whitespace = tail.match(/^[ \t]*/)?.[0] || '';
+  const unit = matchingBusinessTerm(tail.slice(whitespace.length), BUSINESS_UNITS);
+  if (!unit) return 0;
+  const value = Number(match[1]);
+  if (value >= 1900 && value <= 2099 && ['年', '月', '日'].includes(unit)) return 0;
+  return match[0].length + whitespace.length + unit.length;
 }
 
 function hasBusinessNumericToken(source) {
   const text = String(source || '');
+  if (dottedSemanticTokens(text).length > 0) return true;
   const ordinaryPattern = new RegExp(`(?<![\\d.．])(${NUMBER_PATTERN})`, 'g');
   for (const match of text.matchAll(ordinaryPattern)) {
     const tail = text.slice(match.index + match[0].length);
@@ -242,6 +248,24 @@ function hasBusinessNumericToken(source) {
   return false;
 }
 
+function isNeedAssertion(text, assertion) {
+  const { clauseEnd } = shortClauseBounds(
+    text,
+    assertion.index,
+    assertion.index + assertion.segment.length,
+  );
+  let tail = text.slice(assertion.index + assertion.segment.length, clauseEnd).trimStart();
+  const rangeTerm = matchingBusinessTerm(tail, QUANTITY_RANGE_TERMS);
+  if (rangeTerm) tail = tail.slice(rangeTerm.length).trimStart();
+  if (leadingBusinessNumericLength(tail) > 0) return true;
+
+  const action = matchingBusinessTerm(tail, ACTION_VERBS);
+  if (action) return true;
+  const ambiguousAction = matchingBusinessTerm(tail, AMBIGUOUS_ACTION_VERBS);
+  if (!ambiguousAction) return false;
+  return leadingBusinessNumericLength(tail.slice(ambiguousAction.length)) > 0;
+}
+
 function findAssertionRanges(source) {
   const text = String(source || '');
   const ranges = literalRanges(text, RAW_MANDATORY_ASSERTIONS);
@@ -250,13 +274,7 @@ function findAssertionRanges(source) {
     const current = segments[index];
     const isSingleModal = SINGLE_MODAL_ASSERTIONS.has(current.segment) && current.isWordLike;
     if (current.segment === NEED_ASSERTION) {
-      const { clauseStart, clauseEnd } = shortClauseBounds(
-        text,
-        current.index,
-        current.index + current.segment.length,
-      );
-      const clause = text.slice(clauseStart, clauseEnd);
-      if (hasBusinessNumericToken(clause) || hasActionVerbAhead(text, segments, index)) {
+      if (isNeedAssertion(text, current)) {
         ranges.push({ start: current.index, end: current.index + current.segment.length });
       }
       continue;
@@ -381,10 +399,11 @@ function isProtectedBusinessNumericPrefix(source, numericPrefix) {
   const tail = source.slice(unitEnd).trimStart();
   if (hasLeadingAssertion(tail) || hasLeadingQuantityCopula(tail)) return true;
   if (matchingBusinessTerm(tail, QUANTITY_RANGE_TERMS)) return true;
-  const clause = tail.split(CLAUSE_BREAK_RE, 1)[0].slice(0, 28);
+  const clause = tail.split(QUANTITY_SENTENCE_BREAK_RE, 1)[0].slice(0, 28);
   const [firstAssertion] = findAssertionRanges(clause);
   if (!firstAssertion) return false;
   const context = clause.slice(0, firstAssertion.start);
+  if ((context.match(/[，,]/g) || []).length > 1) return false;
   return hasQuantityNoun(context)
     || QUANTITY_RANGE_TERMS.some((term) => context.includes(term));
 }
@@ -411,10 +430,11 @@ function extractRequirements(lines, minLength = 12) {
   const seen = new Set();
   for (const line of lines || []) {
     const text = String(line || '').trim();
+    const hasNumericAssertion = hasAssertion(text) && hasBusinessNumericToken(text);
     if (
       text.length >= minLength
       && (REQUIREMENT_MARK_RE.test(text) || hasAssertion(text))
-      && (stripClauseNumber(text) !== text || text.includes('|') || text.length >= 20)
+      && (hasNumericAssertion || stripClauseNumber(text) !== text || text.includes('|') || text.length >= 20)
       && !seen.has(text)
     ) {
       seen.add(text);
@@ -503,7 +523,13 @@ function coverageFor(text, proposalText, proposalBigrams) {
 function checkRequirements(requirements, proposal) {
   const proposalText = String(proposal || '');
   const proposalBigrams = createChineseBigramSet(proposalText);
-  const proposalNumberKeys = new Set(extractNumericTokens(proposalText).map((token) => token.key));
+  const proposalNumericText = proposalText
+    .split(/\r?\n/)
+    .map((line) => stripClauseNumber(line))
+    .join('\n');
+  const proposalNumberKeys = new Set(
+    extractNumericTokens(proposalNumericText).map((token) => token.key),
+  );
   const findings = [];
 
   for (const requirement of requirements || []) {
