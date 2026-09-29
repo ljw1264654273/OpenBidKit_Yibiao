@@ -82,6 +82,9 @@ const QUANTITY_NOUNS = [
   '套数', '金额', '报价', '价格', '费用', '容量', '内存', '带宽', '速率', '期限',
   '周期', '载重', '设备', '授权', '期',
 ];
+const NON_UNIT_COMPOUNDS = new Set([
+  '台账', '月度', '点位', '站务', '人防', '项下', '元宇宙', '次要',
+]);
 const PLACE_SUFFIX_LEVEL = Object.freeze({
   特别行政区: 1,
   自治区: 1,
@@ -328,6 +331,18 @@ function hasQuantityNoun(source) {
     .some((segment) => segment.isWordLike && QUANTITY_NOUNS.includes(segment.segment));
 }
 
+function isOrdinaryCompoundPrefix(source, unit) {
+  const firstWord = [...CHINESE_WORD_SEGMENTER.segment(String(source || ''))]
+    .find((segment) => segment.isWordLike);
+  if (
+    firstWord?.index === 0
+    && firstWord.segment.length > unit.length
+    && firstWord.segment.startsWith(unit)
+  ) return true;
+  return [...NON_UNIT_COMPOUNDS]
+    .some((compound) => compound.startsWith(unit) && String(source || '').startsWith(compound));
+}
+
 function shortClauseBounds(source, start, end) {
   const delimiters = /[，,。；;：:\n]/;
   let clauseStart = start;
@@ -400,6 +415,7 @@ function isProtectedBusinessNumericPrefix(source, numericPrefix) {
   if (!numericPrefix[2] && matchingBusinessTerm(rest, BUSINESS_SEMANTICS)) return true;
   const unit = matchingBusinessTerm(rest, BUSINESS_UNITS);
   if (!unit) return false;
+  if (unit.length === 1 && isOrdinaryCompoundPrefix(rest, unit)) return false;
   if (unit.length > 1) return true;
   const unitEnd = numericPrefix[0].length + unit.length;
   const tail = source.slice(unitEnd).trimStart();
@@ -413,11 +429,36 @@ function isProtectedBusinessNumericPrefix(source, numericPrefix) {
     || QUANTITY_RANGE_TERMS.some((term) => context.includes(term));
 }
 
-function stripChineseChapterPrefix(text) {
-  return String(text || '').replace(
-    /^[\s（(【\[]*第[一二三四五六七八九十百零〇0-9]+(?:章|节|部分)[\s）)】\]、，,。.．:：；;—-]*/,
-    '',
-  );
+function stripChineseChapterPrefixes(text) {
+  const prefixPattern = /^[\s（(【\[]*第[一二三四五六七八九十百零〇0-9]+(?:章|节|部分|篇|卷)[\s）)】\]、，,。.．:：；;—-]*/;
+  let source = String(text || '');
+  let chapterPrefixed = false;
+  while (prefixPattern.test(source)) {
+    chapterPrefixed = true;
+    source = source.replace(prefixPattern, '');
+  }
+  return { text: source, chapterPrefixed };
+}
+
+function stripTypedDottedTokens(text) {
+  const source = String(text || '');
+  const tokens = dottedSemanticTokens(source);
+  if (!tokens.length) return source;
+  let cursor = 0;
+  const chunks = [];
+  for (const token of tokens) {
+    chunks.push(source.slice(cursor, token.start));
+    cursor = token.end;
+  }
+  chunks.push(source.slice(cursor));
+  return chunks.join('');
+}
+
+function sanitizeProposalNumericLine(line) {
+  const { text, chapterPrefixed } = stripChineseChapterPrefixes(line);
+  const sanitized = stripClauseNumber(text);
+  if (!chapterPrefixed || hasAssertion(line)) return sanitized;
+  return stripTypedDottedTokens(sanitized);
 }
 
 function stripClauseNumber(text) {
@@ -538,7 +579,7 @@ function checkRequirements(requirements, proposal) {
   const proposalBigrams = createChineseBigramSet(proposalText);
   const proposalNumericText = proposalText
     .split(/\r?\n/)
-    .map((line) => stripClauseNumber(stripChineseChapterPrefix(line)))
+    .map((line) => sanitizeProposalNumericLine(line))
     .join('\n');
   const proposalNumberKeys = new Set(
     extractNumericTokens(proposalNumericText).map((token) => token.key),

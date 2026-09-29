@@ -300,6 +300,11 @@ test('removes Chinese chapter prefixes before indexing proposal numeric tokens',
     '第一章 1.1 版本管理说明\n系统必须提供兼容证明',
     '第2节：1.1 版本管理说明\n系统必须提供兼容证明',
     '第三部分、1.1 版本管理说明\n系统必须提供兼容证明',
+    '第一章 第1节 1.1版本管理\n系统必须提供兼容证明',
+    '第一篇 1.1版本管理\n系统必须提供兼容证明',
+    '第一卷 1.1版本管理\n系统必须提供兼容证明',
+    '第一章 技术方案 1.1版本管理\n系统必须提供兼容证明',
+    '第一章 技术方案 版本 1.1 管理\n系统必须提供兼容证明',
     toDocumentLines(`
       <h1>第一章 1.1 版本管理说明</h1>
       <p>系统必须提供兼容证明</p>
@@ -315,6 +320,17 @@ test('removes Chinese chapter prefixes before indexing proposal numeric tokens',
     ['系统必须兼容1.1版本'],
     '系统必须兼容1.1版本',
   ), []);
+  assert.deepEqual(checkRequirements(
+    ['系统必须兼容1.1版本'],
+    '第一章 系统必须兼容1.1版本',
+  ), []);
+
+  const [protocolFinding] = checkRequirements(
+    ['系统必须支持1.2协议'],
+    '第一章 技术方案 协议 1.2 管理\n系统必须提供协议支持证明',
+  );
+  assert.equal(protocolFinding.ruleId, 'requirement.mandatory-number-missing');
+  assert.deepEqual(protocolFinding.missingNumberTokens, ['1.2协议']);
 });
 
 test('strips common Word clause numbers without deleting a leading decimal metric', () => {
@@ -403,6 +419,24 @@ test('protects leading quantities across the complete sentence fragment', () => 
   ]) {
     assert.equal(stripClauseNumber(businessValue), businessValue);
   }
+});
+
+test('rejects single-character units that are prefixes of ordinary compound words', () => {
+  for (const [source, expected] of [
+    ['1.1 项目概况，人员数量必须达到10人', '项目概况，人员数量必须达到10人'],
+    ['1.5 年度服务期限必须满足要求', '年度服务期限必须满足要求'],
+    ['2.5 台账与设备管理必须符合要求', '台账与设备管理必须符合要求'],
+    ['3.2 人员数量必须达到10人', '人员数量必须达到10人'],
+  ]) {
+    assert.equal(stripClauseNumber(source), expected, source);
+  }
+
+  const [finding] = checkRequirements(
+    ['必须提供1.1项服务'],
+    '1.1 项目概况，人员数量必须达到10人',
+  );
+  assert.equal(finding.ruleId, 'requirement.mandatory-number-missing');
+  assert.deepEqual(finding.missingNumberTokens, ['1.1']);
 });
 
 test('extracts score items only from pipe table rows and uses the same coverage thresholds', () => {
