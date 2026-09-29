@@ -46,9 +46,49 @@ const REQUIREMENT_MARK_RE = /必须|应当|不应|不得|须|不低于|不少于
 const MANDATORY_RE = /▲|★|※|必须|不得|不低于|不少于|至少/;
 const DURATION_COMPONENT_RE = new RegExp(`(${NUMBER_PATTERN})\\s*(个月|周|星期|天|日|年)`, 'g');
 const CALCULATION_RE = new RegExp(`(${NUMBER_PATTERN})\\s*([+＋\\-－×xX*])\\s*(${NUMBER_PATTERN})\\s*=\\s*(${NUMBER_PATTERN})`, 'g');
-const PLACE_SUFFIX_LEVEL = Object.freeze({ 省: 1, 市: 2, 县: 3, 区: 3, 镇: 4, 乡: 4, 街道: 4, 村: 5 });
+const BUSINESS_UNITS = [
+  '平方公里', '平方千米', '平方分米', '平方厘米', '平方毫米', '立方分米', '立方厘米', '立方毫米',
+  '平方米', '立方米', '人民币', '公斤', '千克', '公里', '千米', '分米', '厘米', '毫米', '公顷',
+  '万元', '亿元', '个月', '星期', '小时', '分钟', '毫升', 'Gbps', 'Mbps', 'GB', 'MB', 'TB',
+  'kWh', 'kW', 'Wh', '千瓦', 'm²', 'm³', '㎡', '亩', '吨', '克', '升', '℃', '年', '月', '周',
+  '天', '日', '秒', '瓦', 'W',
+  '米', '元', '台', '套', '个', '项', '人', '次', '件', '份', '辆', '组', '座', '处', '家', '名',
+  '点', '站', 'V', 'A', 'm', 'L', '度', '%', '％',
+];
+const BUSINESS_SEMANTICS = ['版本', '服务器', '协议', '地址', '网段', '端口', 'IP', '版'];
+const PLACE_SUFFIX_LEVEL = Object.freeze({
+  特别行政区: 1,
+  自治区: 1,
+  省: 1,
+  自治州: 2,
+  市: 2,
+  盟: 2,
+  自治县: 3,
+  新区: 3,
+  县: 3,
+  区: 3,
+  旗: 3,
+  街道: 4,
+  镇: 4,
+  乡: 4,
+  村: 5,
+});
 const MAX_PLACE_DEPTH = 5;
-const PLACE_SUFFIXES = ['街道', '省', '市', '县', '区', '镇', '乡', '村'];
+const PLACE_SUFFIXES = ['特别行政区', '自治区', '自治州', '自治县', '新区', '街道', '省', '市', '县', '区', '镇', '乡', '村', '盟', '旗'];
+const SPECIAL_ADMIN_REGIONS = [
+  '内蒙古自治区',
+  '广西壮族自治区',
+  '西藏自治区',
+  '宁夏回族自治区',
+  '新疆维吾尔自治区',
+  '香港特别行政区',
+  '澳门特别行政区',
+];
+const NON_PLACE_WORDS = new Set(['市场', '区域', '乡村', '村镇', '市政', '乡镇', '县级']);
+const PLACE_CONNECTORS = new Set([
+  '在', '于', '为', '至', '到', '和', '及', '与', '的', '将', '由', '从', '往', '向',
+  '位于', '覆盖', '包括', '包含', '面向', '负责', '进入', '遍及',
+]);
 const CHINESE_WORD_SEGMENTER = new Intl.Segmenter('zh-CN', { granularity: 'word' });
 
 function createFinding(ruleId, category, message, contexts = [], details = {}) {
@@ -93,18 +133,41 @@ function bigramCoverage(text, corpusOrBigrams) {
   return matched / expected.size;
 }
 
+function isValidIpv4Prefix(source) {
+  const match = String(source || '').match(
+    /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})(?:\/(\d{1,2}))?(?=$|[^\d./])/,
+  );
+  if (!match) return false;
+  if (match.slice(1, 5).some((part) => Number(part) > 255)) return false;
+  return match[5] === undefined || Number(match[5]) <= 32;
+}
+
+function matchingBusinessTerm(text, terms) {
+  const source = String(text || '').toLocaleLowerCase('en-US');
+  return terms.find((term) => {
+    const normalizedTerm = term.toLocaleLowerCase('en-US');
+    if (!source.startsWith(normalizedTerm)) return false;
+    if (!/[a-z]$/i.test(term)) return true;
+    return !/^[a-z]/i.test(source.slice(normalizedTerm.length));
+  }) || '';
+}
+
+function isProtectedBusinessNumericPrefix(source, numericPrefix) {
+  if (isValidIpv4Prefix(source)) return true;
+  if (/[)）]/.test(numericPrefix[0])) return false;
+  const rest = source.slice(numericPrefix[0].length);
+  if (!numericPrefix[2] && matchingBusinessTerm(rest, BUSINESS_SEMANTICS)) return true;
+  const unit = matchingBusinessTerm(rest, BUSINESS_UNITS);
+  if (!unit) return false;
+  return !numericPrefix[2] || !/^[\u4e00-\u9fa5]$/.test(unit);
+}
+
 function stripClauseNumber(text) {
   const source = String(text || '').trim();
-  const numericPrefix = source.match(/^\s*[（(]?\s*(\d+(?:[.．]\d+)+)\s*[)）]?\s*/);
-  if (numericPrefix) {
-    const rest = source.slice(numericPrefix[0].length);
-    const componentCount = numericPrefix[1].split(/[.．]/).length;
-    if (/^(?:年|个月|月|天|日|小时|分钟|秒|[%％])/.test(rest)) return source;
-    if (
-      componentCount >= 3
-      && /^(?:版本|服务器|协议|地址|端口|IP\b)/i.test(rest)
-    ) return source;
-  }
+  const numericPrefix = source.match(
+    /^\s*[（(]?\s*(\d+(?:[.．]\d+)+)(?:\s*[)）])?([ \t]*)/,
+  );
+  if (numericPrefix && isProtectedBusinessNumericPrefix(source, numericPrefix)) return source;
   const patterns = [
     /^\s*[（(]\s*\d+(?:[.．]\d+)+\s*[)）]\s*[、.]?\s*/,
     /^\s*\d+(?:[.．]\d+)+\s*[、.)）]?\s*/,
@@ -459,111 +522,190 @@ function isChineseWord(segment) {
   return Boolean(segment?.isWordLike) && /^[\u4e00-\u9fa5]+$/.test(segment.segment);
 }
 
-function placeSuffix(value) {
-  return PLACE_SUFFIXES.find((suffix) => value.endsWith(suffix)) || '';
+function previousChineseSegment(segments, index, position, minimumStart) {
+  if (index <= 0) return null;
+  const segment = segments[index - 1];
+  if (
+    segment.index + segment.segment.length !== position
+    || !isChineseWord(segment)
+  ) return null;
+  const clippedStart = Math.max(segment.index, minimumStart);
+  if (clippedStart >= position) return null;
+  return {
+    segment: clippedStart === segment.index
+      ? segment
+      : {
+        ...segment,
+        segment: segment.segment.slice(clippedStart - segment.index),
+        index: clippedStart,
+      },
+    index: index - 1,
+  };
 }
 
-function startsWithPlaceSuffix(value) {
-  return PLACE_SUFFIXES.find((suffix) => value.startsWith(suffix) && value.length > suffix.length) || '';
+function standalonePlaceNameStart(
+  source,
+  segments,
+  containingIndex,
+  suffixStart,
+  suffixEnd,
+  hasChildSuffix,
+  minimumStart,
+) {
+  const containing = segments[containingIndex];
+  if (!isChineseWord(containing)) return null;
+  const containingEnd = containing.index + containing.segment.length;
+  const inlineName = source.slice(containing.index, suffixStart);
+  if (suffixStart === containing.index && suffixEnd < containingEnd && !hasChildSuffix) return null;
+  if (suffixStart === containing.index && suffixEnd < containingEnd) {
+    const previous = previousChineseSegment(
+      segments,
+      containingIndex,
+      containing.index,
+      minimumStart,
+    );
+    if (previous && NON_PLACE_WORDS.has(previous.segment.segment)) return null;
+  }
+
+  let name = inlineName;
+  let start = containing.index;
+  let previousIndex = containingIndex;
+  let previousPosition = containing.index;
+  if (inlineName) {
+    while (name.length < 2) {
+      const previous = previousChineseSegment(
+        segments,
+        previousIndex,
+        previousPosition,
+        minimumStart,
+      );
+      if (
+        !previous
+        || previous.segment.segment.length !== 1
+        || PLACE_CONNECTORS.has(previous.segment.segment)
+      ) break;
+      name = `${previous.segment.segment}${name}`;
+      start = previous.segment.index;
+      previousIndex = previous.index;
+      previousPosition = previous.segment.index;
+    }
+    if (name.length < 2 || name.length > 12 || !/^[\u4e00-\u9fa5]+$/.test(name)) return null;
+    return start;
+  }
+
+  while (true) {
+    const previous = previousChineseSegment(
+      segments,
+      previousIndex,
+      previousPosition,
+      minimumStart,
+    );
+    if (!previous || PLACE_CONNECTORS.has(previous.segment.segment)) break;
+    const expandedName = `${previous.segment.segment}${name}`;
+    if (expandedName.length > 12) break;
+    name = expandedName;
+    start = previous.segment.index;
+    previousIndex = previous.index;
+    previousPosition = previous.segment.index;
+  }
+  if (name.length < 2 || name.length > 12 || !/^[\u4e00-\u9fa5]+$/.test(name)) return null;
+  return start;
 }
 
-function segmentedPlaceTokens(text) {
-  const raw = [...CHINESE_WORD_SEGMENTER.segment(String(text || ''))];
-  const segments = [];
-  for (let index = 0; index < raw.length; index += 1) {
-    const segment = raw[index];
-    const leadingSuffix = isChineseWord(segment) ? startsWithPlaceSuffix(segment.segment) : '';
-    const previousLevel = index >= 2 && isChineseWord(raw[index - 2])
-      ? PLACE_SUFFIX_LEVEL[placeSuffix(raw[index - 2].segment)]
-      : undefined;
-    if (leadingSuffix && previousLevel && PLACE_SUFFIX_LEVEL[leadingSuffix] > previousLevel) {
-      segments.push({
-        segment: leadingSuffix,
-        index: segment.index,
-        isWordLike: true,
+function specialRegionComponents(source) {
+  const components = [];
+  for (const place of SPECIAL_ADMIN_REGIONS) {
+    let start = source.indexOf(place);
+    while (start >= 0) {
+      components.push({
+        place,
+        suffix: place.endsWith('特别行政区') ? '特别行政区' : '自治区',
+        level: 1,
+        start,
+        end: start + place.length,
       });
-      segments.push({
-        segment: segment.segment.slice(leadingSuffix.length),
-        index: segment.index + leadingSuffix.length,
-        isWordLike: true,
-      });
-    } else {
-      segments.push(segment);
+      start = source.indexOf(place, start + place.length);
     }
   }
-  return segments;
-}
-
-function wordRunBounds(segments, index) {
-  let start = index;
-  let end = index;
-  while (
-    start > 0
-    && isChineseWord(segments[start - 1])
-    && segments[start - 1].index + segments[start - 1].segment.length === segments[start].index
-  ) start -= 1;
-  while (
-    end + 1 < segments.length
-    && isChineseWord(segments[end + 1])
-    && segments[end].index + segments[end].segment.length === segments[end + 1].index
-  ) end += 1;
-  return { start, end };
-}
-
-function nameForStandaloneSuffix(segments, index) {
-  const { start: runStart, end: runEnd } = wordRunBounds(segments, index);
-  if (index === runEnd && index - runStart <= 2) {
-    const completeName = segments.slice(runStart, index).map((segment) => segment.segment).join('');
-    if (completeName.length >= 2 && completeName.length <= 12) {
-      return { name: completeName, start: runStart };
-    }
-  }
-
-  let name = '';
-  let start = index;
-  for (let cursor = index - 1; cursor >= runStart && name.length < 2; cursor -= 1) {
-    const value = segments[cursor].segment;
-    if (placeSuffix(value)) break;
-    name = `${value}${name}`;
-    start = cursor;
-  }
-  if (name.length < 2 || name.length > 12) return null;
-  return { name, start };
+  return components;
 }
 
 function placeComponents(text) {
-  const segments = segmentedPlaceTokens(text);
+  const source = String(text || '');
+  const segments = [...CHINESE_WORD_SEGMENTER.segment(source)];
+  const specialComponents = specialRegionComponents(source)
+    .sort((left, right) => left.start - right.start || left.end - right.end);
+  const suffixPattern = new RegExp(PLACE_SUFFIXES.join('|'), 'g');
+  const suffixMatches = [...source.matchAll(suffixPattern)].map((match) => ({
+    suffix: match[0],
+    start: match.index,
+    end: match.index + match[0].length,
+    level: PLACE_SUFFIX_LEVEL[match[0]],
+  }));
   const components = [];
-  for (let index = 0; index < segments.length; index += 1) {
-    const segment = segments[index];
-    if (!isChineseWord(segment)) continue;
-    const suffix = placeSuffix(segment.segment);
-    if (!suffix) continue;
+  let specialCursor = 0;
+  let segmentCursor = 0;
 
-    const inlineName = segment.segment.slice(0, -suffix.length);
-    if (inlineName) {
-      if (inlineName.length < 2 || inlineName.length > 12) continue;
-      components.push({
-        place: segment.segment,
-        suffix,
-        level: PLACE_SUFFIX_LEVEL[suffix],
-        start: index,
-        end: index,
-      });
-      continue;
+  for (let index = 0; index < suffixMatches.length; index += 1) {
+    const match = suffixMatches[index];
+    while (
+      specialCursor < specialComponents.length
+      && specialComponents[specialCursor].end <= match.start
+    ) {
+      components.push(specialComponents[specialCursor]);
+      specialCursor += 1;
     }
+    if (specialComponents.some((component) => (
+      component.start <= match.start && match.end <= component.end
+    ))) continue;
 
-    const name = nameForStandaloneSuffix(segments, index);
-    if (!name) continue;
+    while (
+      segmentCursor < segments.length
+      && segments[segmentCursor].index + segments[segmentCursor].segment.length <= match.start
+    ) segmentCursor += 1;
+    const containing = segments[segmentCursor];
+    if (
+      !containing
+      || containing.index > match.start
+      || containing.index + containing.segment.length <= match.start
+    ) continue;
+
+    const previous = components.at(-1);
+    const child = suffixMatches[index + 1];
+    const hasChildSuffix = Boolean(
+      child
+      && child.level > match.level
+      && child.start >= match.end
+      && /^[\u4e00-\u9fa5]+$/.test(source.slice(match.end, child.start)),
+    );
+    const start = standalonePlaceNameStart(
+      source,
+      segments,
+      segmentCursor,
+      match.start,
+      match.end,
+      hasChildSuffix,
+      previous?.end ?? 0,
+    );
+    if (start === null) continue;
+
+    const place = source.slice(start, match.end);
+    if ([...NON_PLACE_WORDS].some((word) => place.includes(word))) continue;
     components.push({
-      place: `${name.name}${suffix}`,
-      suffix,
-      level: PLACE_SUFFIX_LEVEL[suffix],
-      start: name.start,
-      end: index,
+      place,
+      suffix: match.suffix,
+      level: match.level,
+      start,
+      end: match.end,
     });
   }
-  return components;
+
+  while (specialCursor < specialComponents.length) {
+    components.push(specialComponents[specialCursor]);
+    specialCursor += 1;
+  }
+
+  return components.sort((left, right) => left.start - right.start || left.end - right.end);
 }
 
 function extractPlaceCandidates(text) {
@@ -574,7 +716,7 @@ function extractPlaceCandidates(text) {
     while (chain.length < MAX_PLACE_DEPTH && index + 1 < components.length) {
       const previous = chain.at(-1);
       const next = components[index + 1];
-      if (next.start !== previous.end + 1 || next.level <= previous.level) break;
+      if (next.start !== previous.end || next.level <= previous.level) break;
       chain.push(next);
       index += 1;
     }

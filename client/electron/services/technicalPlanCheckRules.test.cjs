@@ -89,6 +89,34 @@ test('strips common Word clause numbers without deleting a leading decimal metri
   assert.equal(stripClauseNumber('1.5 %为最低比例'), '1.5 %为最低比例');
   assert.equal(stripClauseNumber('2.0.1版本必须兼容'), '2.0.1版本必须兼容');
   assert.equal(stripClauseNumber('192.168.1.1服务器必须可达'), '192.168.1.1服务器必须可达');
+  for (const businessValue of [
+    '1.5米为最低长度',
+    '1.5吨载重必须满足运输要求',
+    '2.5千克为单件重量',
+    '1.5千瓦为额定功率',
+    '2.5kWh为储能容量',
+    '2.5万元为预算',
+    '3.5台为配置数量',
+    '4.5GB为容量',
+    '2.0版本必须兼容',
+    '2.0.1版必须兼容',
+    '1.2协议必须支持',
+    '192.168.1.1 必须可达',
+    '192.168.1.0/24 为业务网段',
+  ]) {
+    assert.equal(stripClauseNumber(businessValue), businessValue);
+  }
+  assert.equal(stripClauseNumber('1.1 人员配置必须满足要求'), '人员配置必须满足要求');
+  assert.equal(stripClauseNumber('1.1 项目概况'), '项目概况');
+  assert.equal(stripClauseNumber('1.1 年度服务计划'), '年度服务计划');
+  assert.equal(stripClauseNumber('1.1 地址规划必须满足要求'), '地址规划必须满足要求');
+  assert.equal(stripClauseNumber('1.1 版本管理要求'), '版本管理要求');
+  assert.equal(stripClauseNumber('1.1 人力资源配置'), '人力资源配置');
+  assert.equal(stripClauseNumber('1.1 年限要求'), '年限要求');
+  assert.equal(stripClauseNumber('1.1 站点建设'), '站点建设');
+  assert.equal(stripClauseNumber('（1.1）人员配置必须满足要求'), '人员配置必须满足要求');
+  assert.equal(stripClauseNumber('（1.1）版本管理要求'), '版本管理要求');
+  assert.equal(stripClauseNumber('（1.1）地址规划要求'), '地址规划要求');
 });
 
 test('extracts score items only from pipe table rows and uses the same coverage thresholds', () => {
@@ -273,7 +301,41 @@ test('extracts only maximal legal administrative chains with bounded candidates'
       .map((candidate) => candidate.place),
     ['黑龙江省哈尔滨市南岗区', '呼和浩特市', '东山镇'],
   );
+  assert.deepEqual(
+    extractPlaceCandidates('石家庄市长安区。').map((candidate) => candidate.place),
+    ['石家庄市长安区'],
+  );
+  assert.deepEqual(
+    extractPlaceCandidates('内蒙古自治区呼和浩特市。').map((candidate) => candidate.place),
+    ['内蒙古自治区呼和浩特市'],
+  );
+  assert.deepEqual(
+    extractPlaceCandidates('新疆维吾尔自治区乌鲁木齐市天山区。').map((candidate) => candidate.place),
+    ['新疆维吾尔自治区乌鲁木齐市天山区'],
+  );
+  assert.deepEqual(
+    extractPlaceCandidates('香港特别行政区。').map((candidate) => candidate.place),
+    ['香港特别行政区'],
+  );
+  assert.deepEqual(
+    extractPlaceCandidates('重庆市两江新区。').map((candidate) => candidate.place),
+    ['重庆市两江新区'],
+  );
+  assert.deepEqual(
+    extractPlaceCandidates('延边朝鲜族自治州、大理白族自治州、黔东南苗族侗族自治州。')
+      .map((candidate) => candidate.place),
+    ['延边朝鲜族自治州', '大理白族自治州', '黔东南苗族侗族自治州'],
+  );
+  assert.deepEqual(
+    extractPlaceCandidates('南京市项目位于东山镇。').map((candidate) => candidate.place),
+    ['南京市', '东山镇'],
+  );
+  assert.deepEqual(
+    extractPlaceCandidates('江苏省服务范围覆盖南京市。').map((candidate) => candidate.place),
+    ['江苏省', '南京市'],
+  );
   assert.deepEqual(extractPlaceCandidates('市场活跃，覆盖区域广，服务乡村振兴，推进市政、乡镇、县级、村镇建设。'), []);
+  assert.deepEqual(extractPlaceCandidates('市场区域乡村市政乡镇县级村镇建设。'), []);
 
   const longText = `${'市场区域乡村普通说明。'.repeat(5000)}江苏省南京市鼓楼区。`;
   assert.deepEqual(
