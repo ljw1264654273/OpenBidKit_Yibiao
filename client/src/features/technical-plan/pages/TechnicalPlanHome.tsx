@@ -572,7 +572,9 @@ function TechnicalPlanHome({ workflowKind, projectId, registerLeaveGuard, onSect
             bidSectionMode: technicalPlan.bidSectionMode ?? prev.bidSectionMode,
             bidSections: Array.isArray(technicalPlan.bidSections) ? technicalPlan.bidSections : prev.bidSections,
             bidSectionExtractionStatus: technicalPlan.bidSectionExtractionStatus ?? prev.bidSectionExtractionStatus,
-            bidSectionExtractionError: technicalPlan.bidSectionExtractionError ?? prev.bidSectionExtractionError,
+            bidSectionExtractionError: hasOwnField(technicalPlan, 'bidSectionExtractionError')
+              ? technicalPlan.bidSectionExtractionError
+              : prev.bidSectionExtractionError,
             tenderFile: technicalPlan.tenderFile ?? prev.tenderFile,
             bidAnalysisTask: hasOwnField(technicalPlan, 'bidAnalysisTask') ? trimTaskLogs(technicalPlan.bidAnalysisTask) : prev.bidAnalysisTask,
             bidAnalysisTasks: hasOwnField(technicalPlan, 'bidAnalysisTasks') ? (technicalPlan.bidAnalysisTasks || {}) : prev.bidAnalysisTasks,

@@ -714,7 +714,13 @@ function DocumentAnalysisPage({
   };
 
   const selectedSectionTitle = tenderFile?.selectedSectionTitle;
-  const hasSectionHint = Boolean(bidSectionDetection?.hasMultiple && !selectedSectionTitle);
+  const bidSectionConfirmedSingle = bidSectionExtractionStatus === 'success'
+    && bidSectionMode === 'single'
+    && bidSections.length < 2;
+  const effectiveBidSectionDetection = bidSectionConfirmedSingle
+    ? { hasMultiple: false, totalDeclared: null }
+    : bidSectionDetection;
+  const hasSectionHint = Boolean(effectiveBidSectionDetection?.hasMultiple && !selectedSectionTitle);
   const hasFormalBidSections = bidSections.length >= 2;
   const sectionActionLabel = hasFormalBidSections ? '确认投标范围' : '识别标段';
   const activePageOption = customPageSelected ? 'custom' : pageLadderKey;
@@ -834,12 +840,12 @@ function DocumentAnalysisPage({
         )}
       </UploadBoard>
 
-      {bidSectionDetection?.hasMultiple && !selectedSectionTitle && (
+      {effectiveBidSectionDetection?.hasMultiple && !selectedSectionTitle && (
         <section className="analysis-section-hint quick-config-bid-section-hint">
           <div>
             <strong>疑似多标段</strong>
             <span>
-              本地检测识别出{bidSectionDetection?.totalDeclared ? ` ${bidSectionDetection.totalDeclared} 个标段/标包` : '多个标段/标包'}，建议先识别并选择投标范围再继续。
+              本地检测识别出{effectiveBidSectionDetection?.totalDeclared ? ` ${effectiveBidSectionDetection.totalDeclared} 个标段/标包` : '多个标段/标包'}，建议先识别并选择投标范围再继续。
             </span>
           </div>
           <button
@@ -923,7 +929,7 @@ function DocumentAnalysisPage({
                   {selectedSectionTitle ? `当前：多标段 · ${selectedSectionTitle}` : bidSectionMode === 'multiple' ? '当前：多标段 · 待选择' : '当前：单标段'}
                 </span>
                 <span className="quick-config-spacer" />
-                {(selectedSectionTitle || bidSectionMode === 'multiple' || bidSectionDetection?.hasMultiple || hasFormalBidSections) && (
+                {(selectedSectionTitle || bidSectionMode === 'multiple' || effectiveBidSectionDetection?.hasMultiple || hasFormalBidSections) && (
                   <button type="button" className="secondary-action" onClick={openSectionSelector} disabled={contentTaskLocked || sectionExtracting || sectionExtractionRunning || !tenderFile}>
                     {selectedSectionTitle ? '更换标段' : hasFormalBidSections ? '选择标段' : '识别标段'}
                   </button>

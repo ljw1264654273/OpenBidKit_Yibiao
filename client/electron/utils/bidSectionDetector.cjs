@@ -42,7 +42,7 @@ function normalizeChineseNumber(value) {
   return null;
 }
 
-const totalSectionPattern = /(?:本?项目)?(?:共|总计|共计|合计)?(?:划分|分|设|拆|分拆)?为?\s*(\d+|[一二三四五六七八九十]+)\s*个?\s*(?:标段|标项|包|分包|标包|标的|子项目)/g;
+const totalSectionPattern = /(?:(?:本?项目|本次采购|采购项目)\s*)?(?:(?:共|总计|共计|合计)\s*(?:(?:划分|分拆|拆分|设置|分|设)\s*)?为?|(?:划分|分拆|拆分|设置|分|设)\s*为?)\s*(\d+|[一二三四五六七八九十]+)\s*个?\s*(?:标段|标项|标包|分包|采购包|包件|包)/g;
 
 function detectTotalSectionCount(markdown) {
   const text = String(markdown || '');

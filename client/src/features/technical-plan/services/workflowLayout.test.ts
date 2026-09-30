@@ -563,7 +563,7 @@ test('STEP 01 快速配置末行提供分类与归属地知识库多选弹窗', 
 test('STEP 01 已确认投标范围不再显示重复提示条', () => {
   const source = readFileSync(new URL('../pages/DocumentAnalysisPage.tsx', import.meta.url), 'utf8');
 
-  assert.match(source, /\{bidSectionDetection\?\.hasMultiple && !selectedSectionTitle && \(/);
+  assert.match(source, /\{effectiveBidSectionDetection\?\.hasMultiple && !selectedSectionTitle && \(/);
   assert.doesNotMatch(source, /<strong>\{selectedSectionTitle \? '投标范围已确认'/);
 });
 
@@ -652,6 +652,19 @@ test('STEP 01 重新加载已有招标文件时不自动启动多标段 AI 识�
     /checkBidSections\(projectId \? \{ projectId \} : undefined\)\.then\(\(detection\) => \{[\s\S]*detection\?\.hasMultiple/,
   );
   assert.doesNotMatch(detectionEffect, /startBidSectionExtraction\(\)/);
+});
+
+test('STEP 01 AI 确认单标段后覆盖异步本地检测提示', () => {
+  const source = readFileSync(new URL('../pages/DocumentAnalysisPage.tsx', import.meta.url), 'utf8');
+  const home = readFileSync(new URL('../pages/TechnicalPlanHome.tsx', import.meta.url), 'utf8');
+
+  assert.match(
+    source,
+    /const bidSectionConfirmedSingle = bidSectionExtractionStatus === 'success'[\s\S]*bidSectionMode === 'single'[\s\S]*bidSections\.length < 2/,
+  );
+  assert.match(source, /const effectiveBidSectionDetection = bidSectionConfirmedSingle[\s\S]*hasMultiple: false,[\s\S]*totalDeclared: null[\s\S]*bidSectionDetection/);
+  assert.match(source, /effectiveBidSectionDetection\?\.hasMultiple && !selectedSectionTitle/);
+  assert.match(home, /bidSectionExtractionError: hasOwnField\(technicalPlan, 'bidSectionExtractionError'\)[\s\S]*technicalPlan\.bidSectionExtractionError[\s\S]*prev\.bidSectionExtractionError/);
 });
 
 test('STEP 01 重新识别或替换招标文件前要求确认重置下游信息', () => {
