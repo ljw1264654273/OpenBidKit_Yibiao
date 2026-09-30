@@ -20,16 +20,16 @@ test('历史标书适配以独立一级菜单进入独立页面', () => {
   assert.match(analytics, /'historical-bid-adaptation':\s*'历史标书适配'/);
 });
 
-test('页面展示六阶段且只开放上传材料', () => {
+test('页面展示六阶段且新项目只开放上传材料', () => {
   assert.equal(existsSync(pagePath), true, '应提供独立的历史标书适配页面');
   const page = readFileSync(pagePath, 'utf8');
 
   for (const label of ['上传材料', '招标基线', '差异确认', '目录适配', '正文迁移', '审核导出']) {
     assert.match(page, new RegExp(label));
   }
-  assert.match(page, /aria-current=\{index === 0 \? 'step' : undefined\}/);
-  assert.match(page, /后续环节将在本阶段验收后开放/);
-  assert.doesNotMatch(page, /onClick=.*招标基线/);
+  assert.match(page, /aria-current=\{current \? 'step' : undefined\}/);
+  assert.match(page, /!projectReady && index > 0/);
+  assert.match(page, /完成材料上传后开放招标基线/);
 });
 
 test('页面根容器占满工作区并在内部滚动', () => {
@@ -41,4 +41,31 @@ test('页面根容器占满工作区并在内部滚动', () => {
   assert.match(pageRule.groups.body, /height:\s*100%;/);
   assert.match(pageRule.groups.body, /min-height:\s*0;/);
   assert.match(pageRule.groups.body, /overflow:\s*auto;/);
+});
+
+test('项目创建后开放招标基线并保留材料回看入口', () => {
+  const page = readFileSync(pagePath, 'utf8');
+
+  assert.match(page, /import BidAnalysisPage/);
+  assert.match(page, /variant="tender-baseline"/);
+  assert.match(page, /onClick=\{\(\) => onStageChange\(index\)\}/);
+  assert.match(page, /onContinue=\{\(\) => onStageChange\(1\)\}/);
+  assert.match(page, /disabled=\{index > 1 \|\| \(!projectReady && index > 0\)\}/);
+});
+
+test('招标基线订阅项目后台任务并合并持久化结果', () => {
+  const page = readFileSync(pagePath, 'utf8');
+
+  assert.match(page, /taskBridge\.onTaskEvent/);
+  assert.match(page, /eventProjectId !== projectId/);
+  assert.match(page, /taskType !== 'bid-analysis'/);
+  assert.match(page, /bidAnalysisTasks:/);
+  assert.match(page, /taskBridge\.getActiveTasks/);
+});
+
+test('招标基线进度更新使用函数式合并以保留实时任务状态', () => {
+  const page = readFileSync(pagePath, 'utf8');
+
+  assert.match(page, /onProgressChange=\{\(progress\) => onStateChange\(\(previous\) =>/);
+  assert.doesNotMatch(page, /onProgressChange=\{\(progress\) => onStateChange\(\{ \.\.\.state,/);
 });

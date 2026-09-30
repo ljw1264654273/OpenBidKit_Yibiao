@@ -9,6 +9,7 @@ import type { BackgroundTaskState, BackgroundTaskStatus, BidAnalysisMode, BidAna
 import { isQuickConfigLocked } from '../services/quickConfig';
 
 interface BidAnalysisPageProps {
+  variant?: 'default' | 'tender-baseline';
   projectId?: string;
   hasTenderFile: boolean;
   mode: BidAnalysisMode;
@@ -199,6 +200,7 @@ function JsonResultTable({ content }: { content: string }) {
 }
 
 function BidAnalysisPage({
+  variant = 'default',
   projectId,
   hasTenderFile,
   mode,
@@ -214,21 +216,30 @@ function BidAnalysisPage({
   onProgressChange,
   onConfigSaved,
 }: BidAnalysisPageProps) {
+  const isTenderBaseline = variant === 'tender-baseline';
   const [running, setRunning] = useState(false);
   const [fullRerunLocked, setFullRerunLocked] = useState(false);
   const [fullRerunSeenRunning, setFullRerunSeenRunning] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState('projectOverview');
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [draftSelectedTaskIds, setDraftSelectedTaskIds] = useState<string[]>(() => getSelectedTaskIdsForMode(mode, selectedTaskIds));
+  const [draftSelectedTaskIds, setDraftSelectedTaskIds] = useState<string[]>(() => (
+    isTenderBaseline ? allBidAnalysisTaskIds : getSelectedTaskIdsForMode(mode, selectedTaskIds)
+  ));
   const [workspacePane, setWorkspacePane] = useState<WorkspacePane>('navigation');
   const { showToast } = useToast();
   const contentTaskLocked = isQuickConfigLocked(contentTaskStatus);
-  const effectiveSelectedTaskIds = useMemo(() => getSelectedTaskIdsForMode(mode, selectedTaskIds), [mode, selectedTaskIds]);
+  const effectiveSelectedTaskIds = useMemo(
+    () => (isTenderBaseline ? allBidAnalysisTaskIds : getSelectedTaskIdsForMode(mode, selectedTaskIds)),
+    [isTenderBaseline, mode, selectedTaskIds],
+  );
   const selectedTasks = useMemo(() => {
     const selectedIdSet = new Set(effectiveSelectedTaskIds);
     return bidAnalysisTasks.filter((task) => selectedIdSet.has(task.id));
   }, [effectiveSelectedTaskIds]);
-  const requiredTasks = useMemo(() => getBidAnalysisTasks('key'), []);
+  const requiredTasks = useMemo(
+    () => (isTenderBaseline ? bidAnalysisTasks : getBidAnalysisTasks('key')),
+    [isTenderBaseline],
+  );
   const visibleSelectedTaskId = selectedTasks.some((task) => task.id === selectedTaskId)
     ? selectedTaskId
     : selectedTasks[0]?.id || 'projectOverview';
@@ -247,7 +258,10 @@ function BidAnalysisPage({
   }).length;
   const sectionTaskRunning = bidSectionExtractionTask?.status === 'running' || bidSectionExtractionTask?.status === 'pausing';
   const taskRunning = running || fullRerunLocked || sectionTaskRunning || task?.status === 'running';
-  const requiredDone = requiredTasks.every((task) => tasks[task.id]?.status === 'success' && String(tasks[task.id]?.content || '').trim());
+  const requiredDone = requiredTasks.every((task) => (
+    tasks[task.id]?.status === 'success'
+    && !isMissingBidAnalysisResult(task, tasks[task.id]?.content)
+  ));
   const isPromptCacheOptimizing = taskRunning
     && selectedTasks.length > 1
     && selectedTasks.some((task) => task.id === 'projectOverview')
@@ -256,14 +270,18 @@ function BidAnalysisPage({
   const progressMessage = isPromptCacheOptimizing
     ? '正在优化提示词缓存'
     : requiredDone && taskRunning
-      ? '关键项已解析完成，等待当前解析任务结束后进入下一步。'
+      ? isTenderBaseline ? '基线项已提取完成，正在整理最终结果。' : '关键项已解析完成，等待当前解析任务结束后进入下一步。'
       : firstMissingSelectedTask
         ? `${firstMissingSelectedTask.label}未提取到有效内容，请重新解析该项。`
-      : requiredDone ? '招标文件解析任务已结束，可以进入下一步。' : '等待关键解析项完成';
+      : requiredDone
+        ? isTenderBaseline ? '招标基线提取完成，可以进行本阶段验收。' : '招标文件解析任务已结束，可以进入下一步。'
+        : isTenderBaseline ? '等待全部基线项提取完成' : '等待关键解析项完成';
   const bidSectionConfigLabel = bidSectionMode === 'multiple'
     ? selectedSectionTitle ? `多标段 · ${selectedSectionTitle}` : '多标段 · 待选择'
     : '单标段';
-  const configLabel = `${bidSectionConfigLabel} · ${getModeLabel(mode)}`;
+  const configLabel = isTenderBaseline
+    ? `${bidSectionConfigLabel} · 完整招标基线`
+    : `${bidSectionConfigLabel} · ${getModeLabel(mode)}`;
 
   const syncProgressForSelection = (nextTaskIds: string[]) => {
     const selectedIdSet = new Set(normalizeSelectedTaskIds(nextTaskIds));
@@ -315,8 +333,8 @@ function BidAnalysisPage({
   };
 
   const saveConfig = async (nextTaskIds = draftSelectedTaskIds, closeDialog = true) => {
-    const normalizedTaskIds = normalizeSelectedTaskIds(nextTaskIds);
-    const nextMode = getModeForSelection(normalizedTaskIds);
+    const normalizedTaskIds = isTenderBaseline ? allBidAnalysisTaskIds : normalizeSelectedTaskIds(nextTaskIds);
+    const nextMode = isTenderBaseline ? 'full' : getModeForSelection(normalizedTaskIds);
     await window.yibiao?.technicalPlan.saveBidAnalysisConfig({ projectId, mode: nextMode, selectedTaskIds: normalizedTaskIds, bidSectionMode });
     const saved = await window.yibiao?.technicalPlan.loadState({ projectId });
     if (saved) onConfigSaved(saved);
@@ -357,7 +375,12 @@ function BidAnalysisPage({
       });
       trackConfigUsage({ bid_analysis_mode: configState.mode }, config);
       setSettingsOpen(false);
-      showToast(retryTask ? `${retryTask.label}重新解析任务已在后台启动` : '招标文件解析任务已在后台启动', 'success');
+      showToast(
+        retryTask
+          ? `${retryTask.label}重新解析任务已在后台启动`
+          : `${isTenderBaseline ? '招标基线提取' : '招标文件解析'}任务已在后台启动`,
+        'success',
+      );
     } catch (error) {
       if (forceRerun) {
         setFullRerunLocked(false);
@@ -449,9 +472,11 @@ function BidAnalysisPage({
     <div className="plan-step-body bid-analysis-page">
       <section className="bid-analysis-command-bar">
         <div>
-          <span className="section-kicker">STEP 02</span>
-          <strong>招标文件解析</strong>
-          <p>并发解析招标文件，全部选中解析项结束后进入目录生成。</p>
+          <span className="section-kicker">{isTenderBaseline ? '环节二' : 'STEP 02'}</span>
+          <strong>{isTenderBaseline ? '招标基线' : '招标文件解析'}</strong>
+          <p>{isTenderBaseline
+            ? '完整提取招标范围、工作量、地点、工期、评分和响应要求，作为后续适配的唯一依据。'
+            : '并发解析招标文件，全部选中解析项结束后进入目录生成。'}</p>
         </div>
         <div className="bid-analysis-command-meta">
           <CompactTaskProgress
@@ -470,21 +495,31 @@ function BidAnalysisPage({
           </div>
         </div>
         <div className="bid-analysis-command-actions">
-          <button
-            type="button"
-            className="outline-config-action"
-            onClick={openSettingsDialog}
-            disabled={taskRunning || contentTaskLocked}
-            aria-label="打开招标文件解析配置"
-            title="招标文件解析配置"
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-              <path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5Z" />
-              <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.05.05a2 2 0 0 1-2.83 2.83l-.05-.05a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.04 1.56V21a2 2 0 0 1-4 0v-.08a1.7 1.7 0 0 0-1.04-1.56 1.7 1.7 0 0 0-1.87.34l-.05.05a2 2 0 0 1-2.83-2.83l.05-.05A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1.04H3a2 2 0 0 1 0-4h.08A1.7 1.7 0 0 0 4.6 8.93a1.7 1.7 0 0 0-.34-1.87l-.05-.05a2 2 0 0 1 2.83-2.83l.05.05a1.7 1.7 0 0 0 1.87.34A1.7 1.7 0 0 0 10 3.01V3a2 2 0 0 1 4 0v.08a1.7 1.7 0 0 0 1.04 1.56 1.7 1.7 0 0 0 1.87-.34l.05-.05a2 2 0 0 1 2.83 2.83l-.05.05a1.7 1.7 0 0 0-.34 1.87 1.7 1.7 0 0 0 1.56 1.04H21a2 2 0 0 1 0 4h-.08A1.7 1.7 0 0 0 19.4 15Z" />
-            </svg>
-          </button>
+          {!isTenderBaseline && (
+            <button
+              type="button"
+              className="outline-config-action"
+              onClick={openSettingsDialog}
+              disabled={taskRunning || contentTaskLocked}
+              aria-label="打开招标文件解析配置"
+              title="招标文件解析配置"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5Z" />
+                <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.05.05a2 2 0 0 1-2.83 2.83l-.05-.05a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.04 1.56V21a2 2 0 0 1-4 0v-.08a1.7 1.7 0 0 0-1.04-1.56 1.7 1.7 0 0 0-1.87.34l-.05.05a2 2 0 0 1-2.83-2.83l.05-.05A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1.04H3a2 2 0 0 1 0-4h.08A1.7 1.7 0 0 0 4.6 8.93a1.7 1.7 0 0 0-.34-1.87l-.05-.05a2 2 0 0 1 2.83-2.83l.05.05a1.7 1.7 0 0 0 1.87.34A1.7 1.7 0 0 0 10 3.01V3a2 2 0 0 1 4 0v.08a1.7 1.7 0 0 0 1.04 1.56 1.7 1.7 0 0 0 1.87-.34l.05-.05a2 2 0 0 1 2.83 2.83l-.05.05a1.7 1.7 0 0 0-.34 1.87 1.7 1.7 0 0 0 1.56 1.04H21a2 2 0 0 1 0 4h-.08A1.7 1.7 0 0 0 19.4 15Z" />
+              </svg>
+            </button>
+          )}
           <button type="button" className="primary-action" onClick={() => { void startAnalysis(undefined, effectiveSelectedTaskIds); }} disabled={taskRunning || contentTaskLocked || !hasTenderFile}>
-            {sectionTaskRunning ? '识别中...' : taskRunning ? '解析中...' : failedTaskCount > 0 ? `重试失败项(${failedTaskCount})` : progress > 0 ? '重新解析' : '开始解析'}
+            {sectionTaskRunning
+              ? '识别中...'
+              : taskRunning
+                ? '提取中...'
+                : failedTaskCount > 0
+                  ? `重试失败项(${failedTaskCount})`
+                  : progress > 0
+                    ? `重新${isTenderBaseline ? '提取' : '解析'}`
+                    : `开始${isTenderBaseline ? '提取基线' : '解析'}`}
           </button>
         </div>
       </section>

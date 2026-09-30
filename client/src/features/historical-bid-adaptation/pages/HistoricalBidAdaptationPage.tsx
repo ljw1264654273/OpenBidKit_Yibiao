@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } from 'react';
 import ExpansionProjectCreatePage from '../../bid-project/pages/ExpansionProjectCreatePage';
 import type { BidProject } from '../../bid-project/types';
-import type { TechnicalPlanState } from '../../technical-plan/types';
+import BidAnalysisPage from '../../technical-plan/pages/BidAnalysisPage';
+import { bidAnalysisTasks, isMissingBidAnalysisResult } from '../../technical-plan/services/bidAnalysisWorkflow';
+import type { BackgroundTaskState, TechnicalPlanState } from '../../technical-plan/types';
 import { InlineSpinner } from '../../../shared/ui';
 
 interface HistoricalBidAdaptationPageProps {
@@ -13,49 +15,56 @@ interface HistoricalBidAdaptationPageProps {
 const stages = ['上传材料', '招标基线', '差异确认', '目录适配', '正文迁移', '审核导出'] as const;
 
 function HistoricalBidAdaptationPage({ projectId, onBack, onProjectCreated }: HistoricalBidAdaptationPageProps) {
+  const [activeStage, setActiveStage] = useState(projectId ? 1 : 0);
+
+  useEffect(() => {
+    setActiveStage(projectId ? 1 : 0);
+  }, [projectId]);
+
+  if (projectId) {
+    return (
+      <AdaptationProjectWorkspace
+        projectId={projectId}
+        activeStage={activeStage}
+        onStageChange={setActiveStage}
+        onBack={onBack}
+      />
+    );
+  }
+
   return (
     <div className="historical-adaptation-page">
-      <section className="historical-adaptation-stage-panel" aria-label="历史标书适配流程">
-        <div className="historical-adaptation-stages">
-          {stages.map((stage, index) => (
-            <div
-              key={stage}
-              className={`historical-adaptation-stage ${index === 0 ? 'is-current' : 'is-locked'}`}
-              aria-current={index === 0 ? 'step' : undefined}
-              aria-disabled={index > 0 ? 'true' : undefined}
-            >
-              <span>{String(index + 1).padStart(2, '0')}</span>
-              <strong>{stage}</strong>
-              <small>{index === 0 ? (projectId ? '待验收' : '进行中') : '待开放'}</small>
-            </div>
-          ))}
-        </div>
-        <p>后续环节将在本阶段验收后开放</p>
-      </section>
+      <StageNavigation activeStage={0} projectReady={false} onStageChange={setActiveStage} />
 
       <div className="historical-adaptation-content">
-        {projectId ? (
-          <MaterialAcceptance projectId={projectId} onBack={onBack} />
-        ) : (
-          <ExpansionProjectCreatePage
-            variant="historical-adaptation"
-            onBack={onBack}
-            onProjectCreated={onProjectCreated}
-          />
-        )}
+        <ExpansionProjectCreatePage
+          variant="historical-adaptation"
+          onBack={onBack}
+          onProjectCreated={onProjectCreated}
+        />
       </div>
     </div>
   );
 }
 
-function MaterialAcceptance({ projectId, onBack }: { projectId: string; onBack: () => void }) {
+function AdaptationProjectWorkspace({
+  projectId,
+  activeStage,
+  onStageChange,
+  onBack,
+}: {
+  projectId: string;
+  activeStage: number;
+  onStageChange: (stage: number) => void;
+  onBack: () => void;
+}) {
   const [state, setState] = useState<TechnicalPlanState | null>(null);
   const [project, setProject] = useState<BidProject | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
 
-  const loadMaterials = useCallback(async () => {
-    setLoading(true);
+  const loadWorkspace = useCallback(async (showLoading = true) => {
+    if (showLoading) setLoading(true);
     setError('');
     try {
       const [nextState, nextProject] = await Promise.all([
@@ -67,13 +76,43 @@ function MaterialAcceptance({ projectId, onBack }: { projectId: string; onBack: 
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : '读取项目材料失败');
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
     }
   }, [projectId]);
 
   useEffect(() => {
-    void loadMaterials();
-  }, [loadMaterials]);
+    void loadWorkspace();
+  }, [loadWorkspace]);
+
+  useEffect(() => {
+    const taskBridge = window.yibiao?.tasks;
+    if (!taskBridge) return undefined;
+
+    const unsubscribe = taskBridge.onTaskEvent<TechnicalPlanState>((event) => {
+      const eventProjectId = event.task.project_id || event.task.projectId || event.task.scope_id;
+      if (eventProjectId !== projectId) return;
+      const taskType = event.task.type;
+      if (taskType !== 'bid-analysis') return;
+      const technicalPlan = event.technicalPlanPatch || event.technicalPlan || {};
+
+      setState((previous) => previous ? {
+        ...previous,
+        ...technicalPlan,
+        bidAnalysisTask: (technicalPlan.bidAnalysisTask || event.task) as BackgroundTaskState,
+        bidAnalysisTasks: {
+          ...previous.bidAnalysisTasks,
+          ...(technicalPlan.bidAnalysisTasks || {}),
+          ...(event.bidItem ? { [event.bidItem.id]: event.bidItem } : {}),
+        },
+      } : previous);
+    });
+
+    void taskBridge.getActiveTasks()
+      .then(() => loadWorkspace(false))
+      .catch(() => undefined);
+
+    return unsubscribe;
+  }, [loadWorkspace, projectId]);
 
   if (loading) {
     return <div className="historical-adaptation-loading"><InlineSpinner />正在读取已入库材料...</div>;
@@ -84,11 +123,108 @@ function MaterialAcceptance({ projectId, onBack }: { projectId: string; onBack: 
       <section className="historical-adaptation-error">
         <strong>材料读取失败</strong>
         <span>{error || '未找到项目材料。'}</span>
-        <button type="button" className="secondary-action" onClick={() => { void loadMaterials(); }}>重试</button>
+        <button type="button" className="secondary-action" onClick={() => { void loadWorkspace(); }}>重试</button>
       </section>
     );
   }
 
+  const baselineComplete = bidAnalysisTasks.every((definition) => {
+    const item = state.bidAnalysisTasks[definition.id];
+    return item?.status === 'success' && !isMissingBidAnalysisResult(definition, item.content);
+  });
+  const baselineRunning = state.bidAnalysisTask?.status === 'running' || state.bidAnalysisTask?.status === 'pausing';
+
+  return (
+    <div className="historical-adaptation-page">
+      <StageNavigation
+        activeStage={activeStage}
+        projectReady
+        baselineComplete={baselineComplete}
+        baselineRunning={baselineRunning}
+        onStageChange={onStageChange}
+      />
+      <div className="historical-adaptation-content">
+        {activeStage === 0 ? (
+          <MaterialAcceptance
+            state={state}
+            project={project}
+            onBack={onBack}
+            onContinue={() => onStageChange(1)}
+          />
+        ) : (
+          <TenderBaseline
+            projectId={projectId}
+            state={state}
+            project={project}
+            baselineComplete={baselineComplete}
+            onStateChange={setState}
+            onBack={onBack}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function StageNavigation({
+  activeStage,
+  projectReady,
+  baselineComplete = false,
+  baselineRunning = false,
+  onStageChange,
+}: {
+  activeStage: number;
+  projectReady: boolean;
+  baselineComplete?: boolean;
+  baselineRunning?: boolean;
+  onStageChange: (stage: number) => void;
+}) {
+  return (
+    <section className="historical-adaptation-stage-panel" aria-label="历史标书适配流程">
+      <div className="historical-adaptation-stages">
+        {stages.map((stage, index) => {
+          const disabled = index > 1 || (!projectReady && index > 0);
+          const current = index === activeStage;
+          const completed = projectReady && (index === 0 || (index === 1 && baselineComplete));
+          const status = index === 0
+            ? projectReady ? '已完成' : '进行中'
+            : index === 1 && projectReady
+              ? baselineRunning ? '提取中' : baselineComplete ? '待验收' : '可开始'
+              : '待开放';
+
+          return (
+            <button
+              type="button"
+              key={stage}
+              className={`historical-adaptation-stage${current ? ' is-current' : ''}${completed ? ' is-complete' : ''}${disabled ? ' is-locked' : ''}`}
+              aria-current={current ? 'step' : undefined}
+              aria-disabled={disabled ? 'true' : undefined}
+              disabled={index > 1 || (!projectReady && index > 0)}
+              onClick={() => onStageChange(index)}
+            >
+              <span>{String(index + 1).padStart(2, '0')}</span>
+              <strong>{stage}</strong>
+              <small>{status}</small>
+            </button>
+          );
+        })}
+      </div>
+      <p>{projectReady ? '差异确认及后续环节将在招标基线验收后开放' : '完成材料上传后开放招标基线'}</p>
+    </section>
+  );
+}
+
+function MaterialAcceptance({
+  state,
+  project,
+  onBack,
+  onContinue,
+}: {
+  state: TechnicalPlanState;
+  project: BidProject | null;
+  onBack: () => void;
+  onContinue: () => void;
+}) {
   return (
     <div className="historical-adaptation-acceptance">
       <header className="historical-adaptation-acceptance-head">
@@ -132,10 +268,69 @@ function MaterialAcceptance({ projectId, onBack }: { projectId: string; onBack: 
       <section className="historical-adaptation-acceptance-note">
         <div>
           <span className="section-kicker">当前状态</span>
-          <strong>材料已就绪，等待验收</strong>
-          <p>本页仅完成材料上传、解析和入库确认，尚未执行招标基线提取或历史标书改写。</p>
+          <strong>材料已完成验收</strong>
+          <p>招标文件和历史标书均已入库，可以进入环节二提取招标基线。</p>
         </div>
-        <span className="historical-adaptation-locked-message">后续环节将在本阶段验收后开放</span>
+        <button type="button" className="primary-action" onClick={onContinue}>进入招标基线</button>
+      </section>
+    </div>
+  );
+}
+
+function TenderBaseline({
+  projectId,
+  state,
+  project,
+  baselineComplete,
+  onStateChange,
+  onBack,
+}: {
+  projectId: string;
+  state: TechnicalPlanState;
+  project: BidProject | null;
+  baselineComplete: boolean;
+  onStateChange: Dispatch<SetStateAction<TechnicalPlanState | null>>;
+  onBack: () => void;
+}) {
+  const taskRunning = state.bidAnalysisTask?.status === 'running' || state.bidAnalysisTask?.status === 'pausing';
+
+  return (
+    <div className="historical-adaptation-baseline">
+      <header className="historical-adaptation-baseline-head">
+        <div>
+          <span className="section-kicker">历史标书适配</span>
+          <strong>{project?.projectName || '历史标书适配项目'}</strong>
+        </div>
+        <button type="button" className="secondary-action" onClick={onBack}>返回我的标书</button>
+      </header>
+
+      <BidAnalysisPage
+        variant="tender-baseline"
+        projectId={projectId}
+        hasTenderFile={Boolean(state.tenderFile)}
+        mode="full"
+        selectedTaskIds={bidAnalysisTasks.map((task) => task.id)}
+        bidSectionMode={state.bidSectionMode}
+        bidSectionExtractionTask={state.bidSectionExtractionTask}
+        selectedSectionTitle={state.tenderFile?.selectedSectionTitle}
+        tasks={state.bidAnalysisTasks}
+        task={state.bidAnalysisTask}
+        progress={state.bidAnalysisProgress}
+        onProgressChange={(progress) => onStateChange((previous) => (
+          previous ? { ...previous, bidAnalysisProgress: progress } : previous
+        ))}
+        onConfigSaved={onStateChange}
+      />
+
+      <section className={`historical-adaptation-baseline-status${baselineComplete ? ' is-complete' : ''}`}>
+        <div>
+          <span className="section-kicker">环节二状态</span>
+          <strong>{baselineComplete ? '招标基线已提取完成，等待验收' : taskRunning ? '正在提取招标基线' : '招标基线尚未完整提取'}</strong>
+          <p>{baselineComplete
+            ? '本阶段结果已持久化；差异确认尚未执行。'
+            : taskRunning ? '任务在后台运行，离开页面不会中断。' : '点击“开始提取基线”，完成全部解析项后再进行验收。'}</p>
+        </div>
+        <span>环节三保持锁定</span>
       </section>
     </div>
   );

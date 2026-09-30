@@ -59,7 +59,10 @@ with sync_playwright() as playwright:
             autoConfirmation: {
               onChanged: () => () => {}, getState: async () => ({ enabled: false })
             },
-            tasks: { onTaskEvent: () => () => {}, getActiveTasks: async () => [] },
+            tasks: {
+              onTaskEvent: () => () => {}, getActiveTasks: async () => [],
+              startBidAnalysis: async () => ({ status: 'running' })
+            },
             file: {
               selectDuplicateCheckFiles: async ({ multiple }) => ({
                 success: true,
@@ -93,8 +96,14 @@ with sync_playwright() as playwright:
               listRecentDuplicateSummaries: async () => ({})
             },
             technicalPlan: {
+              saveBidAnalysisConfig: async () => {},
               loadState: async () => ({
-                workflowKind: 'existing-plan-expansion', step: 'sources', tenderFile: null,
+                workflowKind: 'existing-plan-expansion', step: 'sources',
+                tenderFile: {
+                  fileName: tenderName, markdownPath: 'tender.md', markdownChars: 27184,
+                  contentHash: 'tender-hash', parserLabel: '本地解析',
+                  importedAt: '2026-09-30T08:00:00.000Z', updatedAt: '2026-09-30T08:00:00.000Z'
+                },
                 tenderFiles: [{
                   id: 'tender-1', fileName: tenderName, markdownPath: 'tender.md', markdownChars: 27184,
                   contentHash: 'tender-hash', parserLabel: '本地解析',
@@ -104,7 +113,14 @@ with sync_playwright() as playwright:
                   fileName: historyName, markdownPath: 'history.md', markdownChars: 145601,
                   contentHash: 'history-hash', parserLabel: '本地解析',
                   importedAt: '2026-09-30T08:00:00.000Z', updatedAt: '2026-09-30T08:00:00.000Z'
-                }
+                },
+                projectOverview: '', techRequirements: '', bidAnalysisMode: 'key',
+                bidAnalysisSelectedTaskIds: [], bidAnalysisTasks: {}, bidAnalysisProgress: 0,
+                bidSectionMode: 'single', bidSections: [], bidSectionExtractionStatus: 'idle',
+                outlineMode: 'standalone-technical', outlineExpansionMode: 'ai-complement',
+                outlineWordControlOptions: {}, outlineMinimumDepth: 3,
+                referenceKnowledgeDocumentIds: [], remoteKnowledgeScopes: [], globalFacts: [],
+                contentGenerationSections: {}, contentGenerationPlans: {}, outlineData: null
               })
             }
           };
@@ -115,7 +131,7 @@ with sync_playwright() as playwright:
     page.get_by_role("button", name="历史标书适配", exact=True).click()
     page.get_by_role("heading", name="创建适配项目").wait_for()
     assert page.locator('[aria-current="step"]').count() == 1
-    assert page.get_by_text("后续环节将在本阶段验收后开放").count() >= 1
+    assert page.get_by_text("完成材料上传后开放招标基线").count() >= 1
     page.screenshot(path=OUTPUT_DIR / "historical-adaptation-upload.png", full_page=True)
 
     page.get_by_role("button", name="选择文件").nth(0).click()
@@ -129,18 +145,25 @@ with sync_playwright() as playwright:
     assert page.get_by_role("button", name="创建适配项目").is_enabled()
     page.get_by_label("项目名称").fill("横泾街道历史标书适配")
     page.get_by_role("button", name="创建适配项目").click()
-    page.get_by_text("材料已就绪，等待验收").wait_for()
+    page.get_by_text("招标基线", exact=True).last.wait_for()
+    assert page.get_by_role("button", name="开始提取基线").is_visible()
+    assert page.get_by_text("完整招标基线").is_visible()
+    assert page.locator(".bid-analysis-task-item").count() == 18
+    assert page.get_by_role("button", name="差异确认 待开放").is_disabled()
+    page.screenshot(path=OUTPUT_DIR / "historical-adaptation-baseline.png", full_page=True)
+
+    page.get_by_role("button", name="上传材料 已完成").click()
+    page.get_by_text("材料已完成验收").wait_for()
     assert page.get_by_text("全部成功").is_visible()
     assert page.get_by_text("解析成功").count() == 2
     page.screenshot(path=OUTPUT_DIR / "historical-adaptation-acceptance.png", full_page=True)
 
+    page.get_by_role("button", name="招标基线 可开始").click()
+    page.get_by_role("button", name="开始提取基线").wait_for()
+
     page.set_viewport_size({"width": 760, "height": 900})
-    page.screenshot(path=OUTPUT_DIR / "historical-adaptation-acceptance-narrow.png", full_page=True)
-    history_group = page.locator(".historical-adaptation-material-group").nth(1)
-    history_group.scroll_into_view_if_needed()
-    assert history_group.is_visible()
-    assert history_group.get_by_text(HISTORY_NAME).is_visible()
-    assert page.locator(".historical-adaptation-page").evaluate("element => element.scrollTop > 0")
-    page.screenshot(path=OUTPUT_DIR / "historical-adaptation-acceptance-narrow-scrolled.png")
-    print("历史标书适配 UI 验证通过：上传态、创建流程、验收态和窄屏布局均已检查。")
+    page.get_by_role("button", name="开始提取基线").scroll_into_view_if_needed()
+    assert page.get_by_text("项目概述", exact=True).first.is_visible()
+    page.screenshot(path=OUTPUT_DIR / "historical-adaptation-baseline-narrow.png", full_page=True)
+    print("历史标书适配 UI 验证通过：上传态、材料回看、招标基线、阶段锁定和窄屏布局均已检查。")
     browser.close()

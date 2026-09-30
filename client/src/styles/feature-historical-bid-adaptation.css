@@ -26,6 +26,7 @@
 }
 
 .historical-adaptation-stage {
+  appearance: none;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   gap: 2px 8px;
@@ -36,6 +37,9 @@
   background: #f1f4f8;
   border: 1px solid #e0e6ed;
   border-radius: 6px;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
 .historical-adaptation-stage > span {
@@ -56,6 +60,15 @@
 }
 
 .historical-adaptation-stage.is-current > span { color: #216eea; }
+
+.historical-adaptation-stage.is-complete:not(.is-current) {
+  color: #2d6652;
+  background: #f0f8f4;
+  border-color: #bcdcca;
+}
+
+.historical-adaptation-stage.is-complete:not(.is-current) > span { color: #167451; }
+.historical-adaptation-stage:disabled { cursor: not-allowed; }
 
 .historical-adaptation-stage-panel > p {
   margin: 9px 0 0;
@@ -134,6 +147,42 @@
 .historical-adaptation-acceptance-note p { margin: 0; color: #69798b; font-size: 12px; }
 .historical-adaptation-locked-message { flex: 0 0 auto; color: #7c8999; font-size: 11px; }
 
+.historical-adaptation-baseline {
+  display: grid;
+  grid-template-rows: auto minmax(640px, 1fr) auto;
+  gap: 12px;
+  min-width: 0;
+  min-height: 0;
+  padding: 18px 28px 28px;
+}
+
+.historical-adaptation-baseline-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.historical-adaptation-baseline-head > div { display: grid; gap: 4px; min-width: 0; }
+.historical-adaptation-baseline-head strong { overflow: hidden; color: #213753; font-size: 18px; text-overflow: ellipsis; white-space: nowrap; }
+.historical-adaptation-baseline > .bid-analysis-page { min-height: 640px; }
+
+.historical-adaptation-baseline-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 14px 18px;
+  background: #fff;
+  border-left: 4px solid #8a97a6;
+}
+
+.historical-adaptation-baseline-status.is-complete { border-left-color: #167451; }
+.historical-adaptation-baseline-status > div { display: grid; gap: 4px; }
+.historical-adaptation-baseline-status strong { color: #294761; }
+.historical-adaptation-baseline-status p { margin: 0; color: #69798b; font-size: 12px; }
+.historical-adaptation-baseline-status > span { flex: 0 0 auto; color: #7c8999; font-size: 11px; }
+
 .historical-adaptation-loading,
 .historical-adaptation-error { display: flex; min-height: 280px; align-items: center; justify-content: center; gap: 9px; color: #68798c; }
 .historical-adaptation-error { flex-direction: column; }
@@ -148,7 +197,11 @@
   .historical-adaptation-stages { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
   .historical-adaptation-acceptance { padding: 20px 18px 26px; }
   .historical-adaptation-acceptance-head,
-  .historical-adaptation-acceptance-note { align-items: stretch; flex-direction: column; }
+  .historical-adaptation-acceptance-note,
+  .historical-adaptation-baseline-head,
+  .historical-adaptation-baseline-status { align-items: stretch; flex-direction: column; }
+  .historical-adaptation-baseline { grid-template-rows: auto minmax(720px, 1fr) auto; padding: 16px 18px 24px; }
+  .historical-adaptation-baseline > .bid-analysis-page { min-height: 720px; }
   .historical-adaptation-summary,
   .historical-adaptation-materials { grid-template-columns: 1fr; }
   .historical-adaptation-summary > div { border-right: 0; border-bottom: 1px solid #e6ecf2; }
