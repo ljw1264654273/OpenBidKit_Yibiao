@@ -26,8 +26,18 @@ const {
 const { runFeasibilityOutlineTask } = require('./feasibilityOutlineTask.cjs');
 const { runFeasibilityOutlineAdjustmentTask } = require('./feasibilityOutlineAdjustmentTask.cjs');
 const { normalizeLogs } = require('./taskLogStore.cjs');
+const { runTechnicalPlanCheckTask } = require('./technicalPlanCheckTask.cjs');
 
 const taskDefinitions = {
+  'technical-plan-check': {
+    label: '技术方案检查',
+    group: 'technical-plan-check',
+    groupLabel: '技术方案检查',
+    step: 1,
+    lockPolicy: 'group-exclusive',
+    stateKey: 'technicalPlanCheck',
+    field: 'checkTask',
+  },
   'bid-section-extraction': {
     label: '多标段识别',
     group: 'technical-plan',
@@ -356,7 +366,7 @@ function cloneRemoteScopes(scopes) {
   }));
 }
 
-function createTaskService({ aiService, agentService, autoConfirmationService, technicalPlanStore, bidProjectManager, bidProjectVariantService, rejectionCheckStore, duplicateCheckStore, feasibilityReportStore, knowledgeBaseService, knowledgeReferenceService, remoteKnowledgeDecisionService, duplicateCheckService, openXmlHelperService, taskRunners = {} }) {
+function createTaskService({ aiService, agentService, autoConfirmationService, technicalPlanStore, bidProjectManager, bidProjectVariantService, rejectionCheckStore, duplicateCheckStore, feasibilityReportStore, technicalPlanCheckStore, technicalPlanCheckService, knowledgeBaseService, knowledgeReferenceService, remoteKnowledgeDecisionService, duplicateCheckService, openXmlHelperService, taskRunners = {} }) {
   const subscribers = new Set();
   const callbackSubscribers = new Set();
   const activeTasks = new Map();
@@ -364,6 +374,8 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
   const technicalPlanConcurrency = 2;
   let technicalPlanRunning = 0;
   const technicalPlanQueue = [];
+  let closed = false;
+  let closingPromise;
 
   function getTechnicalPlanStore(projectId) {
     return bidProjectManager?.getTechnicalPlanStore(projectId || bidProjectManager?.getCurrentProjectId?.()) || technicalPlanStore;
@@ -389,10 +401,12 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
   }
 
   function getProjectId(payloadOrTask) {
+    if (payloadOrTask?.type === 'technical-plan-check') return '';
     return getScopeId(payloadOrTask) || String(bidProjectManager?.getCurrentProjectId?.() || '').trim();
   }
 
   function getTaskKey(type, payloadOrTask) {
+    if (type === 'technical-plan-check') return type;
     const projectId = getProjectId(payloadOrTask);
     return projectId ? `${type}:${projectId}` : type;
   }
@@ -598,6 +612,9 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
   }
 
   function buildSnapshot(definition, state, task, eventPatch) {
+    if (definition.stateKey === 'technicalPlanCheck') {
+      return { technicalPlanCheckPatch: state };
+    }
     if (definition.stateKey === 'technicalPlan') {
       return buildTechnicalPlanSnapshot(task, state, eventPatch);
     }
@@ -615,6 +632,9 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
 
   function getSnapshotForTask(task) {
     const definition = getTaskDefinition(task.type);
+    if (definition.stateKey === 'technicalPlanCheck') {
+      return { technicalPlanCheck: technicalPlanCheckStore.loadState() };
+    }
     if (definition.stateKey === 'technicalPlan') {
       return buildSnapshot(definition, getTechnicalPlanStore(getProjectId(task)).loadTechnicalPlan(), task);
     }
@@ -718,6 +738,10 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
   }
 
   function updateWorkspaceStateWithoutReload(definition, partial, workspaceStore) {
+    if (definition.stateKey === 'technicalPlanCheck') {
+      technicalPlanCheckStore.updateWithoutReload(partial);
+      return;
+    }
     if (definition.stateKey === 'technicalPlan') {
       (workspaceStore || technicalPlanStore).updateTechnicalPlanWithoutReload(partial);
       return;
@@ -738,6 +762,9 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
   }
 
   function loadWorkspaceState(definition, projectId) {
+    if (definition.stateKey === 'technicalPlanCheck') {
+      return technicalPlanCheckStore.loadState();
+    }
     if (definition.stateKey === 'technicalPlan') {
       return getTechnicalPlanStore(projectId).loadTechnicalPlan();
     }
@@ -799,6 +826,7 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
   }
 
   function drainTechnicalPlanQueue() {
+    if (closed) return;
     while (technicalPlanRunning < technicalPlanConcurrency && technicalPlanQueue.length) {
       const entry = technicalPlanQueue.shift();
       const task = activeTasks.get(entry.taskKey);
@@ -810,12 +838,15 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
   }
 
   function startManagedTask(type, payload, runner, initialPartial = {}, startOptions = {}) {
-    const projectId = getProjectId(payload);
-    const scopedPayload = payload && typeof payload === 'object' && !Array.isArray(payload)
+    if (closed) throw new Error('后台任务服务已关闭，无法启动新任务');
+    const projectId = type === 'technical-plan-check' ? '' : getProjectId(payload);
+    const scopedPayload = type === 'technical-plan-check'
+      ? { ...payload, projectId: undefined, project_id: undefined, scopeId: undefined, scope_id: undefined }
+      : payload && typeof payload === 'object' && !Array.isArray(payload)
       ? { ...payload, ...(projectId ? { projectId, project_id: projectId, scopeId: projectId, scope_id: projectId } : {}) }
       : payload;
     const taskKey = getTaskKey(type, scopedPayload);
-    const workspaceStore = getTechnicalPlanStore(projectId);
+    const workspaceStore = type === 'technical-plan-check' ? technicalPlanCheckStore : getTechnicalPlanStore(projectId);
     const existingTask = activeTasks.get(taskKey);
     if (existingTask && isActiveTaskStatus(existingTask.status)) {
       const nextPayloadSignature = getPayloadSignature(type, payload);
@@ -978,7 +1009,11 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
         ...(workspacePartial || {}),
         [taskField]: persistedTask,
       };
-      updateWorkspaceStateWithoutReload(definition, persistedPatch, workspaceStore);
+      if (definition.stateKey === 'technicalPlanCheck') {
+        technicalPlanCheckStore.checkpointTask(persistedTask, workspacePartial);
+      } else {
+        updateWorkspaceStateWithoutReload(definition, persistedPatch, workspaceStore);
+      }
       emit(nextTask, buildSnapshot(definition, persistedPatch, nextTask, eventPatch));
       return { task: nextTask };
     };
@@ -1073,7 +1108,9 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
       taskControl.waitForOutlineSelection();
     }
 
-    const runnerWorkspaceStore = definition.stateKey === 'technicalPlan'
+    const runnerWorkspaceStore = definition.stateKey === 'technicalPlanCheck'
+      ? technicalPlanCheckStore
+      : definition.stateKey === 'technicalPlan'
       ? workspaceStore
       : definition.stateKey === 'rejectionCheck'
         ? rejectionCheckStore
@@ -1084,7 +1121,7 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
       ? new Promise((resolve) => technicalPlanQueue.push({ taskKey, resolve }))
       : Promise.resolve();
     runGate.then(() => {
-      if (taskControl.cancelled) return;
+      if (taskControl.cancelled || closed) return;
       taskControl.queued = false;
       currentTask = applyTaskPatch({ status: 'running', queue_position: undefined });
       updateWorkspaceStateWithoutReload(definition, { [taskField]: currentTask }, workspaceStore);
@@ -1119,13 +1156,13 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
           signal: taskControl.signal,
         },
       );
-      return runner({ aiService: runnerAiService, agentService: runnerAgentService, ordinaryAgentService: runnerOrdinaryAgentService, workspaceStore: runnerWorkspaceStore, knowledgeBaseService, knowledgeReferenceService, knowledgeSession: taskControl.knowledgeSession, openXmlHelperService, updateTask, checkpointTask, payload: scopedPayload, taskControl, previousState });
+      return runner({ aiService: runnerAiService, agentService: runnerAgentService, ordinaryAgentService: runnerOrdinaryAgentService, workspaceStore: runnerWorkspaceStore, technicalPlanCheckService, knowledgeBaseService, knowledgeReferenceService, knowledgeSession: taskControl.knowledgeSession, openXmlHelperService, updateTask, checkpointTask, payload: scopedPayload, taskControl, previousState });
     }).catch((error) => {
       if (!taskControl.signal.aborted) {
         checkpointTask({ status: 'error', error: error.message || '任务执行失败' });
       }
     }).finally(() => {
-      const scheduleVariantAfterContent = type === 'content-generation'
+      const scheduleVariantAfterContent = !closed && type === 'content-generation'
         && currentTask.status === 'success'
         && Boolean(bidProjectManager?.getProject?.(projectId)?.derivedFromProjectId)
         && Boolean(bidProjectManager?.getProject?.(projectId)?.uniquenessAutoRunRequested);
@@ -1164,6 +1201,7 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
       drainTechnicalPlanQueue();
       if (scheduleVariantAfterContent) {
         queueMicrotask(() => {
+          if (closed) return;
           try {
             startVariantDeduplication({ projectId });
           } catch (error) {
@@ -1704,12 +1742,14 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
   recoverInterruptedRejectionCheckTasks(rejectionCheckRecoveryState);
   recoverInterruptedDuplicateCheckTask(duplicateCheckRecoveryState);
   recoverInterruptedFeasibilityTasks(feasibilityReportRecoveryState);
+  technicalPlanCheckStore?.recoverInterruptedTask();
 
   for (const pendingProject of bidProjectManager?.getProjectStore?.().listPendingAutomaticUniquenessProjects?.() || []) {
     const projectId = pendingProject.projectId;
     const state = getTechnicalPlanStore(projectId).loadTechnicalPlan() || {};
     if (!isTechnicalPlanContentComplete(state) || hasActiveTask('variant-deduplication', projectId)) continue;
     queueMicrotask(() => {
+      if (closed) return;
       try {
         startVariantDeduplication({ projectId });
       } catch (error) {
@@ -1721,6 +1761,17 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
   return {
     subscribe,
     subscribeCallback,
+    startTechnicalPlanCheck(payload = {}) {
+      return startManagedTask('technical-plan-check', payload, taskRunners.technicalPlanCheck || runTechnicalPlanCheckTask);
+    },
+    close() {
+      if (closingPromise) return closingPromise;
+      closed = true;
+      const controls = Array.from(activeTaskControls.values());
+      for (const control of controls) control.cancel('应用正在关闭，后台任务已取消');
+      closingPromise = Promise.all(controls.map((control) => control.waitForSettlement())).then(() => undefined);
+      return closingPromise;
+    },
     startBidSectionExtraction(payload) {
       return startManagedTask('bid-section-extraction', payload, runBidSectionExtractionTask, {
         bidSectionMode: 'multiple',
