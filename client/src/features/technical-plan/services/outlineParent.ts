@@ -1,5 +1,5 @@
 import type { OutlineItem } from '../../../shared/types/outline';
-// @ts-expect-error allowImportingTsExtensions 仅影响测试运行方式
+// @ts-expect-error Node's strip-types runner requires an explicit extension.
 import { MAX_OUTLINE_DEPTH, outlineDepth } from './outlineDepth.ts';
 
 function getSubtreeMaxDepth(item: OutlineItem): number {

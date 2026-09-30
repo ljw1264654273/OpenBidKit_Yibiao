@@ -32,6 +32,11 @@ export const appMenuItems: AppMenuItem[] = [
     description: '检查投标技术方案的响应性与内部质量，生成检查记录',
   },
   {
+    id: 'historical-bid-adaptation',
+    label: '历史标书适配',
+    description: '依据新招标文件迁移历史标书，先确认差异规则，再逐步完成适配改写',
+  },
+  {
     id: 'template-settings',
     label: '模版设置',
     description: '标书导出模板与排版配置',

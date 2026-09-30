@@ -1,5 +1,5 @@
 export type BidProjectStatus = 'generating' | 'incomplete' | 'completed' | 'failed';
-export type BidProjectType = 'technical-plan' | 'existing-plan-expansion';
+export type BidProjectType = 'technical-plan' | 'existing-plan-expansion' | 'historical-bid-adaptation';
 export type BidProjectUniquenessStatus = 'none' | 'pending' | 'checking' | 'passed' | 'failed';
 
 export interface BidProject {
@@ -108,6 +108,7 @@ export interface ExpansionProjectImportPreview {
 
 export interface ExpansionProjectImportOptions {
   projectName?: string;
+  projectType?: 'existing-plan-expansion' | 'historical-bid-adaptation';
 }
 
 export interface BidProjectContent {

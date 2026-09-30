@@ -20,6 +20,7 @@ import TechnicalPlanHome from '../features/technical-plan/pages/TechnicalPlanHom
 import FeasibilityReportHome from '../features/feasibility-report/pages/FeasibilityReportHome';
 import BidProjectWorkspacePage from '../features/bid-project/pages/BidProjectWorkspacePage';
 import ExpansionProjectCreatePage from '../features/bid-project/pages/ExpansionProjectCreatePage';
+import HistoricalBidAdaptationPage from '../features/historical-bid-adaptation/pages/HistoricalBidAdaptationPage';
 import type { BidProject } from '../features/bid-project/types';
 import SecondaryMenuPage from '../shared/ui/SecondaryMenuPage';
 
@@ -77,6 +78,16 @@ function AppRouter({
         <TechnicalPlanHome workflowKind="existing-plan-expansion" projectId={activeProjectId} registerLeaveGuard={registerLeaveGuard} onSectionChange={onSectionChange} />
       ) : (
         <ExpansionProjectCreatePage
+          onBack={() => onSectionChange('bid-projects')}
+          onProjectCreated={(project) => {
+            onProjectChange(project.projectId);
+          }}
+        />
+      );
+    case 'historical-bid-adaptation':
+      return (
+        <HistoricalBidAdaptationPage
+          projectId={activeProjectId || undefined}
           onBack={() => onSectionChange('bid-projects')}
           onProjectCreated={(project) => {
             onProjectChange(project.projectId);

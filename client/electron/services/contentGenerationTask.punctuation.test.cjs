@@ -27,6 +27,21 @@ test('inline bold lead-ins use a Chinese colon before following prose', () => {
   assert.equal(normalize('__房屋属性信息核实.__ 房屋权属方面'), '__房屋属性信息核实：__ 房屋权属方面');
 });
 
+test('saved Chinese lead-ins do not retain literal spacing before prose', () => {
+  assert.equal(
+    normalizeSave('**服务需求分析。**   本项目 服务需求集中在三个层面。'),
+    '**服务需求分析：**本项目服务需求集中在三个层面。',
+  );
+  assert.equal(
+    normalizeSave('按照“谁主导、谁接收\n”的原则处理。'),
+    '按照“谁主导、谁接收”的原则处理。',
+  );
+  assert.equal(
+    normalizeSave('上一段内容\n\n。下一段内容'),
+    '上一段内容。\n\n下一段内容',
+  );
+});
+
 test('inline lead-ins with an internal colon still end with a Chinese colon', () => {
   assert.equal(
     normalize('**第一阶段：前期准备与资料对接。** 自合同签订后即启动'),
@@ -85,7 +100,7 @@ test('two or more parallel bold items receive continuous Arabic numbering', () =
   );
   assert.equal(
     normalizeSave('3. **实施安排。** 正文一。\n**质量保证。** 正文二。\n2. **验收交付。** 正文三。'),
-    '1. **实施安排：** 正文一。\n2. **质量保证：** 正文二。\n3. **验收交付：** 正文三。',
+    '1. **实施安排：**正文一。\n2. **质量保证：**正文二。\n3. **验收交付：**正文三。',
   );
 });
 
@@ -112,8 +127,8 @@ test('nested body outline items restart numbering within each indentation level'
     [
       '1. **全过程登记制度**',
       '   1. **借阅利用审批**',
-      '      1. **申请提出：** 借阅人填写申请单。',
-      '      2. **审批权限：** 项目负责人审批。',
+      '      1. **申请提出：**借阅人填写申请单。',
+      '      2. **审批权限：**项目负责人审批。',
       '   2. **档案移交**',
       '2. **其他管理制度**',
       '   1. **其他审批**',
@@ -179,7 +194,7 @@ test('normalization handles converted Markdown headings and is idempotent', () =
 test('full save normalization is idempotent', () => {
   const source = '**第一项。** 正文。\n\n4. **第二项：**，正文。';
   const once = normalizeSave(source);
-  assert.equal(once, '1. **第一项：** 正文。\n\n2. **第二项：** 正文。');
+  assert.equal(once, '1. **第一项：**正文。\n\n2. **第二项：**正文。');
   assert.equal(normalizeSave(once), once);
 });
 
@@ -227,6 +242,8 @@ test('chapter content prompt requires nested Markdown for body outline hierarchy
   assert.match(prompt, /Markdown 列表语法统一使用“1\.”/);
   assert.match(prompt, /每个新开的子列表必须从“1\.”开始/);
   assert.match(prompt, /不要把“一、”“（一）”等最终展示编号写进正文文字/);
+  assert.match(prompt, /Markdown 列表标记后的语法空格必须保留/);
+  assert.match(prompt, /加粗引导标题后直接连接中文正文，不添加空格/);
   assert.doesNotMatch(prompt, /同一层级出现两个及以上并列论述分项时，每个分项标题必须按出现顺序使用连续阿拉伯数字序号/);
 });
 

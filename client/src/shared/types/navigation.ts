@@ -4,6 +4,7 @@ export type SectionId =
   | 'technical-plan'
   | 'existing-plan-expansion'
   | 'technical-plan-check'
+  | 'historical-bid-adaptation'
   | 'feasibility-report'
   | 'business-bid'
   | 'knowledge-base'

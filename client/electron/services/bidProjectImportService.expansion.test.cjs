@@ -148,7 +148,7 @@ function createFixture(options = {}) {
     confirmTenderStarted,
     cleanup() {
       db.close();
-      fs.rmSync(userDataPath, { recursive: true, force: true });
+      fs.rmSync(userDataPath, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
     },
   };
 }
@@ -554,6 +554,40 @@ test('creates an isolated expansion project and corrects workflow metadata on op
   }
 });
 
+test('creates an independent historical adaptation project with expansion-compatible material storage', async () => {
+  const fixture = createFixture();
+  try {
+    const preview = await fixture.importService.prepareExpansionImport({
+      tenderFilePaths: [fixture.paths.tenderA, fixture.paths.tenderB],
+      originalPlanFilePaths: [fixture.paths.originalPlan],
+    });
+    const adaptation = await fixture.importService.confirmExpansionImport(preview.token, {
+      projectName: '横泾街道历史标书适配',
+      projectType: 'historical-bid-adaptation',
+    });
+
+    assert.equal(adaptation.projectType, 'historical-bid-adaptation');
+    assert.equal(fixture.manager.getProject(adaptation.projectId).projectType, 'historical-bid-adaptation');
+    assert.deepEqual(
+      fixture.manager.listProjects({ type: 'historical-bid-adaptation' }).map((project) => project.projectId),
+      [adaptation.projectId],
+    );
+    const state = fixture.manager.getTechnicalPlanStore(adaptation.projectId).loadTechnicalPlan();
+    assert.equal(state.workflowKind, 'existing-plan-expansion');
+    assert.equal(state.tenderFiles.length, 2);
+    assert.equal(state.originalPlanFile.fileName, path.basename(fixture.paths.originalPlan));
+
+    fixture.manager.openProject(adaptation.projectId);
+    assert.equal(
+      fixture.manager.getTechnicalPlanStore(adaptation.projectId).loadTechnicalPlan().workflowKind,
+      'existing-plan-expansion',
+    );
+    assert.equal(fixture.workflowCalls[0].payload.workflowKind, 'historical-bid-adaptation');
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test('does not create a project when original-plan confirmation fails', async () => {
   const fixture = createFixture({ behavior: { failOriginalConfirm: true } });
   try {
@@ -764,6 +798,6 @@ test('discard is idempotent and startup removes expired or corrupt expansion sta
 
 test.after(() => {
   if (process.versions.electron) {
-    require('electron').app.quit();
+    require('electron').app?.quit();
   }
 });

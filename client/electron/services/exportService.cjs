@@ -10,6 +10,7 @@ const { getGeneratedImagesDir, getImportedImagesDir } = require('../utils/paths.
 const { resolveYibiaoAssetPath } = require('../utils/assetPathResolver.cjs');
 const { REMOTE_IMAGE_RETRY_ATTEMPTS, REMOTE_IMAGE_RETRY_DELAY_MS } = require('../utils/remoteImageRetry.cjs');
 const { renderMarkdownHtml } = require('../utils/renderMarkdownHtml.cjs');
+const { normalizeChineseMarkdownTypography } = require('../utils/chineseTypography.cjs');
 const { getLocalImageRenderService } = require('./localImageRenderService.cjs');
 const {
   AlignmentType,
@@ -82,7 +83,7 @@ const UNORDERED_LIST_MARKERS = {
   sparkle: { text: '✧', font: 'Segoe UI Symbol', sizeScale: 0.9 },
 };
 const ORDERED_LIST_WORD_STYLES = {
-  'decimal-dot': { format: LevelFormat.DECIMAL, text: (level) => `%${level + 1}.` },
+  'decimal-dot': { format: LevelFormat.DECIMAL, text: (level) => `%${level + 1}．` },
   'decimal-paren': { format: LevelFormat.DECIMAL, text: (level) => `%${level + 1}）` },
   'decimal-full-paren': { format: LevelFormat.DECIMAL, text: (level) => `（%${level + 1}）` },
   'chinese-dot': { format: LevelFormat.CHINESE_COUNTING, text: (level) => `%${level + 1}、` },
@@ -1986,8 +1987,11 @@ async function htmlToDocxBlocks(html, context = {}, options = {}) {
 }
 
 async function markdownToDocxBlocks(content, context = {}) {
+  const normalizedContent = context.normalizeChineseTypography
+    ? normalizeChineseMarkdownTypography(content)
+    : content;
   const markdown = normalizeOrderedListMarkersForDocx(
-    normalizeMarkdownTablesForDocx(normalizeMarkdownListMarkersForDocx(content)),
+    normalizeMarkdownTablesForDocx(normalizeMarkdownListMarkersForDocx(normalizedContent)),
   );
   const html = await renderMarkdownHtml(markdown, { allowRawHtml: true, enableGfm: true });
   return htmlToDocxBlocks(html, context);
@@ -2389,7 +2393,7 @@ function createListNumberingLevel(referenceConfig, level) {
     format: ordered ? orderedStyle.format : LevelFormat.BULLET,
     text: ordered ? orderedStyle.text(level) : marker.text,
     alignment: AlignmentType.START,
-    suffix: LevelSuffix.TAB,
+    suffix: ordered ? LevelSuffix.NOTHING : LevelSuffix.TAB,
     style: {
       run: {
         font: ordered ? (outlineLevel?.font || referenceConfig.bodyRunFont || '宋体') : marker.font,
@@ -2543,6 +2547,7 @@ async function buildDocxResult(payload, options = {}) {
   context.bodyOrderedListStyle = bodyStyle ? (bodyStyle.ordered_list_style || 'decimal-dot') : 'decimal-dot';
   context.bodyListIndentChars = bodyStyle ? (bodyStyle.list_indent_chars ?? 2) : 2;
   context.bodyMarkdownHeadingsAsText = true;
+  context.normalizeChineseTypography = !context.feasibility;
   if (bodyStyle) {
     context.bodyAlignment = alignmentToWordType(bodyStyle.alignment);
     if (bodyStyle.first_line_indent_chars > 0) {

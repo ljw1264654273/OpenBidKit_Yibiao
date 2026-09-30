@@ -2,7 +2,7 @@ import { isIP } from 'node:net';
 
 const OPERATIONS = new Set(['project_created', 'word_export']);
 const STATUSES = new Set(['started', 'succeeded', 'failed', 'cancelled']);
-const WORKFLOW_KINDS = new Set(['technical-plan', 'existing-plan-expansion']);
+const WORKFLOW_KINDS = new Set(['technical-plan', 'existing-plan-expansion', 'historical-bid-adaptation']);
 const FAILURE_CODES = new Set(['network', 'parse', 'ai', 'export', 'project', 'cancelled', 'unknown']);
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 

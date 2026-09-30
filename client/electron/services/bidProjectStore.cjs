@@ -144,7 +144,9 @@ function prepareDuplicateResultForRead(row, matches) {
 }
 
 function normalizeProjectType(value) {
-  return value === 'existing-plan-expansion' ? value : 'technical-plan';
+  return ['existing-plan-expansion', 'historical-bid-adaptation'].includes(value)
+    ? value
+    : 'technical-plan';
 }
 
 function normalizeStatus(value) {

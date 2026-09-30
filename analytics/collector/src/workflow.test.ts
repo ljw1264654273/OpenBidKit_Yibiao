@@ -27,6 +27,26 @@ test('normalizes terminal workflow events and strips source file paths', () => {
   assert.equal(event.clientIp, '203.0.113.10');
 });
 
+test('accepts historical bid adaptation workflow events', () => {
+  const event = normalizeWorkflowEvent({
+    operation_id: operationId,
+    operation: 'project_created',
+    status: 'succeeded',
+    workflow_kind: 'historical-bid-adaptation',
+    project_id: 'adaptation-project-1',
+    project_name: '历史标书适配项目',
+    source_file_names: ['招标文件.docx', '历史标书.docx'],
+    duration_ms: 800,
+    version: '2.0.0',
+    platform: 'win32',
+    client_id: 'client-1',
+    client_created_at: '2026-09-17',
+  }, '203.0.113.10');
+
+  assert.equal(validateWorkflowEvent(event), '');
+  assert.equal(event.workflowKind, 'historical-bid-adaptation');
+});
+
 test('requires a controlled failure code for failed workflow events', () => {
   const event = normalizeWorkflowEvent({
     operation_id: operationId,

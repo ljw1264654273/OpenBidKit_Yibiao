@@ -57,5 +57,18 @@ describe('project navigation decisions', () => {
   it('maps project types to their fixed workbench sections', () => {
     expect(getProjectSection('technical-plan')).toBe('technical-plan');
     expect(getProjectSection('existing-plan-expansion')).toBe('existing-plan-expansion');
+    expect(getProjectSection('historical-bid-adaptation' as never)).toBe('historical-bid-adaptation');
+  });
+
+  it('starts a new adaptation project when its menu is clicked inside an active adaptation project', () => {
+    expect(getMenuNavigationDecision({
+      activeSection: 'historical-bid-adaptation' as never,
+      requestedSection: 'historical-bid-adaptation' as never,
+      activeProjectId: 'adaptation-project',
+    })).toEqual({
+      shouldNavigate: true,
+      shouldCloseActiveProject: true,
+      shouldStartNewExpansion: true,
+    });
   });
 });

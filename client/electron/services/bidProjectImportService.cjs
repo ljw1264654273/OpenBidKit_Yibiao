@@ -487,13 +487,14 @@ function createBidProjectImportService({ app, fileService, bidProjectManager, wo
     let project;
     let workflowOperation;
     try {
+      const projectType = options.projectType || EXPANSION_IMPORT_KIND;
       const tenderDocuments = metadata.tenderDocuments;
       const tenderFileName = tenderDocuments.length > 1
         ? `${tenderDocuments.length} 份招标文件`
         : tenderDocuments[0].fileName;
       project = bidProjectManager.createProject({
         projectName: options.projectName || tenderFileName,
-        projectType: EXPANSION_IMPORT_KIND,
+        projectType,
         sourceFile: {
           fileName: tenderFileName,
           fileHash: hashText(tenderDocuments.map((document) => document.fileHash).join('|')),
@@ -511,7 +512,7 @@ function createBidProjectImportService({ app, fileService, bidProjectManager, wo
       });
       workflowOperation = workflowAnalytics?.startOperation({
         operation: 'project_created',
-        workflowKind: EXPANSION_IMPORT_KIND,
+        workflowKind: projectType,
         projectId: project.projectId,
         projectName: project.projectName,
         sourceFileNames: [

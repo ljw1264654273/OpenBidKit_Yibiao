@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { OutlineItem } from '../../../shared/types/outline.ts';
+// @ts-expect-error Node's strip-types runner requires an explicit extension.
 import { canAddOutlineParent, getOutlineSubtreeMaxDepth, insertOutlineParent } from './outlineParent.ts';
 
 const parent: Omit<OutlineItem, 'children'> = {

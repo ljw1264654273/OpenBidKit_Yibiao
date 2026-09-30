@@ -163,8 +163,57 @@ test('Word export preserves four body outline levels and applies per-level typog
 
   assert.match(numberingLevel(numberingXml, 'body-outline', 0), /<w:numFmt w:val="chineseCounting"\/>[\s\S]*<w:lvlText w:val="%1、"\/>/);
   assert.match(numberingLevel(numberingXml, 'body-outline', 1), /<w:numFmt w:val="chineseCounting"\/>[\s\S]*<w:lvlText w:val="（%2）"\/>/);
-  assert.match(numberingLevel(numberingXml, 'body-outline', 2), /<w:numFmt w:val="decimal"\/>[\s\S]*<w:lvlText w:val="%3\."\/>/);
+  assert.match(numberingLevel(numberingXml, 'body-outline', 2), /<w:numFmt w:val="decimal"\/>[\s\S]*<w:lvlText w:val="%3．"\/>/);
   assert.match(numberingLevel(numberingXml, 'body-outline', 3), /<w:numFmt w:val="decimal"\/>[\s\S]*<w:lvlText w:val="（%4）"\/>/);
+  for (const level of [0, 1, 2, 3]) {
+    assert.match(numberingLevel(numberingXml, 'body-outline', level), /<w:suff w:val="nothing"\/>/);
+  }
+});
+
+test('Word export keeps tab suffix for unordered lists', async () => {
+  const buffer = await buildDocxBuffer({
+    project_name: '无序列表间距测试',
+    export_format: {
+      body_text: {
+        font: '宋体', size: '小四', alignment: '左对齐', spacing_before_pt: 0,
+        spacing_after_pt: 0, first_line_indent_chars: 2, line_spacing_multiple: 1.2,
+        list_style: 'disc', ordered_list_style: 'decimal-dot', list_indent_chars: 2,
+        body_outline_levels: bodyOutlineLevels,
+      },
+      headings: [],
+    },
+    outline: [{ id: '1', title: '无序列表', content: '- 列表内容' }],
+  });
+
+  const numberingXml = readDocxXml(buffer, 'word/numbering.xml');
+  assert.match(numberingXml, /<w:numFmt w:val="bullet"\/>[\s\S]*<w:suff w:val="tab"\/>/);
+});
+
+test('Word export removes Chinese prose spaces and punctuation-leading soft breaks', async () => {
+  const buffer = await buildDocxBuffer({
+    project_name: '中文正文空格测试',
+    export_format: {
+      body_text: {
+        font: '宋体', size: '小四', alignment: '两端对齐', spacing_before_pt: 0,
+        spacing_after_pt: 0, first_line_indent_chars: 2, line_spacing_multiple: 1.2,
+        list_style: 'disc', ordered_list_style: 'decimal-dot', list_indent_chars: 2,
+        body_outline_levels: bodyOutlineLevels,
+      },
+      headings: [],
+    },
+    outline: [{
+      id: '1', title: '中文正文',
+      content: '**服务需求分析：** 本项目 服务需求。\n\n按照“谁主导、谁接收\n”的原则处理。\n\n接口人相对固定\n。',
+    }],
+  });
+
+  const documentXml = readDocxXml(buffer, 'word/document.xml');
+  assert.match(documentXml, />服务需求分析：<\/w:t>[\s\S]*>本项目服务需求。<\/w:t>/);
+  assert.doesNotMatch(documentXml, /> 本项目/);
+  assert.doesNotMatch(documentXml, /谁接收\r?\n”/);
+  assert.doesNotMatch(documentXml, /相对固定\r?\n。/);
+  assert.match(documentXml, /谁接收”的原则处理。/);
+  assert.match(documentXml, /接口人相对固定。/);
 });
 
 test('Word export repairs non-reset nested heading numbers before Markdown parsing', async () => {

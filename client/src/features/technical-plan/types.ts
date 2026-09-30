@@ -14,7 +14,7 @@ export type ContentTableRequirement = 'none' | 'light' | 'moderate' | 'heavy';
 export type ContentImagePreset = 'enhanced' | 'rich' | 'basic' | 'text-only' | 'custom';
 export type ConsistencyRepairMode = 'agent' | 'normal';
 export type OriginalPlanCoverageRepairMode = 'agent' | 'normal';
-export type SaveOutlineReason = 'sort' | 'edit' | 'delete' | 'add-root' | 'add-child' | 'replace';
+export type SaveOutlineReason = 'sort' | 'edit' | 'delete' | 'add-root' | 'add-child' | 'add-parent' | 'replace';
 export type OutlineAttribute = '通用' | '商务' | '资信' | '技术' | '其他';
 export type GlobalFactsMode = 'omit' | 'placeholder';
 

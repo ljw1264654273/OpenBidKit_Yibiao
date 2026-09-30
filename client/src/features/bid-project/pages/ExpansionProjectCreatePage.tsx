@@ -13,6 +13,7 @@ import {
 interface ExpansionProjectCreatePageProps {
   onProjectCreated: (project: BidProject) => void;
   onBack: () => void;
+  variant?: 'expansion' | 'historical-adaptation';
 }
 
 type FileKind = 'tender' | 'originalPlan';
@@ -69,12 +70,13 @@ function getSelectedFileName(files: SelectedFile[]) {
   return files.length === 1 ? files[0].fileName : `${files.length} 个文件`;
 }
 
-function ExpansionProjectCreatePage({ onProjectCreated, onBack }: ExpansionProjectCreatePageProps) {
+function ExpansionProjectCreatePage({ onProjectCreated, onBack, variant = 'expansion' }: ExpansionProjectCreatePageProps) {
+  const isHistoricalAdaptation = variant === 'historical-adaptation';
   const { showToast } = useToast();
   const [tenderFiles, setTenderFiles] = useState<SelectedFile[]>([]);
   const [originalPlanFiles, setOriginalPlanFiles] = useState<SelectedFile[]>([]);
   const [preview, setPreview] = useState<ExpansionProjectImportPreview>(emptyPreview);
-  const [projectName, setProjectName] = useState('扩写项目');
+  const [projectName, setProjectName] = useState(isHistoricalAdaptation ? '' : '扩写项目');
   const [busyKind, setBusyKind] = useState<FileKind | 'creating' | null>(null);
   const tokenRef = useRef<string | null>(null);
   const requestIdRef = useRef(0);
@@ -88,6 +90,7 @@ function ExpansionProjectCreatePage({ onProjectCreated, onBack }: ExpansionProje
   }, []);
 
   useEffect(() => {
+    mountedRef.current = true;
     return () => {
       mountedRef.current = false;
       requestIdRef.current += 1;
@@ -174,30 +177,37 @@ function ExpansionProjectCreatePage({ onProjectCreated, onBack }: ExpansionProje
   }, [busyKind, clearStagedImport, originalPlanFiles, prepareImport, tenderFiles]);
 
   const handleCreate = async () => {
-    if (!canCreateExpansionProject(preview) || !preview.token || busyKind) return;
+    if (!canCreateExpansionProject(preview) || !preview.token || busyKind || (isHistoricalAdaptation && !projectName.trim())) return;
     const token = preview.token;
     setBusyKind('creating');
     try {
-      const project = await confirmExpansionImport(token, { projectName: projectName.trim() || '扩写项目' });
+      const project = await confirmExpansionImport(token, {
+        projectName: projectName.trim() || '扩写项目',
+        projectType: isHistoricalAdaptation ? 'historical-bid-adaptation' : 'existing-plan-expansion',
+      });
       tokenRef.current = null;
       onProjectCreated(project);
     } catch (error) {
-      showToast(error instanceof Error ? error.message : '创建扩写项目失败', 'error');
+      showToast(error instanceof Error ? error.message : `创建${isHistoricalAdaptation ? '适配' : '扩写'}项目失败`, 'error');
       setBusyKind(null);
     }
   };
 
   const parsedTenderDocuments = getSuccessfulTenderDocuments(preview);
   const parsedOriginalPlan = isSuccessDocument(preview.originalPlan) ? preview.originalPlan : null;
-  const canCreate = canCreateExpansionProject(preview) && !busyKind;
+  const canCreate = canCreateExpansionProject(preview)
+    && (!isHistoricalAdaptation || Boolean(projectName.trim()))
+    && !busyKind;
 
   return (
     <div className="expansion-create-page">
       <header className="expansion-create-head">
         <div>
-          <span className="section-kicker">已有方案扩写</span>
-          <h1>新建扩写项目</h1>
-          <p>上传招标文件和已有标书，创建一份独立的扩写项目。</p>
+          <span className="section-kicker">{isHistoricalAdaptation ? '历史标书适配' : '已有方案扩写'}</span>
+          <h1>{isHistoricalAdaptation ? '创建适配项目' : '新建扩写项目'}</h1>
+          <p>{isHistoricalAdaptation
+            ? '上传本次招标文件和一份历史标书，确认解析结果后建立独立适配项目。'
+            : '上传招标文件和已有标书，创建一份独立的扩写项目。'}</p>
         </div>
         <button type="button" className="secondary-action" onClick={onBack} disabled={Boolean(busyKind)}>
           返回我的标书
@@ -207,9 +217,9 @@ function ExpansionProjectCreatePage({ onProjectCreated, onBack }: ExpansionProje
       <UploadBoard
         className="expansion-create-upload-board"
         kicker="STEP 01"
-        title="准备扩写素材"
+        title={isHistoricalAdaptation ? '准备适配材料' : '准备扩写素材'}
         subtitle="两类文件都会复制并解析到新项目中，原文件不会被修改。"
-        aside={<span className="expansion-create-requirement">招标文件可多份，原方案限一份</span>}
+        aside={<span className="expansion-create-requirement">招标文件可多份，{isHistoricalAdaptation ? '历史标书' : '原方案'}限一份</span>}
       >
         <UploadRow
           index="01"
@@ -242,13 +252,13 @@ function ExpansionProjectCreatePage({ onProjectCreated, onBack }: ExpansionProje
               ))}
             </div>
           ) : (
-            <UploadEmpty title="还没有招标文件" hint="拖入一份或多份本地招标文件，作为扩写依据。" />
+            <UploadEmpty title="还没有招标文件" hint={`拖入一份或多份本地招标文件，作为${isHistoricalAdaptation ? '适配' : '扩写'}依据。`} />
           )}
         </UploadRow>
 
         <UploadRow
           index="02"
-          title="已有标书 / 原方案"
+          title={isHistoricalAdaptation ? '历史标书' : '已有标书 / 原方案'}
           note="必选，仅一份"
           onDropFiles={(files) => handleDrop('originalPlan', files)}
           dropDisabled={Boolean(busyKind)}
@@ -274,7 +284,10 @@ function ExpansionProjectCreatePage({ onProjectCreated, onBack }: ExpansionProje
               />
             </div>
           ) : (
-            <UploadEmpty title="还没有原方案" hint="上传需要扩写的本地标书或方案文档。" />
+            <UploadEmpty
+              title={isHistoricalAdaptation ? '还没有历史标书' : '还没有原方案'}
+              hint={isHistoricalAdaptation ? '上传一份用于迁移改写的历史标书。' : '上传需要扩写的本地标书或方案文档。'}
+            />
           )}
         </UploadRow>
       </UploadBoard>
@@ -302,10 +315,12 @@ function ExpansionProjectCreatePage({ onProjectCreated, onBack }: ExpansionProje
             emptyMessage={tenderFiles.length ? '招标文件尚未解析成功。' : '选择招标文件后，这里会显示解析摘要。'}
           />
           <PreviewDocumentGroup
-            title="已有标书 / 原方案"
+            title={isHistoricalAdaptation ? '历史标书' : '已有标书 / 原方案'}
             countLabel={parsedOriginalPlan ? '解析成功' : originalPlanFiles.length ? '尚未解析成功' : '尚未选择'}
             documents={parsedOriginalPlan ? [parsedOriginalPlan] : []}
-            emptyMessage={originalPlanFiles.length ? '原方案尚未解析成功。' : '选择原方案后，这里会显示解析摘要。'}
+            emptyMessage={originalPlanFiles.length
+              ? `${isHistoricalAdaptation ? '历史标书' : '原方案'}尚未解析成功。`
+              : `选择${isHistoricalAdaptation ? '历史标书' : '原方案'}后，这里会显示解析摘要。`}
           />
         </div>
       </section>
@@ -316,14 +331,18 @@ function ExpansionProjectCreatePage({ onProjectCreated, onBack }: ExpansionProje
           <input
             value={projectName}
             onChange={(event) => setProjectName(event.target.value)}
-            placeholder="例如：智慧园区项目扩写"
+            placeholder={isHistoricalAdaptation ? '例如：横泾街道历史标书适配' : '例如：智慧园区项目扩写'}
             disabled={Boolean(busyKind)}
           />
         </label>
         <div className="expansion-create-submit-actions">
-          <span>{canCreate ? '文件已准备完成，可以创建独立扩写项目。' : '请先完成招标文件和原方案的解析。'}</span>
+          <span>{canCreate
+            ? `文件已准备完成，可以创建独立${isHistoricalAdaptation ? '适配' : '扩写'}项目。`
+            : isHistoricalAdaptation && canCreateExpansionProject(preview) && !projectName.trim()
+              ? '请输入项目名称。'
+              : `请先完成招标文件和${isHistoricalAdaptation ? '历史标书' : '原方案'}的解析。`}</span>
           <button type="button" className="primary-action" onClick={() => { void handleCreate(); }} disabled={!canCreate}>
-            {busyKind === 'creating' ? <><InlineSpinner />正在创建...</> : '创建扩写项目'}
+            {busyKind === 'creating' ? <><InlineSpinner />正在创建...</> : `创建${isHistoricalAdaptation ? '适配' : '扩写'}项目`}
           </button>
         </div>
       </section>

@@ -241,7 +241,7 @@ export const LIST_STYLE_OPTIONS = [
 export type ListStyle = (typeof LIST_STYLE_OPTIONS)[number]['value'];
 
 export const ORDERED_LIST_STYLE_OPTIONS = [
-  { value: 'decimal-dot', label: '数字编号（1.）' },
+  { value: 'decimal-dot', label: '数字编号（1．）' },
   { value: 'decimal-paren', label: '数字括号（1）' },
   { value: 'decimal-full-paren', label: '数字全括号（（1））' },
   { value: 'chinese-dot', label: '中文编号（一、）' },

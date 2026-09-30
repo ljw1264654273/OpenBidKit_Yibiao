@@ -25,6 +25,7 @@ const {
 const { applyRangeEdits, findTextMatches } = require('../utils/textEdit.cjs');
 const { splitUserTextByContextLimit } = require('../utils/userTextSplitter.cjs');
 const { countReadableWords } = require('../utils/wordCount.cjs');
+const { normalizeChineseMarkdownTypography } = require('../utils/chineseTypography.cjs');
 const { planRemoteKnowledgeQueries } = require('./remoteKnowledgeQueryPlanner.cjs');
 const { MANDATORY_SCHEDULE_RULE_PROMPT } = require('./mandatoryBidContentRules.cjs');
 
@@ -67,11 +68,12 @@ const BODY_OUTLINE_STRUCTURE_PROMPT = `正文层次规则：
    正文内容……
    1. **借阅利用审批**
       正文内容……
-      1. **申请提出：** 借阅人填写申请单。
-      2. **审批权限：** 项目负责人审批。
-3. Markdown 列表语法统一使用“1.”作为结构标记；不要把“一、”“（一）”等最终展示编号写进正文文字。每个新开的子列表必须从“1.”开始，不能沿用父级或前一个列表的“4.”、“5.”等序号。
+      1. **申请提出：**借阅人填写申请单。
+      2. **审批权限：**项目负责人审批。
+3. Markdown 列表语法统一使用“1.”作为结构标记，Markdown 列表标记后的语法空格必须保留；不要把“一、”“（一）”等最终展示编号写进正文文字。每个新开的子列表必须从“1.”开始，不能沿用父级或前一个列表的“4.”、“5.”等序号。
 4. 不要把不同层级都写成顶格列表，也不要把 Markdown 列表标记写进加粗标题文字；预览和 Word 导出会依据模板设置自动显示最终编号。
-5. 同一层级的多个并列分项使用同一层级的有序列表；不属于层次结构的普通段落不要机械编号。`;
+5. 同一层级的多个并列分项使用同一层级的有序列表；不属于层次结构的普通段落不要机械编号。
+6. 加粗引导标题后直接连接中文正文，不添加空格；Word 最终编号与标题文字之间的间距由导出模板统一控制。`;
 
 function isAiQueueScopePausedError(error) {
   return error?.code === AI_QUEUE_SCOPE_PAUSED;
@@ -1043,7 +1045,7 @@ function buildChapterContentMessages({ chapter, projectOverview, bidAnalysisFact
 9. ${tableAllowed ? '表格单元格内如有多项内容，优先使用编号、顿号、分号或短句，不要使用 HTML <br> 标签。' : '如需表达多项参数、职责、流程或措施，请改用分段文字或普通列表，不要用表格模拟。'}
 10. 严禁使用 Markdown 标题语法（#、##、###、####、#####、######），也不要生成与当前章节同级或下级的伪目录标题。
 11. 如需在正文中分层表达，可以使用普通段落、列表、表格或简短加粗引导语，例如 **实施要点：**。
-12. 行内加粗引导标题后面仍有正文时，标题末尾必须使用一个中文冒号，且冒号必须写在加粗标记内；加粗结束标记后不得再写句号、逗号、顿号、分号或冒号，直接空一格接正文。独立成行的加粗引导标题不得带句末标点。
+12. 行内加粗引导标题后面仍有正文时，标题末尾必须使用一个中文冒号，且冒号必须写在加粗标记内；加粗结束标记后不得再写句号、逗号、顿号、分号、冒号或空格，直接连接中文正文。独立成行的加粗引导标题不得带句末标点。
 ${BODY_OUTLINE_STRUCTURE_PROMPT}
 14. 步骤、流程、时间顺序和操作顺序可以使用有序列表；普通段落不机械编号。
 15. 直接返回章节内容，不生成标题，不要任何额外说明。
@@ -2687,9 +2689,9 @@ function normalizeLeafContentForSave(content, chapter) {
   const normalized = stripMarkdownHeadingsFromLeafContent(
     stripRepeatedChapterTitle(normalizeGeneratedMarkdown(content), chapter),
   );
-  return normalizeOrderedListMarkersForSave(
+  return normalizeChineseMarkdownTypography(normalizeOrderedListMarkersForSave(
     normalizeGeneratedLeadInPunctuation(normalizeParallelLeadInNumbering(normalized)),
-  );
+  ));
 }
 
 function normalizeWordAdjustmentResponse(value) {
@@ -2778,7 +2780,7 @@ ${operationRules}
 6. 不改变核心意思，不修改参数、数量、日期、周期和标准，不删除技术路线、职责、流程、风险措施、人员安排、验收要求、售后和服务承诺。
 7. 不新增未提供的品牌、型号、人员、承诺和服务期限。
 8. 不修改图片、Mermaid、代码块、表格结构、列表编号层级和资源路径，不生成 Markdown 标题或伪目录标题。
-9. 行内加粗引导标题必须以一个中文冒号结尾，冒号写在加粗标记内；加粗结束标记后不得再写句号、逗号、顿号、分号或冒号，直接空一格接正文。独立成行的加粗引导标题不得带句末标点。
+9. 行内加粗引导标题必须以一个中文冒号结尾，冒号写在加粗标记内；加粗结束标记后不得再写句号、逗号、顿号、分号、冒号或空格，直接连接中文正文。独立成行的加粗引导标题不得带句末标点。
 ${BODY_OUTLINE_STRUCTURE_PROMPT}
 10. 不把其他目录应承载的内容移动到当前小节。
 

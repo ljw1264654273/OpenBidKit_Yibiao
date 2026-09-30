@@ -80,25 +80,25 @@ function unorderedListStyleToCss(style: ListStyle | string | undefined, listInde
 function orderedListStyleToCss(style: OrderedListStyle | string | undefined) {
   switch (style) {
     case 'decimal-paren':
-      return { counterStyle: 'decimal', prefix: '""', suffix: '"） "' };
+      return { counterStyle: 'decimal', prefix: '""', suffix: '"）"' };
     case 'decimal-full-paren':
-      return { counterStyle: 'decimal', prefix: '"（"', suffix: '"） "' };
+      return { counterStyle: 'decimal', prefix: '"（"', suffix: '"）"' };
     case 'chinese-dot':
-      return { counterStyle: 'cjk-ideographic', prefix: '""', suffix: '"、 "' };
+      return { counterStyle: 'cjk-ideographic', prefix: '""', suffix: '"、"' };
     case 'chinese-paren':
-      return { counterStyle: 'cjk-ideographic', prefix: '"（"', suffix: '"） "' };
+      return { counterStyle: 'cjk-ideographic', prefix: '"（"', suffix: '"）"' };
     case 'circled':
-      return { counterStyle: 'ef-circled', prefix: '""', suffix: '" "' };
+      return { counterStyle: 'ef-circled', prefix: '""', suffix: '""' };
     case 'lower-alpha':
-      return { counterStyle: 'lower-alpha', prefix: '""', suffix: '". "' };
+      return { counterStyle: 'lower-alpha', prefix: '""', suffix: '"."' };
     case 'upper-alpha':
-      return { counterStyle: 'upper-alpha', prefix: '""', suffix: '". "' };
+      return { counterStyle: 'upper-alpha', prefix: '""', suffix: '"."' };
     case 'lower-roman':
-      return { counterStyle: 'lower-roman', prefix: '""', suffix: '". "' };
+      return { counterStyle: 'lower-roman', prefix: '""', suffix: '"."' };
     case 'upper-roman':
-      return { counterStyle: 'upper-roman', prefix: '""', suffix: '". "' };
+      return { counterStyle: 'upper-roman', prefix: '""', suffix: '"."' };
     default:
-      return { counterStyle: 'decimal', prefix: '""', suffix: '". "' };
+      return { counterStyle: 'decimal', prefix: '""', suffix: '"．"' };
   }
 }
 

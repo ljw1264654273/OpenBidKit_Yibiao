@@ -434,7 +434,7 @@ function clearOutlineDataContent(outlineData) {
   return { ...outlineData, outline: clearOutlineItemContent(outlineData.outline) };
 }
 
-const outlineSaveReasons = new Set(['sort', 'edit', 'delete', 'add-root', 'add-child', 'replace']);
+const outlineSaveReasons = new Set(['sort', 'edit', 'delete', 'add-root', 'add-child', 'add-parent', 'replace']);
 
 function normalizeOutlineSaveReason(value) {
   return outlineSaveReasons.has(value) ? value : 'replace';
@@ -557,7 +557,7 @@ function updateScoreCoverageForOutlineSave({ coverageMap, suppliedCoverageMap, r
     return { ...record, node_ids: nodeIds };
   });
 
-  if (reason === 'add-root' || reason === 'add-child') {
+  if (reason === 'add-root' || reason === 'add-child' || reason === 'add-parent') {
     const mappedPreviousIds = new Set(
       [...previousNodes.keys()].map((nodeId) => idMap.get(nodeId) || nodeId),
     );

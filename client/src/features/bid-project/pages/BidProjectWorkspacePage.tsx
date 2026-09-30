@@ -396,6 +396,7 @@ function BidProjectWorkspacePage({ onSectionChange, onProjectOpen }: BidProjectW
             <option value="all">类型：全部</option>
             <option value="technical-plan">技术方案</option>
             <option value="existing-plan-expansion">已有方案扩写</option>
+            <option value="historical-bid-adaptation">历史标书适配</option>
           </select>
         </div>
         <div className="bid-project-list-head"><span>标书</span><span>类型</span><span>状态</span><span>更新时间</span><span>操作</span></div>

@@ -8,6 +8,7 @@ const pageLabels = {
   'bid-projects': '我的标书',
   'existing-plan-expansion': '已有方案扩写',
   'technical-plan-check': '技术方案检查',
+  'historical-bid-adaptation': '历史标书适配',
   'technical-plan/document-analysis': '技术方案 - 上传招标文件',
   'technical-plan/bid-analysis': '技术方案 - 招标文件解析',
   'technical-plan/outline-generation': '技术方案 - 目录生成',

@@ -12,6 +12,7 @@ const statusLabels: Record<BidProject['status'], string> = {
 const typeLabels: Record<BidProject['projectType'], string> = {
   'technical-plan': '技术方案',
   'existing-plan-expansion': '已有方案扩写',
+  'historical-bid-adaptation': '历史标书适配',
 };
 
 interface BidProjectRowProps {

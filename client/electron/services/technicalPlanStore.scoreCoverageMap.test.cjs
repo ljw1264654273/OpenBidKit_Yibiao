@@ -128,7 +128,7 @@ async function runAssertions() {
     assert.equal(map.records[0].user_override, 'removed');
 
     const addedChildSaved = store.saveOutline({
-      outlineData: outline([leaf('1.1', '用户补充内容')]),
+      outlineData: outline([leaf('1.1', '建设目标。'), leaf('1.2', '建设目标实施要求：'), leaf('1.3', '用户补充内容')]),
       reason: 'add-child',
       affectedNodeIds: ['1'],
       idMap: { '1': '1' },
@@ -138,6 +138,35 @@ async function runAssertions() {
     assert.equal(userRecord.source_kind, 'user-supplement');
     assert.deepEqual(userRecord.node_ids, ['1.1']);
     assert.equal(userRecord.user_override, 'added');
+    store.saveOutline({
+      outlineData: outline([leaf('1.1', '建设目标'), leaf('1.2', '建设目标实施要求')]),
+      reason: 'replace',
+      scoreCoverageMap: { version: 2, document_hash: 'document-hash', coverage_mode: 'full', records: [coverageRecord()] },
+    });
+
+    const parentAddedSaved = store.saveOutline({
+      outlineData: outline([{
+        id: '1.1',
+        title: '新父目录',
+        description: '用户补充父目录',
+        children: [leaf('1.1.1', '用户补充内容')],
+      }, leaf('1.2', '建设目标实施要求：'), leaf('1.3', '用户补充内容')]),
+      reason: 'add-parent',
+      idMap: {
+        '1': '1',
+        '__outline_parent__': '1.1',
+        '1.1': '1.1.1',
+        '1.2': '1.2',
+        '1.3': '1.3',
+      },
+      affectedNodeIds: [],
+    });
+    map = parentAddedSaved.outlineGenerationTask.stats.score_coverage_map;
+    const existingRecord = map.records.find((record) => record.source_id === 'R1-C1-P1');
+    const parentUserRecord = map.records.find((record) => record.source_id === 'U1');
+    assert.deepEqual(existingRecord.node_ids, ['1.1.1', '1.2']);
+    assert.deepEqual(parentUserRecord.node_ids, ['1.1']);
+    assert.equal(parentUserRecord.user_override, 'added');
 
     const replacementMap = {
       version: 1,

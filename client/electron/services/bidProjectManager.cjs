@@ -54,7 +54,7 @@ function createBidProjectManager({
   }
 
   function syncProjectWorkflowKind(project, store) {
-    const workflowKind = project.projectType === 'existing-plan-expansion'
+    const workflowKind = ['existing-plan-expansion', 'historical-bid-adaptation'].includes(project.projectType)
       ? 'existing-plan-expansion'
       : 'technical-plan';
     const state = store.loadTechnicalPlan?.();
