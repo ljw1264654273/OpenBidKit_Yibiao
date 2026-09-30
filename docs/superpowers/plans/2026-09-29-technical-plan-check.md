@@ -8,6 +8,47 @@
 
 **Tech Stack:** Electron 41、CommonJS Main/preload、React 19 + TypeScript Renderer、better-sqlite3、worker_threads、adm-zip、cheerio、docx、Radix、全局 CSS。
 
+## 实施进度
+
+- [x] Task 0：隔离环境与基线验证。
+- [x] Task 1：SQLite 状态与 Store，规格与质量审查通过。
+- [x] Task 2：文档适配器与内容规则，规格与质量审查通过。
+- [x] Task 3：OOXML 与 worker，英文/章节修复后双审通过；独立联合测试 49/49、语法与 build 通过。
+- [x] Task 4：DOCX 报告与安全落盘，双审通过；独立 23/23 测试与语法检查通过。
+- [x] Task 5：文件服务与十三阶段后台任务，取消与错误传播修复后双审通过；独立 45/45、build 与 native smoke 通过。
+- [x] Task 6：IPC、preload 与类型闭环，双审通过；独立 IPC 测试 15/15、语法与 build 通过。
+- [x] Task 7：主菜单与检查页面，禁用提示修复后双审通过；16/16 页面测试与真实 Electron 离页恢复、重复运行、窄窗口验证通过。
+- [x] Task 8：Golden fixture 与端到端验证，规格与质量审查通过；最终 166/166 定向测试、build、native smoke 和真实 Electron 流程通过。
+
+## 最终验收记录（2026-09-30）
+
+### 工作区与交付范围
+
+- 实现仅保留在 `C:\Users\admin\.codex\worktrees\technical-plan-check\OpenBidKit_Yibiao`，未合并、推送或打包；原工作区已有改动未修改。
+- “技术方案检查”一级菜单、四文件选择、另存为、十三阶段后台任务、进度日志、SQLite 状态恢复和 DOCX 检查记录已完成。
+- 依赖清单与基线 `2184ce6` 无差异；未提交外部原文、样例 DOCX、临时报告或 QA 脚本，未新增 EXE/Python/OCR 依赖。
+- Analytics 仅增加 `technical-plan-check` 中文路由名，原采集、展示和聚合能力未删除或弱化。
+
+### 自动验证
+
+- 20 个定向测试文件共 166/166 通过，失败、取消、跳过均为 0；包含本功能、Renderer、真实 worker、文件服务和受影响的 SQLite migration。
+- `npm run build` 退出 0，仅有既有 chunk 体积警告；Main/preload/IPC、格式检查及 Analytics 路由文件语法检查通过。
+- `npm run smoke:electron-native` 通过：Electron 41.10.2 / Node 24.18.0 / ABI 145，真实 SQLite 查询成功。
+- `git diff --check 2184ce6` 通过。
+- Golden 使用 `BID_CHECK_FIXTURE_DIR=D:\2026AI\project\bid-Check\测试文件`，走真实 parser、adapter、worker、十三阶段 runner、SQLite checkpoint/reopen 与 DOCX writer。四份外部文件读取成功，726 条发现及上下文完整比对，结果为 issue 165 / review 561 / info 0，需求 17 条、评分项 7 条。
+- Golden findings SHA256：`c0c0ce68baa1ca39198c3ace7889bde7e6e29b183e49c9bfbf55e8148acdf307`；格式检查 raw 6547 / 返回 207 / 截断 6340，每条规则上限 30。缺环境变量时明确 FAIL，不 skip。
+- 原检查记录 SHA256 保持 `143d8c7308578ba63a573384c6e2f61db1f031f166af0bf658468be1e575e9b7`，未覆盖原报告。
+
+### Electron 实测与审查
+
+- 隔离 userData 的真实 Electron 已验证四文件输入、另存为、运行中禁用、离页继续与返回恢复、报告打开、重复检查，以及桌面/窄窗口/420px 窗口内部滚动且无横向溢出。系统选择器和打开文件调用由 QA stub 接管，解析、IPC、后台任务、数据库和报告生成走真实业务链路。
+- 运行到第五阶段退出并重启后任务转 error，保留前五阶段日志且旧报告未替换。
+- 真实文字层 PDF 本地解析成功；无文字层和缺 MinerU Token 均有明确提示；配置 MinerU 后文字 PDF 仍 local-first，PDF 格式跳过记录为 info，报告成功。
+- 真实 Word COM 生成的 `.doc` 经本地转换、worker 与报告链路成功；临时 DOCX 在格式检查回调内存在，结束后清理。
+- 最终整体审查发现的初始化完成事件遗漏已按 TDD 修复：保留 `load → subscribe → active`，订阅后补读快照，防止旧 active 回滚新事件，重放刷新期间事件，并保护文件选择与卸载。新增五项回归先确认旧实现失败；修复后页面测试 21/21、控制器定向复审 11/11，无新增审查问题。
+- 修复后再次运行完整 166 项测试、build/native/语法检查和真实 Electron UI 流程，均通过。规格与质量审查均已完成。
+- 未实测原生 WPS 格式、真实 MinerU 外网 OCR、macOS 转换和平台打包；DOC/WPS 编排已有定向 mock 测试覆盖，不宣称全平台实测。
+
 ---
 
 ## 文件结构
