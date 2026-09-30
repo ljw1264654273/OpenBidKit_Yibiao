@@ -12,8 +12,8 @@
 
 - AI 调整前为每个现有节点分配稳定的 `origin_id`，并记录 `origin_id -> 原节点 ID`。
 - AI 调整结果继续携带 `origin_id`，据此生成旧 ID 到新 ID 的 `idMap`。
-- 比较调整前后的节点语义和父子位置，生成 `affectedNodeIds`。
-- 使用现有 `saveOutline({ reason, idMap, affectedNodeIds })` 协议保存，不再把 AI 调整统一当作 `replace`。
+- 比较调整前后的节点语义和父子位置，生成包含受影响分支闭包的 `affectedNodeIds`。
+- 根据差异把 AI 调整分类为纯排序 `sort` 或混合/语义变化 `edit`，不再统一当作 `replace`。
 - Store 对正文状态、正文计划和图片计划使用同一组映射及受影响节点规则。
 
 不采用“只保留图片文件”方案，因为审核项与章节关系会失真；不采用“继续全量清空但提示用户”方案，因为没有解决数据丢失问题。
@@ -29,50 +29,74 @@
 - 叶子节点正文模式及正文模式说明
 - 是否为叶子节点
 
-按以下规则生成保存请求：
+在接受调整结果前先校验节点身份：
+
+- working Schema 要求每个节点都必须包含 `origin_id`。
+- 所有 `origin_id` 必须唯一。
+- 原节点只能使用输入时分配的 `existing-*` 身份；未知的 `existing-*`、缺失身份和重复身份均拒绝保存。
+- 新节点只能使用任务内唯一的 `new-<正整数>` 身份，且不能与原节点身份冲突。
+
+校验通过后按以下规则生成保存请求：
 
 1. 原节点仍存在：加入 `idMap[旧 ID] = 新 ID`。
-2. 节点标题、说明、属性、正文模式、正文模式说明、父节点或叶子/父节点形态变化：旧节点 ID加入 `affectedNodeIds`。
-3. 原节点被删除：旧节点 ID加入 `affectedNodeIds`。
+2. 节点标题、说明、属性、正文模式、正文模式说明、父节点或叶子/父节点形态变化：旧节点 ID及其旧目录下的全部后代节点加入 `affectedNodeIds`，保证父级语义或层级变化会使整个受影响分支失效。
+3. 原节点被删除：该节点及其旧目录下的全部后代节点加入 `affectedNodeIds`。
 4. 新增节点没有旧 ID，不加入 `idMap`；其内容自然为空。
 5. 只有编号或同级顺序变化、其他语义不变：不加入 `affectedNodeIds`，正文和图片随 `idMap` 迁移。
 
-AI 调整使用 `reason: 'edit'`，由 `idMap` 和 `affectedNodeIds` 表达任意组合的新增、删除、移动和编辑。全量重新生成目录仍使用 `replace`，保持原有清空行为。
+如果所有原节点均存在、没有新增节点、`idMap` 为双射、`affectedNodeIds` 为空，AI 调整使用 `reason: 'sort'`，继续保留正文任务、runtime 和 Mermaid 缓存。其他新增、删除、移动或语义变化统一使用 `reason: 'edit'`，由 `idMap` 和 `affectedNodeIds` 表达混合变化。全量重新生成目录仍使用 `replace`，保持原有清空行为。
+
+AI 调整任务传入的评分覆盖映射已完成来源继承和最终校验，因此当 `saveOutline()` 显式收到 `scoreCoverageMap` 时，该映射对 `sort`、`edit` 和 `replace` 都是权威结果；没有显式映射的手工目录操作继续使用现有增删改推导规则。
 
 ## 图片审核计划局部失效
 
 新增 Store 内部的图片计划重映射逻辑，运行在目录正文和状态重建完成之后：
 
-1. 读取目录调整前的图片计划和资源 URL。
+1. 读取目录调整前的图片计划、图片资源 URL和 HTML 源文件路径。
 2. 将每个图片项的 `section_ids` 通过 `idMap` 映射到新目录 ID。
-3. 仅当图片项关联的所有原章节都仍存在、且均不在 `affectedNodeIds` 中时保留该图片项。
-4. 只要图片项关联任一已删除或受影响章节，就删除整个图片项，避免跨章节图片与正文语义错配。
-5. 保留项完整保留审核状态、原图、候选图、Mermaid 代码、HTML 源文件和排序信息。
-6. 删除项的资源走现有延迟清理逻辑；如果资源仍被保留正文引用，则不删除文件。
-7. 如果没有任何图片项被保留，删除图片计划主记录并向 Renderer 返回 `contentIllustrationPlan: undefined`。
+3. 仅当图片项关联的所有原章节都仍存在、且均不在 `affectedNodeIds` 中时，才进入结构校验。
+4. 单章节图片要求映射后仍指向同一节点身份且 placement 为 `after`。
+5. 多章节 HTML 图片要求映射后仍属于同一直接父目录、按当前目录顺序连续，且映射后的首尾目标节点身份与原图片块存储目标一致。顺序反转、插入其他章节、跨父目录或目标变化均使图片项失效，不自动搬移已确认图片块。
+6. 任一章节被删除或受影响、结构校验失败时，删除整个图片项，并按图片项 ID 从原存储目标正文中移除 `yibiao-illustration` 标记块；块不存在时允许继续，避免审核项消失但正文残留孤儿图片。
+7. 保留项完整保留审核状态、原图、候选图、Mermaid 代码、HTML 源文件和排序信息。
+8. 删除项的图片 URL走现有延迟清理逻辑；如果资源仍被其他计划项或正文引用，则不删除文件。
+9. 删除项的 current/original/redraw HTML 源文件在确认没有其他保留项引用后，从 `technical-plan/illustrations` 受管目录内安全删除；目录外路径不处理。
+10. 如果没有任何图片项被保留，删除图片计划主记录并向 Renderer 返回 `contentIllustrationPlan: undefined`。
 
-纯排序继续使用现有 `saveSortedOutline()` 路径，行为不变。
+纯排序继续使用 `saveSortedOutline()` 保存节点、任务和 runtime，但图片项仍执行上述结构校验；普通单章节图片保持原有完整保留行为，结构已不再成立的多章节图片按规则失效。
 
 ## Renderer 状态同步
 
-目录保存和目录 AI 调整完成后，Main 返回局部处理后的 `contentIllustrationPlan`：
+目录保存完成后，Main 始终返回持久层处理后的三个字段，并保证字段存在语义明确：
+
+- `contentGenerationSections`：实际保存后的完整映射，无数据时返回 `{}`。
+- `contentGenerationPlans`：实际保存后的完整映射，无数据时返回 `{}`。
+- `contentIllustrationPlan`：有保留项时返回最新计划，无保留项时显式返回 `undefined`。
+
+图片计划的返回行为为：
 
 - 有保留项：返回最新计划，图片审核入口继续显示。
 - 无保留项：显式返回 `undefined`，图片审核入口消失。
 
-目录 AI 调整任务的 checkpoint 不再固定写死 `contentGenerationSections: {}`、`contentGenerationPlans: {}` 和 `contentIllustrationPlan: undefined`，而是使用 Store 保存结果返回的真实状态，避免 Renderer 再次覆盖已保留数据。
+目录 AI 调整任务的 checkpoint 不再固定写死空映射和 `contentIllustrationPlan: undefined`，而是使用 Store 保存结果返回的真实状态。直接手工保存和后台任务事件都因此使用同一份权威结果，避免 Renderer 保留旧状态或再次覆盖已保留数据。
 
 ## 测试
 
 采用测试先行，覆盖以下场景：
 
-1. AI 只修改一个节点时，保存请求使用局部 `idMap/affectedNodeIds`，未变化节点不受影响。
-2. AI 仅调整顺序导致编号变化时，正文和图片审核项映射到新 ID并保留。
-3. 手工或 AI 编辑一个目录节点时，仅删除关联该节点的图片项，其他图片审核项保留。
-4. 删除节点时，删除关联图片项，保留其他节点正文和图片项。
-5. 跨多个章节的图片只要任一章节受影响，就整体失效。
-6. 被保留图片的审核状态和重绘候选字段在保存及重启后不变。
-7. 全量 `replace` 和正文生成配置变化仍按原规则清空图片计划。
+1. AI 只修改一个叶子节点时，保存请求使用局部 `idMap/affectedNodeIds`，未变化节点不受影响。
+2. AI 重命名父目录或移动子树时，受影响分支的全部后代正文和图片项失效。
+3. AI 仅调整顺序导致编号变化时，使用 `sort`，正文、任务、runtime 和单章节图片审核项映射到新 ID并保留。
+4. 缺失、重复、伪造或冲突的 `origin_id` 在保存前被拒绝。
+5. AI 提供的 full 评分覆盖映射在 `edit` 和 `sort` 下仍作为权威结果保存，覆盖新增、删除、改名及重新编号场景。
+6. 手工或 AI 编辑、删除一个目录分支时，仅删除关联该分支的图片项，其他图片审核项保留。
+7. 跨多个章节的图片只要任一章节受影响，就整体失效，并从未受影响的存储目标正文移除孤儿图片块；分别覆盖 `before` 和 `after`。
+8. 多章节图片映射后变为跨父目录、不连续、逆序或存储目标变化时失效；仍连续且目标不变时保留。
+9. 被保留图片的审核状态、原图和重绘候选字段在保存及重启后不变。
+10. 删除项的无引用图片和 HTML 源文件被清理，保留项资源不受影响。
+11. `saveOutline()` 直接返回真实 sections/plans/illustration plan；目录调整 checkpoint 和 Renderer 合并后状态一致。
+12. 所有图片项被删除时，计划主记录删除并显式返回 `contentIllustrationPlan: undefined`。
+13. 全量 `replace` 和正文生成配置变化仍按原规则清空图片计划。
 
 最低验证：相关 `node --test` 定向测试、Electron native Store 测试、`node --check` 修改的 `.cjs` 文件，以及 `cd client; npm run build`。
 
