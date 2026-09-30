@@ -30,6 +30,11 @@ const { GLOBAL_FACTS_AGENT_TASK_KEY } = require('./globalFactsAgentV2Config.cjs'
 const { normalizeOutlineHeadingTitles } = require('./mandatoryBidContentRules.cjs');
 const { getProjectAgentTaskKey } = require('./agentTaskKeys.cjs');
 const { buildIllustrationBlock, replaceIllustrationBlock } = require('./contentIllustrationReview.cjs');
+const {
+  reconcileIllustrationItems,
+  removeIllustrationBlock,
+  getIllustrationTargetNodeId,
+} = require('./technicalPlanIllustrationReconciliation.cjs');
 
 const tenderMarkdownRelativePath = path.join('technical-plan', 'tender.md').replace(/\\/g, '/');
 const tenderOriginalMarkdownRelativePath = path.join('technical-plan', 'tender-original.md').replace(/\\/g, '/');
@@ -525,7 +530,8 @@ function nextUserSupplementId(records) {
 }
 
 function updateScoreCoverageForOutlineSave({ coverageMap, suppliedCoverageMap, reason, idMap, affectedIds, previousOutline, nextOutline }) {
-  if (reason === 'replace') return suppliedCoverageMap || undefined;
+  if (suppliedCoverageMap !== undefined) return suppliedCoverageMap;
+  if (reason === 'replace') return undefined;
   if (!coverageMap || !Array.isArray(coverageMap.records)) return coverageMap;
 
   const previousNodes = collectOutlineNodeMap(previousOutline?.outline || []);
@@ -2642,7 +2648,6 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
   // 目录排序时使用临时编号同步主键和外键，避免删除重建正文状态与计划。
   function saveSortedOutline(outlineData, idMap) {
     const rows = flattenOutlineItems(outlineData?.outline || []);
-    const rowOrder = new Map(rows.map((row, index) => [row.node_id, index]));
     const changedIds = [...idMap.entries()].filter(([oldId, newId]) => oldId !== newId);
     const temporaryIds = new Map(changedIds.map(([oldId], index) => [oldId, `__outline_sort_${crypto.randomUUID()}_${index}`]));
     db.pragma('defer_foreign_keys = ON');
@@ -2679,14 +2684,6 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       outline_project_name: outlineData?.project_name || null,
       outline_project_overview: outlineData?.project_overview || null,
     });
-
-    const updateIllustration = db.prepare('UPDATE technical_plan_illustration_items SET section_ids_json = ?, updated_at = ? WHERE item_id = ?');
-    for (const item of db.prepare('SELECT item_id, section_ids_json FROM technical_plan_illustration_items').all()) {
-      const sectionIds = safeJsonParse(item.section_ids_json, [])
-        .map((sectionId) => idMap.get(String(sectionId)) || String(sectionId))
-        .sort((left, right) => (rowOrder.get(left) ?? Number.MAX_SAFE_INTEGER) - (rowOrder.get(right) ?? Number.MAX_SAFE_INTEGER));
-      updateIllustration.run(JSON.stringify(sectionIds), timestamp, item.item_id);
-    }
 
     const meta = readMetaRow();
     if (meta.content_generation_runtime_json) {
@@ -3021,10 +3018,23 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     const invalidatesContentTask = reason !== 'sort';
 
     let savedOutlineData = outlineData;
-    let savedIllustrationPlan;
+    const changedNodeIds = new Set();
+    const sourcePathsToClean = new Set();
     const transaction = db.transaction(() => {
       assertOutlineMutationAllowed();
       const previousOutline = loadOutlineData(readMetaRow());
+      const previousIllustrationPlan = loadContentIllustrationPlan();
+      if (!clearAll && reason !== 'sort') {
+        const visit = (items, inherited = false) => {
+          for (const item of items || []) {
+            const nodeId = String(item.id);
+            const affected = inherited || affectedIds.has(nodeId);
+            if (affected) affectedIds.add(nodeId);
+            visit(item.children, affected);
+          }
+        };
+        visit(previousOutline?.outline);
+      }
       const outlineTaskRow = db.prepare("SELECT stats_json FROM technical_plan_tasks WHERE type = 'outline-generation'").get();
       const outlineTaskStats = safeJsonParse(outlineTaskRow?.stats_json, {});
       const nextScoreCoverageMap = updateScoreCoverageForOutlineSave({
@@ -3046,49 +3056,78 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       };
       if (reason === 'sort') {
         saveSortedOutline(outlineData, idMap);
-        saveScoreCoverageMap();
-        savedIllustrationPlan = loadContentIllustrationPlan();
-        return;
-      }
-      const snapshot = loadOutlinePersistenceSnapshot();
-      const outlineToSave = buildOutlineWithPersistedContent(outlineData, { snapshot, reverseMap, affectedIds, clearAll });
-      savedOutlineData = outlineToSave;
-      saveOutlineData(outlineToSave);
-      if (!outlineToSave?.outline?.length) {
-        updateMeta({ outline_word_control_snapshot_json: null, outline_minimum_depth_snapshot: null });
-      }
-      const rows = flattenOutlineItems(outlineToSave?.outline || []);
-      const nextIds = new Set(rows.map((row) => row.node_id));
-      restoreMappedContentRows({ snapshot, idMap, affectedIds, nextIds, clearAll });
-      if (invalidatesContentTask) {
+      } else {
+        const snapshot = loadOutlinePersistenceSnapshot();
+        const outlineToSave = buildOutlineWithPersistedContent(outlineData, { snapshot, reverseMap, affectedIds, clearAll });
+        saveOutlineData(outlineToSave);
+        if (!outlineToSave?.outline?.length) {
+          updateMeta({ outline_word_control_snapshot_json: null, outline_minimum_depth_snapshot: null });
+        }
+        const rows = flattenOutlineItems(outlineToSave?.outline || []);
+        const nextIds = new Set(rows.map((row) => row.node_id));
+        restoreMappedContentRows({ snapshot, idMap, affectedIds, nextIds, clearAll });
         db.prepare("DELETE FROM technical_plan_tasks WHERE type = 'content-generation'").run();
         clearTechnicalPlanMermaidCache();
         updateMeta({ content_generation_runtime_json: null });
       }
-      clearContentIllustrationPlan();
+      if (clearAll) {
+        clearContentIllustrationPlan();
+      } else if (previousIllustrationPlan?.items?.length) {
+        const { keptItems, droppedItems } = reconcileIllustrationItems({
+          items: previousIllustrationPlan.items, previousOutline, nextOutline: outlineData,
+          idMap, affectedIds,
+        });
+        replaceContentIllustrationPlan(keptItems.length
+          ? { ...previousIllustrationPlan, items: keptItems } : undefined);
+        const updateContent = db.prepare('UPDATE technical_plan_outline_nodes SET content = ?, updated_at = ? WHERE node_id = ?');
+        for (const item of droppedItems) {
+          const oldTarget = getIllustrationTargetNodeId(item);
+          const newTarget = idMap.get(oldTarget) || oldTarget;
+          const row = db.prepare('SELECT content FROM technical_plan_outline_nodes WHERE node_id = ?').get(newTarget);
+          if (row?.content) {
+            const cleaned = removeIllustrationBlock(row.content, item.item_id);
+            if (cleaned !== row.content) {
+              updateContent.run(cleaned, now(), newTarget);
+              changedNodeIds.add(newTarget);
+            }
+          }
+          for (const source of ['source_path', 'original_source_path', 'redraw_source_path']) {
+            if (item.generation?.[source]) sourcePathsToClean.add(item.generation[source]);
+          }
+        }
+      }
+      if (clearAll) {
+        for (const item of previousIllustrationPlan?.items || []) {
+          for (const source of ['source_path', 'original_source_path', 'redraw_source_path']) {
+            if (item.generation?.[source]) sourcePathsToClean.add(item.generation[source]);
+          }
+        }
+      }
       saveScoreCoverageMap();
+      savedOutlineData = loadOutlineData(readMetaRow());
     });
     transaction();
-    if (invalidatesContentTask && typeof onContentChanged === 'function') {
-      onContentChanged({ origin: 'manual' });
+    for (const source of sourcePathsToClean) {
+      const filePath = path.resolve(technicalPlanDir, source);
+      const root = path.resolve(illustrationsDir);
+      if (!filePath.startsWith(`${root}${path.sep}`)) continue;
+      const retained = db.prepare(`SELECT 1 FROM technical_plan_illustration_items
+        WHERE generation_source_path = ? OR generation_original_source_path = ? OR generation_redraw_source_path = ? LIMIT 1`)
+        .get(source, source, source);
+      if (!retained) removeWorkspacePathSync(filePath);
+    }
+    if ((invalidatesContentTask || changedNodeIds.size) && typeof onContentChanged === 'function') {
+      onContentChanged({ origin: 'manual', nodeIds: [...changedNodeIds] });
     }
     const outlineGenerationTask = loadTask('outline-generation');
-    const sortedContentRuntime = reason === 'sort'
-      ? safeJsonParse(readMetaRow().content_generation_runtime_json, undefined)
-      : undefined;
-    const sortedContentTask = reason === 'sort' ? loadTask('content-generation') : undefined;
     return {
       outlineData: savedOutlineData,
       outlineGenerationTask,
-      contentIllustrationPlan: reason === 'sort' ? savedIllustrationPlan : undefined,
-      ...(reason === 'sort' ? {
-        contentGenerationTask: sortedContentTask,
-        contentGenerationRuntime: sortedContentRuntime,
-      } : {}),
-      ...(invalidatesContentTask ? {
-        contentGenerationTask: undefined,
-        contentGenerationRuntime: undefined,
-      } : {}),
+      contentGenerationSections: loadContentSections(savedOutlineData),
+      contentGenerationPlans: loadContentPlans(),
+      contentIllustrationPlan: loadContentIllustrationPlan(),
+      contentGenerationTask: loadTask('content-generation'),
+      contentGenerationRuntime: safeJsonParse(readMetaRow().content_generation_runtime_json, undefined),
     };
   }
 

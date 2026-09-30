@@ -147,6 +147,16 @@ async function runAssertions() {
     store.saveOutline({ outlineData: outline(), reason: 'replace', scoreCoverageMap: replacementMap });
     map = store.loadTechnicalPlan().outlineGenerationTask.stats.score_coverage_map;
     assert.deepEqual(map, replacementMap);
+
+    const explicitSortMap = { version: 1, coverage_mode: 'full', records: [coverageRecord({ node_ids: ['1'] })] };
+    const explicitSorted = store.saveOutline({ outlineData: outline(), reason: 'sort',
+      idMap: { '1': '1' }, scoreCoverageMap: explicitSortMap });
+    assert.deepEqual(explicitSorted.outlineGenerationTask.stats.score_coverage_map, explicitSortMap);
+
+    const explicitEditMap = { version: 1, coverage_mode: 'full', records: [coverageRecord({ node_ids: ['1.1'] })] };
+    const explicitEdited = store.saveOutline({ outlineData: outline([leaf('1.1', '新增')]), reason: 'edit',
+      affectedNodeIds: ['1'], scoreCoverageMap: explicitEditMap });
+    assert.deepEqual(explicitEdited.outlineGenerationTask.stats.score_coverage_map, explicitEditMap);
   } finally {
     database?.close();
     fs.rmSync(userDataPath, { recursive: true, force: true });
