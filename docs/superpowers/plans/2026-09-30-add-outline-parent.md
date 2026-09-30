@@ -141,11 +141,12 @@ export type SaveOutlineReason = 'sort' | 'edit' | 'delete' | 'add-root' | 'add-c
 
 ```ts
 const newParentTemporaryId = '__outline_parent__';
-const wrappedOutline = insertOutlineParent(outlineData.outline, selectedItem.id, {
+const newParent = {
   id: newParentTemporaryId,
   title: '新目录项',
   description: '请编辑描述',
-});
+};
+const wrappedOutline = insertOutlineParent(outlineData.outline, selectedItem.id, newParent);
 if (!wrappedOutline) throw new Error('当前目录项不存在，请刷新后重试');
 
 const renumbered = await saveOutlineChange(wrappedOutline, 'add-parent');
