@@ -131,7 +131,9 @@ function TechnicalPlanCheckPage() {
           { id: 'start', label: pendingAction === '启动检查' ? '正在启动' : '开始检查', icon: <ToolbarArrowRightIcon />, variant: 'primary', disabled: Boolean(startDisabledReason), tooltip: startDisabledReason || '开始检查', onClick: () => void startCheck() },
           { id: 'open-report', label: '打开检查记录', icon: <ToolbarDocumentIcon />, disabled: Boolean(openReportDisabledReason), tooltip: openReportDisabledReason || '打开检查记录', onClick: () => void openReport() },
         ] }]} />
-        {startDisabledReason ? <p className="technical-plan-check-action-reason" role="status">{startDisabledReason}</p> : null}
+        {[...new Set([startDisabledReason, openReportDisabledReason].filter(Boolean))].map(reason => (
+          <p key={reason} className="technical-plan-check-action-reason" role="status">{reason}</p>
+        ))}
       </div>
       <section className="technical-plan-check-progress" aria-labelledby="technical-plan-check-progress-title">
         <div className="technical-plan-check-progress-heading">
