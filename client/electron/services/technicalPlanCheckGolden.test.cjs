@@ -12,7 +12,7 @@ const fixtureNames = {
   scoring: '主观分评分标准.docx',
   proposal: '投标技术方案.V1.0.docx',
 };
-const expected = require('./fixtures/technicalPlanCheckGolden.expected.json');
+const expected = require('./fixtures/technical-plan-check/expected.json');
 
 function sha256(value) {
   return createHash('sha256').update(value).digest('hex');
