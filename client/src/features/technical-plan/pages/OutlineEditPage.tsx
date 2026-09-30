@@ -18,6 +18,8 @@ import TenderSourcePanel from '../components/TenderSourcePanel';
 import type { TenderSourcePanelProps } from '../components/TenderSourcePanel';
 import { formatKnowledgeReferenceSummary, isRemoteScopeStale } from '../remoteKnowledgeSelection';
 import { canAddOutlineChild } from '../services/outlineDepth';
+import { deleteOutlineOnly } from '../services/outlineDelete';
+import { canAddOutlineParent, insertOutlineParent } from '../services/outlineParent';
 import { buildOutlineAiChildrenMessages, normalizeGeneratedChildren } from '../services/outlineAiChildren';
 import { formatOutlineMinimumDepth } from '../services/outlineMinimumDepth';
 import { collectOutlineSourceRecords } from '../services/outlineSourceMatcher';
@@ -1346,7 +1348,7 @@ function OutlineEditPage({
     }
   };
 
-  const saveOutlineChange = async (outline: OutlineItem[], reason: SaveOutlineRequest['reason'], affectedNodeIds: string[] = []) => {
+  const saveOutlineChange = async (outline: OutlineItem[], reason: SaveOutlineRequest['reason'], affectedNodeIds: string[] = []): Promise<RenumberResult | undefined> => {
     if (!outlineData) {
       return;
     }
@@ -1365,6 +1367,7 @@ function OutlineEditPage({
       idMap: renumbered.idMap,
       affectedNodeIds,
     });
+    return renumbered;
   };
 
   const startEditing = (item: OutlineItem) => {
@@ -1462,6 +1465,49 @@ function OutlineEditPage({
     }
   };
 
+  const addParentItem = async () => {
+    if (!outlineData || !selectedItem || sorting || outlineMutationLocked) {
+      return;
+    }
+    if (!canAddOutlineParent(selectedItem)) {
+      showToast('目录最多支持七级，不能继续添加父目录', 'info');
+      return;
+    }
+
+    const newParentTemporaryId = '__outline_parent__';
+    const newParent: Omit<OutlineItem, 'children'> = {
+      id: newParentTemporaryId,
+      title: '新目录项',
+      description: '请编辑描述',
+    };
+    const wrappedOutline = insertOutlineParent(outlineData.outline, selectedItem.id, newParent);
+    if (!wrappedOutline) {
+      showToast('当前目录项不存在，请刷新后重试', 'error');
+      return;
+    }
+
+    try {
+      const renumbered = await saveOutlineChange(wrappedOutline, 'add-parent');
+      if (!renumbered) {
+        throw new Error('目录数据尚未就绪，请刷新后重试');
+      }
+      const newParentId = renumbered.idMap[newParentTemporaryId];
+      if (!newParentId) {
+        throw new Error('新父目录保存失败，请刷新后重试');
+      }
+      setExpandedItems((prev) => new Set(prev).add(newParentId));
+      setSelectedItemId(newParentId);
+      setEditingItemId(newParentId);
+      setEditTitle(newParent.title);
+      setEditDescription(newParent.description);
+      setEditContentMode('ai-generate');
+      setEditContentModeNote('');
+      showToast('父目录已添加', 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '添加父目录失败', 'error');
+    }
+  };
+
   const addAiChildren = async () => {
     if (!outlineData || !selectedItem || !selectedItemPath || outlineMutationLocked || sorting || aiChildrenBusy) return;
     const requirement = aiChildrenRequirement.trim();
@@ -1529,6 +1575,36 @@ function OutlineEditPage({
       showToast('目录项已删除', 'success');
     } catch (error) {
       showToast(error instanceof Error ? error.message : '删除目录项失败', 'error');
+    }
+  };
+
+  const removeItemOnly = async (itemId: string) => {
+    if (!outlineData || sorting || outlineMutationLocked) {
+      return;
+    }
+    try {
+      const removedItem = findOutlineItem(outlineData.outline, itemId);
+      const promotedItemIds = removedItem?.children?.map((item) => item.id) || [];
+      const nextOutline = deleteOutlineOnly(outlineData.outline, itemId);
+      if (!nextOutline) {
+        showToast('当前目录项不存在，请刷新后重试', 'error');
+        return;
+      }
+      if (!nextOutline.length) {
+        showToast('至少保留一个目录项', 'info');
+        return;
+      }
+      // The deleted node disappears from the next tree; an empty affected set
+      // preserves content and generation state for children promoted upward.
+      const renumbered = await saveOutlineChange(nextOutline, 'delete', []);
+      if (!renumbered) {
+        throw new Error('目录数据尚未就绪，请刷新后重试');
+      }
+      const promotedId = promotedItemIds.map((id) => renumbered.idMap[id]).find(Boolean);
+      setSelectedItemId(promotedId || renumbered.outline[0]?.id || null);
+      showToast(promotedId ? '当前目录已删除，子目录已提升' : '当前目录已删除', 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '删除当前目录失败', 'error');
     }
   };
 
@@ -2350,9 +2426,11 @@ function OutlineEditPage({
                     <div className="outline-detail-actions">
                       <button type="button" className="primary-action" onClick={() => startEditing(selectedItem)} disabled={outlineMutationLocked || sorting}>编辑</button>
                       <button type="button" className="secondary-action" onClick={() => { void addChildItem(selectedItem.id); }} disabled={outlineMutationLocked || sorting || !canAddOutlineChild(selectedItem.id)}>添加子目录</button>
+                      <button type="button" className="secondary-action" onClick={() => { void addParentItem(); }} disabled={outlineMutationLocked || sorting || !canAddOutlineParent(selectedItem)}>添加父目录</button>
                       <button type="button" className="secondary-action outline-ai-children-action" onClick={() => setAiChildrenOpen((prev) => !prev)} disabled={outlineMutationLocked || sorting || !canAddOutlineChild(selectedItem.id)}>
                         {aiChildrenOpen ? '收起 AI 添加' : 'AI 添加子目录'}
                       </button>
+                      <button type="button" className="danger-action" onClick={() => { void removeItemOnly(selectedItem.id); }} disabled={outlineMutationLocked || sorting}>仅删除当前目录</button>
                       <button type="button" className="danger-action" onClick={() => { void removeItem(selectedItem.id); }} disabled={outlineMutationLocked || sorting}>删除</button>
                     </div>
                     {aiChildrenOpen && (

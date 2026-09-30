@@ -795,6 +795,29 @@ test('目录详情提供 AI 添加子目录并直接使用 add-child 持久化',
   assert.match(css, /\.outline-workspace-shell \.outline-detail-actions button\s*\{[^}]*min-height:\s*30px;[^}]*padding:\s*6px 10px;[^}]*font-size:\s*12px;/s);
 });
 
+test('目录详情可原位添加父目录并使用 add-parent 持久化', () => {
+  const source = readFileSync(new URL('../pages/OutlineEditPage.tsx', import.meta.url), 'utf8');
+  assert.match(source, /const addParentItem = async/);
+  assert.match(source, /insertOutlineParent/);
+  assert.match(source, /'add-parent'/);
+  assert.match(source, />添加父目录<\/button>/);
+  assert.match(source, /canAddOutlineParent\(selectedItem\)/);
+  assert.match(source, /idMap\[newParentTemporaryId\]/);
+  assert.match(source, /setEditTitle\(newParent\.title\)/);
+  assert.match(source, /setEditDescription\(newParent\.description\)/);
+  assert.match(source, /父目录已添加/);
+});
+
+test('目录详情提供仅删除当前目录并保留子目录提升逻辑', () => {
+  const source = readFileSync(new URL('../pages/OutlineEditPage.tsx', import.meta.url), 'utf8');
+  assert.match(source, /deleteOutlineOnly/);
+  assert.match(source, /const removeItemOnly = async/);
+  assert.match(source, /saveOutlineChange\(nextOutline, 'delete', \[\]\)/);
+  assert.match(source, /promotedItemIds\.map\(\(id\) => renumbered\.idMap\[id\]\)/);
+  assert.match(source, />仅删除当前目录<\/button>/);
+  assert.match(source, /onClick=\{\(\) => \{ void removeItem\(selectedItem\.id\); \}\}/);
+});
+
 test('STEP 03 知识库操作按一级知识库、目录、文档三级级联', () => {
   const source = readFileSync(new URL('../pages/OutlineEditPage.tsx', import.meta.url), 'utf8');
   const selection = readFileSync(new URL('./nodeKnowledgeSelection.ts', import.meta.url), 'utf8');

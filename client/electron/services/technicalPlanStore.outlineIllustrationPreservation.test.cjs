@@ -42,8 +42,8 @@ async function withStore(callback) {
   }
 }
 
-function seed(store, content1 = '正文一', content2 = '正文二', entries = [], third = false) {
-  store.saveOutline({ outlineData: roots([leaf('1.1', content1), leaf('1.2', content2), ...(third ? [leaf('1.3', '正文四')] : [])], [leaf('2.1', '正文三')]), reason: 'replace' });
+function seed(store, content1 = '正文一', content2 = '正文二', entries = [], third = false, firstNodeOverrides = {}) {
+  store.saveOutline({ outlineData: roots([{ ...leaf('1.1', content1), ...firstNodeOverrides }, leaf('1.2', content2), ...(third ? [leaf('1.3', '正文四')] : [])], [leaf('2.1', '正文三')]), reason: 'replace' });
   store.updateTechnicalPlan({
     contentGenerationSections: {
       '1.1': { status: 'success', content: content1 },
@@ -147,6 +147,92 @@ async function runAssertions() {
     assert.equal(saved.contentGenerationSections['1.1'], undefined);
     assert.equal(saved.contentGenerationSections['1.2'], undefined);
     assert.deepEqual(saved.contentIllustrationPlan.items.map((entry) => entry.item_id), ['keep']);
+  });
+
+  await withStore(async ({ store }) => {
+    seed(store, '正文一', '正文二', [image('child', ['1.1'], '', 'yibiao-asset://generated-images/child.png')], false, { knowledge_folder_ids: ['folder-1'] });
+    const wrapped = roots([{
+      id: '1.1',
+      title: '新父目录',
+      description: '请编辑描述',
+      children: [{ ...leaf('1.1.1'), knowledge_folder_ids: ['folder-1'] }],
+    }, leaf('1.2')], [leaf('2.1')]);
+    const saved = store.saveOutline({
+      outlineData: wrapped,
+      reason: 'add-parent',
+      idMap: {
+        '1': '1',
+        '__outline_parent__': '1.1',
+        '1.1': '1.1.1',
+        '1.2': '1.2',
+        '2': '2',
+        '2.1': '2.1',
+      },
+      affectedNodeIds: [],
+    });
+    const moved = saved.outlineData.outline[0].children[0].children[0];
+    assert.equal(moved.content, '正文一');
+    assert.deepEqual(moved.knowledge_folder_ids, ['folder-1']);
+    assert.equal(saved.contentGenerationSections['1.1.1'].status, 'success');
+    assert.ok(saved.contentGenerationPlans['1.1.1']);
+    assert.deepEqual(saved.contentIllustrationPlan.items[0].section_ids, ['1.1.1']);
+    assert.equal(saved.contentGenerationTask, undefined);
+    assert.equal(saved.contentGenerationRuntime, undefined);
+  });
+
+  await withStore(async ({ store }) => {
+    const initial = {
+      outline: [{
+        id: '1', title: '第一章', description: '说明一', attr: '技术', children: [{
+          id: '1.1', title: '待删除父目录', description: '说明父目录', children: [
+            leaf('1.1.1', '提升正文一'),
+            leaf('1.1.2', '提升正文二'),
+          ],
+        }, leaf('1.2', '原同级目录')],
+      }, { id: '2', title: '第二章', description: '说明二', content_mode: 'ai-generate' }],
+    };
+    store.saveOutline({ outlineData: initial, reason: 'replace' });
+    store.updateTechnicalPlan({
+      outlineData: initial,
+      contentGenerationSections: {
+        '1.1.1': { status: 'success', content: '提升正文一' },
+        '1.1.2': { status: 'error', error: '生成失败', content: '提升正文二' },
+      },
+      contentGenerationPlans: {
+        '1.1.1': { plan_version: 1, plan: { title: '提升计划一' } },
+        '1.1.2': { plan_version: 1, plan: { title: '提升计划二' } },
+      },
+    });
+
+    const saved = store.saveOutline({
+      outlineData: {
+        outline: [{
+          id: '1', title: '第一章', description: '说明一', attr: '技术', children: [
+            leaf('1.1', '提升正文一'),
+            leaf('1.2', '提升正文二'),
+            leaf('1.3', '原同级目录'),
+          ],
+        }, { id: '2', title: '第二章', description: '说明二', content_mode: 'ai-generate' }],
+      },
+      reason: 'delete',
+      affectedNodeIds: [],
+      idMap: {
+        '1': '1',
+        '1.1.1': '1.1',
+        '1.1.2': '1.2',
+        '1.2': '1.3',
+        '2': '2',
+      },
+    });
+    const promoted = saved.outlineData.outline[0].children;
+    assert.equal(promoted[0].content, '提升正文一');
+    assert.equal(promoted[1].content, '提升正文二');
+    assert.equal(saved.contentGenerationSections['1.1'].status, 'success');
+    assert.equal(saved.contentGenerationSections['1.2'].status, 'error');
+    assert.ok(saved.contentGenerationPlans['1.1']);
+    assert.ok(saved.contentGenerationPlans['1.2']);
+    assert.equal(saved.contentGenerationSections['1.1.1'], undefined);
+    assert.equal(saved.contentGenerationPlans['1.1.1'], undefined);
   });
 
   await withStore(async ({ store, events }) => {
