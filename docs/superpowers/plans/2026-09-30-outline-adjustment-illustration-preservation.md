@@ -23,7 +23,9 @@
 - Modify: `client/electron/services/outlineAdjustmentTask.baselineValidation.test.cjs` — 非法身份验证测试。
 - Modify: `client/electron/services/technicalPlanStore.cjs` — 权威评分映射、图片计划局部重映射、资源清理和完整返回契约。
 - Modify: `client/electron/services/technicalPlanStore.scoreCoverageMap.test.cjs` — AI 显式评分映射测试。
-- Modify: `client/src/features/technical-plan/services/outlineSourceMatcher.test.ts` — Renderer 对完整返回 patch 的静态回归断言。
+- Create: `client/src/features/technical-plan/services/outlineStateSync.test.ts` — Renderer 对完整返回 patch 的独立静态回归断言，不依赖已有失败套件。
+
+实施前先运行 `git status --short` 保存初始工作区清单。当前共享工作区已有用户修改，尤其不要修改或整文件暂存 `TechnicalPlanHome.tsx`；若后续确实必须触碰已有脏文件，应先停下说明重叠，使用交互式/补丁式暂存并逐块检查，不能把用户改动带入任务提交。
 
 ### Task 1: AI 目录节点身份校验与差异分类
 
@@ -56,6 +58,8 @@ for (const candidate of [missingOrigin, duplicateOrigin, forgedExistingOrigin, i
   assert.throws(() => buildOutlineAdjustmentSaveRequest({ before: workingBefore, after: candidate }), /origin_id|节点身份/);
 }
 ```
+
+同时在 `outlineAdjustmentTask.baselineValidation.test.cjs` 使用项目现有 AJV 测试方式直接验证 `OUTLINE_WORKING_JSON_SCHEMA`：根节点或嵌套节点缺少 `origin_id` 时 Schema 校验失败。这个断言必须在修改 Schema 前呈 RED，避免差异分类器的运行时校验掩盖 Schema 漏洞。
 
 - [ ] **Step 2: 运行测试确认 RED**
 
@@ -106,6 +110,8 @@ Expected: 全部 PASS。
 
 ```powershell
 git add client/electron/services/outlineAdjustmentDiff.cjs client/electron/services/outlineAdjustmentDiff.test.cjs client/electron/services/outlineGenerationTaskV2.cjs client/electron/services/outlineAdjustmentTask.baselineValidation.test.cjs
+git diff --cached --name-only
+git diff --cached
 git commit -m "fix: classify outline adjustment changes"
 ```
 
@@ -163,7 +169,7 @@ function getIllustrationTargetNodeId(item) {
 }
 ```
 
-多章节校验通过目录扁平信息比较直接父 ID、兄弟索引连续性、section 顺序及旧/新目标的 `origin` 身份。
+多章节校验通过目录扁平信息比较直接父 ID、兄弟索引连续性和 section 顺序。持久目录不含 `origin_id`，目标身份用“旧目标节点确实存活，且 `idMap.get(oldTargetId) === newTargetId`”判定；不能只比较复用后的数字 ID。补充“旧节点删除后无关新节点占用相同数字 ID”测试，确保不会误认成原目标。
 
 - [ ] **Step 4: 运行测试确认 GREEN**
 
@@ -175,6 +181,8 @@ Expected: 全部 PASS。
 
 ```powershell
 git add client/electron/services/technicalPlanIllustrationReconciliation.cjs client/electron/services/technicalPlanIllustrationReconciliation.test.cjs
+git diff --cached --name-only
+git diff --cached
 git commit -m "fix: reconcile illustration plans after outline changes"
 ```
 
@@ -187,7 +195,7 @@ git commit -m "fix: reconcile illustration plans after outline changes"
 
 - [ ] **Step 1: 写 Electron native Store 失败测试**
 
-用真实临时 SQLite 和文件目录建立两个正文叶子、各自图片审核项、确认图片块、重绘候选及 HTML 源文件，然后保存仅影响一个分支的目录变化。断言：
+用真实临时 SQLite 和文件目录建立两个正文叶子、各自图片审核项、确认图片块、重绘候选及 HTML 源文件，然后保存仅影响一个分支的目录变化。除 AI 叶子编辑外，必须包含手工父目录改名只传父 ID 的场景，并断言 Store 自行扩展旧分支后代闭包，清除后代正文、plans 和图片。基本断言：
 
 ```js
 assert.equal(saved.contentGenerationSections['2'].status, 'success');
@@ -199,7 +207,7 @@ assert.equal(fs.existsSync(droppedHtmlPath), false);
 assert.equal(fs.existsSync(keptHtmlPath), true);
 ```
 
-另写多章节 `before/after`、全部删除后显式 `undefined`、重启后审核字段仍存在的测试。
+另写多章节 `before/after`、全部删除后显式 `undefined`、重启后审核字段仍存在的测试。再写 sort 集成测试：排序后一个多章节项变得不连续而失效，一个单章节项保留；正文任务/runtime 仍存在；返回的 `outlineData` 从数据库重载并含保留正文。如果失效图片块从正文移除，断言 `onContentChanged` 在提交后收到对应节点 ID。
 
 - [ ] **Step 2: 扩展评分覆盖失败测试**
 
@@ -222,9 +230,19 @@ if (reason === 'replace') return undefined;
 
 保留无显式映射时的手工增删改逻辑。
 
-- [ ] **Step 5: 在事务内接入图片计划重映射**
+- [ ] **Step 5: 在 Store 内扩展手工受影响分支闭包**
 
-在非 `replace` 保存前捕获旧图片计划；目录和正文状态重建后调用纯函数：
+在读取 `previousOutline` 后，将请求里的每个非 sort `affectedNodeIds` 按旧目录展开为“节点自身 + 全部后代”，再把该闭包传给正文、plans、评分启发式和图片 reconciliation。`replace` 仍由 `clearAll` 处理，`sort` 不扩展。
+
+- [ ] **Step 6: 按 replace/sort/edit 三条路径接入图片计划重映射**
+
+保存前捕获旧图片计划，并显式重构控制流：
+
+- `replace`：保存新目录，清空所有正文状态和图片计划，保持原行为。
+- `sort`：先 `saveSortedOutline()`，随后对图片计划做结构重校验和孤儿块处理；不提前 return，不删除 content task/runtime/Mermaid 缓存。
+- `edit`：重建正文状态和 plans 后，执行图片重映射及局部失效。
+
+reconciliation 调用形态：
 
 ```js
 const reconciliation = reconcileIllustrationItems({
@@ -241,13 +259,15 @@ replaceContentIllustrationPlan(
 );
 ```
 
-对 dropped item：从旧目标仍被保留的正文删除 marker block；收集 URL和三个 source path，在事务提交后做引用感知清理。`replace` 继续使用现有全量清空路径。
+对 dropped item：从旧目标仍被保留的正文删除 marker block；收集 URL和三个 source path，在事务提交后做引用感知清理。若实际修改了正文，事务提交后以真实节点 ID调用 `onContentChanged`。所有路径结束前从数据库重新 `loadOutlineData()` 赋给 `savedOutlineData`，确保 AI sort 输入本身没有 content 时，返回值仍包含持久正文。
 
-- [ ] **Step 6: 实现受管 HTML 源文件安全清理**
+- [ ] **Step 7: 实现受管 HTML 源文件安全清理**
 
-只允许解析到 `illustrationsDir` 内的路径；查询剩余计划行确认 `source_path/original_source_path/redraw_source_path` 均无引用后再 `removeWorkspacePathSync()`，不接受目录外路径。
+去重待清理相对路径，逐一解析成绝对路径，只有最终路径严格位于 `illustrationsDir` 内才可处理。事务成功后查询剩余计划行的 SQL 列 `generation_source_path`、`generation_original_source_path`、`generation_redraw_source_path`，三个列均无引用时才调用 `removeWorkspacePathSync()`；目录外路径原样保留。
 
-- [ ] **Step 7: 完整返回持久状态**
+资源测试必须分别覆盖：current/original/redraw 三个无引用 HTML 源均删除；被另一个保留项共享的源文件保留；目录外路径不处理；图片 URL仍被其他计划项或正文引用时文件保留。
+
+- [ ] **Step 8: 完整返回持久状态**
 
 `saveOutline()` 返回：
 
@@ -265,16 +285,18 @@ return {
 
 确保对象始终自有 `contentIllustrationPlan` 字段，值可为 `undefined`。
 
-- [ ] **Step 8: 运行 Store 测试确认 GREEN**
+- [ ] **Step 9: 运行 Store 测试确认 GREEN**
 
 Run: `cd client; node --test electron/services/technicalPlanStore.outlineIllustrationPreservation.test.cjs electron/services/technicalPlanStore.scoreCoverageMap.test.cjs electron/services/technicalPlanStore.contentGenerationOptions.test.cjs electron/services/technicalPlanStore.nodeKnowledge.test.cjs`
 
 Expected: 全部 PASS。
 
-- [ ] **Step 9: 提交**
+- [ ] **Step 10: 提交**
 
 ```powershell
 git add client/electron/services/technicalPlanStore.cjs client/electron/services/technicalPlanStore.outlineIllustrationPreservation.test.cjs client/electron/services/technicalPlanStore.scoreCoverageMap.test.cjs
+git diff --cached --name-only
+git diff --cached
 git commit -m "fix: preserve unaffected illustration reviews"
 ```
 
@@ -333,24 +355,26 @@ Expected: 全部 PASS。
 
 ```powershell
 git add client/electron/services/outlineAdjustmentTask.cjs client/electron/services/outlineAdjustmentTask.test.cjs
+git diff --cached --name-only
+git diff --cached
 git commit -m "fix: preserve outline adjustment state"
 ```
 
 ### Task 5: Renderer 同步回归与最终验证
 
 **Files:**
-- Modify: `client/src/features/technical-plan/services/outlineSourceMatcher.test.ts`
-- Verify: `client/src/features/technical-plan/pages/TechnicalPlanHome.tsx`
+- Create: `client/src/features/technical-plan/services/outlineStateSync.test.ts`
+- Read-only verify: `client/src/features/technical-plan/pages/TechnicalPlanHome.tsx`
 
 - [ ] **Step 1: 写 Renderer 状态同步失败测试**
 
-静态断言 `saveOutline` 非 sort 路径不再依赖旧 state，而是能合并 Store 返回的 `contentGenerationSections/contentGenerationPlans/contentIllustrationPlan`；outline-adjustment 事件分支按字段存在语义接受显式 `undefined`。
+在独立测试文件读取 `TechnicalPlanHome.tsx`，静态断言 `saveOutline` 能合并 Store 返回的 `contentGenerationSections/contentGenerationPlans/contentIllustrationPlan`；outline-adjustment 事件分支使用 `hasOwnField` 接受显式 `undefined`。不修改或复用已有失败的 `outlineSourceMatcher.test.ts`。
 
 - [ ] **Step 2: 运行测试确认 RED 或确认现有合并已满足契约**
 
-Run: `cd client; node --test --import tsx src/features/technical-plan/services/outlineSourceMatcher.test.ts`
+Run: `cd client; node --experimental-strip-types --test src/features/technical-plan/services/outlineStateSync.test.ts`
 
-如果现有实现因 Store 新返回契约直接通过，则保留测试并记录它验证的是新增返回契约；若失败，仅做最小 Renderer 修正。
+如果当前 Renderer 因 Store 新返回契约直接满足断言，则保留该测试，不修改已经处于脏状态的 `TechnicalPlanHome.tsx`。如果测试暴露真实同步缺口，由于该文件已有用户改动，先停止并报告重叠，不能直接整文件修改或暂存。
 
 - [ ] **Step 3: 运行所有相关测试**
 
@@ -359,6 +383,7 @@ Run:
 ```powershell
 cd client
 node --test electron/services/outlineAdjustmentDiff.test.cjs electron/services/technicalPlanIllustrationReconciliation.test.cjs electron/services/outlineAdjustmentTask.test.cjs electron/services/outlineAdjustmentTask.baselineValidation.test.cjs electron/services/technicalPlanStore.outlineIllustrationPreservation.test.cjs electron/services/technicalPlanStore.scoreCoverageMap.test.cjs electron/services/technicalPlanStore.contentGenerationOptions.test.cjs electron/services/technicalPlanStore.nodeKnowledge.test.cjs
+node --experimental-strip-types --test src/features/technical-plan/services/outlineStateSync.test.ts
 ```
 
 Expected: 0 failures。
@@ -391,15 +416,21 @@ Expected: 两个命令退出 0；Vite 既有 chunk 体积警告可接受。
 
 - [ ] **Step 6: 检查最终 diff 和工作区边界**
 
-Run: `git status --short; git diff --check; git diff --stat HEAD~4`
+Run:
 
-Expected: 无空白错误；不覆盖用户现有的中文排版等无关改动；没有 Analytics、数据库 schema 或 UI 样式变化。
+```powershell
+git status --short
+git diff --check 507abbf..HEAD -- client/electron/services client/src/features/technical-plan/services
+git diff --stat 507abbf..HEAD -- client/electron/services client/src/features/technical-plan/services
+```
+
+Expected: 任务提交范围无空白错误；对照实施前保存的 status，没有暂存或覆盖用户现有的中文排版等无关改动；没有 Analytics、数据库 schema 或 UI 样式变化。
 
 - [ ] **Step 7: 提交 Renderer 测试或最小同步修正**
 
 ```powershell
-git add client/src/features/technical-plan/services/outlineSourceMatcher.test.ts client/src/features/technical-plan/pages/TechnicalPlanHome.tsx
+git add client/src/features/technical-plan/services/outlineStateSync.test.ts
+git diff --cached --name-only
+git diff --cached
 git commit -m "test: cover outline preservation state sync"
 ```
-
-只添加确实修改的文件；若 `TechnicalPlanHome.tsx` 无需改动，不加入提交。
