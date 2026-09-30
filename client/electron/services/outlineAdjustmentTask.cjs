@@ -11,6 +11,7 @@ const {
   validateFinalOutline,
 } = require('./outlineGenerationTaskV2.cjs');
 const { attachScoreCoverageAnchors } = require('./outlineSourceAnchorService.cjs');
+const { buildOutlineAdjustmentSaveRequest } = require('./outlineAdjustmentDiff.cjs');
 
 const TENDER_SOURCE_KINDS = new Set(['requirement', 'criterion', 'response-point']);
 
@@ -235,17 +236,20 @@ async function runOutlineAdjustmentTask({ agentService, workspaceStore, updateTa
     markdown: workspaceStore.readTenderMarkdown?.() || '',
     scoreCoverageMap: adjustedCoverageMap,
   });
+  const saveRequest = buildOutlineAdjustmentSaveRequest({
+    before: workingOutline,
+    after: adjustedOutline,
+  });
   const persistedOutline = stripOutlineInternalFields(adjustedOutline);
   const summary = String(agentResult.assistant_text || '').trim() || '目录已按要求调整完成。';
 
-  // 目录调整属于目录变更，saveOutline(replace) 会按既有规则清空旧正文与生成缓存。
   const saved = workspaceStore.saveOutline({
     outlineData: {
       ...persistedOutline,
       project_name: storedPlan.outlineData.project_name,
       project_overview: storedPlan.outlineData.project_overview,
     },
-    reason: 'replace',
+    ...saveRequest,
     scoreCoverageMap: adjustedCoverageMap,
   });
 
@@ -271,11 +275,11 @@ async function runOutlineAdjustmentTask({ agentService, workspaceStore, updateTa
     technicalPlanPatch: {
       outlineData: saved.outlineData,
       outlineGenerationTask: saved.outlineGenerationTask,
-      contentGenerationTask: undefined,
-      contentGenerationSections: {},
-      contentGenerationPlans: {},
-      contentIllustrationPlan: undefined,
-      contentGenerationRuntime: undefined,
+      contentGenerationTask: saved.contentGenerationTask,
+      contentGenerationSections: saved.contentGenerationSections,
+      contentGenerationPlans: saved.contentGenerationPlans,
+      contentIllustrationPlan: saved.contentIllustrationPlan,
+      contentGenerationRuntime: saved.contentGenerationRuntime,
     },
   });
   agentService.updatePersistentTask(outlineAgentTaskKey, {

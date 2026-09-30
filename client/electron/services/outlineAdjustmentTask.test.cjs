@@ -18,11 +18,21 @@ test('旧目录 AI 调整使用 legacy-structure-only 且不伪造评分来源',
   let saveRequest;
   const checkpointCalls = [];
   const updatedOutlineTask = { task_id: 'outline-score-map', stats: { score_coverage_map: { records: [] } } };
+  const retainedSections = { '1': { status: 'success', content: '已生成正文' } };
+  const retainedPlans = { '1': { plan_version: 1, plan: { title: '正文计划' } } };
+  const retainedIllustrations = { plan_version: 1, items: [{ item_id: 'keep', section_ids: ['1'] }] };
+  const retainedContentTask = { task_id: 'content-1', status: 'success' };
+  const retainedRuntime = { cursor: '1' };
   const workspaceStore = {
     loadTechnicalPlan: () => ({ outlineData, outlineGenerationTask: { stats: {} } }),
     saveOutline: (request) => {
       saveRequest = request;
-      return { outlineData: request.outlineData, outlineGenerationTask: updatedOutlineTask };
+      return {
+        outlineData: request.outlineData, outlineGenerationTask: updatedOutlineTask,
+        contentGenerationSections: retainedSections, contentGenerationPlans: retainedPlans,
+        contentIllustrationPlan: retainedIllustrations, contentGenerationTask: retainedContentTask,
+        contentGenerationRuntime: retainedRuntime,
+      };
     },
   };
   const agentService = {
@@ -55,10 +65,60 @@ test('旧目录 AI 调整使用 legacy-structure-only 且不伪造评分来源',
   });
 
   assert.equal(saveRequest.scoreCoverageMap.coverage_mode, 'legacy-structure-only');
+  assert.equal(saveRequest.reason, 'sort');
+  assert.deepEqual(saveRequest.idMap, { '1': '1' });
   assert.deepEqual(saveRequest.scoreCoverageMap.records, []);
   assert.equal(saveRequest.outlineData.outline[0].origin_id, undefined);
   assert.match(checkpointCalls.at(-1).patch.stats.adjustment.notice, /旧目录仅完成结构检查/);
   assert.equal(checkpointCalls.at(-1).result.technicalPlanPatch.outlineGenerationTask, updatedOutlineTask);
+  assert.equal(checkpointCalls.at(-1).result.technicalPlanPatch.contentGenerationSections, retainedSections);
+  assert.equal(checkpointCalls.at(-1).result.technicalPlanPatch.contentGenerationPlans, retainedPlans);
+  assert.equal(checkpointCalls.at(-1).result.technicalPlanPatch.contentIllustrationPlan, retainedIllustrations);
+  assert.equal(checkpointCalls.at(-1).result.technicalPlanPatch.contentGenerationTask, retainedContentTask);
+  assert.equal(checkpointCalls.at(-1).result.technicalPlanPatch.contentGenerationRuntime, retainedRuntime);
+});
+
+test('AI edits only the changed branch and forwards the persisted state', async () => {
+  const outlineData = { outline: [
+    { id: '1', title: '章节一', description: '章节一具体说明', attr: '技术', content_mode: 'ai-generate' },
+    { id: '2', title: '章节二', description: '章节二具体说明', attr: '技术', content_mode: 'ai-generate' },
+  ] };
+  let saveRequest;
+  let finalPatch;
+  const savedPlan = { plan_version: 1, items: [{ item_id: 'keep', section_ids: ['2'] }] };
+  const workspaceStore = {
+    loadTechnicalPlan: () => ({ outlineData, outlineGenerationTask: { stats: {} } }),
+    saveOutline: (request) => {
+      saveRequest = request;
+      return { outlineData: request.outlineData, contentGenerationSections: { '2': { status: 'success' } },
+        contentGenerationPlans: {}, contentIllustrationPlan: savedPlan };
+    },
+  };
+  const agentService = {
+    hasPersistentTaskSession: () => true,
+    updatePersistentTask() {},
+    runTask: async (input) => {
+      const after = JSON.parse(input.files.find((file) => file.path === 'outline.json').content);
+      after.outline[0].title = '调整后的章节一';
+      await input.continueTask({ output_content: JSON.stringify(after) }, {
+        readFile: async () => JSON.stringify({ version: 1, coverage_mode: 'legacy-structure-only', records: [] }),
+      });
+      return { assistant_text: '已调整。' };
+    },
+  };
+  await runOutlineAdjustmentTask({ agentService, workspaceStore,
+    updateTask: (patch) => ({ task_id: 'adjust', stats: {}, ...patch }),
+    checkpointTask: (patch, data, result) => {
+      if (result) finalPatch = result.technicalPlanPatch;
+      return { task: { task_id: 'adjust', stats: {}, ...patch } };
+    },
+    taskControl: { signal: new AbortController().signal }, payload: { requirement: '仅修改第一章' },
+  });
+  assert.equal(saveRequest.reason, 'edit');
+  assert.deepEqual(saveRequest.idMap, { '1': '1', '2': '2' });
+  assert.deepEqual(saveRequest.affectedNodeIds, ['1']);
+  assert.equal(finalPatch.contentIllustrationPlan, savedPlan);
+  assert.deepEqual(finalPatch.contentGenerationSections, { '2': { status: 'success' } });
 });
 
 test('完整覆盖模式在 AI 调整后恢复权威来源并重新计算原文锚点', async () => {
