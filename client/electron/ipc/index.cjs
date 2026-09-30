@@ -13,6 +13,7 @@ const { registerRejectionCheckIpc } = require('./rejectionCheckIpc.cjs');
 const { registerRemoteKnowledgeIpc } = require('./remoteKnowledgeIpc.cjs');
 const { registerTaskIpc } = require('./taskIpc.cjs');
 const { registerTechnicalPlanIpc } = require('./technicalPlanIpc.cjs');
+const { registerTechnicalPlanCheckIpc } = require('./technicalPlanCheckIpc.cjs');
 const { registerBidProjectIpc } = require('./bidProjectIpc.cjs');
 const { registerFeasibilityReportIpc } = require('./feasibilityReportIpc.cjs');
 const { registerTemplateIpc } = require('./templateIpc.cjs');
@@ -41,6 +42,8 @@ const { clearOrphanedGeneratedImages, clearStalePiTaskArchives, runHistoricalSto
 const { createTaskService } = require('../services/taskService.cjs');
 const { createTaskLogStore } = require('../services/taskLogStore.cjs');
 const { createTechnicalPlanStore } = require('../services/technicalPlanStore.cjs');
+const { createTechnicalPlanCheckStore } = require('../services/technicalPlanCheckStore.cjs');
+const { createTechnicalPlanCheckService } = require('../services/technicalPlanCheckService.cjs');
 const { createBidProjectManager } = require('../services/bidProjectManager.cjs');
 const { createBidProjectImportService } = require('../services/bidProjectImportService.cjs');
 const { createBidProjectVariantService } = require('../services/bidProjectVariantService.cjs');
@@ -144,6 +147,10 @@ const workspaceDatabaseChannels = [
   'technical-plan:skip-mermaid-review-item',
   'technical-plan:clear',
   'technical-plan:open-bid-template',
+  'technical-plan-check:load-state',
+  'technical-plan-check:select-input',
+  'technical-plan-check:select-output',
+  'technical-plan-check:open-report',
   'feasibility-report:load-state',
   'feasibility-report:import-source-documents',
   'feasibility-report:remove-source-document',
@@ -195,6 +202,7 @@ const workspaceDatabaseChannels = [
   'tasks:start-rejection-items-extraction',
   'tasks:start-rejection-check',
   'tasks:start-duplicate-analysis',
+  'tasks:start-technical-plan-check',
   'tasks:start-feasibility-analysis',
   'tasks:start-feasibility-outline',
   'tasks:start-feasibility-parameters',
@@ -293,6 +301,8 @@ function registerWorkspaceDatabaseServices({ app, configStore, aiService, agentS
   const feasibilityReportStore = createFeasibilityReportStore({ app, db: sqliteDatabase.db, fileService, taskLogStore, agentService });
   const duplicateCheckStore = createDuplicateCheckStore({ app, db: sqliteDatabase.db, taskLogStore });
   const rejectionCheckStore = createRejectionCheckStore({ app, db: sqliteDatabase.db, fileService, technicalPlanStore, taskLogStore });
+  const technicalPlanCheckStore = createTechnicalPlanCheckStore({ db: sqliteDatabase.db, taskLogStore });
+  const technicalPlanCheckService = createTechnicalPlanCheckService({ app, configStore, technicalPlanCheckStore, dialog, shell });
   const templateStore = createTemplateStore({ db: sqliteDatabase.db });
   templateStore.ensureBuiltInTemplate(defaultExportTemplate.config);
   const templateFileService = createTemplateFileService({ app, dialog, templateStore });
@@ -303,7 +313,7 @@ function registerWorkspaceDatabaseServices({ app, configStore, aiService, agentS
     rejectionCheckStore,
     duplicateCheckStore,
   });
-  const taskService = createTaskService({ aiService, agentService, autoConfirmationService, technicalPlanStore, bidProjectManager, bidProjectVariantService, rejectionCheckStore, duplicateCheckStore, feasibilityReportStore, knowledgeBaseService, knowledgeReferenceService, remoteKnowledgeDecisionService, duplicateCheckService, openXmlHelperService });
+  const taskService = createTaskService({ aiService, agentService, autoConfirmationService, technicalPlanStore, technicalPlanCheckStore, technicalPlanCheckService, bidProjectManager, bidProjectVariantService, rejectionCheckStore, duplicateCheckStore, feasibilityReportStore, knowledgeBaseService, knowledgeReferenceService, remoteKnowledgeDecisionService, duplicateCheckService, openXmlHelperService });
   const contentAiEditService = createContentAiEditService({
     app,
     aiService,
@@ -328,11 +338,12 @@ function registerWorkspaceDatabaseServices({ app, configStore, aiService, agentS
   registerFeasibilityReportIpc({ feasibilityReportStore, taskService });
   registerDuplicateCheckIpc({ duplicateCheckStore, checkResultExportService });
   registerRejectionCheckIpc({ rejectionCheckStore, taskService, checkResultExportService });
+  registerTechnicalPlanCheckIpc({ technicalPlanCheckService });
   registerTemplateIpc({ templateStore, templateFileService });
   registerTaskIpc({ taskService });
   updateStatus({ phase: 'ready', ready: true, message: '本地数据库已就绪' });
   
-  return { sqliteDatabase };
+  return { taskService, sqliteDatabase };
 }
 
 function registerIpcHandlers({ app, mainWindow, checkAndDownloadUpdate, triggerUpdateDownload, quitAndInstall, getLatestVersion, getUpdateDownloadUrl, gpuStartupState = {}, gpuTrialArg = '--yibiao-trial-hardware-acceleration', forceDisableGpuArgs = [], openDeveloperTokenStatsWindow, closeDeveloperTokenStatsWindow, openDeveloperAgentMonitorWindow, closeDeveloperAgentMonitorWindow }) {
@@ -354,12 +365,22 @@ function registerIpcHandlers({ app, mainWindow, checkAndDownloadUpdate, triggerU
   const databaseStatus = registerWorkspaceDatabaseStatusIpc({ mainWindow });
   let workspaceDatabaseStarted = false;
   let gpuTrialRelaunchStarted = false;
+  let workspaceDatabaseServices;
+  let servicesClosing = false;
+  let closeServicesPromise;
 
-  const closeServices = async () => {
-    remoteKnowledgeDecisionService.dispose?.();
-    await agentService.close?.();
-    autoConfirmationService.close?.();
-    await openXmlHelperService.close?.();
+  const closeServices = () => {
+    if (closeServicesPromise) return closeServicesPromise;
+    servicesClosing = true;
+    closeServicesPromise = (async () => {
+      await workspaceDatabaseServices?.taskService.close();
+      remoteKnowledgeDecisionService.dispose?.();
+      await agentService.close?.();
+      autoConfirmationService.close?.();
+      await openXmlHelperService.close?.();
+      workspaceDatabaseServices?.sqliteDatabase.close();
+    })();
+    return closeServicesPromise;
   };
 
   const closeServicesBeforeExit = async () => {
@@ -456,13 +477,15 @@ function registerIpcHandlers({ app, mainWindow, checkAndDownloadUpdate, triggerU
   }, 800);
 
   const startWorkspaceDatabase = () => {
-    if (workspaceDatabaseStarted) return;
+    if (workspaceDatabaseStarted || servicesClosing) return;
     workspaceDatabaseStarted = true;
     databaseStatus.updateStatus({ phase: 'checking', ready: false, message: '正在检查本地数据库' });
     setTimeout(() => {
+      if (servicesClosing) return;
       try {
-        registerWorkspaceDatabaseServices({ app, configStore, aiService, agentService, autoConfirmationService, fileService, openXmlHelperService, exportService, workflowAnalytics, remoteKnowledgeService, remoteKnowledgeDecisionService, updateStatus: databaseStatus.updateStatus });
+        workspaceDatabaseServices = registerWorkspaceDatabaseServices({ app, configStore, aiService, agentService, autoConfirmationService, fileService, openXmlHelperService, exportService, workflowAnalytics, remoteKnowledgeService, remoteKnowledgeDecisionService, updateStatus: databaseStatus.updateStatus });
         setTimeout(() => {
+          if (servicesClosing) return;
           void agentService.warmup?.().catch((error) => {
             console.warn('[agent] warmup failed', error?.message || String(error));
           });

@@ -1,6 +1,10 @@
 const { ipcMain } = require('electron');
 
 function registerTaskIpc({ taskService }) {
+  ipcMain.handle('tasks:start-technical-plan-check', (event) => {
+    taskService.subscribe(event.sender);
+    return taskService.startTechnicalPlanCheck();
+  });
   ipcMain.handle('tasks:start-bid-section-extraction', (event, payload) => {
     taskService.subscribe(event.sender);
     return taskService.startBidSectionExtraction(payload);
