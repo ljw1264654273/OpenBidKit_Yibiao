@@ -115,6 +115,9 @@ test('目录详情可原位添加父目录并使用 add-parent 持久化', () =>
   assert.match(source, />添加父目录<\/button>/);
   assert.match(source, /canAddOutlineParent\(selectedItem\)/);
   assert.match(source, /idMap\[newParentTemporaryId\]/);
+  assert.match(source, /setEditTitle\(newParent\.title\)/);
+  assert.match(source, /setEditDescription\(newParent\.description\)/);
+  assert.match(source, /父目录已添加/);
 });
 ```
 
@@ -146,13 +149,16 @@ const wrappedOutline = insertOutlineParent(outlineData.outline, selectedItem.id,
 if (!wrappedOutline) throw new Error('当前目录项不存在，请刷新后重试');
 
 const renumbered = await saveOutlineChange(wrappedOutline, 'add-parent');
+if (!renumbered) throw new Error('目录数据尚未就绪，请刷新后重试');
 const newParentId = renumbered.idMap[newParentTemporaryId];
 setExpandedItems((prev) => new Set(prev).add(newParentId));
 setSelectedItemId(newParentId);
 setEditingItemId(newParentId);
+setEditTitle(newParent.title);
+setEditDescription(newParent.description);
 ```
 
-为让调用方取得最终 ID，将 `saveOutlineChange()` 返回 `renumbered`。新父节点不设置 `content_mode`。在详情操作区加入“添加父目录”按钮，禁用条件包含既有锁定/排序状态和 `!canAddOutlineParent(selectedItem)`；处理函数再次检查深度并显示七级提示。保存成功进入编辑态并提示“父目录已添加”。
+`addParentItem()` 首先显式检查 `outlineData`、`selectedItem`、排序和锁定状态。为让调用方取得最终 ID，将 `saveOutlineChange()` 返回 `renumbered`，保留其现有无目录早退语义并让调用方在空返回时抛出可操作错误。新父节点不设置 `content_mode`。在详情操作区加入“添加父目录”按钮，禁用条件包含既有锁定/排序状态和 `!canAddOutlineParent(selectedItem)`；处理函数再次检查深度并显示七级提示。保存成功后使用新父目录默认值初始化 `editTitle`、`editDescription`、`editContentMode` 和 `editContentModeNote`，再进入编辑态并提示“父目录已添加”。
 
 - [ ] **Step 5: 运行纯函数和页面结构测试**
 
@@ -197,7 +203,7 @@ assert.equal(userRecord.user_override, 'added');
 
 - [ ] **Step 2: 编写失败的持久状态迁移测试**
 
-在图片保留测试的 Store 夹具中保存 `1.1` 的正文、节点级生成状态、生成计划、知识库关联和图片计划，再以 `add-parent` + `idMap` 保存。断言：
+在图片保留测试的 Store 夹具中保存 `1.1` 的正文、节点级生成状态、生成计划、知识库关联和全文图片计划，再以 `add-parent` + `idMap` 保存。断言：
 
 ```js
 assert.equal(saved.outlineData.outline[0].children[0].children[0].content, '正文一');
@@ -225,7 +231,7 @@ if (reason === 'add-root' || reason === 'add-child' || reason === 'add-parent') 
 }
 ```
 
-不修改 `saveOutline()` 的其余失效分支：`add-parent !== 'sort'` 会按既有非排序协议清理整体正文任务/runtime，并以空 `affectedNodeIds` + `idMap` 保留和迁移节点级数据。
+不修改 `saveOutline()` 的其余失效与协调分支：`add-parent !== 'sort'` 会清理整体正文任务/runtime；空 `affectedNodeIds` + `idMap` 会保留并迁移节点级数据，现有图片协调逻辑会同步重映射全文图片计划及图片引用。
 
 - [ ] **Step 5: 运行 Store 测试并确认通过**
 
