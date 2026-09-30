@@ -90,6 +90,24 @@ test('worker failure keeps completed stage logs for managed error checkpoint', a
   assert.equal(h.reports(), 0);
 });
 
+test('worker progress checkpoint failure rejects runner without escaping message handler', async () => {
+  const h = harness({ held: true });
+  const error = new Error('SQLite checkpoint failed');
+  const checkpoint = h.context.checkpointTask;
+  h.context.checkpointTask = (task, patch) => {
+    if (task.stats.stageIndex === 5) throw error;
+    checkpoint(task, patch);
+  };
+  const running = runTechnicalPlanCheckTask(h.context, h.dependencies);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.doesNotThrow(() => h.getWorker().emit('message', { type: 'progress', stage: 'requirements' }));
+  h.getWorker().emit('message', { type: 'result', result: { findings: [], summary: summarizeResults([]) } });
+  await assert.rejects(running, (actual) => actual === error);
+  assert.equal(h.terminated(), true);
+  assert.equal(h.reports(), 0);
+  assert.equal(h.checkpoints.length, 4);
+});
+
 test('dispatches the real worker and records PDF skipped format result', async () => {
   const h = harness({ pdf: true });
   let reportResult;

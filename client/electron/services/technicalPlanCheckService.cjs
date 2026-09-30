@@ -131,10 +131,17 @@ function createTechnicalPlanCheckService({
     if (extension === '.doc' || extension === '.wps') {
       const convert = withLegacyWordDocxFile || (await import('./doc2markdown/convert.mjs')).withLegacyWordDocxFile;
       // 格式扫描在转换回调内运行，临时 DOCX 只在此生命周期中有效。
-      return convert(proposalPath, async (proposalDocxPath) => {
-        throwIfAborted(signal);
-        return callback({ documents, proposalDocxPath });
+      const outcome = await convert(proposalPath, async (proposalDocxPath) => {
+        // 转换助手会重试回调异常，业务失败需在临时文件清理后原样抛出。
+        try {
+          throwIfAborted(signal);
+          return { success: true, result: await callback({ documents, proposalDocxPath }) };
+        } catch (error) {
+          return { success: false, error };
+        }
       });
+      if (!outcome.success) throw outcome.error;
+      return outcome.result;
     }
     throwIfAborted(signal);
     return callback({ documents, proposalDocxPath: extension === '.docx' ? proposalPath : null });

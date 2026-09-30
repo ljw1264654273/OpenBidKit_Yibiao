@@ -29,9 +29,13 @@ async function runWorker(payload, { signal, onProgress, WorkerClass }) {
       signal.addEventListener('abort', onAbort, { once: true });
       worker.on('message', (message) => {
         if (completed || signal.aborted) return;
-        if (message.type === 'progress') onProgress(message.stage);
-        else if (message.type === 'result') finish(null, message.result);
-        else if (message.type === 'error') finish(Object.assign(new Error(message.error.message), { code: message.error.code }));
+        try {
+          if (message.type === 'progress') onProgress(message.stage);
+          else if (message.type === 'result') finish(null, message.result);
+          else if (message.type === 'error') finish(Object.assign(new Error(message.error.message), { code: message.error.code }));
+        } catch (error) {
+          finish(error);
+        }
       });
       worker.once('error', (error) => finish(error));
       worker.once('exit', (code) => {

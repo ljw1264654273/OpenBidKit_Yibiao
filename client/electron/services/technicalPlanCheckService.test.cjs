@@ -5,7 +5,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { createTechnicalPlanCheckService } = require('./technicalPlanCheckService.cjs');
 
-function harness({ provider = 'local', parse, proposal = 'C:/中文目录/方案.docx', platform, shellError = '' } = {}) {
+function harness({ provider = 'local', parse, proposal = 'C:/中文目录/方案.docx', platform, shellError = '', retryCallback = false } = {}) {
   let state = {
     tenderFile: { path: 'C:/中文目录/招标.docx', name: '招标.docx' },
     requirementsFile: { path: 'C:/中文目录/需求.docx', name: '需求.docx' },
@@ -16,6 +16,7 @@ function harness({ provider = 'local', parse, proposal = 'C:/中文目录/方案
   const calls = [];
   let selected = { canceled: false, filePaths: ['C:/中文目录/新方案.docx'] };
   let temporaryExists = false;
+  let conversionAttempts = 0;
   let onOpen = () => {};
   let createService = createTechnicalPlanCheckService;
   if (platform) {
@@ -45,10 +46,18 @@ function harness({ provider = 'local', parse, proposal = 'C:/中文目录/方案
     },
     withLegacyWordDocxFile: async (filePath, callback) => {
       temporaryExists = true;
-      try { return await callback('C:/临时/方案.docx'); } finally { temporaryExists = false; }
+      try {
+        for (let backend = 0; backend < (retryCallback ? 2 : 1); backend += 1) {
+          conversionAttempts += 1;
+          try { return await callback('C:/临时/方案.docx'); } catch (error) {
+            if (!retryCallback) throw error;
+          }
+        }
+        throw new Error('所有 Office 转换组件失败');
+      } finally { temporaryExists = false; }
     },
   });
-  return { service, calls, getState: () => state, setState: (next) => { state = next; }, onOpen: (callback) => { onOpen = callback; }, cancel: () => { selected = { canceled: true, filePaths: [] }; }, temporaryExists: () => temporaryExists };
+  return { service, calls, getState: () => state, setState: (next) => { state = next; }, onOpen: (callback) => { onOpen = callback; }, cancel: () => { selected = { canceled: true, filePaths: [] }; }, temporaryExists: () => temporaryExists, conversionAttempts: () => conversionAttempts };
 }
 
 test('system selectors retain state on cancellation and let Store suggest output name', async () => {
@@ -125,6 +134,31 @@ test('DOC and WPS format scanning finishes inside temporary DOCX callback', asyn
     assert.equal(h.temporaryExists(), false);
   }
 });
+
+for (const extension of ['doc', 'wps']) {
+  for (const cancel of [false, true]) {
+    test(`${extension.toUpperCase()} callback ${cancel ? 'cancellation' : 'failure'} bypasses conversion retries and preserves error after cleanup`, async () => {
+      const h = harness({ proposal: `C:/中文目录/方案.${extension}`, retryCallback: true });
+      const controller = new AbortController();
+      const error = Object.assign(new Error(cancel ? '取消检查' : '格式检查失败'), { code: cancel ? 'TASK_CANCELLED' : 'CHECK_FAILED' });
+      let callbacks = 0;
+      await assert.rejects(h.service.prepareDocuments(h.getState(), async () => {
+        callbacks += 1;
+        assert.equal(h.temporaryExists(), true);
+        if (cancel) {
+          controller.abort(error);
+          controller.signal.throwIfAborted();
+        }
+        throw error;
+      }, { signal: controller.signal }), (actual) => {
+        assert.equal(h.temporaryExists(), false);
+        return actual === error;
+      });
+      assert.equal(callbacks, 1);
+      assert.equal(h.conversionAttempts(), 1);
+    });
+  }
+}
 
 test('user input validation rejects unsupported documents and Windows output collision', async () => {
   const h = harness({ platform: 'win32' });
