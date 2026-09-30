@@ -3,6 +3,16 @@ import fs from 'node:fs';
 import test from 'node:test';
 import path from 'node:path';
 
+test('technical plan check is a top-level entry immediately after existing plan expansion', () => {
+  const source = fs.readFileSync(path.join(process.cwd(), 'src/app/menuConfig.ts'), 'utf8');
+  assert.match(source, /id:\s*'existing-plan-expansion',[\s\S]*?\},\s*\{\s*id:\s*'technical-plan-check',\s*label:\s*'技术方案检查',[\s\S]*?\},\s*\{\s*id:\s*'template-settings'/);
+  const entry = source.match(/id:\s*'technical-plan-check',([\s\S]*?)\n  \}/)?.[1];
+  assert.ok(entry);
+  assert.doesNotMatch(entry, /children:/);
+  const dashboard = fs.readFileSync(path.join(process.cwd(), '../analytics/dashboard/public/src/pages/traffic.js'), 'utf8');
+  assert.match(dashboard, /'technical-plan-check':\s*'技术方案检查'/);
+});
+
 test('knowledge bases are exposed as flat top-level navigation entries', () => {
   const source = fs.readFileSync(path.join(process.cwd(), 'src/app/menuConfig.ts'), 'utf8');
   const catalogSource = fs.readFileSync(

@@ -14,6 +14,7 @@ import DuplicateCheckPage from '../features/duplicate-check/pages/DuplicateCheck
 import KnowledgeBasePage from '../features/knowledge-base/pages/KnowledgeBasePage';
 import RemoteKnowledgeBasePage from '../features/knowledge-base/pages/RemoteKnowledgeBasePage';
 import RejectionCheckPage from '../features/rejection-check/pages/RejectionCheckPage';
+import TechnicalPlanCheckPage from '../features/technical-plan-check/pages/TechnicalPlanCheckPage';
 import SettingsPage from '../features/settings/pages/SettingsPage';
 import TechnicalPlanHome from '../features/technical-plan/pages/TechnicalPlanHome';
 import FeasibilityReportHome from '../features/feasibility-report/pages/FeasibilityReportHome';
@@ -94,6 +95,8 @@ function AppRouter({
       return <DuplicateCheckPage />;
     case 'rejection-check':
       return <RejectionCheckPage />;
+    case 'technical-plan-check':
+      return <TechnicalPlanCheckPage />;
     case 'my-templates':
       return editingTemplateId
         ? <ExportFormatPage mode="edit" templateId={editingTemplateId} onBack={() => setEditingTemplateId(null)} />

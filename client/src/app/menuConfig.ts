@@ -27,6 +27,11 @@ export const appMenuItems: AppMenuItem[] = [
     description: '解决人写技术方案太薄的问题，上传写好的方案，进行优化和扩充，遵从原方案真实可落地，又能扩写出厚厚的标书',
   },
   {
+    id: 'technical-plan-check',
+    label: '技术方案检查',
+    description: '检查投标技术方案的响应性与内部质量，生成检查记录',
+  },
+  {
     id: 'template-settings',
     label: '模版设置',
     description: '标书导出模板与排版配置',

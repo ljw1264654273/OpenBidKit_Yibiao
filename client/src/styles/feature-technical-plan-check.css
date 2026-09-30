@@ -1,0 +1,297 @@
+.technical-plan-check-page {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  grid-template-rows: auto auto auto minmax(220px, 1fr);
+  gap: 20px;
+  padding: 24px 28px;
+  overflow: auto;
+  container-type: inline-size;
+  letter-spacing: 0;
+}
+
+.technical-plan-check-page * {
+  letter-spacing: 0;
+}
+
+.technical-plan-check-heading {
+  text-align: center;
+}
+
+.technical-plan-check-heading h1 {
+  margin: 0;
+  color: var(--yb-text);
+  font-size: 24px;
+  line-height: 1.4;
+  text-wrap: balance;
+}
+
+.technical-plan-check-heading p {
+  margin: 8px 0 0;
+  color: var(--yb-text-soft);
+  font-size: 14px;
+  line-height: 1.6;
+  text-wrap: pretty;
+}
+
+.technical-plan-check-page .upload-board {
+  gap: 12px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.technical-plan-check-page .upload-page-title h2,
+.technical-plan-check-progress-heading h2 {
+  margin: 0;
+  font-size: 16px;
+  color: var(--yb-text);
+}
+
+.technical-plan-check-page .upload-stack {
+  gap: 0;
+  border-top: 1px solid var(--yb-border-soft);
+}
+
+.technical-plan-check-page .upload-row {
+  min-height: 64px;
+  grid-template-columns: 210px minmax(0, 1fr) auto;
+  gap: 16px;
+  padding: 10px 0;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--yb-border-soft);
+  border-radius: 0;
+  transition: none;
+}
+
+.technical-plan-check-page .upload-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.technical-plan-check-page .upload-label span {
+  width: 24px;
+  flex: 0 0 24px;
+  padding: 0;
+  background: transparent;
+  font-variant-numeric: tabular-nums;
+}
+
+.technical-plan-check-page .upload-label strong {
+  font-size: 14px;
+}
+
+.technical-plan-check-page .upload-empty,
+.technical-plan-check-page .upload-file-pill {
+  min-height: 36px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+
+.technical-plan-check-page .upload-empty strong {
+  color: var(--yb-text-muted);
+  font-size: 14px;
+  font-weight: 400;
+}
+
+.technical-plan-check-page .upload-file-pill {
+  gap: 10px;
+}
+
+.technical-plan-check-page .upload-file-icon {
+  width: 42px;
+  height: 28px;
+  flex-basis: 42px;
+  color: var(--yb-primary);
+  background: #eef4ff;
+  border-radius: 4px;
+  font-size: 10px;
+}
+
+.technical-plan-check-page .upload-file-info strong {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.technical-plan-check-page .upload-actions,
+.technical-plan-check-page .upload-actions .secondary-action {
+  min-width: 84px;
+}
+
+.technical-plan-check-page .secondary-action {
+  background: var(--yb-surface, #ffffff);
+  border-radius: 6px;
+  box-shadow: none;
+  transition: none;
+  transform: none;
+}
+
+.technical-plan-check-output .upload-label span {
+  display: none;
+}
+
+.technical-plan-check-output-path {
+  margin: 0;
+  color: var(--yb-text);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.technical-plan-check-output-path.is-empty {
+  color: var(--yb-text-muted);
+}
+
+.technical-plan-check-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+}
+
+.technical-plan-check-page .floating-toolbar {
+  position: static;
+  width: auto;
+  max-width: 100%;
+  justify-content: flex-start;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.technical-plan-check-page .floating-toolbar-drag-handle {
+  display: none;
+}
+
+.technical-plan-check-page .floating-toolbar-group {
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.technical-plan-check-page .floating-toolbar-button {
+  min-height: 36px;
+  border: 1px solid var(--yb-border-soft);
+  border-radius: 6px;
+  background: var(--yb-surface, #ffffff);
+  box-shadow: none;
+  transition: none;
+  transform: none;
+}
+
+.technical-plan-check-page .floating-toolbar-button.is-primary {
+  color: #ffffff;
+  background: var(--yb-primary);
+  border-color: var(--yb-primary);
+  box-shadow: none;
+}
+
+.technical-plan-check-page .floating-toolbar-button.is-primary:hover:not(:disabled) {
+  background: var(--yb-primary-hover);
+}
+
+.technical-plan-check-page .floating-toolbar-button:hover:not(:disabled),
+.technical-plan-check-page .floating-toolbar-button:active:not(:disabled) {
+  transform: none;
+}
+
+.technical-plan-check-action-reason {
+  margin: 0;
+  color: var(--yb-text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.technical-plan-check-progress {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.technical-plan-check-progress-heading {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.technical-plan-check-progress-heading span {
+  color: var(--yb-text-soft);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.technical-plan-check-page .yb-progress-track > span {
+  background: var(--yb-primary);
+  transition: none;
+}
+
+.technical-plan-check-log {
+  min-height: 140px;
+  flex: 1;
+  overflow: auto;
+  padding: 12px 16px;
+  color: var(--yb-text-soft);
+  background: var(--yb-surface, #ffffff);
+  border: 1px solid var(--yb-border-soft);
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 1.75;
+  overflow-wrap: anywhere;
+}
+
+.technical-plan-check-log p {
+  margin: 0 0 4px;
+  white-space: pre-wrap;
+}
+
+.technical-plan-check-log .technical-plan-check-log-empty {
+  color: var(--yb-text-muted);
+}
+
+.technical-plan-check-error {
+  margin: 0;
+  color: var(--yb-danger);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+@container (max-width: 600px) {
+  .technical-plan-check-page .upload-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px 12px;
+  }
+
+  .technical-plan-check-page .upload-label {
+    grid-column: 1 / -1;
+  }
+
+  .technical-plan-check-page .upload-actions {
+    grid-column: 2;
+    grid-row: 2;
+  }
+}
+
+@media (max-width: 700px) {
+  .technical-plan-check-page {
+    padding: 20px 16px;
+  }
+
+  .technical-plan-check-heading h1 {
+    font-size: 22px;
+  }
+}
