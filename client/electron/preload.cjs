@@ -244,6 +244,12 @@ const bridge = {
     saveChapterContent: (payload) => ipcRenderer.invoke('feasibility-report:save-chapter-content', payload),
     clear: () => ipcRenderer.invoke('feasibility-report:clear'),
   },
+  technicalPlanCheck: {
+    loadState: () => ipcRenderer.invoke('technical-plan-check:load-state'),
+    selectInput: (role) => ipcRenderer.invoke('technical-plan-check:select-input', role),
+    selectOutput: () => ipcRenderer.invoke('technical-plan-check:select-output'),
+    openReport: () => ipcRenderer.invoke('technical-plan-check:open-report'),
+  },
   duplicateCheck: {
     loadState: () => ipcRenderer.invoke('duplicate-check:load-state'),
     saveFiles: (payload) => ipcRenderer.invoke('duplicate-check:save-files', payload),
@@ -272,6 +278,7 @@ const bridge = {
     export: (config) => ipcRenderer.invoke('templates:export', config),
   },
   tasks: {
+    startTechnicalPlanCheck: () => ipcRenderer.invoke('tasks:start-technical-plan-check'),
     startBidSectionExtraction: (payload) => ipcRenderer.invoke('tasks:start-bid-section-extraction', payload),
     resetBidSectionDownstream: (payload) => ipcRenderer.invoke('tasks:reset-bid-section-downstream', payload),
     startBidAnalysis: (payload) => ipcRenderer.invoke('tasks:start-bid-analysis', payload),

@@ -25,8 +25,20 @@ const remoteImageTimeoutMs = 10000;
 const markdownImagePattern = /!\[(?<alt>[^\]]*)\]\((?<target><[^>]+>|[^)\s]+)(?<title>\s+"[^"]*")?\)/gi;
 const htmlImageSrcPattern = /(<img\b[^>]*?\bsrc=["'])(?<src>[^"']+)(["'][^>]*>)/gi;
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function sleep(ms, signal) {
+  signal?.throwIfAborted();
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    function onAbort() {
+      clearTimeout(timer);
+      signal.removeEventListener('abort', onAbort);
+      reject(signal.reason);
+    }
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
 }
 
 /** 把招标 Word 原件落到工作区；.doc/.wps 先转成 .docx。 */
@@ -138,8 +150,11 @@ function formatImportError(error, filePath) {
 }
 
 async function parseWithMineruAgent(filePath, options = {}) {
+  const signal = options.signal;
+  signal?.throwIfAborted();
   const fileName = path.basename(filePath);
   const createResponse = await fetch('https://mineru.net/api/v1/agent/parse/file', {
+    signal,
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -151,6 +166,7 @@ async function parseWithMineruAgent(filePath, options = {}) {
     }),
   });
   const createResult = await createResponse.json();
+  signal?.throwIfAborted();
   if (!createResponse.ok || createResult.code !== 0) {
     throw new Error(`申请 MinerU-Agent 上传链接失败：HTTP ${createResponse.status}，${JSON.stringify(createResult)}`);
   }
@@ -161,27 +177,29 @@ async function parseWithMineruAgent(filePath, options = {}) {
     throw new Error(`MinerU-Agent 响应缺少 task_id/file_url：${JSON.stringify(createResult)}`);
   }
 
-  await uploadFile(fileUrl, filePath);
-  const finalResult = await pollMineruAgent(taskId, fileName);
+  await uploadFile(fileUrl, filePath, signal);
+  const finalResult = await pollMineruAgent(taskId, fileName, signal);
   const markdownUrl = finalResult.data.markdown_url;
   if (!markdownUrl) {
     throw new Error('MinerU-Agent 解析完成但未返回 markdown_url');
   }
-  return downloadText(markdownUrl, '下载 MinerU-Agent Markdown 失败').then((markdown) => (
+  return downloadText(markdownUrl, '下载 MinerU-Agent Markdown 失败', signal).then((markdown) => (
     options.preserveImages
       ? rewriteMarkdownImages(markdown, options.assets, { baseUrl: markdownUrl })
       : stripMarkdownImages(markdown)
   ));
 }
 
-async function pollMineruAgent(taskId, fileName) {
+async function pollMineruAgent(taskId, fileName, signal) {
   const startedAt = Date.now();
   const timeoutMs = 300000;
   const intervalMs = 3000;
 
   while (Date.now() - startedAt < timeoutMs) {
-    const response = await fetch(`https://mineru.net/api/v1/agent/parse/${taskId}`);
+    signal?.throwIfAborted();
+    const response = await fetch(`https://mineru.net/api/v1/agent/parse/${taskId}`, { signal });
     const result = await response.json();
+    signal?.throwIfAborted();
     if (!response.ok || result.code !== 0) {
       throw new Error(`查询 MinerU-Agent 任务失败：HTTP ${response.status}，${JSON.stringify(result)}`);
     }
@@ -194,19 +212,22 @@ async function pollMineruAgent(taskId, fileName) {
       throw new Error(`MinerU-Agent 解析失败：${data.err_msg || '未知错误'}${data.err_code ? ` (${data.err_code})` : ''}`);
     }
     console.log(`WAIT ${fileName}: ${data.state || 'unknown'}`);
-    await sleep(intervalMs);
+    await sleep(intervalMs, signal);
   }
 
   throw new Error(`MinerU-Agent 轮询超时，请稍后重试，task_id: ${taskId}`);
 }
 
 async function parseWithMineruAccurate(filePath, token, options = {}) {
+  const signal = options.signal;
+  signal?.throwIfAborted();
   if (!token) {
     throw new Error('请先在设置中填写 MinerU Token');
   }
 
   const fileName = path.basename(filePath);
   const createResponse = await fetch('https://mineru.net/api/v4/file-urls/batch', {
+    signal,
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,
@@ -221,6 +242,7 @@ async function parseWithMineruAccurate(filePath, token, options = {}) {
     }),
   });
   const createResult = await createResponse.json();
+  signal?.throwIfAborted();
   if (!createResponse.ok || createResult.code !== 0) {
     throw new Error(`申请 MinerU 精准解析上传链接失败：HTTP ${createResponse.status}，${JSON.stringify(createResult)}`);
   }
@@ -231,26 +253,29 @@ async function parseWithMineruAccurate(filePath, token, options = {}) {
     throw new Error(`MinerU 精准解析响应缺少 batch_id/file_url：${JSON.stringify(createResult)}`);
   }
 
-  await uploadFile(fileUrl, filePath);
-  const finalResult = await pollMineruAccurate(token, batchId, fileName);
+  await uploadFile(fileUrl, filePath, signal);
+  const finalResult = await pollMineruAccurate(token, batchId, fileName, signal);
   const fullZipUrl = finalResult.item.full_zip_url;
   if (!fullZipUrl) {
     throw new Error('MinerU 精准解析完成但未返回 full_zip_url');
   }
-  const zipBuffer = await downloadBuffer(fullZipUrl);
+  const zipBuffer = await downloadBuffer(fullZipUrl, signal);
   return extractMarkdownFromZip(zipBuffer, options);
 }
 
-async function pollMineruAccurate(token, batchId, fileName) {
+async function pollMineruAccurate(token, batchId, fileName, signal) {
   const startedAt = Date.now();
   const timeoutMs = 600000;
   const intervalMs = 5000;
 
   while (Date.now() - startedAt < timeoutMs) {
+    signal?.throwIfAborted();
     const response = await fetch(`https://mineru.net/api/v4/extract-results/batch/${batchId}`, {
+      signal,
       headers: { Authorization: `Bearer ${token}`, Accept: '*/*' },
     });
     const result = await response.json();
+    signal?.throwIfAborted();
     if (!response.ok || result.code !== 0) {
       throw new Error(`查询 MinerU 精准解析任务失败：HTTP ${response.status}，${JSON.stringify(result)}`);
     }
@@ -264,30 +289,35 @@ async function pollMineruAccurate(token, batchId, fileName) {
       throw new Error(`MinerU 精准解析失败：${item.err_msg || '未知错误'}`);
     }
     console.log(`WAIT ${fileName}: ${item?.state || 'unknown'}`);
-    await sleep(intervalMs);
+    await sleep(intervalMs, signal);
   }
 
   throw new Error(`MinerU 精准解析轮询超时，请稍后重试，batch_id: ${batchId}`);
 }
 
-async function uploadFile(fileUrl, filePath) {
+async function uploadFile(fileUrl, filePath, signal) {
+  signal?.throwIfAborted();
   const buffer = await fs.readFile(filePath);
-  const response = await fetch(fileUrl, { method: 'PUT', body: buffer });
+  signal?.throwIfAborted();
+  const response = await fetch(fileUrl, { method: 'PUT', body: buffer, signal });
+  signal?.throwIfAborted();
   if (!response.ok) {
     throw new Error(`文件上传失败：HTTP ${response.status}，${await response.text()}`);
   }
 }
 
-async function downloadText(url, fallbackMessage) {
-  const response = await fetch(url);
+async function downloadText(url, fallbackMessage, signal) {
+  signal?.throwIfAborted();
+  const response = await fetch(url, { signal });
   if (!response.ok) {
     throw new Error(`${fallbackMessage}：HTTP ${response.status}`);
   }
   return response.text();
 }
 
-async function downloadBuffer(url) {
-  const response = await fetch(url);
+async function downloadBuffer(url, signal) {
+  signal?.throwIfAborted();
+  const response = await fetch(url, { signal });
   if (!response.ok) {
     throw new Error(`下载 MinerU 精准解析结果失败：HTTP ${response.status}`);
   }
@@ -519,6 +549,7 @@ async function replaceMatchesAsync(text, pattern, createReplacement) {
 }
 
 async function parseDocumentWithConfig(app, filePath, config, options = {}) {
+  options.signal?.throwIfAborted();
   const startedAt = Date.now();
   const parser = resolveFileParser(config, filePath);
   const developerLogger = createDeveloperLogger({
@@ -544,9 +575,10 @@ async function parseDocumentWithConfig(app, filePath, config, options = {}) {
   const provider = parser.provider;
   const preserveImages = options.preserveImages === true;
   const assets = preserveImages ? createAssetContext(app, options.assetScope || 'documents') : null;
-  const parseOptions = { preserveImages, assets, imageResolver: createImageResolver(assets) };
+  const parseOptions = { preserveImages, assets, imageResolver: createImageResolver(assets), signal: options.signal };
   let markdown = '';
   try {
+    options.signal?.throwIfAborted();
     if (provider === 'mineru-agent-api') {
       markdown = await parseWithMineruAgent(filePath, parseOptions);
     } else if (provider === 'mineru-accurate-api') {
@@ -555,6 +587,7 @@ async function parseDocumentWithConfig(app, filePath, config, options = {}) {
       markdown = await parseLocalDocument(filePath, parseOptions);
       markdown = preserveImages ? await rewriteMarkdownImages(markdown, assets, { localBaseDir: path.dirname(filePath) }) : stripMarkdownImages(markdown);
     }
+    options.signal?.throwIfAborted();
   } catch (error) {
     await deleteImportedImageAssets(assets).catch(() => undefined);
     developerLogger.write('file.parse.error', {

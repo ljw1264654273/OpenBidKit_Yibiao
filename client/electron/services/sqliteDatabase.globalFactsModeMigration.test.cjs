@@ -46,6 +46,7 @@ function runMigrationAssertions() {
     createSqliteDatabase,
     createTechnicalPlanProjectSchema,
     getTechnicalPlanProjectTablePrefix,
+    schemaVersion,
   } = require('./sqliteDatabase.cjs');
   const userDataPath = fs.mkdtempSync(path.join(os.tmpdir(), 'yibiao-global-facts-mode-migration-'));
   const freshUserDataPath = fs.mkdtempSync(path.join(os.tmpdir(), 'yibiao-global-facts-mode-fresh-'));
@@ -100,8 +101,8 @@ function runMigrationAssertions() {
         `).get(),
       },
       {
-        schemaVersion: 37,
-        userVersion: 37,
+        schemaVersion,
+        userVersion: schemaVersion,
         step: 'outline',
         tender_file_name: '保留的招标文件.docx',
         outline_project_name: '保留的单例项目',
@@ -140,7 +141,7 @@ function runMigrationAssertions() {
 
     database.close();
     database = createSqliteDatabase(app);
-    assert.equal(database.db.pragma('user_version', { simple: true }), 37);
+    assert.equal(database.db.pragma('user_version', { simple: true }), schemaVersion);
     assert.equal(
       database.db.prepare(`SELECT global_facts_mode FROM ${quoteIdentifier(fabricateProjectMeta)} WHERE id = 1`).get()
         .global_facts_mode,

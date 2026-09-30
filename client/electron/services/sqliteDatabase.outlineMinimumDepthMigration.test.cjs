@@ -26,6 +26,7 @@ function getColumns(db, tableName) {
 function runMigrationAssertions() {
   const {
     createSqliteDatabase,
+    schemaVersion,
     createTechnicalPlanProjectSchema,
     getTechnicalPlanProjectTablePrefix,
   } = require('./sqliteDatabase.cjs');
@@ -42,8 +43,8 @@ function runMigrationAssertions() {
     database.close();
 
     database = createSqliteDatabase(app);
-    assert.equal(database.schemaVersion, 37);
-    assert.equal(database.db.pragma('user_version', { simple: true }), 37);
+    assert.equal(database.schemaVersion, schemaVersion);
+    assert.equal(database.db.pragma('user_version', { simple: true }), schemaVersion);
     for (const tableName of ['technical_plan_meta', projectMeta]) {
       const columns = getColumns(database.db, tableName);
       assert.equal(columns.has('outline_minimum_depth'), true, `${tableName} missing outline_minimum_depth`);

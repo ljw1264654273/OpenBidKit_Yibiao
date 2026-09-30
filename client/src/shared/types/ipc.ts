@@ -3,6 +3,7 @@ import type { DuplicateCheckWorkspacePatch, DuplicateCheckWorkspaceState, FileSe
 import type { ClientConfig, ConfigSaveResult, ImageModelTestResult, ModelInfoResult, ModelListResult, RemoteKnowledgeConnectionConfig, UpdateChannel } from './config';
 import type { KnowledgeAnalysisSnapshot, KnowledgeBaseEvent, KnowledgeBaseId, KnowledgeBaseIndex, KnowledgeBaseIndexMutationResult, KnowledgeBaseIndexOptions, KnowledgeBaseMutationResult, KnowledgeBaseRetryDocumentResult, KnowledgeBaseStartMatchingResult, KnowledgeBaseUploadResult, KnowledgeDocument, KnowledgeFolder, KnowledgeItem } from '../../features/knowledge-base/types';
 import type { RejectionCheckWorkspacePatch, RejectionCheckWorkspaceState, RejectionDocumentRole } from '../../features/rejection-check/types';
+import type { TechnicalPlanCheckFileRole, TechnicalPlanCheckState } from '../../features/technical-plan-check/types';
 import type { BidAnalysisMode, BidAnalysisTaskState, BidSectionMode, ContentGenerationOptions, ContentGenerationPlanState, ContentGenerationProgressDetail, ContentGenerationRuntimeState, ContentGenerationSectionState, DetectedBidSection, GlobalFactGroupState, GlobalFactsMode, SaveOutlineRequest, SaveOutlineSelectionRequest, TechnicalPlanState, TechnicalPlanStep, TechnicalPlanWorkflowKind } from '../../features/technical-plan/types';
 import type { FeasibilityProjectInfo, FeasibilityReportState, FeasibilityReportStep, FeasibilitySaveOutlineRequest, FeasibilitySourceFile } from '../../features/feasibility-report/types';
 import type { ExportFormatConfig, ExportTemplateRecord } from './exportFormat';
@@ -80,6 +81,8 @@ export interface TaskEvent<TState = unknown, TRejectionCheckState = unknown, TDu
   task: TaskEventTask;
   technicalPlan?: TState;
   technicalPlanPatch?: Partial<TechnicalPlanState>;
+  technicalPlanCheck?: TechnicalPlanCheckState;
+  technicalPlanCheckPatch?: Partial<TechnicalPlanCheckState>;
   bidItem?: BidAnalysisTaskState;
   outlineData?: OutlineData | null;
   contentSection?: ContentGenerationSectionState;
@@ -799,6 +802,12 @@ export interface YibiaoBridge {
     saveChapterContent: (payload: { nodeId: string; content: string }) => Promise<Partial<FeasibilityReportState>>;
     clear: () => Promise<{ success: boolean; message?: string }>;
   };
+  technicalPlanCheck: {
+    loadState: () => Promise<TechnicalPlanCheckState>;
+    selectInput: (role: TechnicalPlanCheckFileRole) => Promise<TechnicalPlanCheckState>;
+    selectOutput: () => Promise<TechnicalPlanCheckState>;
+    openReport: () => Promise<{ success: boolean; message?: string }>;
+  };
   duplicateCheck: {
     loadState: () => Promise<DuplicateCheckWorkspaceState>;
     saveFiles: (payload: Pick<DuplicateCheckWorkspaceState, 'tenderFile' | 'tenderFiles' | 'bidFiles'> & Partial<Pick<DuplicateCheckWorkspaceState, 'step' | 'activeAnalysisTab'>>) => Promise<void>;
@@ -827,6 +836,7 @@ export interface YibiaoBridge {
     export: (config: ExportFormatConfig) => Promise<Omit<TemplateFileResult, 'template'>>;
   };
   tasks: {
+    startTechnicalPlanCheck: () => Promise<TaskEventTask>;
     startBidSectionExtraction: (payload?: unknown) => Promise<unknown>;
     resetBidSectionDownstream: (payload: { projectId?: string } | string) => Promise<{ success: boolean; message?: string }>;
     startBidAnalysis: (payload: unknown) => Promise<unknown>;

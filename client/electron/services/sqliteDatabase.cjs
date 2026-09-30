@@ -3,7 +3,7 @@ const path = require('node:path');
 const Database = require('better-sqlite3');
 const { getWorkspaceDatabasePath } = require('../utils/paths.cjs');
 
-const schemaVersion = 37;
+const schemaVersion = 38;
 
 function safeProjectTablePart(projectId) {
   return String(projectId || '')
@@ -1214,6 +1214,49 @@ function createRejectionCheckSchema(db) {
   `);
 }
 
+function createTechnicalPlanCheckSchema(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS technical_plan_check_meta (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      tender_file_json TEXT,
+      requirements_file_json TEXT,
+      scoring_file_json TEXT,
+      proposal_file_json TEXT,
+      output_path TEXT NOT NULL DEFAULT '',
+      report_path TEXT NOT NULL DEFAULT '',
+      summary_json TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS technical_plan_check_tasks (
+      type TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      progress INTEGER NOT NULL DEFAULT 0,
+      stats_json TEXT,
+      error TEXT,
+      started_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TRIGGER IF NOT EXISTS trg_technical_plan_check_task_logs_delete
+    AFTER DELETE ON technical_plan_check_tasks
+    BEGIN
+      DELETE FROM task_logs
+      WHERE task_domain = 'technical-plan-check' AND task_type = OLD.type AND task_id = OLD.task_id;
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS trg_technical_plan_check_task_logs_replace
+    AFTER UPDATE OF task_id ON technical_plan_check_tasks
+    WHEN OLD.task_id <> NEW.task_id
+    BEGIN
+      DELETE FROM task_logs
+      WHERE task_domain = 'technical-plan-check' AND task_type = OLD.type AND task_id = OLD.task_id;
+    END;
+  `);
+}
+
 function addColumnIfMissing(db, tableName, columnName, columnType) {
   if (!getExistingTables(db).has(tableName)) return;
   const columns = getExistingColumns(db, tableName);
@@ -1657,6 +1700,22 @@ const schemaHealthTableGroups = [
     tables: ['bid_project_duplicate_matches'],
     repair: ensureBidProjectDuplicateMatches,
   },
+  {
+    version: 38,
+    tables: ['technical_plan_check_meta', 'technical_plan_check_tasks'],
+    repair: createTechnicalPlanCheckSchema,
+  },
+];
+
+const schemaHealthTriggerGroups = [
+  {
+    version: 38,
+    triggers: [
+      'trg_technical_plan_check_task_logs_delete',
+      'trg_technical_plan_check_task_logs_replace',
+    ],
+    repair: createTechnicalPlanCheckSchema,
+  },
 ];
 
 function removeKnowledgeMigrationMeta(db) {
@@ -1905,6 +1964,23 @@ function ensureWorkspaceSchemaHealth(db, targetVersion = schemaVersion, onStatus
     existingTables = getExistingTables(db);
   }
 
+  let existingTriggers = new Set(
+    db.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger'").all().map((row) => row.name),
+  );
+  for (const group of schemaHealthTriggerGroups) {
+    if (group.version > targetVersion) continue;
+    if (group.triggers.every((triggerName) => existingTriggers.has(triggerName))) continue;
+    emitDatabaseStatus(onStatus, {
+      phase: 'repairing',
+      message: '正在修复本地数据库触发器',
+      targetVersion,
+    });
+    group.repair(db);
+    existingTriggers = new Set(
+      db.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger'").all().map((row) => row.name),
+    );
+  }
+
   const columnCache = new Map();
   for (const group of schemaHealthColumnGroups) {
     if (group.version > targetVersion || !existingTables.has(group.table)) continue;
@@ -2138,6 +2214,11 @@ const migrations = [
     version: 37,
     description: '技术方案新增目录最低层级设置和生效快照',
     up: addTechnicalPlanOutlineMinimumDepth,
+  },
+  {
+    version: 38,
+    description: '新增技术方案检查 SQLite 状态与任务表结构',
+    up: createTechnicalPlanCheckSchema,
   },
 ];
 

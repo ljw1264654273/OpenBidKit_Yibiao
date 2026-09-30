@@ -5,7 +5,7 @@ const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 
-const { createSqliteDatabase } = require('./sqliteDatabase.cjs');
+const { createSqliteDatabase, schemaVersion } = require('./sqliteDatabase.cjs');
 
 const variantColumns = [
   'derived_from_project_id',
@@ -47,8 +47,8 @@ function runVariantMigrationAssertions(previousSchema) {
     database.close();
 
     database = createSqliteDatabase(app);
-    assert.equal(database.schemaVersion, 37);
-    assert.equal(database.db.pragma('user_version', { simple: true }), 37);
+    assert.equal(database.schemaVersion, schemaVersion);
+    assert.equal(database.db.pragma('user_version', { simple: true }), schemaVersion);
     assert.deepEqual(
       database.db.prepare('SELECT name, province, city FROM knowledge_folders WHERE folder_id = ?').get('folder'),
       {

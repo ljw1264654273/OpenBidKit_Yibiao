@@ -6,6 +6,16 @@ const test = require('node:test');
 const source = fs.readFileSync(path.join(__dirname, 'index.cjs'), 'utf8');
 const channelBlock = source.match(/const workspaceDatabaseChannels = \[([\s\S]*?)\n\];/)?.[1] || '';
 
+test('workspace database lifecycle includes technical plan check commands', () => {
+  for (const channel of [
+    'technical-plan-check:load-state', 'technical-plan-check:select-input',
+    'technical-plan-check:select-output', 'technical-plan-check:open-report',
+    'tasks:start-technical-plan-check',
+  ]) {
+    assert.match(channelBlock, new RegExp(`['"]${channel}['"]`), channel);
+  }
+});
+
 test('workspace database lifecycle handlers include expansion import channels', () => {
   for (const channel of [
     'bid-project:prepare-expansion-import',

@@ -1,0 +1,42 @@
+{
+  "summary": {
+    "total": 726,
+    "issue": 165,
+    "review": 561,
+    "info": 0,
+    "req_unresp": 0,
+    "req_part": 0,
+    "score_uncov": 0,
+    "score_pcov": 0,
+    "internal_total": 726
+  },
+  "requirementCount": 17,
+  "scoreItemCount": 7,
+  "lineCounts": {
+    "tenderLines": 209,
+    "requirementLines": 32,
+    "scoreLines": 8,
+    "proposalLines": 8397
+  },
+  "findingsSHA256": "c0c0ce68baa1ca39198c3ace7889bde7e6e29b183e49c9bfbf55e8148acdf307",
+  "formatStats": {
+    "cap": 30,
+    "rawTotal": 6547,
+    "returnedTotal": 207,
+    "truncatedTotal": 6340,
+    "rules": {
+      "format.alignment": { "rawCount": 3405, "returnedCount": 30, "truncatedCount": 3375 },
+      "format.grid": { "rawCount": 1746, "returnedCount": 30, "truncatedCount": 1716 },
+      "format.indent": { "rawCount": 1128, "returnedCount": 30, "truncatedCount": 1098 },
+      "format.font-size": { "rawCount": 55, "returnedCount": 30, "truncatedCount": 25 },
+      "format.table-center": { "rawCount": 14, "returnedCount": 14, "truncatedCount": 0 },
+      "format.image-center": { "rawCount": 107, "returnedCount": 30, "truncatedCount": 77 },
+      "format.chapter-score": { "rawCount": 7, "returnedCount": 7, "truncatedCount": 0 },
+      "format.numbering-mixed": { "rawCount": 1, "returnedCount": 1, "truncatedCount": 0 },
+      "format.numbering-manual-styles": { "rawCount": 1, "returnedCount": 1, "truncatedCount": 0 },
+      "format.numbering-auto-styles": { "rawCount": 1, "returnedCount": 1, "truncatedCount": 0 },
+      "language.english-unknown": { "rawCount": 79, "returnedCount": 30, "truncatedCount": 49 },
+      "language.english-variant": { "rawCount": 3, "returnedCount": 3, "truncatedCount": 0 }
+    }
+  }
+}
