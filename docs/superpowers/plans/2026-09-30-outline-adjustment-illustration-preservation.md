@@ -63,9 +63,15 @@ for (const candidate of [missingOrigin, duplicateOrigin, forgedExistingOrigin, i
 
 - [ ] **Step 2: 运行测试确认 RED**
 
-Run: `cd client; node --test electron/services/outlineAdjustmentDiff.test.cjs`
+Run:
 
-Expected: FAIL，因为模块/API 尚不存在。
+```powershell
+cd client
+node --test electron/services/outlineAdjustmentDiff.test.cjs
+node --test electron/services/outlineAdjustmentTask.baselineValidation.test.cjs
+```
+
+Expected: 第一个命令因差异分类模块/API 尚不存在而 FAIL；第二个命令必须明确因新增的根节点/嵌套节点缺少 `origin_id` 的 Schema 断言而 FAIL。检查这两个 RED 原因后才能修改实现或 Schema。
 
 - [ ] **Step 3: 实现最小差异分类器**
 
