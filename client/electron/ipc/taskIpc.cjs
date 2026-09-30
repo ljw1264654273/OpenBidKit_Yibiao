@@ -17,6 +17,10 @@ function registerTaskIpc({ taskService }) {
     taskService.subscribe(event.sender);
     return taskService.startBidAnalysis(payload);
   });
+  ipcMain.handle('tasks:start-historical-adaptation-difference', (event, payload) => {
+    taskService.subscribe(event.sender);
+    return taskService.startHistoricalAdaptationDifference(payload);
+  });
   ipcMain.handle('tasks:start-outline-generation', (event, payload) => {
     taskService.subscribe(event.sender);
     return taskService.startOutlineGeneration(payload);

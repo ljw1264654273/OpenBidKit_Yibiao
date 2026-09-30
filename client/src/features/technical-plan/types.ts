@@ -6,7 +6,7 @@ export type BidAnalysisMode = 'key' | 'full' | 'custom';
 export type BidAnalysisTaskStatus = 'idle' | 'running' | 'success' | 'error';
 export type BidSectionMode = 'single' | 'multiple';
 export type BidSectionExtractionStatus = 'idle' | 'running' | 'success' | 'error';
-export type BackgroundTaskType = 'bid-section-extraction' | 'bid-analysis' | 'outline-generation' | 'outline-adjustment' | 'global-facts-generation' | 'global-facts-adjustment' | 'content-generation';
+export type BackgroundTaskType = 'bid-section-extraction' | 'bid-analysis' | 'historical-adaptation-difference' | 'outline-generation' | 'outline-adjustment' | 'global-facts-generation' | 'global-facts-adjustment' | 'content-generation';
 export type BackgroundTaskStatus = 'running' | 'pausing' | 'paused' | 'success' | 'error';
 export type ContentGenerationSectionStatus = 'idle' | 'running' | 'success' | 'error' | 'ignored';
 export type ContentGenerationPhase = 'planning' | 'restoring' | 'generating' | 'section-word-adjusting' | 'original-auditing' | 'auditing' | 'table-cleaning' | 'final-section-word-adjusting' | 'total-word-adjusting' | 'illustration-planning' | 'illustration-generating' | 'done';
@@ -226,6 +226,22 @@ export interface BidAnalysisTaskState {
 
 export type BidAnalysisTasks = Record<string, BidAnalysisTaskState>;
 
+export type HistoricalAdaptationDifferenceCategory = '删除内容' | '名称地点替换' | '数据更新' | '工期进度更新' | '其他人工判断';
+export type HistoricalAdaptationDifferenceDecision = 'pending' | 'confirmed' | 'ignored';
+
+export interface HistoricalAdaptationDifference {
+  id: string;
+  category: HistoricalAdaptationDifferenceCategory;
+  priority: 'high' | 'medium' | 'low';
+  title: string;
+  historical_location: string;
+  historical_excerpt: string;
+  tender_requirement: string;
+  action: string;
+  note: string;
+  decision: HistoricalAdaptationDifferenceDecision;
+}
+
 export interface GlobalFactGroupState {
   id: string;
   title: string;
@@ -422,6 +438,8 @@ export interface TechnicalPlanState {
   bidAnalysisSelectedTaskIds: string[];
   bidAnalysisTasks: BidAnalysisTasks;
   bidAnalysisProgress: number;
+  historicalAdaptationDifferences: HistoricalAdaptationDifference[];
+  historicalAdaptationDifferenceConfirmedAt?: string;
   bidSectionMode: BidSectionMode;
   bidSections: DetectedBidSection[];
   bidSectionExtractionStatus: BidSectionExtractionStatus;
@@ -436,6 +454,7 @@ export interface TechnicalPlanState {
   remoteKnowledgeScopes: RemoteKnowledgeScope[];
   bidSectionExtractionTask?: BackgroundTaskState;
   bidAnalysisTask?: BackgroundTaskState;
+  historicalAdaptationDifferenceTask?: BackgroundTaskState;
   outlineGenerationTask?: BackgroundTaskState;
   outlineAdjustmentTask?: BackgroundTaskState;
   globalFactsMode: GlobalFactsMode;

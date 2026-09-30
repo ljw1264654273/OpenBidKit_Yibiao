@@ -1,6 +1,7 @@
 const crypto = require('node:crypto');
 const { runBidSectionExtractionTask } = require('./bidSectionExtractionTask.cjs');
 const { runBidAnalysisTask } = require('./bidAnalysisTask.cjs');
+const { runHistoricalAdaptationDifferenceTask } = require('./historicalAdaptationDifferenceTask.cjs');
 const { runContentGenerationTask } = require('./contentGenerationTask.cjs');
 const { runGlobalFactsTaskV2 } = require('./globalFactsTaskV2.cjs');
 const { runOutlineGenerationTaskV2 } = require('./outlineGenerationTaskV2.cjs');
@@ -55,6 +56,15 @@ const taskDefinitions = {
     lockPolicy: 'scope-exclusive',
     stateKey: 'technicalPlan',
     field: 'bidAnalysisTask',
+  },
+  'historical-adaptation-difference': {
+    label: '历史标书差异分析',
+    group: 'technical-plan',
+    groupLabel: '历史标书适配',
+    step: 3,
+    lockPolicy: 'scope-exclusive',
+    stateKey: 'technicalPlan',
+    field: 'historicalAdaptationDifferenceTask',
   },
   'outline-generation': {
     label: '目录生成',
@@ -485,6 +495,13 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
           'contentGenerationRuntime',
         ]);
       }
+    }
+
+    if (task.type === 'historical-adaptation-difference') {
+      copyPatchFields(patch, state, [
+        'historicalAdaptationDifferences',
+        'historicalAdaptationDifferenceConfirmedAt',
+      ]);
     }
 
     if (task.type === 'bid-section-extraction') {
@@ -1502,6 +1519,25 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
     emit(recoveredTask, buildSnapshot(getTaskDefinition('bid-analysis'), partial, recoveredTask));
   }
 
+  function recoverInterruptedHistoricalAdaptationDifferenceTask(technicalPlan, projectId, workspaceStore = technicalPlanStore) {
+    if (hasActiveTask('historical-adaptation-difference', projectId)) return;
+    const task = technicalPlan.historicalAdaptationDifferenceTask;
+    if (!isActiveTaskStatus(task?.status)) return;
+    const message = '上次历史标书差异分析未完成，请重新分析';
+    const recoveredTask = {
+      ...task,
+      status: 'error',
+      progress: Math.max(0, Math.min(99, Number(task.progress || 0) || 0)),
+      pause_requested: false,
+      error: message,
+      logs: [...(Array.isArray(task.logs) ? task.logs : []), message],
+      updated_at: now(),
+    };
+    const partial = { historicalAdaptationDifferenceTask: recoveredTask };
+    workspaceStore.updateTechnicalPlanWithoutReload(partial);
+    emit(recoveredTask, buildSnapshot(getTaskDefinition('historical-adaptation-difference'), partial, recoveredTask));
+  }
+
   function recoverInterruptedBidSectionExtractionTask(technicalPlan, projectId, workspaceStore = technicalPlanStore) {
     if (hasActiveTask('bid-section-extraction', projectId)) {
       return;
@@ -1743,6 +1779,7 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
   technicalPlanRecoveryEntries.forEach(({ projectId, store, state }) => {
     recoverInterruptedBidSectionExtractionTask(state, projectId, store);
     recoverInterruptedBidAnalysisTask(state, projectId, store);
+    recoverInterruptedHistoricalAdaptationDifferenceTask(state, projectId, store);
     recoverInterruptedOutlineGenerationTask(state, projectId, store);
     recoverInterruptedOutlineAdjustmentTask(state, projectId, store);
     recoverInterruptedContentGenerationTask(state, projectId, store);
@@ -1803,7 +1840,34 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
       return { success: true, message: '当前标书下游数据已重置' };
     },
     startBidAnalysis(payload) {
-      return startManagedTask('bid-analysis', payload, runBidAnalysisTask);
+      const projectId = getProjectId(payload);
+      const project = bidProjectManager?.getProject?.(projectId);
+      const initialPartial = project?.projectType === 'historical-bid-adaptation'
+        ? {
+          historicalAdaptationDifferenceTask: undefined,
+          historicalAdaptationDifferences: [],
+          historicalAdaptationDifferenceConfirmedAt: undefined,
+        }
+        : {};
+      return startManagedTask(
+        'bid-analysis',
+        payload,
+        taskRunners.bidAnalysis || runBidAnalysisTask,
+        initialPartial,
+      );
+    },
+    startHistoricalAdaptationDifference(payload) {
+      const projectId = getProjectId(payload);
+      const project = bidProjectManager?.getProject?.(projectId);
+      if (project?.projectType !== 'historical-bid-adaptation') {
+        throw new Error('当前项目不是历史标书适配项目');
+      }
+      return startManagedTask(
+        'historical-adaptation-difference',
+        payload,
+        taskRunners.historicalAdaptationDifference || runHistoricalAdaptationDifferenceTask,
+        { historicalAdaptationDifferenceConfirmedAt: undefined },
+      );
     },
     startOutlineGeneration(payload) {
       const outlineMode = payload?.outline_mode === 'standalone-technical'

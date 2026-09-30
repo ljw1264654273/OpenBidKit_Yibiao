@@ -150,6 +150,9 @@ CREATE TABLE IF NOT EXISTS technical_plan_meta (
   outline_project_overview TEXT,
   content_generation_options_json TEXT,
   content_generation_runtime_json TEXT,
+  -- v39 历史标书适配差异台账及全部处理完成时间。
+  historical_adaptation_differences_json TEXT,
+  historical_adaptation_difference_confirmed_at TEXT,
   -- v6 兼容字段（旧版客户端遗留，新代码不再使用但保留以兼容）
   current_bid_section_id TEXT,
   bid_sections_extracted INTEGER,

@@ -4,7 +4,7 @@ import type { ClientConfig, ConfigSaveResult, ImageModelTestResult, ModelInfoRes
 import type { KnowledgeAnalysisSnapshot, KnowledgeBaseEvent, KnowledgeBaseId, KnowledgeBaseIndex, KnowledgeBaseIndexMutationResult, KnowledgeBaseIndexOptions, KnowledgeBaseMutationResult, KnowledgeBaseRetryDocumentResult, KnowledgeBaseStartMatchingResult, KnowledgeBaseUploadResult, KnowledgeDocument, KnowledgeFolder, KnowledgeItem } from '../../features/knowledge-base/types';
 import type { RejectionCheckWorkspacePatch, RejectionCheckWorkspaceState, RejectionDocumentRole } from '../../features/rejection-check/types';
 import type { TechnicalPlanCheckFileRole, TechnicalPlanCheckState } from '../../features/technical-plan-check/types';
-import type { BidAnalysisMode, BidAnalysisTaskState, BidSectionMode, ContentGenerationOptions, ContentGenerationPlanState, ContentGenerationProgressDetail, ContentGenerationRuntimeState, ContentGenerationSectionState, DetectedBidSection, GlobalFactGroupState, GlobalFactsMode, SaveOutlineRequest, SaveOutlineSelectionRequest, TechnicalPlanState, TechnicalPlanStep, TechnicalPlanWorkflowKind } from '../../features/technical-plan/types';
+import type { BidAnalysisMode, BidAnalysisTaskState, BidSectionMode, ContentGenerationOptions, ContentGenerationPlanState, ContentGenerationProgressDetail, ContentGenerationRuntimeState, ContentGenerationSectionState, DetectedBidSection, GlobalFactGroupState, GlobalFactsMode, HistoricalAdaptationDifference, SaveOutlineRequest, SaveOutlineSelectionRequest, TechnicalPlanState, TechnicalPlanStep, TechnicalPlanWorkflowKind } from '../../features/technical-plan/types';
 import type { FeasibilityProjectInfo, FeasibilityReportState, FeasibilityReportStep, FeasibilitySaveOutlineRequest, FeasibilitySourceFile } from '../../features/feasibility-report/types';
 import type { ExportFormatConfig, ExportTemplateRecord } from './exportFormat';
 import type { OutlineData, OutlineExpansionMode, OutlineMinimumDepth, OutlineMode, OutlineWordControlOptions } from './outline';
@@ -759,6 +759,7 @@ export interface YibiaoBridge {
     readOriginalPlanMarkdown: (payload?: { projectId?: string }) => Promise<string>;
     updateStep: (payload: { projectId?: string; step: TechnicalPlanStep } | TechnicalPlanStep) => Promise<void>;
     saveBidAnalysisConfig: (payload: { projectId?: string; mode: BidAnalysisMode; selectedTaskIds: string[]; bidSectionMode?: BidSectionMode }) => Promise<void>;
+    saveHistoricalAdaptationDifferences: (payload: { projectId?: string; differences: HistoricalAdaptationDifference[] }) => Promise<TechnicalPlanState>;
     saveOutlineConfig: (payload: { projectId?: string; referenceKnowledgeDocumentIds: string[]; remoteKnowledgeScopes?: RemoteKnowledgeScope[]; outlineMode?: OutlineMode; outlineExpansionMode?: OutlineExpansionMode; wordControlOptions: OutlineWordControlOptions; minimumDepth: OutlineMinimumDepth }) => Promise<void>;
     saveOutlineSelection: (payload: SaveOutlineSelectionRequest) => Promise<{ success: boolean }>;
     saveOutline: (payload: SaveOutlineRequest & { projectId?: string }) => Promise<Partial<TechnicalPlanState>>;
@@ -840,6 +841,7 @@ export interface YibiaoBridge {
     startBidSectionExtraction: (payload?: unknown) => Promise<unknown>;
     resetBidSectionDownstream: (payload: { projectId?: string } | string) => Promise<{ success: boolean; message?: string }>;
     startBidAnalysis: (payload: unknown) => Promise<unknown>;
+    startHistoricalAdaptationDifference: (payload: { projectId: string }) => Promise<unknown>;
     startOutlineGeneration: (payload: StartOutlineGenerationPayload) => Promise<unknown>;
     suppressOutlineSelectionAutoConfirmation: (payload: { projectId?: string; taskId: string }) => Promise<{ success: boolean }>;
     startGlobalFactsGeneration: (payload: unknown) => Promise<unknown>;

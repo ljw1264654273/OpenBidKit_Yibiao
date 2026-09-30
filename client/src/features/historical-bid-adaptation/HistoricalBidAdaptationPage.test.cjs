@@ -50,7 +50,7 @@ test('项目创建后开放招标基线并保留材料回看入口', () => {
   assert.match(page, /variant="tender-baseline"/);
   assert.match(page, /onClick=\{\(\) => onStageChange\(index\)\}/);
   assert.match(page, /onContinue=\{\(\) => onStageChange\(1\)\}/);
-  assert.match(page, /disabled=\{index > 1 \|\| \(!projectReady && index > 0\)\}/);
+  assert.match(page, /disabled=\{disabled\}/);
 });
 
 test('招标基线订阅项目后台任务并合并持久化结果', () => {
@@ -68,4 +68,30 @@ test('招标基线进度更新使用函数式合并以保留实时任务状态',
 
   assert.match(page, /onProgressChange=\{\(progress\) => onStateChange\(\(previous\) =>/);
   assert.doesNotMatch(page, /onProgressChange=\{\(progress\) => onStateChange\(\{ \.\.\.state,/);
+});
+
+test('完整招标基线开放差异确认且目录适配继续锁定', () => {
+  const page = readFileSync(pagePath, 'utf8');
+
+  assert.match(page, /import AdaptationDifferencePage/);
+  assert.match(page, /baselineComplete && index === 2/);
+  assert.match(page, /index > 2/);
+  assert.match(page, /differenceComplete/);
+  assert.match(page, /historicalAdaptationDifferenceTask/);
+  const component = readFileSync(join(__dirname, 'components/AdaptationDifferencePage.tsx'), 'utf8');
+  assert.match(component, /historicalAdaptationDifferences/);
+});
+
+test('差异确认页面支持类型筛选编辑及逐项处理', () => {
+  const componentPath = join(__dirname, 'components/AdaptationDifferencePage.tsx');
+  assert.equal(existsSync(componentPath), true, '应提供独立差异确认组件');
+  const component = readFileSync(componentPath, 'utf8');
+
+  for (const label of ['全部差异', '待确认', '删除内容', '名称地点替换', '数据更新', '工期进度更新', '其他人工判断']) {
+    assert.match(component, new RegExp(label));
+  }
+  assert.match(component, /saveHistoricalAdaptationDifferences/);
+  assert.match(component, /开始差异分析/);
+  assert.match(component, /确认此项/);
+  assert.match(component, /无需处理/);
 });

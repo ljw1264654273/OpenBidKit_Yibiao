@@ -3,7 +3,7 @@ const path = require('node:path');
 const Database = require('better-sqlite3');
 const { getWorkspaceDatabasePath } = require('../utils/paths.cjs');
 
-const schemaVersion = 38;
+const schemaVersion = 39;
 
 function safeProjectTablePart(projectId) {
   return String(projectId || '')
@@ -64,6 +64,8 @@ function createTechnicalPlanProjectSchema(db, projectId) {
       outline_project_overview TEXT,
       content_generation_options_json TEXT,
       content_generation_runtime_json TEXT,
+      historical_adaptation_differences_json TEXT,
+      historical_adaptation_difference_confirmed_at TEXT,
       selected_section_id TEXT,
       selected_section_title TEXT,
       selected_section_head_line TEXT,
@@ -255,6 +257,8 @@ function createInitialSchema(db) {
       outline_project_overview TEXT,
       content_generation_options_json TEXT,
       content_generation_runtime_json TEXT,
+      historical_adaptation_differences_json TEXT,
+      historical_adaptation_difference_confirmed_at TEXT,
       selected_section_id TEXT,
       selected_section_title TEXT,
       selected_section_head_line TEXT,
@@ -540,6 +544,19 @@ function addTechnicalPlanOutlineMinimumDepth(db) {
   for (const { name } of tables) {
     addColumnIfMissing(db, name, 'outline_minimum_depth', 'INTEGER NOT NULL DEFAULT 0');
     addColumnIfMissing(db, name, 'outline_minimum_depth_snapshot', 'INTEGER');
+  }
+}
+
+function addHistoricalAdaptationDifferenceState(db) {
+  const tables = db.prepare(`
+    SELECT name
+    FROM sqlite_master
+    WHERE type = 'table'
+      AND (name = 'technical_plan_meta' OR name GLOB 'technical_plan_project_*_meta')
+  `).all();
+  for (const { name } of tables) {
+    addColumnIfMissing(db, name, 'historical_adaptation_differences_json', 'TEXT');
+    addColumnIfMissing(db, name, 'historical_adaptation_difference_confirmed_at', 'TEXT');
   }
 }
 
@@ -1879,6 +1896,14 @@ const schemaHealthColumnGroups = [
     },
   },
   {
+    version: 39,
+    table: 'technical_plan_meta',
+    columns: {
+      historical_adaptation_differences_json: 'TEXT',
+      historical_adaptation_difference_confirmed_at: 'TEXT',
+    },
+  },
+  {
     version: 19,
     table: 'technical_plan_outline_nodes',
     columns: {
@@ -2026,6 +2051,9 @@ function ensureWorkspaceSchemaHealth(db, targetVersion = schemaVersion, onStatus
   }
   if (targetVersion >= 37) {
     addTechnicalPlanOutlineMinimumDepth(db);
+  }
+  if (targetVersion >= 39) {
+    addHistoricalAdaptationDifferenceState(db);
   }
 }
 
@@ -2219,6 +2247,11 @@ const migrations = [
     version: 38,
     description: '新增技术方案检查 SQLite 状态与任务表结构',
     up: createTechnicalPlanCheckSchema,
+  },
+  {
+    version: 39,
+    description: '历史标书适配新增差异确认状态',
+    up: addHistoricalAdaptationDifferenceState,
   },
 ];
 

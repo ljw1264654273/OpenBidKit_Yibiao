@@ -30,6 +30,7 @@ const { GLOBAL_FACTS_AGENT_TASK_KEY } = require('./globalFactsAgentV2Config.cjs'
 const { normalizeOutlineHeadingTitles } = require('./mandatoryBidContentRules.cjs');
 const { getProjectAgentTaskKey } = require('./agentTaskKeys.cjs');
 const { buildIllustrationBlock, replaceIllustrationBlock } = require('./contentIllustrationReview.cjs');
+const { normalizeHistoricalAdaptationDifferences } = require('./historicalAdaptationDifferenceTask.cjs');
 const {
   reconcileIllustrationItems,
   removeIllustrationBlock,
@@ -84,6 +85,8 @@ const initialState = {
   bidAnalysisSelectedTaskIds: [],
   bidAnalysisTasks: {},
   bidAnalysisProgress: 0,
+  historicalAdaptationDifferences: [],
+  historicalAdaptationDifferenceConfirmedAt: undefined,
   bidSectionMode: 'single',
   bidSections: [],
   bidSectionExtractionStatus: 'idle',
@@ -98,6 +101,7 @@ const initialState = {
   remoteKnowledgeScopes: [],
   bidSectionExtractionTask: undefined,
   bidAnalysisTask: undefined,
+  historicalAdaptationDifferenceTask: undefined,
   outlineGenerationTask: undefined,
   globalFactsMode: 'omit',
   globalFactsTask: undefined,
@@ -116,6 +120,7 @@ const initialState = {
 const taskFieldTypes = {
   bidSectionExtractionTask: 'bid-section-extraction',
   bidAnalysisTask: 'bid-analysis',
+  historicalAdaptationDifferenceTask: 'historical-adaptation-difference',
   outlineGenerationTask: 'outline-generation',
   outlineAdjustmentTask: 'outline-adjustment',
   globalFactsTask: 'global-facts-generation',
@@ -126,6 +131,7 @@ const taskFieldTypes = {
 
 const taskTypeFields = Object.fromEntries(Object.entries(taskFieldTypes).map(([field, type]) => [type, field]));
 const originalPlanDownstreamTaskTypes = Object.freeze([
+  'historical-adaptation-difference',
   'outline-generation',
   'outline-adjustment',
   'global-facts-generation',
@@ -2471,6 +2477,8 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       bid_section_extraction_error: null,
       selected_section_id: null,
       selected_section_title: null,
+      historical_adaptation_differences_json: null,
+      historical_adaptation_difference_confirmed_at: null,
     });
   }
 
@@ -2495,6 +2503,8 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       outline_minimum_depth_snapshot: null,
       outline_project_name: null,
       outline_project_overview: null,
+      historical_adaptation_differences_json: null,
+      historical_adaptation_difference_confirmed_at: null,
     });
   }
 
@@ -2555,6 +2565,8 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       content_generation_runtime_json: null,
       outline_word_control_snapshot_json: null,
       outline_minimum_depth_snapshot: null,
+      historical_adaptation_differences_json: null,
+      historical_adaptation_difference_confirmed_at: null,
     });
   }
 
@@ -2743,6 +2755,14 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     }
     if (hasOwn(partial, 'contentGenerationOptions')) metaUpdates.content_generation_options_json = jsonOrNull(partial.contentGenerationOptions);
     if (!invalidatesContentGeneration && hasOwn(partial, 'contentGenerationRuntime')) metaUpdates.content_generation_runtime_json = jsonOrNull(partial.contentGenerationRuntime);
+    if (hasOwn(partial, 'historicalAdaptationDifferences')) {
+      metaUpdates.historical_adaptation_differences_json = jsonOrNull(normalizeHistoricalAdaptationDifferences(partial.historicalAdaptationDifferences));
+    }
+    if (hasOwn(partial, 'historicalAdaptationDifferenceConfirmedAt')) {
+      metaUpdates.historical_adaptation_difference_confirmed_at = partial.historicalAdaptationDifferenceConfirmedAt
+        ? String(partial.historicalAdaptationDifferenceConfirmedAt)
+        : null;
+    }
 
     if (Object.keys(metaUpdates).length) updateMeta(metaUpdates);
 
@@ -2838,6 +2858,8 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       bidAnalysisSelectedTaskIds,
       bidAnalysisTasks,
       bidAnalysisProgress: calculateBidProgress(bidAnalysisMode, bidAnalysisTasks, bidAnalysisSelectedTaskIds),
+      historicalAdaptationDifferences: normalizeHistoricalAdaptationDifferences(safeJsonParse(meta.historical_adaptation_differences_json, [])),
+      historicalAdaptationDifferenceConfirmedAt: meta.historical_adaptation_difference_confirmed_at || undefined,
       bidSectionMode: normalizeBidSectionMode(meta.bid_section_mode),
       bidSections,
       bidSectionExtractionStatus: bidSectionExtractionTask?.status
@@ -3002,6 +3024,16 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       });
     });
     transaction();
+  }
+
+  function saveHistoricalAdaptationDifferences({ differences } = {}) {
+    const normalized = normalizeHistoricalAdaptationDifferences(differences);
+    const complete = normalized.every((item) => item.decision === 'confirmed' || item.decision === 'ignored');
+    updateMeta({
+      historical_adaptation_differences_json: jsonOrNull(normalized),
+      historical_adaptation_difference_confirmed_at: complete ? now() : null,
+    });
+    return loadTechnicalPlan();
   }
 
   function resetBidSectionDownstream() {
@@ -3736,6 +3768,7 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     setWorkflowKind,
     switchWorkflowKind,
     saveBidAnalysisConfig,
+    saveHistoricalAdaptationDifferences,
     saveOutlineConfig,
     saveOutlineSelection,
     saveOutline,

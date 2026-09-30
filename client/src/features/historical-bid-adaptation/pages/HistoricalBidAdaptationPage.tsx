@@ -5,6 +5,7 @@ import BidAnalysisPage from '../../technical-plan/pages/BidAnalysisPage';
 import { bidAnalysisTasks, isMissingBidAnalysisResult } from '../../technical-plan/services/bidAnalysisWorkflow';
 import type { BackgroundTaskState, TechnicalPlanState } from '../../technical-plan/types';
 import { InlineSpinner } from '../../../shared/ui';
+import AdaptationDifferencePage from '../components/AdaptationDifferencePage';
 
 interface HistoricalBidAdaptationPageProps {
   projectId?: string;
@@ -92,13 +93,15 @@ function AdaptationProjectWorkspace({
       const eventProjectId = event.task.project_id || event.task.projectId || event.task.scope_id;
       if (eventProjectId !== projectId) return;
       const taskType = event.task.type;
-      if (taskType !== 'bid-analysis') return;
+      if (taskType !== 'bid-analysis' && taskType !== 'historical-adaptation-difference') return;
       const technicalPlan = event.technicalPlanPatch || event.technicalPlan || {};
 
       setState((previous) => previous ? {
         ...previous,
         ...technicalPlan,
-        bidAnalysisTask: (technicalPlan.bidAnalysisTask || event.task) as BackgroundTaskState,
+        ...(taskType === 'bid-analysis'
+          ? { bidAnalysisTask: (technicalPlan.bidAnalysisTask || event.task) as BackgroundTaskState }
+          : { historicalAdaptationDifferenceTask: (technicalPlan.historicalAdaptationDifferenceTask || event.task) as BackgroundTaskState }),
         bidAnalysisTasks: {
           ...previous.bidAnalysisTasks,
           ...(technicalPlan.bidAnalysisTasks || {}),
@@ -133,6 +136,9 @@ function AdaptationProjectWorkspace({
     return item?.status === 'success' && !isMissingBidAnalysisResult(definition, item.content);
   });
   const baselineRunning = state.bidAnalysisTask?.status === 'running' || state.bidAnalysisTask?.status === 'pausing';
+  const differenceComplete = Boolean(state.historicalAdaptationDifferenceConfirmedAt);
+  const differenceRunning = state.historicalAdaptationDifferenceTask?.status === 'running'
+    || state.historicalAdaptationDifferenceTask?.status === 'pausing';
 
   return (
     <div className="historical-adaptation-page">
@@ -141,6 +147,8 @@ function AdaptationProjectWorkspace({
         projectReady
         baselineComplete={baselineComplete}
         baselineRunning={baselineRunning}
+        differenceComplete={differenceComplete}
+        differenceRunning={differenceRunning}
         onStageChange={onStageChange}
       />
       <div className="historical-adaptation-content">
@@ -151,12 +159,21 @@ function AdaptationProjectWorkspace({
             onBack={onBack}
             onContinue={() => onStageChange(1)}
           />
-        ) : (
+        ) : activeStage === 1 ? (
           <TenderBaseline
             projectId={projectId}
             state={state}
             project={project}
             baselineComplete={baselineComplete}
+            onStateChange={setState}
+            onBack={onBack}
+            onContinue={() => onStageChange(2)}
+          />
+        ) : (
+          <AdaptationDifferencePage
+            projectId={projectId}
+            state={state}
+            project={project}
             onStateChange={setState}
             onBack={onBack}
           />
@@ -171,26 +188,32 @@ function StageNavigation({
   projectReady,
   baselineComplete = false,
   baselineRunning = false,
+  differenceComplete = false,
+  differenceRunning = false,
   onStageChange,
 }: {
   activeStage: number;
   projectReady: boolean;
   baselineComplete?: boolean;
   baselineRunning?: boolean;
+  differenceComplete?: boolean;
+  differenceRunning?: boolean;
   onStageChange: (stage: number) => void;
 }) {
   return (
     <section className="historical-adaptation-stage-panel" aria-label="历史标书适配流程">
       <div className="historical-adaptation-stages">
         {stages.map((stage, index) => {
-          const disabled = index > 1 || (!projectReady && index > 0);
+          const disabled = index > 2 || (!projectReady && index > 0) || (!baselineComplete && index === 2);
           const current = index === activeStage;
-          const completed = projectReady && (index === 0 || (index === 1 && baselineComplete));
+          const completed = projectReady && (index === 0 || (index === 1 && baselineComplete) || (index === 2 && differenceComplete));
           const status = index === 0
             ? projectReady ? '已完成' : '进行中'
             : index === 1 && projectReady
               ? baselineRunning ? '提取中' : baselineComplete ? '待验收' : '可开始'
-              : '待开放';
+              : baselineComplete && index === 2
+                ? differenceRunning ? '分析中' : differenceComplete ? '待验收' : '可开始'
+                : '待开放';
 
           return (
             <button
@@ -199,7 +222,7 @@ function StageNavigation({
               className={`historical-adaptation-stage${current ? ' is-current' : ''}${completed ? ' is-complete' : ''}${disabled ? ' is-locked' : ''}`}
               aria-current={current ? 'step' : undefined}
               aria-disabled={disabled ? 'true' : undefined}
-              disabled={index > 1 || (!projectReady && index > 0)}
+              disabled={disabled}
               onClick={() => onStageChange(index)}
             >
               <span>{String(index + 1).padStart(2, '0')}</span>
@@ -209,7 +232,13 @@ function StageNavigation({
           );
         })}
       </div>
-      <p>{projectReady ? '差异确认及后续环节将在招标基线验收后开放' : '完成材料上传后开放招标基线'}</p>
+      <p>{!projectReady
+        ? '完成材料上传后开放招标基线'
+        : !baselineComplete
+          ? '完整提取招标基线后开放差异确认'
+          : differenceComplete
+            ? '差异确认已完成，等待本阶段验收'
+            : '完成全部差异确认后进入本阶段验收'}</p>
     </section>
   );
 }
@@ -284,6 +313,7 @@ function TenderBaseline({
   baselineComplete,
   onStateChange,
   onBack,
+  onContinue,
 }: {
   projectId: string;
   state: TechnicalPlanState;
@@ -291,6 +321,7 @@ function TenderBaseline({
   baselineComplete: boolean;
   onStateChange: Dispatch<SetStateAction<TechnicalPlanState | null>>;
   onBack: () => void;
+  onContinue: () => void;
 }) {
   const taskRunning = state.bidAnalysisTask?.status === 'running' || state.bidAnalysisTask?.status === 'pausing';
 
@@ -330,7 +361,9 @@ function TenderBaseline({
             ? '本阶段结果已持久化；差异确认尚未执行。'
             : taskRunning ? '任务在后台运行，离开页面不会中断。' : '点击“开始提取基线”，完成全部解析项后再进行验收。'}</p>
         </div>
-        <span>环节三保持锁定</span>
+        {baselineComplete
+          ? <button type="button" className="primary-action" onClick={onContinue}>进入差异确认</button>
+          : <span>环节三保持锁定</span>}
       </section>
     </div>
   );
