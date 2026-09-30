@@ -518,6 +518,7 @@ test('extracts score items only from pipe table rows and uses the same coverage 
     '评分因素 | 实施方案 | 10',
     '项目团队 | 人员配置 | 5分',
   ]), [
+    { desc: '10', score: 10 },
     { desc: '实施方案', score: 10 },
     { desc: '人员配置', score: 5 },
   ]);
@@ -525,6 +526,28 @@ test('extracts score items only from pipe table rows and uses the same coverage 
   assert.deepEqual(checkScoreItems([{ desc: '甲乙丙丁戊己', score: 10 }], '甲乙丙丁'), []);
   assert.equal(checkScoreItems([{ desc: '甲乙丙丁戊己', score: 10 }], '甲乙丙')[0].ruleId, 'score.partial');
   assert.equal(checkScoreItems([{ desc: '甲乙丙丁戊己', score: 10 }], '庚辛壬癸')[0].ruleId, 'score.missing');
+});
+
+for (const [line, expected] of [
+  ['10 | 首格说明', { desc: '10', score: 10 }],
+  ['10分 | 首格说明 | 5', { desc: '10分', score: 10 }],
+  ['1 | 实施方案 | 10', { desc: '1', score: 1 }],
+  ['因素 | 3 | 实施方案 | 10', { desc: '因素', score: 3 }],
+  ['因素 | 实施方案 | 10分', { desc: '实施方案', score: 10 }],
+]) {
+  test(`preserves recovered first-numeric-cell score behavior for ${line}`, () => {
+    assert.deepEqual(extractScoreItems([line]), [expected]);
+  });
+}
+
+test('keeps the first score for duplicate descriptions and ignores non-table lines', () => {
+  assert.deepEqual(extractScoreItems([
+    '因素 | 实施方案 | 10分',
+    '因素 | 实施方案 | 5分',
+    '实施方案 10分',
+    '10',
+  ]), [{ desc: '实施方案', score: 10 }]);
+  assert.deepEqual(extractScoreItems(['实施方案 10分', '10']), []);
 });
 
 test('checks only internal proposal duration keywords and compares normalized days', () => {

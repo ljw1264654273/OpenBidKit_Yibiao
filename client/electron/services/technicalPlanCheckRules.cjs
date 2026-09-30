@@ -665,8 +665,7 @@ function extractScoreItems(lines) {
     if (cells.length < 2) continue;
     for (let index = 0; index < cells.length; index += 1) {
       if (!new RegExp(`^${NUMBER_PATTERN}\\s*分?$`).test(cells[index])) continue;
-      if (index === 0) break;
-      const desc = cells[index - 1];
+      const desc = cells[index > 0 ? index - 1 : 0];
       if (!desc || seen.has(desc)) break;
       seen.add(desc);
       items.push({ desc, score: Number(cells[index].match(new RegExp(NUMBER_PATTERN))[0]) });

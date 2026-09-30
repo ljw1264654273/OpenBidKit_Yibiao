@@ -100,3 +100,12 @@ test('preserves literal pipes through adapter serialization and score extraction
   assert.deepEqual(lines, ['评分因素 | A \\| B 与 C \\| D | 10']);
   assert.deepEqual(extractScoreItems(lines), [{ desc: 'A | B 与 C | D', score: 10 }]);
 });
+
+test('preserves recovered numeric-description fallback in numbered HTML and Markdown score rows', () => {
+  for (const fixture of [
+    '<table><tr><td>1</td><td>实施方案</td><td>10</td></tr></table>',
+    '| 序号 | 评分内容 | 分值 |\n| --- | --- | --- |\n| 1 | 实施方案 | 10 |',
+  ]) {
+    assert.deepEqual(extractScoreItems(toDocumentLines(fixture)), [{ desc: '1', score: 1 }]);
+  }
+});
