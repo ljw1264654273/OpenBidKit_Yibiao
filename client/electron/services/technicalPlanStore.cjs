@@ -1999,7 +1999,20 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       const replacement = assetUrl
         ? buildIllustrationBlock(item, assetUrl)
         : buildMermaidIllustrationBlock(item, code);
-      const nextContent = replaceIllustrationBlock(node.content || '', item.item_id, replacement);
+      let nextContent;
+      try {
+        nextContent = replaceIllustrationBlock(node.content || '', item.item_id, replacement);
+      } catch (error) {
+        const failedOriginalWithRedraw = item.generation?.status === 'error'
+          && !item.generation?.asset_url
+          && item.generation?.redraw_status === 'success'
+          && assetUrl === item.generation?.redraw_asset_url;
+        if (!failedOriginalWithRedraw || error.message !== `未找到正文图片块：${item.item_id}`) throw error;
+        const current = String(node.content || '').trim();
+        nextContent = item.placement === 'before'
+          ? `${replacement}\n\n${current}`.trim()
+          : `${current}\n\n${replacement}`.trim();
+      }
 
       db.prepare('UPDATE technical_plan_outline_nodes SET content = ?, updated_at = ? WHERE node_id = ?')
         .run(nextContent, timestamp, targetNodeId);

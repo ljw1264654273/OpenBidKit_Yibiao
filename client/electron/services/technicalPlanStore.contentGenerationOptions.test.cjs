@@ -556,6 +556,102 @@ async function runIllustrationAdoptAssertions() {
   }
 }
 
+async function runFailedIllustrationConfirmationAssertions() {
+  const userDataPath = fs.mkdtempSync(path.join(os.tmpdir(), 'yibiao-failed-illustration-confirm-'));
+  let database;
+  try {
+    const app = createApp(userDataPath);
+    database = createSqliteDatabase(app);
+    const store = createStore(app, database.db);
+    const outline = [
+      { id: '1.1', title: '设备部署', content: '设备部署正文。' },
+      { id: '1.2', title: '实施进度', content: '实施进度正文。' },
+      { id: '1.3', title: '数据异常', content: '尚未插入图片的正文。' },
+      { id: '1.4', title: '流程异常', content: '尚未插入流程图的正文。' },
+    ];
+    store.saveOutline({ outlineData: { project_overview: '失败图片重绘确认', outline }, reason: 'replace' });
+    store.updateTechnicalPlan({
+      contentGenerationSections: Object.fromEntries(outline.map((node) => [
+        node.id,
+        { id: node.id, title: node.title, status: 'success', content: node.content },
+      ])),
+      contentIllustrationPlan: {
+        plan_version: 1,
+        revision: 'failed-generation-redraw',
+        items: [
+          {
+            item_id: 'failed-ai', kind: 'ai', image_type: 'engineering', title: '设备图',
+            section_ids: ['1.1'], placement: 'after',
+            generation: {
+              status: 'error', error: 'No available compatible accounts', review_status: 'pending',
+              redraw_status: 'success', redraw_asset_url: 'yibiao-asset://generated-images/redrawn-ai.png',
+            },
+          },
+          {
+            item_id: 'failed-html', kind: 'html', image_type: 'gantt', title: '进度图',
+            section_ids: ['1.2'], placement: 'before',
+            generation: {
+              status: 'error', review_status: 'pending',
+              redraw_status: 'success', redraw_asset_url: 'yibiao-asset://generated-images/redrawn-html.png',
+            },
+          },
+          {
+            item_id: 'missing-success', kind: 'ai', image_type: 'engineering', title: '异常图',
+            section_ids: ['1.3'], placement: 'after',
+            generation: {
+              status: 'success', review_status: 'pending',
+              asset_url: 'yibiao-asset://generated-images/original.png',
+              redraw_status: 'success', redraw_asset_url: 'yibiao-asset://generated-images/candidate.png',
+            },
+          },
+          {
+            item_id: 'missing-mermaid-candidate', kind: 'mermaid', image_type: 'process', title: '异常流程图',
+            section_ids: ['1.4'], placement: 'after',
+            generation: {
+              status: 'error', review_status: 'pending', redraw_status: 'success',
+              code: 'flowchart TD\n  A["开始"] --> B["结束"]',
+            },
+          },
+        ],
+      },
+    });
+
+    const afterResult = store.confirmIllustrationReviewItem({ itemId: 'failed-ai' });
+    const afterContent = afterResult.outlineData.outline[0].content;
+    assert.match(afterContent, /^设备部署正文。\n\n<!-- yibiao-illustration:start id="failed-ai" -->/);
+    assert.match(afterContent, /redrawn-ai\.png/);
+    assert.equal(afterResult.contentGenerationSections['1.1'].content, afterContent);
+    assert.equal(afterResult.contentIllustrationPlan.items[0].generation.status, 'success');
+    assert.equal(afterResult.contentIllustrationPlan.items[0].generation.review_status, 'confirmed');
+    assert.equal(afterResult.contentIllustrationPlan.items[0].generation.redraw_asset_url, undefined);
+
+    const beforeResult = store.confirmIllustrationReviewItem({ itemId: 'failed-html' });
+    const beforeContent = beforeResult.outlineData.outline[1].content;
+    assert.match(beforeContent, /^<!-- yibiao-illustration:start id="failed-html" -->/);
+    assert.match(beforeContent, /redrawn-html\.png[\s\S]*实施进度正文。$/);
+    assert.equal(beforeResult.contentGenerationSections['1.2'].content, beforeContent);
+
+    assert.throws(
+      () => store.confirmIllustrationReviewItem({ itemId: 'missing-success' }),
+      /未找到正文图片块：missing-success/,
+    );
+    assert.throws(
+      () => store.confirmIllustrationReviewItem({
+        itemId: 'missing-mermaid-candidate',
+        code: 'flowchart TD\n  A["开始"] --> B["结束"]',
+      }),
+      /未找到正文图片块：missing-mermaid-candidate/,
+    );
+    const persisted = store.loadTechnicalPlan();
+    assert.equal(persisted.outlineData.outline[2].content, '尚未插入图片的正文。');
+    assert.equal(persisted.contentIllustrationPlan.items[2].generation.review_status, 'pending');
+    assert.equal(persisted.outlineData.outline[3].content, '尚未插入流程图的正文。');
+  } finally {
+    database?.close();
+    fs.rmSync(userDataPath, { recursive: true, force: true });
+  }
+}
+
 if (process.argv.includes('--electron-native')) {
   const run = process.argv.includes('--mermaid-review')
     ? runMermaidReviewPersistenceAssertions
@@ -569,6 +665,8 @@ if (process.argv.includes('--electron-native')) {
       ? runProjectIllustrationRedrawMigrationAssertions
     : process.argv.includes('--adopt-candidate')
       ? runIllustrationAdoptAssertions
+    : process.argv.includes('--failed-illustration-confirm')
+      ? runFailedIllustrationConfirmationAssertions
     : runPersistenceAssertions;
   run()
     .catch((error) => {
@@ -631,5 +729,13 @@ if (process.argv.includes('--electron-native')) {
       timeout: 30000,
     });
     assert.equal(result.status, 0, `${result.stderr || result.stdout || 'Electron native persistence test timed out'}`);
+  });
+
+  test('failed original illustration can be confirmed from a successful redraw without a body block', () => {
+    const result = spawnSync(require('electron'), ['--runAsNode', __filename, '--electron-native', '--failed-illustration-confirm'], {
+      encoding: 'utf8',
+      timeout: 30000,
+    });
+    assert.equal(result.status, 0, `${result.stderr || result.stdout || 'Electron native failed illustration confirmation test timed out'}`);
   });
 }
