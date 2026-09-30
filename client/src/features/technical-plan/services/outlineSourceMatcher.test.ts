@@ -57,6 +57,19 @@ test('直属目录来源优先于后代来源', () => {
   assert.deepEqual(result.tenderRecords.map((item) => item.source_id), ['parent-criterion']);
 });
 
+test('直属补充来源不应遮挡后代招标来源', () => {
+  const records = [
+    record({ source_id: 'child-response' }),
+    record({ source_id: 'parent-supplement', source_kind: 'user-supplement', node_ids: ['1'] }),
+  ];
+
+  const result = collectOutlineSourceRecords(outline, '1', records);
+
+  assert.equal(result.scope, 'descendants');
+  assert.deepEqual(result.tenderRecords.map((item) => item.source_id), ['child-response']);
+  assert.deepEqual(result.supplementRecords.map((item) => item.source_id), ['parent-supplement']);
+});
+
 test('按 source_id 去重但保留相同文本的不同来源', () => {
   const records = [
     record({ source_id: 'same-id', source_text: '重复文本' }),

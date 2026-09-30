@@ -61,19 +61,25 @@ export function collectOutlineSourceRecords(
   records: ScoreCoverageRecord[],
 ): OutlineSourceRecordSet {
   const directRecords = collectRecordsForNodeIds(records, new Set([nodeId]));
-  if (directRecords.length > 0) {
+  const directTenderRecords = directRecords.filter((record) => TENDER_SOURCE_KINDS.has(record.source_kind));
+  if (directTenderRecords.length > 0) {
     return toRecordSet(directRecords, 'direct');
   }
 
   const descendantIds = findDescendantIds(outline, nodeId);
   if (descendantIds.size === 0) {
-    return emptyRecordSet();
+    return directRecords.length > 0 ? toRecordSet(directRecords, 'direct') : emptyRecordSet();
   }
 
   const descendantRecords = collectRecordsForNodeIds(records, descendantIds);
-  return descendantRecords.length > 0
-    ? toRecordSet(descendantRecords, 'descendants')
-    : emptyRecordSet();
+  if (descendantRecords.length === 0) {
+    return directRecords.length > 0 ? toRecordSet(directRecords, 'direct') : emptyRecordSet();
+  }
+
+  return toRecordSet(
+    collectRecordsForNodeIds(records, new Set([nodeId, ...descendantIds])),
+    'descendants',
+  );
 }
 
 export function locateOutlineSourceText(markdown: string, sourceText: string, sourceKind?: ScoreCoverageRecord['source_kind']): LocatedOutlineSource {

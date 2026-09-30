@@ -23,6 +23,7 @@ import { canAddOutlineParent, insertOutlineParent } from '../services/outlinePar
 import { buildOutlineAiChildrenMessages, normalizeGeneratedChildren } from '../services/outlineAiChildren';
 import { formatOutlineMinimumDepth } from '../services/outlineMinimumDepth';
 import { collectOutlineSourceRecords } from '../services/outlineSourceMatcher';
+import { remapOutlineUiState } from '../services/outlineUiState';
 import { getDocumentsForFolder, getFoldersForKnowledgeBase, mergeFolderDocumentSelection } from '../services/nodeKnowledgeSelection';
 
 interface OutlineEditPageProps {
@@ -1367,6 +1368,9 @@ function OutlineEditPage({
       idMap: renumbered.idMap,
       affectedNodeIds,
     });
+    const nextUiState = remapOutlineUiState({ selectedItemId, expandedItems }, renumbered.idMap, renumbered.outline);
+    setExpandedItems(nextUiState.expandedItems);
+    setSelectedItemId(nextUiState.selectedItemId);
     return renumbered;
   };
 
@@ -1416,9 +1420,10 @@ function OutlineEditPage({
       content_mode: 'ai-generate',
     };
     try {
-      await saveOutlineChange([...outlineData.outline, newItem], 'add-root');
-      setSelectedItemId(newItem.id);
-      setEditingItemId(newItem.id);
+      const renumbered = await saveOutlineChange([...outlineData.outline, newItem], 'add-root');
+      const newItemId = renumbered?.idMap[newItem.id] || newItem.id;
+      setSelectedItemId(newItemId);
+      setEditingItemId(newItemId);
       setEditTitle(newItem.title);
       setEditDescription(newItem.description);
       setEditContentMode(newItem.content_mode || 'ai-generate');
@@ -1448,13 +1453,15 @@ function OutlineEditPage({
     };
 
     try {
-      await saveOutlineChange(updateOutlineItem(outlineData.outline, parentId, (item) => ({
+      const renumbered = await saveOutlineChange(updateOutlineItem(outlineData.outline, parentId, (item) => ({
         ...item,
         children: [...(item.children || []), newItem],
       })), 'add-child', [parentId]);
-      setExpandedItems((prev) => new Set(prev).add(parentId));
-      setSelectedItemId(newItem.id);
-      setEditingItemId(newItem.id);
+      const finalParentId = renumbered?.idMap[parentId] || parentId;
+      const finalNewItemId = renumbered?.idMap[newItem.id] || newItem.id;
+      setExpandedItems((prev) => new Set(prev).add(finalParentId));
+      setSelectedItemId(finalNewItemId);
+      setEditingItemId(finalNewItemId);
       setEditTitle(newItem.title);
       setEditDescription(newItem.description);
       setEditContentMode(newItem.content_mode || 'ai-generate');
@@ -1542,12 +1549,14 @@ function OutlineEditPage({
         minimumDepth,
         startIndex: nextIndex,
       });
-      await saveOutlineChange(updateOutlineItem(outlineData.outline, selectedItem.id, (item) => ({
+      const renumbered = await saveOutlineChange(updateOutlineItem(outlineData.outline, selectedItem.id, (item) => ({
         ...item,
         children: [...(item.children || []), ...nextChildren],
       })), 'add-child', [selectedItem.id]);
-      setExpandedItems((prev) => new Set(prev).add(selectedItem.id));
-      setSelectedItemId(nextChildren[0].id);
+      const finalParentId = renumbered?.idMap[selectedItem.id] || selectedItem.id;
+      const finalFirstChildId = renumbered?.idMap[nextChildren[0].id] || nextChildren[0].id;
+      setExpandedItems((prev) => new Set(prev).add(finalParentId));
+      setSelectedItemId(finalFirstChildId);
       setAiChildrenRequirement('');
       setAiChildrenOpen(false);
       showToast(`已添加 ${nextChildren.length} 个 AI 子目录`, 'success');
