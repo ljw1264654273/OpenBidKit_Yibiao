@@ -68,7 +68,7 @@ function createDirectoryNodeSchema(level, root = false, working = false) {
     } : {}),
     ...(working ? { origin_id: { type: 'string', minLength: 1 } } : {}),
   };
-  const baseRequired = ['id', 'title', 'description', ...(root ? ['attr'] : [])];
+  const baseRequired = ['id', 'title', 'description', ...(root ? ['attr'] : []), ...(working ? ['origin_id'] : [])];
   const leafSchema = {
     type: 'object',
     required: [...baseRequired, 'content_mode'],

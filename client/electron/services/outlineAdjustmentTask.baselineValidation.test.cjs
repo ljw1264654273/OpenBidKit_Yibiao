@@ -7,6 +7,8 @@ const {
   inheritCoverageOverrides,
 } = require('./outlineAdjustmentTask.cjs');
 const { stripOutlineInternalFields, validateFinalOutline } = require('./outlineGenerationTaskV2.cjs');
+const { OUTLINE_WORKING_JSON_SCHEMA } = require('./outlineGenerationTaskV2.cjs');
+const Ajv = require('ajv');
 
 function manualOutline() {
   return {
@@ -24,6 +26,18 @@ function manualOutline() {
     }],
   };
 }
+
+test('working Schema requires origin_id on root and nested nodes', () => {
+  const validate = new Ajv({ strict: false }).compile(OUTLINE_WORKING_JSON_SCHEMA);
+  const working = buildAgentOutlineInput(manualOutline());
+  assert.equal(validate(working), true);
+  const missingRoot = structuredClone(working);
+  delete missingRoot.outline[0].origin_id;
+  assert.equal(validate(missingRoot), false);
+  const missingChild = structuredClone(working);
+  delete missingChild.outline[0].children[0].origin_id;
+  assert.equal(validate(missingChild), false);
+});
 
 test('未变化的手工单子节点和空泛说明按 origin 基线豁免', () => {
   const working = buildAgentOutlineInput(manualOutline());
