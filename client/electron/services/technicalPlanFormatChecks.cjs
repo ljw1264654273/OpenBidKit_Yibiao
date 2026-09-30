@@ -7,6 +7,12 @@ const CAPTION_RE = /(?:示意图|流程图|实例|截图|分布图|区位图|成
 const MANUAL_HEADING_RE = /^\s*(?:第[一二三四五六七八九十]+章|第\d+章|[一二三四五六七八九十]+[、.]|\d+[、.]|[（(]\d+[）)]|[①②③④⑤⑥⑦⑧⑨⑩])/;
 const MANUAL_NUMBER_RE = /^\s*(?:[一二三四五六七八九十]+[、.]|\d+[、.]|[（(]\d+[）)]|[①②③④⑤⑥⑦⑧⑨⑩])/;
 const TRUE_VALUES = new Set(['1', 'true', 'on']);
+const COMMON_TECH_TERMS = new Set([
+  'km', 'cm', 'mm', 'm', 'mu', 'dom', 'cors', 'gnss', 'rtk', 'gis',
+  'cad', 'python', 'excel', 'access', 'server', 'oracle', 'sde', 'shp',
+  'tiff', 'tif', 'utf', 'shapefile', 'varchar', 'numeric', 'xml', 'json',
+  'geoj\u00adson', 'word', 'sql', 'arcgis', 'mapgis', 'jscors', 'jccors',
+]);
 
 function readXml(zip, entryName, { required = true } = {}) {
   const entry = zip.getEntry(entryName);
@@ -143,21 +149,113 @@ function scoreItemLabel(item) {
 }
 
 function sequenceRatio(left, right) {
-  const a = String(left || '');
-  const b = String(right || '');
+  const a = Array.from(String(left || ''));
+  const b = Array.from(String(right || ''));
   if (!a.length && !b.length) return 1;
   if (!a.length || !b.length) return 0;
-  let previous = new Uint16Array(b.length + 1);
-  for (let i = 1; i <= a.length; i += 1) {
-    const current = new Uint16Array(b.length + 1);
-    for (let j = 1; j <= b.length; j += 1) {
-      current[j] = a[i - 1] === b[j - 1]
-        ? previous[j - 1] + 1
-        : Math.max(previous[j], current[j - 1]);
+  const positions = new Map();
+  b.forEach((character, index) => {
+    const indexes = positions.get(character) || [];
+    indexes.push(index);
+    positions.set(character, indexes);
+  });
+  // Match difflib.SequenceMatcher(None, a, b), including its default autojunk.
+  if (b.length >= 200) {
+    const popularLimit = Math.floor(b.length / 100) + 1;
+    for (const [character, indexes] of positions) {
+      if (indexes.length > popularLimit) positions.delete(character);
     }
-    previous = current;
   }
-  return (2 * previous[b.length]) / (a.length + b.length);
+  const longestMatch = (aStart, aEnd, bStart, bEnd) => {
+    let bestA = aStart;
+    let bestB = bStart;
+    let size = 0;
+    let previous = new Map();
+    for (let i = aStart; i < aEnd; i += 1) {
+      const current = new Map();
+      for (const j of positions.get(a[i]) || []) {
+        if (j < bStart) continue;
+        if (j >= bEnd) break;
+        const length = (previous.get(j - 1) || 0) + 1;
+        current.set(j, length);
+        if (length > size) {
+          bestA = i - length + 1;
+          bestB = j - length + 1;
+          size = length;
+        }
+      }
+      previous = current;
+    }
+    while (bestA > aStart && bestB > bStart && a[bestA - 1] === b[bestB - 1]) {
+      bestA -= 1;
+      bestB -= 1;
+      size += 1;
+    }
+    while (bestA + size < aEnd && bestB + size < bEnd && a[bestA + size] === b[bestB + size]) {
+      size += 1;
+    }
+    return { a: bestA, b: bestB, size };
+  };
+  let matched = 0;
+  const pending = [[0, a.length, 0, b.length]];
+  while (pending.length) {
+    const [aStart, aEnd, bStart, bEnd] = pending.pop();
+    const block = longestMatch(aStart, aEnd, bStart, bEnd);
+    if (!block.size) continue;
+    matched += block.size;
+    if (aStart < block.a && bStart < block.b) pending.push([aStart, block.a, bStart, block.b]);
+    if (block.a + block.size < aEnd && block.b + block.size < bEnd) {
+      pending.push([block.a + block.size, aEnd, block.b + block.size, bEnd]);
+    }
+  }
+  return (2 * matched) / (a.length + b.length);
+}
+
+function tokenizeEnglish(text) {
+  return String(text || '').match(/[A-Za-z][A-Za-z0-9]*/g) || [];
+}
+
+function isSkipEnglishToken(token) {
+  const letters = token.replace(/\d/g, '');
+  const acronymCode = token === token.toUpperCase() && letters && !/[AEIOU]/.test(letters);
+  return /^(?:GB|GB\/T|NY\/T|TD\/T|CH\/T)\s*\d+[.-]?\d*$/i.test(token)
+    || /^(?:X+|x+|×+|\[.+\]|Y+|Z+)$/.test(token)
+    || /^[A-Z]{1,5}\d{1,6}$/.test(token)
+    || Boolean(acronymCode)
+    || /[a-z][A-Z]/.test(token);
+}
+
+function checkEnglish(proposalLines, referenceLines, collector) {
+  const known = new Set(COMMON_TECH_TERMS);
+  for (const line of referenceLines || []) {
+    for (const token of tokenizeEnglish(line)) known.add(token.toLowerCase());
+  }
+  const forms = new Map();
+  (proposalLines || []).forEach((rawLine, index) => {
+    const line = String(rawLine || '');
+    for (const token of tokenizeEnglish(line)) {
+      if (token.length < 2 || isSkipEnglishToken(token)) continue;
+      const lower = token.toLowerCase();
+      const variants = forms.get(lower);
+      if (variants) {
+        variants.add(token);
+        continue;
+      }
+      forms.set(lower, new Set([token]));
+      if (!known.has(lower)) {
+        collector.add('language.english-unknown', `疑似英文拼写错误：“${token}”（第 ${index + 1} 行）`, [line.slice(0, 120)], {
+          category: '语言表达', token, lineNumber: index + 1,
+        });
+      }
+    }
+  });
+  for (const [lower, formsForToken] of forms) {
+    if (formsForToken.size < 2 || COMMON_TECH_TERMS.has(lower)) continue;
+    const variants = [...formsForToken].sort();
+    collector.add('language.english-variant', `英文术语大小写/拼写不统一：“${variants.join(' / ')}”`, [], {
+      category: '语言表达', token: lower, variants,
+    });
+  }
 }
 
 function numberingDefinitions(numberingXml) {
@@ -361,6 +459,8 @@ function scanTechnicalPlanFormat(proposalDocxPath, options = {}) {
   if (autoStyles.size > 1) {
     collector.add('format.numbering-auto-styles', `自动编号使用了 ${autoStyles.size} 组不同样式或层级`, [...autoStyles].slice(0, 5), { styles: [...autoStyles] });
   }
+
+  checkEnglish(options.proposalLines, options.referenceLines, collector);
 
   return { findings: collector.findings, stats: collector.stats() };
 }

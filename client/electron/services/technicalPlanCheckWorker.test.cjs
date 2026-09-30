@@ -1,7 +1,10 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs/promises');
+const os = require('node:os');
 const path = require('node:path');
 const { Worker } = require('node:worker_threads');
+const { Document, Packer, Paragraph } = require('docx');
 
 const WORKER_PATH = path.join(__dirname, 'technicalPlanCheckWorker.cjs');
 
@@ -71,6 +74,32 @@ test('serializes worker failures with stable error fields', async () => {
   assert.match(message.error.message, /不存在的技术方案|ENOENT|no such file|ADM-ZIP|Invalid filename/i);
   assert.equal(typeof message.error.stack, 'string');
   assert.ok(Object.hasOwn(message.error, 'code'));
+});
+
+test('checks English using all three reference documents in a real DOCX worker run', async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'yibiao-worker-english-'));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const proposalDocxPath = path.join(directory, '技术方案英文检查.docx');
+  const doc = new Document({ sections: [{ children: [new Paragraph('技术方案正文。')] }] });
+  await fs.writeFile(proposalDocxPath, await Packer.toBuffer(doc));
+  const { message, messages } = await runWorker({
+    documents: {
+      tenderLines: ['Survey'],
+      requirementLines: ['Deliverable'],
+      scoreLines: ['Customterm'],
+      proposalLines: ['Survey survey Deliverable Customterm mispellt mispellt'],
+    },
+    proposalDocxPath,
+  });
+
+  assert.equal(message.type, 'result');
+  assert.ok(messages.some((item) => item.type === 'progress' && item.stage === 'format'));
+  const englishFindings = message.result.findings.filter((finding) => /^language\.english-/.test(finding.ruleId));
+  assert.deepEqual(englishFindings.map((finding) => finding.ruleId), ['language.english-unknown', 'language.english-variant']);
+  assert.equal(englishFindings[0].token, 'mispellt');
+  assert.ok(englishFindings.every((finding) => finding.severity === 'review'));
+  assert.equal(message.result.formatStats.rules['language.english-unknown'].rawCount, 1);
+  assert.equal(message.result.summary.total, message.result.findings.length);
 });
 
 test('does not emit a result after the worker is terminated on first progress', async () => {

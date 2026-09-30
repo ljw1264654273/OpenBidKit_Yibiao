@@ -243,3 +243,90 @@ test('caps each format rule at 30 findings while preserving raw and truncated co
     truncatedCount: 5,
   });
 });
+
+test('uses ordered matching blocks rather than LCS for score chapter correspondence', async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'yibiao-format-chapter-match-'));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const filePath = await createValidFixture(directory);
+  updateZipEntry(filePath, 'word/document.xml', (xml) => replaceParagraphContaining(
+    xml,
+    '项目实施方案',
+    () => paragraphXml('实施安全方案', { style: 'Heading1', outlineLevel: '0' })
+      + paragraphXml('项目管理', { style: 'Heading1', outlineLevel: '0' }),
+  ));
+
+  const result = scanTechnicalPlanFormat(filePath, { scoreItems: [{ desc: '项目实施方案' }] });
+
+  assert.equal(result.findings.filter((finding) => finding.ruleId === 'format.chapter-score').length, 1);
+});
+
+test('keeps earliest matching-block ties and ignores popular characters in long heading text', async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'yibiao-format-chapter-autojunk-'));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const filePath = await createValidFixture(directory);
+  for (const [label, heading] of [
+    ['tide', 'diet'],
+    [`${'项'.repeat(120)}目`, `目${'项'.repeat(300)}`],
+  ]) {
+    updateZipEntry(filePath, 'word/document.xml', (xml) => xml.replace(
+      /<w:p><w:pPr><w:pStyle w:val="Heading1"\/>[\s\S]*?<\/w:p>/,
+      paragraphXml(heading, { style: 'Heading1', outlineLevel: '0' }),
+    ));
+    const result = scanTechnicalPlanFormat(filePath, { scoreItems: [{ desc: label }] });
+    await t.test(heading.slice(0, 20), () => {
+      assert.equal(result.findings.filter((finding) => finding.ruleId === 'format.chapter-score').length, 1, label);
+    });
+  }
+});
+
+test('checks unknown English once per lowercase token and reports case variants for review', async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'yibiao-format-english-'));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const filePath = await createValidFixture(directory);
+
+  const result = scanTechnicalPlanFormat(filePath, {
+    proposalLines: ['首行使用 Mispellt mispellt。', '第二行使用 Survey survey。'],
+    referenceLines: ['招标文件约定 Survey。'],
+  });
+
+  const unknown = result.findings.filter((finding) => finding.ruleId === 'language.english-unknown');
+  const variants = result.findings.filter((finding) => finding.ruleId === 'language.english-variant');
+  assert.equal(unknown.length, 1);
+  assert.equal(unknown[0].token, 'Mispellt');
+  assert.equal(unknown[0].lineNumber, 1);
+  assert.deepEqual(unknown[0].contexts, ['首行使用 Mispellt mispellt。']);
+  assert.deepEqual(variants.map((finding) => finding.variants), [['Mispellt', 'mispellt'], ['Survey', 'survey']]);
+  for (const finding of [...unknown, ...variants]) {
+    assert.equal(finding.severity, 'review');
+    assert.equal(finding.category, '语言表达');
+  }
+});
+
+test('accepts built-in and reference terms and skips acronym, point-code, placeholder and CamelCase tokens', async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'yibiao-format-english-skip-'));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const filePath = await createValidFixture(directory);
+  const result = scanTechnicalPlanFormat(filePath, {
+    proposalLines: [
+      'python Python Excel server ORACLE SQL GNSS CAD。',
+      'Survey Deliverable Customterm。',
+      'XYZ BRDF P123 AE123 XX YY ZZ x A camelCase XMLHttpRequest。',
+    ],
+    referenceLines: ['Survey', 'Deliverable', 'Customterm'],
+  });
+
+  assert.deepEqual(result.findings, []);
+});
+
+test('caps each English rule independently while counting all unique unknowns and variants', async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'yibiao-format-english-cap-'));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const filePath = await createValidFixture(directory);
+  const proposalLines = Array.from({ length: 35 }, (_, index) => `陌生术语 Mispellt${index} mispellt${index} mispellt${index}。`);
+  const result = scanTechnicalPlanFormat(filePath, { proposalLines });
+
+  for (const ruleId of ['language.english-unknown', 'language.english-variant']) {
+    assert.equal(result.findings.filter((finding) => finding.ruleId === ruleId).length, 30);
+    assert.deepEqual(result.stats.rules[ruleId], { rawCount: 35, returnedCount: 30, truncatedCount: 5 });
+  }
+});
