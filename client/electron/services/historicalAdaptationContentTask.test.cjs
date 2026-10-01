@@ -313,6 +313,75 @@ test('局部改写任一替换不唯一时不应用任何编辑并进入待复�
   assert.equal(patches.some((patch) => patch.contentGenerationItem?.section?.content?.includes('横泾街道')), false);
 });
 
+test('局部改写片段首次未命中时带校验错误重试并应用修正结果', async () => {
+  const state = baseState();
+  const originalPlan = '# 项目概况\n五峰村原项目概况。\n\n# 服务保障\n原保障内容。';
+  const planned = buildHistoricalContentItems({ state, originalPlan }).map(({ source_content: _sourceContent, ...item }) => item);
+  const aiCalls = [];
+  const patches = [];
+
+  await runHistoricalAdaptationContentTask({
+    aiService: { requestJson: async (request) => {
+      aiCalls.push(request);
+      return aiCalls.length === 1
+        ? { edits: [{ old_text: '五峰社区', new_text: '横泾街道' }] }
+        : { edits: [{ old_text: '五峰村原项目概况。', new_text: '横泾街道原项目概况。' }] };
+    } },
+    workspaceStore: { loadTechnicalPlan: () => ({ ...state, historicalAdaptationContentItems: planned }), readOriginalPlanMarkdown: () => originalPlan },
+    payload: { nodeId: '1' }, updateTask: () => {}, checkpointTask: (_task, patch) => { if (patch) patches.push(patch); },
+  });
+
+  assert.equal(aiCalls.length, 2);
+  assert.match(aiCalls[1].messages[0].content, /上次返回的替换未通过校验/u);
+  assert.match(aiCalls[1].messages[0].content, /Could not find oldText/u);
+  const completed = patches.find((patch) => patch.historicalAdaptationContentItem)?.historicalAdaptationContentItem;
+  assert.equal(completed.status, 'success');
+  assert.equal(completed.content_origin, 'local-rewrite');
+  assert.match(patches.find((patch) => patch.contentGenerationItem)?.contentGenerationItem.section.content, /横泾街道原项目概况/u);
+});
+
+test('局部改写请求校验模型必须返回非空 edits 数组', async () => {
+  const state = baseState();
+  const originalPlan = '# 项目概况\n五峰村原项目概况。\n\n# 服务保障\n原保障内容。';
+  const planned = buildHistoricalContentItems({ state, originalPlan }).map(({ source_content: _sourceContent, ...item }) => item);
+  let localRewriteRequest;
+
+  await runHistoricalAdaptationContentTask({
+    aiService: { requestJson: async (request) => { localRewriteRequest = request; const response = { edits: [{ old_text: '五峰村', new_text: '横泾街道' }] }; request.validator(response); return response; } },
+    workspaceStore: { loadTechnicalPlan: () => ({ ...state, historicalAdaptationContentItems: planned }), readOriginalPlanMarkdown: () => originalPlan },
+    payload: { nodeId: '1' }, updateTask: () => {}, checkpointTask: () => {},
+  });
+
+  assert.throws(() => localRewriteRequest.validator({ content: '横泾街道' }), /edits/u);
+  assert.doesNotThrow(() => localRewriteRequest.validator({ edits: [{ old_text: '五峰村', new_text: '横泾街道' }] }));
+});
+
+test('局部改写返回其他合法 JSON 时会要求模型纠正结构', async () => {
+  const state = baseState();
+  const originalPlan = '# 项目概况\n五峰村原项目概况。\n\n# 服务保障\n原保障内容。';
+  const planned = buildHistoricalContentItems({ state, originalPlan }).map(({ source_content: _sourceContent, ...item }) => item);
+  const aiCalls = [];
+  const patches = [];
+
+  await runHistoricalAdaptationContentTask({
+    aiService: { requestJson: async (request) => {
+      aiCalls.push(request);
+      const response = aiCalls.length === 1
+        ? { content: '横泾街道原项目概况。' }
+        : { edits: [{ old_text: '五峰村', new_text: '横泾街道' }] };
+      request.validator(response);
+      return response;
+    } },
+    workspaceStore: { loadTechnicalPlan: () => ({ ...state, historicalAdaptationContentItems: planned }), readOriginalPlanMarkdown: () => originalPlan },
+    payload: { nodeId: '1' }, updateTask: () => {}, checkpointTask: (_task, patch) => { if (patch) patches.push(patch); },
+  });
+
+  assert.equal(aiCalls.length, 2);
+  assert.match(aiCalls[1].messages[0].content, /非空 edits 数组/u);
+  const completed = patches.find((patch) => patch.historicalAdaptationContentItem)?.historicalAdaptationContentItem;
+  assert.equal(completed.status, 'success');
+});
+
 test('人工保存正文没有显式覆盖标记时拒绝重新迁移', async () => {
   const state = baseState();
   const originalPlan = '# 项目概况\n五峰村原项目概况。\n\n# 服务保障\n原保障内容。';
