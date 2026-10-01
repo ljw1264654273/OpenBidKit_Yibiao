@@ -6,8 +6,8 @@ export type BidAnalysisMode = 'key' | 'full' | 'custom';
 export type BidAnalysisTaskStatus = 'idle' | 'running' | 'success' | 'error';
 export type BidSectionMode = 'single' | 'multiple';
 export type BidSectionExtractionStatus = 'idle' | 'running' | 'success' | 'error';
-export type BackgroundTaskType = 'bid-section-extraction' | 'bid-analysis' | 'historical-adaptation-difference' | 'outline-generation' | 'outline-adjustment' | 'global-facts-generation' | 'global-facts-adjustment' | 'content-generation';
-export type BackgroundTaskStatus = 'running' | 'pausing' | 'paused' | 'success' | 'error';
+export type BackgroundTaskType = 'bid-section-extraction' | 'bid-analysis' | 'historical-adaptation-difference' | 'historical-adaptation-outline' | 'historical-adaptation-content' | 'historical-adaptation-content-check' | 'outline-generation' | 'outline-adjustment' | 'global-facts-generation' | 'global-facts-adjustment' | 'content-generation';
+export type BackgroundTaskStatus = 'queued' | 'running' | 'pausing' | 'paused' | 'success' | 'error';
 export type ContentGenerationSectionStatus = 'idle' | 'running' | 'success' | 'error' | 'ignored';
 export type ContentGenerationPhase = 'planning' | 'restoring' | 'generating' | 'section-word-adjusting' | 'original-auditing' | 'auditing' | 'table-cleaning' | 'final-section-word-adjusting' | 'total-word-adjusting' | 'illustration-planning' | 'illustration-generating' | 'done';
 export type ContentTableRequirement = 'none' | 'light' | 'moderate' | 'heavy';
@@ -228,6 +228,7 @@ export type BidAnalysisTasks = Record<string, BidAnalysisTaskState>;
 
 export type HistoricalAdaptationDifferenceCategory = '删除内容' | '名称地点替换' | '数据更新' | '工期进度更新' | '其他人工判断';
 export type HistoricalAdaptationDifferenceDecision = 'pending' | 'confirmed' | 'ignored';
+export type HistoricalAdaptationContentChangeScope = 'location-target' | 'workload' | 'schedule' | 'none';
 
 export interface HistoricalAdaptationDifference {
   id: string;
@@ -240,6 +241,92 @@ export interface HistoricalAdaptationDifference {
   action: string;
   note: string;
   decision: HistoricalAdaptationDifferenceDecision;
+  content_change_scope: HistoricalAdaptationContentChangeScope;
+}
+
+export type HistoricalAdaptationOutlineChangeType = 'renamed' | 'updated' | 'added' | 'moved' | 'deleted';
+
+export interface HistoricalAdaptationOutlineChange {
+  id: string;
+  change_type: HistoricalAdaptationOutlineChangeType;
+  original_path: string;
+  target_node_id: string;
+  target_title: string;
+  reason: string;
+  difference_ids: string[];
+}
+
+export type HistoricalAdaptationContentMode = 'direct' | 'local-rewrite' | 'rewrite';
+export type HistoricalAdaptationContentStatus = 'idle' | 'running' | 'success' | 'review' | 'stale' | 'error';
+export type HistoricalAdaptationContentOrigin = 'migrated' | 'local-rewrite' | 'ai-rewrite' | 'supplement' | 'manual';
+
+export interface HistoricalAdaptationContentItem {
+  node_id: string;
+  source_path: string;
+  recommended_mode: HistoricalAdaptationContentMode | null;
+  manual_mode?: HistoricalAdaptationContentMode;
+  manual_instruction: string;
+  status: HistoricalAdaptationContentStatus;
+  content_origin?: HistoricalAdaptationContentOrigin;
+  reason: string;
+  difference_ids: string[];
+  source_excerpt: string;
+  blocked_terms: string[];
+  residuals: string[];
+  source_locator: string;
+  source_hash: string;
+  input_fingerprint: string;
+  confirmed_at?: string;
+  updated_at?: string;
+  error?: string;
+}
+
+export type HistoricalAdaptationContentCheckStatus = 'idle' | 'running' | 'success' | 'stale' | 'error';
+export type HistoricalAdaptationContentCheckCategory = 'residual' | 'workload' | 'schedule' | 'cross-chapter' | 'placeholder' | 'empty' | 'task';
+
+export interface HistoricalAdaptationContentCheckFinding {
+  id: string;
+  code: string;
+  category: HistoricalAdaptationContentCheckCategory;
+  severity: 'P0' | 'P1' | 'P2';
+  blocking: boolean;
+  node_ids: string[];
+  message: string;
+  evidence: string;
+}
+
+export interface HistoricalAdaptationContentCheckState {
+  status: HistoricalAdaptationContentCheckStatus;
+  findings: HistoricalAdaptationContentCheckFinding[];
+  checked_content_hash: string;
+  checked_inputs_hash: string;
+  checked_at?: string;
+  error?: string;
+}
+
+export interface HistoricalAdaptationContentReadiness {
+  ready: boolean;
+  blockingCount: number;
+  firstNodeId?: string;
+  findings: HistoricalAdaptationContentCheckFinding[];
+}
+
+export interface HistoricalAdaptationReviewFinding {
+  id: string;
+  code: string;
+  severity: 'P0' | 'P1' | 'P2';
+  node_id?: string;
+  chapter_path: string;
+  title: string;
+  message: string;
+  evidence: string;
+  resolution: 'open' | 'resolved' | 'ignored';
+  resolution_note: string;
+  resolved_at?: string;
+}
+
+export interface SaveHistoricalAdaptationOutlineRequest extends SaveOutlineRequest {
+  changes: HistoricalAdaptationOutlineChange[];
 }
 
 export interface GlobalFactGroupState {
@@ -440,6 +527,14 @@ export interface TechnicalPlanState {
   bidAnalysisProgress: number;
   historicalAdaptationDifferences: HistoricalAdaptationDifference[];
   historicalAdaptationDifferenceConfirmedAt?: string;
+  historicalAdaptationOriginalOutline: OutlineData | null;
+  historicalAdaptationOutlineChanges: HistoricalAdaptationOutlineChange[];
+  historicalAdaptationOutlineConfirmedAt?: string;
+  historicalAdaptationContentItems: HistoricalAdaptationContentItem[];
+  historicalAdaptationContentConfirmedAt?: string;
+  historicalAdaptationContentCheck: HistoricalAdaptationContentCheckState;
+  historicalAdaptationReviewFindings: HistoricalAdaptationReviewFinding[];
+  historicalAdaptationReviewConfirmedAt?: string;
   bidSectionMode: BidSectionMode;
   bidSections: DetectedBidSection[];
   bidSectionExtractionStatus: BidSectionExtractionStatus;
@@ -455,6 +550,9 @@ export interface TechnicalPlanState {
   bidSectionExtractionTask?: BackgroundTaskState;
   bidAnalysisTask?: BackgroundTaskState;
   historicalAdaptationDifferenceTask?: BackgroundTaskState;
+  historicalAdaptationOutlineTask?: BackgroundTaskState;
+  historicalAdaptationContentTask?: BackgroundTaskState;
+  historicalAdaptationContentCheckTask?: BackgroundTaskState;
   outlineGenerationTask?: BackgroundTaskState;
   outlineAdjustmentTask?: BackgroundTaskState;
   globalFactsMode: GlobalFactsMode;

@@ -11,6 +11,7 @@ const DIFFERENCE_CATEGORIES = Object.freeze([
 ]);
 const DIFFERENCE_PRIORITIES = new Set(['high', 'medium', 'low']);
 const DIFFERENCE_DECISIONS = new Set(['pending', 'confirmed', 'ignored']);
+const CONTENT_CHANGE_SCOPES = new Set(['location-target', 'workload', 'schedule', 'none']);
 
 function text(value) {
   return String(value || '').trim();
@@ -48,6 +49,9 @@ function normalizeHistoricalAdaptationDifferences(value, previousDifferences = [
       action: text(raw.action),
       note: text(raw.note),
       decision: DIFFERENCE_DECISIONS.has(text(raw.decision)) ? text(raw.decision) : 'pending',
+      content_change_scope: CONTENT_CHANGE_SCOPES.has(text(raw.content_change_scope))
+        ? text(raw.content_change_scope)
+        : 'none',
     };
     if (!item.title || !item.action || !item.tender_requirement) continue;
     if (!item.id) item.id = stableDifferenceId(item);
@@ -60,7 +64,11 @@ function normalizeHistoricalAdaptationDifferences(value, previousDifferences = [
       item.action = text(previous.action) || item.action;
       item.note = text(previous.note);
       item.decision = DIFFERENCE_DECISIONS.has(text(previous.decision)) ? text(previous.decision) : item.decision;
+      item.content_change_scope = CONTENT_CHANGE_SCOPES.has(text(previous.content_change_scope))
+        ? text(previous.content_change_scope)
+        : item.content_change_scope;
     }
+    if (item.decision === 'ignored') item.content_change_scope = 'none';
     result.push(item);
   }
 
@@ -83,9 +91,10 @@ function buildHistoricalAdaptationDifferencePrompt(baseline) {
 5. 证据不足或需要业务选择时归为“其他人工判断”，不得擅自推断。
 6. 不得提出字数扩写、压缩、删减或篇幅调整；本阶段不处理字数要求。
 7. 每项必须同时提供历史标书位置/摘录、招标基线要求和可执行处理要求。不要把相同问题拆成大量重复项。
+8. 每项必须给出 content_change_scope：仅地点、行政层级或实施对象变化使用 location-target；仅工作量变化使用 workload；仅工期或进度变化使用 schedule；项目名称、金额、人员、设备、删除内容及其他变化一律使用 none。
 
 返回 JSON：
-{"differences":[{"category":"删除内容|名称地点替换|数据更新|工期进度更新|其他人工判断","priority":"high|medium|low","title":"差异标题","historical_location":"历史标书位置","historical_excerpt":"历史标书原文摘录","tender_requirement":"招标基线依据","action":"后续适配处理要求"}]}
+{"differences":[{"category":"删除内容|名称地点替换|数据更新|工期进度更新|其他人工判断","priority":"high|medium|low","content_change_scope":"location-target|workload|schedule|none","title":"差异标题","historical_location":"历史标书位置","historical_excerpt":"历史标书原文摘录","tender_requirement":"招标基线依据","action":"后续适配处理要求"}]}
 
 完整招标基线：
 ${baseline}`;
@@ -153,6 +162,7 @@ async function runHistoricalAdaptationDifferenceTask({ aiService, workspaceStore
 
 module.exports = {
   DIFFERENCE_CATEGORIES,
+  CONTENT_CHANGE_SCOPES,
   buildHistoricalAdaptationDifferencePrompt,
   normalizeHistoricalAdaptationDifferences,
   runHistoricalAdaptationDifferenceTask,

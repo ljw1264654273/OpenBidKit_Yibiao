@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 // Node 的类型擦除测试运行器需要显式扩展名，产品代码仍使用标准无扩展名导入。
 // @ts-expect-error allowImportingTsExtensions 仅影响测试运行方式
-import { applyContentAiTextCandidate, createContentAiEditSnapshot, findProtectedInlineImageRanges, insertInlineImageBlock, selectionIntersectsProtectedRange, validateContentAiEditSnapshot } from './contentAiEdit.ts';
+import { applyContentAiTextCandidate, createContentAiEditSnapshot, createContentLengthEditSnapshot, findProtectedContentRanges, findProtectedInlineImageRanges, insertInlineImageBlock, selectionIntersectsProtectedRange, validateContentAiEditSnapshot } from './contentAiEdit.ts';
 
 test('选区改写只替换选中的字符', () => {
   const content = '项目团队将定期沟通进展，及时处理问题。';
@@ -115,4 +115,86 @@ test('手工图片块插入光标位置并保留图题', () => {
   assert.match(result.content, /^前文。\n\n<!-- yibiao-inline-image:start/);
   assert.match(result.content, /<!-- yibiao-inline-image:end -->\n\n后文。$/);
   assert.equal(result.selection.start, result.selection.end);
+});
+
+test('扩写和缩写有选区时处理选区，无选区时处理整章', () => {
+  const content = '第一段内容。\n\n第二段内容。';
+  const selected = createContentLengthEditSnapshot({
+    nodeId: '5.1',
+    content,
+    selectionStart: 0,
+    selectionEnd: 6,
+    surface: 'inline',
+  });
+  const whole = createContentLengthEditSnapshot({
+    nodeId: '5.1',
+    content,
+    selectionStart: 4,
+    selectionEnd: 4,
+    surface: 'inline',
+  });
+
+  assert.equal(selected.selectedText, '第一段内容。');
+  assert.equal(whole.selectedText, content);
+  assert.equal(whole.selectionStart, 0);
+  assert.equal(whole.selectionEnd, content.length);
+
+  const expanded = applyContentAiTextCandidate({
+    currentNodeId: '5.1',
+    currentContent: content,
+    snapshot: selected,
+    mode: 'expand',
+    candidateText: '第一段扩写后的实施内容。',
+  });
+  const shortened = applyContentAiTextCandidate({
+    currentNodeId: '5.1',
+    currentContent: content,
+    snapshot: whole,
+    mode: 'shrink',
+    candidateText: '精简后的整章。',
+  });
+
+  assert.equal(expanded.content, '第一段扩写后的实施内容。\n\n第二段内容。');
+  assert.equal(shortened.content, '精简后的整章。');
+});
+
+test('选区扩缩写拒绝内联图片、普通 Markdown 图片或 Mermaid，整章范围仍可交给服务保护', () => {
+  const content = [
+    '前文。',
+    '<!-- yibiao-inline-image:start id="img-1" -->',
+    '![实施图](yibiao-asset://generated-images/test.png)',
+    '<!-- yibiao-inline-image:end -->',
+    '![现场照片](https://example.com/site_(1).png)',
+    '```mermaid',
+    'flowchart LR',
+    'A --> B',
+    '```',
+    '后文。',
+  ].join('\n');
+  const ranges = findProtectedContentRanges(content);
+  assert.equal(ranges.length, 3);
+  assert.equal(content.slice(ranges[1].start, ranges[1].end), '![现场照片](https://example.com/site_(1).png)');
+  assert.throws(() => createContentLengthEditSnapshot({
+    nodeId: '5.1',
+    content,
+    selectionStart: ranges[1].start,
+    selectionEnd: ranges[1].end,
+    surface: 'inline',
+  }), /图片或 Mermaid/);
+  assert.throws(() => createContentLengthEditSnapshot({
+    nodeId: '5.1',
+    content,
+    selectionStart: ranges[2].start,
+    selectionEnd: ranges[2].end,
+    surface: 'inline',
+  }), /图片或 Mermaid/);
+
+  const whole = createContentLengthEditSnapshot({
+    nodeId: '5.1',
+    content,
+    selectionStart: 0,
+    selectionEnd: 0,
+    surface: 'inline',
+  });
+  assert.equal(whole.selectedText, content);
 });

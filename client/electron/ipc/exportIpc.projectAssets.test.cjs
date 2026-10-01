@@ -75,3 +75,33 @@ test('通用 Word 导出根据项目上下文补齐项目级图片目录', async
     fs.rmSync(userDataDir, { recursive: true, force: true });
   }
 });
+
+test('历史标书适配导出必须经过 Main 侧终审门禁', async () => {
+  const ipc = createIpcStub();
+  let exports = 0;
+  let checkedProjectId = '';
+  const store = {
+    assertHistoricalAdaptationExportAllowed() {
+      checkedProjectId = 'project-review';
+    },
+  };
+  registerExportIpc({
+    app: { getPath: () => os.tmpdir() },
+    ipcMain: ipc,
+    bidProjectManager: { getTechnicalPlanStore: (projectId) => projectId === 'project-review' ? store : null },
+    exportService: { exportWord: async () => { exports += 1; return { success: true }; } },
+  });
+
+  await ipc.handlers.get('export:word')(
+    { sender: { send() {} } },
+    { project_id: 'project-review', historical_adaptation: true, outline: [] },
+  );
+  assert.equal(checkedProjectId, 'project-review');
+  assert.equal(exports, 1);
+
+  await assert.rejects(ipc.handlers.get('export:word')(
+    { sender: { send() {} } },
+    { project_id: 'missing-project', historical_adaptation: true, outline: [] },
+  ), /未找到历史标书适配项目/);
+  assert.equal(exports, 1);
+});

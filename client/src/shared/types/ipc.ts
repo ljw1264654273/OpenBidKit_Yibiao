@@ -4,13 +4,13 @@ import type { ClientConfig, ConfigSaveResult, ImageModelTestResult, ModelInfoRes
 import type { KnowledgeAnalysisSnapshot, KnowledgeBaseEvent, KnowledgeBaseId, KnowledgeBaseIndex, KnowledgeBaseIndexMutationResult, KnowledgeBaseIndexOptions, KnowledgeBaseMutationResult, KnowledgeBaseRetryDocumentResult, KnowledgeBaseStartMatchingResult, KnowledgeBaseUploadResult, KnowledgeDocument, KnowledgeFolder, KnowledgeItem } from '../../features/knowledge-base/types';
 import type { RejectionCheckWorkspacePatch, RejectionCheckWorkspaceState, RejectionDocumentRole } from '../../features/rejection-check/types';
 import type { TechnicalPlanCheckFileRole, TechnicalPlanCheckState } from '../../features/technical-plan-check/types';
-import type { BidAnalysisMode, BidAnalysisTaskState, BidSectionMode, ContentGenerationOptions, ContentGenerationPlanState, ContentGenerationProgressDetail, ContentGenerationRuntimeState, ContentGenerationSectionState, DetectedBidSection, GlobalFactGroupState, GlobalFactsMode, HistoricalAdaptationDifference, SaveOutlineRequest, SaveOutlineSelectionRequest, TechnicalPlanState, TechnicalPlanStep, TechnicalPlanWorkflowKind } from '../../features/technical-plan/types';
+import type { BidAnalysisMode, BidAnalysisTaskState, BidSectionMode, ContentGenerationOptions, ContentGenerationPlanState, ContentGenerationProgressDetail, ContentGenerationRuntimeState, ContentGenerationSectionState, DetectedBidSection, GlobalFactGroupState, GlobalFactsMode, HistoricalAdaptationContentMode, HistoricalAdaptationContentReadiness, HistoricalAdaptationDifference, HistoricalAdaptationReviewFinding, SaveHistoricalAdaptationOutlineRequest, SaveOutlineRequest, SaveOutlineSelectionRequest, TechnicalPlanState, TechnicalPlanStep, TechnicalPlanWorkflowKind } from '../../features/technical-plan/types';
 import type { FeasibilityProjectInfo, FeasibilityReportState, FeasibilityReportStep, FeasibilitySaveOutlineRequest, FeasibilitySourceFile } from '../../features/feasibility-report/types';
 import type { ExportFormatConfig, ExportTemplateRecord } from './exportFormat';
 import type { OutlineData, OutlineExpansionMode, OutlineMinimumDepth, OutlineMode, OutlineWordControlOptions } from './outline';
 import type { BidContentDuplicateDecision, BidContentDuplicateResult, BidContentDuplicateRewriteRequest, BidContentDuplicateRewriteResult, BidContentDuplicateTargetSide, BidProject, BidProjectContent, BidProjectCreateOptions, BidProjectDuplicateSummary, BidProjectImportPreview, ExpansionProjectImportOptions, ExpansionProjectImportPreview } from '../../features/bid-project/types';
 
-export type ContentAiEditMode = 'rewrite' | 'continue';
+export type ContentAiEditMode = 'rewrite' | 'continue' | 'expand' | 'shrink';
 
 export interface ContentAiEditRequest {
   projectId?: string;
@@ -26,6 +26,8 @@ export interface ContentAiEditRequest {
 
 export type ContentAiTextCandidate =
   | { mode: 'rewrite'; replacementText: string }
+  | { mode: 'expand'; replacementText: string }
+  | { mode: 'shrink'; replacementText: string }
   | { mode: 'continue'; insertionText: string };
 
 export interface GenerateInlineImageRequest {
@@ -760,6 +762,20 @@ export interface YibiaoBridge {
     updateStep: (payload: { projectId?: string; step: TechnicalPlanStep } | TechnicalPlanStep) => Promise<void>;
     saveBidAnalysisConfig: (payload: { projectId?: string; mode: BidAnalysisMode; selectedTaskIds: string[]; bidSectionMode?: BidSectionMode }) => Promise<void>;
     saveHistoricalAdaptationDifferences: (payload: { projectId?: string; differences: HistoricalAdaptationDifference[] }) => Promise<TechnicalPlanState>;
+    saveHistoricalAdaptationOutline: (payload: SaveHistoricalAdaptationOutlineRequest & { projectId?: string }) => Promise<TechnicalPlanState>;
+    confirmHistoricalAdaptationOutline: (payload: { projectId?: string }) => Promise<TechnicalPlanState>;
+    prepareHistoricalAdaptationContentPlan: (payload: { projectId?: string }) => Promise<TechnicalPlanState>;
+    saveHistoricalAdaptationContentStrategy: (payload: { projectId?: string; nodeId: string; mode: HistoricalAdaptationContentMode; instruction?: string }) => Promise<TechnicalPlanState>;
+    resetHistoricalAdaptationContentStrategies: (payload: { projectId?: string }) => Promise<TechnicalPlanState>;
+    getHistoricalAdaptationContentReadiness: (payload: { projectId?: string }) => Promise<HistoricalAdaptationContentReadiness>;
+    saveHistoricalAdaptationChapterContent: (payload: { projectId?: string; nodeId: string; content: string }) => Promise<TechnicalPlanState>;
+    confirmHistoricalAdaptationContentItem: (payload: { projectId?: string; nodeId: string }) => Promise<TechnicalPlanState>;
+    confirmHistoricalAdaptationContent: (payload: { projectId?: string }) => Promise<TechnicalPlanState>;
+    runHistoricalAdaptationReview: (payload: { projectId?: string }) => Promise<TechnicalPlanState>;
+    setHistoricalAdaptationReviewFinding: (payload: { projectId?: string; findingId: string; resolution: 'resolved' | 'ignored'; resolutionNote: string }) => Promise<TechnicalPlanState>;
+    confirmHistoricalAdaptationReview: (payload: { projectId?: string }) => Promise<TechnicalPlanState>;
+    assertHistoricalAdaptationExportAllowed: (payload: { projectId?: string }) => Promise<boolean>;
+    historicalAdaptationReviewFindings?: HistoricalAdaptationReviewFinding[];
     saveOutlineConfig: (payload: { projectId?: string; referenceKnowledgeDocumentIds: string[]; remoteKnowledgeScopes?: RemoteKnowledgeScope[]; outlineMode?: OutlineMode; outlineExpansionMode?: OutlineExpansionMode; wordControlOptions: OutlineWordControlOptions; minimumDepth: OutlineMinimumDepth }) => Promise<void>;
     saveOutlineSelection: (payload: SaveOutlineSelectionRequest) => Promise<{ success: boolean }>;
     saveOutline: (payload: SaveOutlineRequest & { projectId?: string }) => Promise<Partial<TechnicalPlanState>>;
@@ -842,6 +858,9 @@ export interface YibiaoBridge {
     resetBidSectionDownstream: (payload: { projectId?: string } | string) => Promise<{ success: boolean; message?: string }>;
     startBidAnalysis: (payload: unknown) => Promise<unknown>;
     startHistoricalAdaptationDifference: (payload: { projectId: string }) => Promise<unknown>;
+    startHistoricalAdaptationOutline: (payload: { projectId: string; projectName?: string }) => Promise<unknown>;
+    startHistoricalAdaptationContent: (payload: { projectId: string; nodeId?: string; forceOverwriteManual?: boolean; forceAll?: boolean }) => Promise<unknown>;
+    startHistoricalAdaptationContentCheck: (payload: { projectId: string }) => Promise<unknown>;
     startOutlineGeneration: (payload: StartOutlineGenerationPayload) => Promise<unknown>;
     suppressOutlineSelectionAutoConfirmation: (payload: { projectId?: string; taskId: string }) => Promise<{ success: boolean }>;
     startGlobalFactsGeneration: (payload: unknown) => Promise<unknown>;

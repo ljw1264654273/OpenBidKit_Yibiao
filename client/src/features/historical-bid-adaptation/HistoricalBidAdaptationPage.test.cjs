@@ -70,12 +70,12 @@ test('招标基线进度更新使用函数式合并以保留实时任务状态',
   assert.doesNotMatch(page, /onProgressChange=\{\(progress\) => onStateChange\(\{ \.\.\.state,/);
 });
 
-test('完整招标基线开放差异确认且目录适配继续锁定', () => {
+test('完整招标基线开放差异确认且差异确认后开放目录适配', () => {
   const page = readFileSync(pagePath, 'utf8');
 
   assert.match(page, /import AdaptationDifferencePage/);
   assert.match(page, /baselineComplete && index === 2/);
-  assert.match(page, /index > 2/);
+  assert.match(page, /differenceComplete && index === 3/);
   assert.match(page, /differenceComplete/);
   assert.match(page, /historicalAdaptationDifferenceTask/);
   const component = readFileSync(join(__dirname, 'components/AdaptationDifferencePage.tsx'), 'utf8');
@@ -94,4 +94,136 @@ test('差异确认页面支持类型筛选编辑及逐项处理', () => {
   assert.match(component, /开始差异分析/);
   assert.match(component, /确认此项/);
   assert.match(component, /无需处理/);
+});
+
+test('差异确认页面明确展示单项确认状态并支持批量确认待确认项', () => {
+  const component = readFileSync(join(__dirname, 'components/AdaptationDifferencePage.tsx'), 'utf8');
+
+  assert.match(component, /确认全部待确认项/);
+  assert.match(component, /批量确认差异/);
+  assert.match(component, /<AppDialog/);
+  assert.match(component, /item\.decision === 'confirmed'[\s\S]*已确认/);
+  assert.match(component, /className="historical-adaptation-difference-confirmed-action"/);
+  assert.match(component, /item\.decision === 'pending' \|\| item\.id === recentlyConfirmedId/);
+  assert.match(component, /disabled=\{running \|\| bulkSaving \|\| Boolean\(savingId\) \|\| pendingCount === 0\}/);
+  const styles = readFileSync(join(__dirname, '../../styles/feature-historical-bid-adaptation.css'), 'utf8');
+  assert.match(styles, /@media \(max-width: 1100px\)[\s\S]*historical-adaptation-difference-workbench \{ grid-template-columns: 1fr; \}/);
+  assert.match(styles, /@media \(max-width: 1100px\)[\s\S]*historical-adaptation-difference-editor \{ grid-template-columns: minmax\(150px, \.55fr\) minmax\(280px, 1\.45fr\); \}/);
+});
+
+test('目录适配页面支持生成、三栏核对、编辑和确认验收', () => {
+  const componentPath = join(__dirname, 'components/AdaptationOutlinePage.tsx');
+  assert.equal(existsSync(componentPath), true, '应提供独立目录适配组件');
+  const component = readFileSync(componentPath, 'utf8');
+
+  for (const label of ['原目录', '已删除目录', '适配后目录', '变更依据', '关联差异', '增加一级目录', '增加子目录', '上移', '下移', '删除', '保存编辑', '确认目录']) {
+    assert.match(component, new RegExp(label));
+  }
+  assert.match(component, /startHistoricalAdaptationOutline/);
+  assert.match(component, /saveHistoricalAdaptationOutline/);
+  assert.match(component, /confirmHistoricalAdaptationOutline/);
+  assert.match(component, /historicalAdaptationOutlineChanges/);
+});
+
+test('环节四订阅目录任务，确认后开放环节五', () => {
+  const page = readFileSync(pagePath, 'utf8');
+  assert.match(page, /taskType !== 'historical-adaptation-outline'/);
+  assert.match(page, /historicalAdaptationOutlineTask/);
+  assert.match(page, /activeStage === 3/);
+  assert.match(page, /outlineComplete/);
+  assert.match(page, /!contentComplete && index === 5/);
+  assert.match(page, /!outlineComplete && index === 4/);
+});
+
+test('正文迁移页面支持迁移方案、人工策略、恢复默认和阶段确认', () => {
+  const componentPath = join(__dirname, 'components/AdaptationContentPage.tsx');
+  assert.equal(existsSync(componentPath), true, '应提供独立正文迁移组件');
+  const component = readFileSync(componentPath, 'utf8');
+  for (const label of ['适配目录', '历史原文 / 迁移依据', '迁移后正文', '直接迁移', '局部改写', '定向改写', '保存人工修改', '按此方式迁移本章', '选择尚未应用', '建立/更新迁移方案', '恢复默认处理方式', '运行一致性检查', '确认本阶段']) {
+    assert.match(component, new RegExp(label));
+  }
+  assert.match(component, /prepareHistoricalAdaptationContentPlan/);
+  assert.match(component, /saveHistoricalAdaptationContentStrategy/);
+  assert.match(component, /resetHistoricalAdaptationContentStrategies/);
+  assert.doesNotMatch(component, /批量设为直接迁移/);
+  assert.match(component, /getHistoricalAdaptationContentReadiness/);
+  assert.match(component, /startHistoricalAdaptationContentCheck/);
+  assert.match(component, /startHistoricalAdaptationContent/);
+  assert.match(component, /saveHistoricalAdaptationChapterContent/);
+  assert.match(component, /confirmHistoricalAdaptationContent/);
+  assert.doesNotMatch(component, /确认当前章节/);
+  assert.doesNotMatch(component, /confirmHistoricalAdaptationContentItem/);
+  assert.doesNotMatch(component, /allConfirmed/);
+  assert.match(component, /allowRawHtml=\{false\}/);
+});
+
+test('正文迁移保护人工正文，明确确认后才允许覆盖', () => {
+  const component = readFileSync(join(__dirname, 'components/AdaptationContentPage.tsx'), 'utf8');
+  assert.match(component, /content_origin === 'manual'/);
+  assert.match(component, /title="覆盖人工正文"/);
+  assert.match(component, /forceOverwriteManual:\s*true/);
+  assert.match(component, /确认覆盖并迁移/);
+});
+
+test('历史适配正文支持选区或整章扩写缩写，普通正文页不启用入口', () => {
+  const component = readFileSync(join(__dirname, 'components/AdaptationContentPage.tsx'), 'utf8');
+  const menu = readFileSync(join(__dirname, '../technical-plan/components/ContentAiRewriteMenu.tsx'), 'utf8');
+  const regularPage = readFileSync(join(__dirname, '../technical-plan/pages/ContentEditPage.tsx'), 'utf8');
+
+  assert.match(menu, /扩写/);
+  assert.match(menu, /缩写/);
+  assert.match(component, /ContentAiRewriteMenu/);
+  assert.match(component, /ContentAiRewriteDrawer/);
+  assert.match(component, /enableLengthEditing/);
+  assert.doesNotMatch(regularPage, /enableLengthEditing/);
+});
+
+test('正文迁移页面离开未保存草稿前明确确认且禁止直接确认阶段', () => {
+  const page = readFileSync(pagePath, 'utf8');
+  const component = readFileSync(join(__dirname, 'components/AdaptationContentPage.tsx'), 'utf8');
+
+  assert.match(component, /const dirty = Boolean/);
+  assert.match(component, /requestNavigation\(\{ type: 'chapter'/);
+  assert.match(component, /requestNavigation\(\{ type: 'back' \}\)/);
+  assert.match(component, /if \(dirty\)[\s\S]*当前章节有未保存修改，请先保存/);
+  assert.match(component, /title="当前章节有未保存修改"/);
+  assert.match(component, /放弃修改并继续/);
+  assert.match(component, /selectedItem\.error/);
+  assert.match(component, /onDirtyChange\(dirty\)/);
+  assert.match(page, /const \[contentDirty, setContentDirty\]/);
+  assert.match(page, /const \[pendingStage, setPendingStage\]/);
+  assert.match(page, /onStageChange=\{requestStageChange\}/);
+  assert.match(page, /onDirtyChange=\{setContentDirty\}/);
+  assert.match(page, /放弃修改并切换/);
+});
+
+test('环节五订阅正文迁移任务，确认后开放环节六', () => {
+  const page = readFileSync(pagePath, 'utf8');
+  assert.match(page, /taskType !== 'historical-adaptation-content'/);
+  assert.match(page, /taskType !== 'historical-adaptation-content-check'/);
+  assert.match(page, /historicalAdaptationContentTask/);
+  assert.match(page, /historicalAdaptationContentCheckTask/);
+  assert.match(page, /activeStage === 4/);
+  assert.match(page, /contentComplete/);
+  assert.match(page, /activeStage === 5/);
+  assert.match(page, /!contentComplete && index === 5/);
+});
+
+test('环节六支持自动终审、问题处置、人工验收与门禁 Word 导出', () => {
+  const componentPath = join(__dirname, 'components/AdaptationReviewExportPage.tsx');
+  assert.equal(existsSync(componentPath), true, '应提供独立审核导出组件');
+  const component = readFileSync(componentPath, 'utf8');
+  const page = readFileSync(pagePath, 'utf8');
+
+  for (const label of ['运行终审', 'P0', 'P1', 'P2', '确认终审', '导出 Word']) {
+    assert.match(component, new RegExp(label));
+  }
+  assert.match(component, /runHistoricalAdaptationReview/);
+  assert.match(component, /setHistoricalAdaptationReviewFinding/);
+  assert.match(component, /confirmHistoricalAdaptationReview/);
+  assert.match(component, /assertHistoricalAdaptationExportAllowed/);
+  assert.match(component, /WordExportDialog/);
+  assert.match(component, /historical_adaptation:\s*true/);
+  assert.match(page, /!contentComplete && index === 5/);
+  assert.match(page, /contentComplete && index === 5/);
 });

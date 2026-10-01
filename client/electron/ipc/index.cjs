@@ -121,6 +121,20 @@ const workspaceDatabaseChannels = [
   'technical-plan:read-tender-markdown',
   'technical-plan:read-original-plan-markdown',
   'technical-plan:update-step',
+  'technical-plan:save-historical-adaptation-differences',
+  'technical-plan:save-historical-adaptation-outline',
+  'technical-plan:confirm-historical-adaptation-outline',
+  'technical-plan:prepare-historical-adaptation-content-plan',
+  'technical-plan:save-historical-adaptation-content-strategy',
+  'technical-plan:reset-historical-adaptation-content-strategies',
+  'technical-plan:get-historical-adaptation-content-readiness',
+  'technical-plan:save-historical-adaptation-chapter-content',
+  'technical-plan:confirm-historical-adaptation-content-item',
+  'technical-plan:confirm-historical-adaptation-content',
+  'technical-plan:run-historical-adaptation-review',
+  'technical-plan:set-historical-adaptation-review-finding',
+  'technical-plan:confirm-historical-adaptation-review',
+  'technical-plan:assert-historical-adaptation-export-allowed',
   'technical-plan:save-outline-config',
   'technical-plan:save-outline',
   'technical-plan:save-outline-node-knowledge',
@@ -192,6 +206,10 @@ const workspaceDatabaseChannels = [
   'knowledge-base:read-analysis',
   'tasks:start-bid-section-extraction',
   'tasks:start-bid-analysis',
+  'tasks:start-historical-adaptation-difference',
+  'tasks:start-historical-adaptation-outline',
+  'tasks:start-historical-adaptation-content',
+  'tasks:start-historical-adaptation-content-check',
   'tasks:start-outline-generation',
   'tasks:confirm-outline-selection',
   'tasks:suppress-outline-selection-auto-confirmation',
@@ -343,7 +361,7 @@ function registerWorkspaceDatabaseServices({ app, configStore, aiService, agentS
   registerTaskIpc({ taskService });
   updateStatus({ phase: 'ready', ready: true, message: '本地数据库已就绪' });
   
-  return { taskService, sqliteDatabase };
+  return { taskService, sqliteDatabase, bidProjectManager };
 }
 
 function registerIpcHandlers({ app, mainWindow, checkAndDownloadUpdate, triggerUpdateDownload, quitAndInstall, getLatestVersion, getUpdateDownloadUrl, gpuStartupState = {}, gpuTrialArg = '--yibiao-trial-hardware-acceleration', forceDisableGpuArgs = [], openDeveloperTokenStatsWindow, closeDeveloperTokenStatsWindow, openDeveloperAgentMonitorWindow, closeDeveloperAgentMonitorWindow }) {
@@ -466,7 +484,11 @@ function registerIpcHandlers({ app, mainWindow, checkAndDownloadUpdate, triggerU
   registerAgentIpc({ agentService });
   registerAutoConfirmationIpc({ autoConfirmationService });
   registerFileIpc({ fileService });
-  registerExportIpc({ app, exportService });
+  registerExportIpc({
+    app,
+    exportService,
+    resolveHistoricalAdaptationStore: (projectId) => workspaceDatabaseServices?.bidProjectManager?.getTechnicalPlanStore(projectId),
+  });
   registerSystemFontIpc({ systemFontService });
   registerPendingWorkspaceDatabaseIpc(databaseStatus.getStatus);
 

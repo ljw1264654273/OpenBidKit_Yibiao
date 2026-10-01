@@ -28,9 +28,18 @@ const {
 } = require('./outlineGenerationAgentV2Config.cjs');
 const { GLOBAL_FACTS_AGENT_TASK_KEY } = require('./globalFactsAgentV2Config.cjs');
 const { normalizeOutlineHeadingTitles } = require('./mandatoryBidContentRules.cjs');
+const { reviewHistoricalAdaptationContent } = require('./historicalAdaptationReviewRules.cjs');
 const { getProjectAgentTaskKey } = require('./agentTaskKeys.cjs');
 const { buildIllustrationBlock, replaceIllustrationBlock } = require('./contentIllustrationReview.cjs');
 const { normalizeHistoricalAdaptationDifferences } = require('./historicalAdaptationDifferenceTask.cjs');
+const { normalizeHistoricalAdaptationOutlineChanges } = require('./historicalAdaptationOutlineTask.cjs');
+const {
+  assertContentPrerequisites,
+  buildHistoricalContentItems,
+  normalizeHistoricalAdaptationContentItems,
+  scanHistoricalResiduals,
+  scanUnresolvedPlaceholders,
+} = require('./historicalAdaptationContentTask.cjs');
 const {
   reconcileIllustrationItems,
   removeIllustrationBlock,
@@ -87,6 +96,14 @@ const initialState = {
   bidAnalysisProgress: 0,
   historicalAdaptationDifferences: [],
   historicalAdaptationDifferenceConfirmedAt: undefined,
+  historicalAdaptationOriginalOutline: null,
+  historicalAdaptationOutlineChanges: [],
+  historicalAdaptationOutlineConfirmedAt: undefined,
+  historicalAdaptationContentItems: [],
+  historicalAdaptationContentConfirmedAt: undefined,
+  historicalAdaptationContentCheck: { status: 'idle', findings: [] },
+  historicalAdaptationReviewFindings: [],
+  historicalAdaptationReviewConfirmedAt: undefined,
   bidSectionMode: 'single',
   bidSections: [],
   bidSectionExtractionStatus: 'idle',
@@ -102,6 +119,9 @@ const initialState = {
   bidSectionExtractionTask: undefined,
   bidAnalysisTask: undefined,
   historicalAdaptationDifferenceTask: undefined,
+  historicalAdaptationOutlineTask: undefined,
+  historicalAdaptationContentTask: undefined,
+  historicalAdaptationContentCheckTask: undefined,
   outlineGenerationTask: undefined,
   globalFactsMode: 'omit',
   globalFactsTask: undefined,
@@ -121,6 +141,9 @@ const taskFieldTypes = {
   bidSectionExtractionTask: 'bid-section-extraction',
   bidAnalysisTask: 'bid-analysis',
   historicalAdaptationDifferenceTask: 'historical-adaptation-difference',
+  historicalAdaptationOutlineTask: 'historical-adaptation-outline',
+  historicalAdaptationContentTask: 'historical-adaptation-content',
+  historicalAdaptationContentCheckTask: 'historical-adaptation-content-check',
   outlineGenerationTask: 'outline-generation',
   outlineAdjustmentTask: 'outline-adjustment',
   globalFactsTask: 'global-facts-generation',
@@ -132,6 +155,8 @@ const taskFieldTypes = {
 const taskTypeFields = Object.fromEntries(Object.entries(taskFieldTypes).map(([field, type]) => [type, field]));
 const originalPlanDownstreamTaskTypes = Object.freeze([
   'historical-adaptation-difference',
+  'historical-adaptation-outline',
+  'historical-adaptation-content',
   'outline-generation',
   'outline-adjustment',
   'global-facts-generation',
@@ -175,6 +200,19 @@ function jsonOrNull(value) {
 
 function stableHash(content) {
   return crypto.createHash('sha256').update(String(content || ''), 'utf8').digest('hex');
+}
+
+function normalizeHistoricalAdaptationContentCheck(value) {
+  const source = value && typeof value === 'object' ? value : {};
+  const status = ['idle', 'running', 'success', 'stale', 'error'].includes(source.status) ? source.status : 'idle';
+  return {
+    status,
+    findings: Array.isArray(source.findings) ? source.findings : [],
+    checked_content_hash: String(source.checked_content_hash || ''),
+    checked_inputs_hash: String(source.checked_inputs_hash || ''),
+    checked_at: source.checked_at ? String(source.checked_at) : undefined,
+    error: source.error ? String(source.error) : undefined,
+  };
 }
 
 function safeFileNamePart(value) {
@@ -1282,7 +1320,7 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     return {
       task_id: row.task_id,
       type: row.type,
-      status: normalizeStatus(row.status, ['running', 'pausing', 'paused', 'success', 'error'], 'running'),
+      status: normalizeStatus(row.status, ['queued', 'running', 'pausing', 'paused', 'success', 'error'], 'running'),
       progress: Number(row.progress || 0),
       logs: taskLogStore.list('technical-plan', row.type, row.task_id),
       started_at: row.started_at,
@@ -2479,6 +2517,14 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       selected_section_title: null,
       historical_adaptation_differences_json: null,
       historical_adaptation_difference_confirmed_at: null,
+      historical_adaptation_original_outline_json: null,
+      historical_adaptation_outline_changes_json: null,
+      historical_adaptation_outline_confirmed_at: null,
+      historical_adaptation_content_items_json: null,
+      historical_adaptation_content_confirmed_at: null,
+      historical_adaptation_content_check_json: null,
+      historical_adaptation_review_findings_json: null,
+      historical_adaptation_review_confirmed_at: null,
     });
   }
 
@@ -2505,6 +2551,14 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       outline_project_overview: null,
       historical_adaptation_differences_json: null,
       historical_adaptation_difference_confirmed_at: null,
+      historical_adaptation_original_outline_json: null,
+      historical_adaptation_outline_changes_json: null,
+      historical_adaptation_outline_confirmed_at: null,
+      historical_adaptation_content_items_json: null,
+      historical_adaptation_content_confirmed_at: null,
+      historical_adaptation_content_check_json: null,
+      historical_adaptation_review_findings_json: null,
+      historical_adaptation_review_confirmed_at: null,
     });
   }
 
@@ -2516,6 +2570,13 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     clearContentIllustrationPlan();
     clearTechnicalPlanMermaidCache();
     updateMeta({ content_generation_runtime_json: null });
+  }
+
+  function clearHistoricalAdaptationReviewState() {
+    updateMeta({
+      historical_adaptation_review_findings_json: null,
+      historical_adaptation_review_confirmed_at: null,
+    });
   }
 
   function collectOutlineNodeAndDescendantIds(nodeId) {
@@ -2567,14 +2628,22 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       outline_minimum_depth_snapshot: null,
       historical_adaptation_differences_json: null,
       historical_adaptation_difference_confirmed_at: null,
+      historical_adaptation_original_outline_json: null,
+      historical_adaptation_outline_changes_json: null,
+      historical_adaptation_outline_confirmed_at: null,
+      historical_adaptation_content_items_json: null,
+      historical_adaptation_content_confirmed_at: null,
+      historical_adaptation_content_check_json: null,
+      historical_adaptation_review_findings_json: null,
+      historical_adaptation_review_confirmed_at: null,
     });
   }
 
   // 正文任务活动或暂停期间禁止手工保存，避免清空待恢复的图片计划。
   function assertContentEditingAllowed() {
-    const row = db.prepare("SELECT status FROM technical_plan_tasks WHERE type = 'content-generation' AND status IN ('running', 'pausing', 'paused') LIMIT 1").get();
+    const row = db.prepare("SELECT status FROM technical_plan_tasks WHERE type IN ('content-generation', 'historical-adaptation-content', 'historical-adaptation-content-check') AND status IN ('queued', 'running', 'pausing', 'paused') LIMIT 1").get();
     if (row) {
-      throw new Error('当前正文生成任务正在运行或已暂停，请先完成任务再编辑正文');
+      throw new Error('当前正文任务正在运行、排队或已暂停，请先完成任务再编辑正文');
     }
   }
 
@@ -2590,9 +2659,17 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
   }
 
   function assertOutlineMutationAllowed() {
+    const adaptationTask = db.prepare("SELECT status FROM technical_plan_tasks WHERE type = 'historical-adaptation-outline'").get();
+    if (['queued', 'running', 'pausing', 'paused'].includes(adaptationTask?.status)) {
+      throw new Error('目录适配任务正在运行或暂停中，请结束后再调整目录');
+    }
     const task = db.prepare("SELECT status FROM technical_plan_tasks WHERE type = 'content-generation'").get();
     if (['running', 'pausing', 'paused'].includes(task?.status)) {
       throw new Error('正文生成任务正在运行或暂停中，请结束后再调整目录');
+    }
+    const adaptationContentTask = db.prepare("SELECT status FROM technical_plan_tasks WHERE type = 'historical-adaptation-content'").get();
+    if (['queued', 'running', 'pausing', 'paused'].includes(adaptationContentTask?.status)) {
+      throw new Error('正文迁移任务正在运行、排队或暂停中，请结束后再调整目录');
     }
   }
 
@@ -2763,6 +2840,42 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
         ? String(partial.historicalAdaptationDifferenceConfirmedAt)
         : null;
     }
+    if (hasOwn(partial, 'historicalAdaptationOriginalOutline')) {
+      metaUpdates.historical_adaptation_original_outline_json = jsonOrNull(partial.historicalAdaptationOriginalOutline);
+    }
+    if (hasOwn(partial, 'historicalAdaptationOutlineChanges')) {
+      metaUpdates.historical_adaptation_outline_changes_json = jsonOrNull(
+        normalizeHistoricalAdaptationOutlineChanges(partial.historicalAdaptationOutlineChanges),
+      );
+    }
+    if (hasOwn(partial, 'historicalAdaptationOutlineConfirmedAt')) {
+      metaUpdates.historical_adaptation_outline_confirmed_at = partial.historicalAdaptationOutlineConfirmedAt
+        ? String(partial.historicalAdaptationOutlineConfirmedAt)
+        : null;
+    }
+    if (hasOwn(partial, 'historicalAdaptationContentItems')) {
+      metaUpdates.historical_adaptation_content_items_json = jsonOrNull(
+        normalizeHistoricalAdaptationContentItems(partial.historicalAdaptationContentItems),
+      );
+    }
+    if (hasOwn(partial, 'historicalAdaptationContentConfirmedAt')) {
+      metaUpdates.historical_adaptation_content_confirmed_at = partial.historicalAdaptationContentConfirmedAt
+        ? String(partial.historicalAdaptationContentConfirmedAt)
+        : null;
+    }
+    if (hasOwn(partial, 'historicalAdaptationContentCheck')) {
+      metaUpdates.historical_adaptation_content_check_json = jsonOrNull(
+        normalizeHistoricalAdaptationContentCheck(partial.historicalAdaptationContentCheck),
+      );
+    }
+    if (hasOwn(partial, 'historicalAdaptationReviewFindings')) {
+      metaUpdates.historical_adaptation_review_findings_json = jsonOrNull(partial.historicalAdaptationReviewFindings);
+    }
+    if (hasOwn(partial, 'historicalAdaptationReviewConfirmedAt')) {
+      metaUpdates.historical_adaptation_review_confirmed_at = partial.historicalAdaptationReviewConfirmedAt
+        ? String(partial.historicalAdaptationReviewConfirmedAt)
+        : null;
+    }
 
     if (Object.keys(metaUpdates).length) updateMeta(metaUpdates);
 
@@ -2860,6 +2973,20 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       bidAnalysisProgress: calculateBidProgress(bidAnalysisMode, bidAnalysisTasks, bidAnalysisSelectedTaskIds),
       historicalAdaptationDifferences: normalizeHistoricalAdaptationDifferences(safeJsonParse(meta.historical_adaptation_differences_json, [])),
       historicalAdaptationDifferenceConfirmedAt: meta.historical_adaptation_difference_confirmed_at || undefined,
+      historicalAdaptationOriginalOutline: safeJsonParse(meta.historical_adaptation_original_outline_json, null),
+      historicalAdaptationOutlineChanges: normalizeHistoricalAdaptationOutlineChanges(
+        safeJsonParse(meta.historical_adaptation_outline_changes_json, []),
+      ),
+      historicalAdaptationOutlineConfirmedAt: meta.historical_adaptation_outline_confirmed_at || undefined,
+      historicalAdaptationContentItems: normalizeHistoricalAdaptationContentItems(
+        safeJsonParse(meta.historical_adaptation_content_items_json, []),
+      ),
+      historicalAdaptationContentConfirmedAt: meta.historical_adaptation_content_confirmed_at || undefined,
+      historicalAdaptationContentCheck: normalizeHistoricalAdaptationContentCheck(
+        safeJsonParse(meta.historical_adaptation_content_check_json, null),
+      ),
+      historicalAdaptationReviewFindings: safeJsonParse(meta.historical_adaptation_review_findings_json, []),
+      historicalAdaptationReviewConfirmedAt: meta.historical_adaptation_review_confirmed_at || undefined,
       bidSectionMode: normalizeBidSectionMode(meta.bid_section_mode),
       bidSections,
       bidSectionExtractionStatus: bidSectionExtractionTask?.status
@@ -3029,10 +3156,34 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
   function saveHistoricalAdaptationDifferences({ differences } = {}) {
     const normalized = normalizeHistoricalAdaptationDifferences(differences);
     const complete = normalized.every((item) => item.decision === 'confirmed' || item.decision === 'ignored');
-    updateMeta({
-      historical_adaptation_differences_json: jsonOrNull(normalized),
-      historical_adaptation_difference_confirmed_at: complete ? now() : null,
+    const transaction = db.transaction(() => {
+      db.prepare("DELETE FROM technical_plan_tasks WHERE type IN ('historical-adaptation-outline', 'historical-adaptation-content', 'content-generation', 'global-facts-generation')").run();
+      db.prepare('DELETE FROM technical_plan_outline_nodes').run();
+      db.prepare('DELETE FROM technical_plan_global_fact_groups').run();
+      db.prepare('DELETE FROM technical_plan_content_sections').run();
+      db.prepare('DELETE FROM technical_plan_content_plans').run();
+      clearContentIllustrationPlan();
+      clearOriginalOutlineRuntime();
+      clearTechnicalPlanMermaidCache();
+      updateMeta({
+        historical_adaptation_differences_json: jsonOrNull(normalized),
+        historical_adaptation_difference_confirmed_at: complete ? now() : null,
+        historical_adaptation_original_outline_json: null,
+        historical_adaptation_outline_changes_json: null,
+        historical_adaptation_outline_confirmed_at: null,
+        historical_adaptation_content_items_json: null,
+        historical_adaptation_content_confirmed_at: null,
+        historical_adaptation_content_check_json: null,
+        historical_adaptation_review_findings_json: null,
+        historical_adaptation_review_confirmed_at: null,
+        outline_project_name: null,
+        outline_project_overview: null,
+        content_generation_runtime_json: null,
+        outline_word_control_snapshot_json: null,
+        outline_minimum_depth_snapshot: null,
+      });
     });
+    transaction();
     return loadTechnicalPlan();
   }
 
@@ -3149,6 +3300,33 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
         }
       }
       saveScoreCoverageMap();
+      if (request?.historicalAdaptation === true) {
+        db.prepare("DELETE FROM technical_plan_tasks WHERE type = 'historical-adaptation-content'").run();
+        const nextNodeTitles = new Map(
+          flattenOutlineItems(loadOutlineData(readMetaRow())?.outline || [])
+            .map((row) => [String(row.node_id), String(row.title || '')]),
+        );
+        const remappedChanges = normalizeHistoricalAdaptationOutlineChanges(request?.changes).map((item) => {
+          if (item.change_type === 'deleted') return item;
+          const targetNodeId = idMap.get(item.target_node_id) || item.target_node_id;
+          return {
+            ...item,
+            target_node_id: targetNodeId,
+            target_title: nextNodeTitles.get(targetNodeId) || item.target_title,
+          };
+        }).filter((item) => item.change_type === 'deleted' || nextNodeTitles.has(item.target_node_id));
+        updateMeta({
+          historical_adaptation_outline_changes_json: jsonOrNull(remappedChanges),
+          historical_adaptation_outline_confirmed_at: null,
+          historical_adaptation_content_items_json: null,
+          historical_adaptation_content_confirmed_at: null,
+          historical_adaptation_content_check_json: null,
+          historical_adaptation_review_findings_json: null,
+          historical_adaptation_review_confirmed_at: null,
+        });
+      } else if (reason !== 'sort') {
+        clearHistoricalAdaptationReviewState();
+      }
       savedOutlineData = loadOutlineData(readMetaRow());
     });
     transaction();
@@ -3167,6 +3345,10 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     const outlineGenerationTask = loadTask('outline-generation');
     return {
       outlineData: savedOutlineData,
+      historicalAdaptationOutlineChanges: normalizeHistoricalAdaptationOutlineChanges(
+        safeJsonParse(readMetaRow().historical_adaptation_outline_changes_json, []),
+      ),
+      historicalAdaptationOutlineConfirmedAt: readMetaRow().historical_adaptation_outline_confirmed_at || undefined,
       outlineGenerationTask,
       contentGenerationSections: loadContentSections(savedOutlineData),
       contentGenerationPlans: loadContentPlans(),
@@ -3174,6 +3356,324 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       contentGenerationTask: loadTask('content-generation'),
       contentGenerationRuntime: safeJsonParse(readMetaRow().content_generation_runtime_json, undefined),
     };
+  }
+
+  function saveHistoricalAdaptationOutline(payload = {}) {
+    saveOutline({ ...payload, historicalAdaptation: true });
+    return loadTechnicalPlan();
+  }
+
+  function confirmHistoricalAdaptationOutline() {
+    const transaction = db.transaction(() => {
+      assertOutlineMutationAllowed();
+      const outlineData = loadOutlineData(readMetaRow());
+      if (!outlineData?.outline?.length) throw new Error('当前没有可确认的适配目录');
+      updateMeta({ historical_adaptation_outline_confirmed_at: now() });
+    });
+    transaction();
+    return loadTechnicalPlan();
+  }
+
+  function staleHistoricalAdaptationContentCheck() {
+    updateMeta({
+      historical_adaptation_content_confirmed_at: null,
+      historical_adaptation_content_check_json: jsonOrNull({ status: 'stale', findings: [] }),
+      historical_adaptation_review_findings_json: null,
+      historical_adaptation_review_confirmed_at: null,
+    });
+  }
+
+  function prepareHistoricalAdaptationContentPlan() {
+    const transaction = db.transaction(() => {
+      assertContentEditingAllowed();
+      const state = loadTechnicalPlan();
+      const originalPlan = readOriginalPlanMarkdown();
+      assertContentPrerequisites(state, originalPlan);
+      const items = buildHistoricalContentItems({ state, originalPlan }).map(({ source_content: _sourceContent, ...item }) => item);
+      updateMeta({ historical_adaptation_content_items_json: jsonOrNull(items) });
+      staleHistoricalAdaptationContentCheck();
+    });
+    transaction();
+    return loadTechnicalPlan();
+  }
+
+  function getHistoricalAdaptationContentCheckContext() {
+    const meta = readMetaRow();
+    const outlineData = loadOutlineData(meta);
+    const leaves = collectLeafItems(outlineData?.outline || []);
+    const items = normalizeHistoricalAdaptationContentItems(safeJsonParse(meta.historical_adaptation_content_items_json, []));
+    const byId = new Map(items.map((item) => [item.node_id, item]));
+    const contentSnapshot = leaves.map((item) => ({ node_id: String(item.id || ''), content: String(item.content || '') }));
+    const inputSnapshot = {
+      outline: leaves.map((item) => ({ node_id: String(item.id || ''), title: String(item.title || '') })),
+      differences: normalizeHistoricalAdaptationDifferences(safeJsonParse(meta.historical_adaptation_differences_json, [])),
+      strategies: leaves.map((item) => {
+        const plan = byId.get(String(item.id || ''));
+        return { node_id: String(item.id || ''), recommended_mode: plan?.recommended_mode, manual_mode: plan?.manual_mode, manual_instruction: plan?.manual_instruction };
+      }),
+      baseline: loadBidItems(),
+    };
+    return {
+      contentHash: stableHash(JSON.stringify(contentSnapshot)),
+      inputsHash: stableHash(JSON.stringify(inputSnapshot)),
+      outlineData,
+      items,
+      baseline: inputSnapshot.baseline,
+    };
+  }
+
+  function saveHistoricalAdaptationContentStrategy({ nodeId, mode, instruction } = {}) {
+    const targetNodeId = String(nodeId || '').trim();
+    const targetMode = String(mode || '').trim();
+    if (!['direct', 'local-rewrite', 'rewrite'].includes(targetMode)) throw new Error('请选择有效的正文迁移方式');
+    const transaction = db.transaction(() => {
+      assertContentEditingAllowed();
+      const meta = readMetaRow();
+      const items = normalizeHistoricalAdaptationContentItems(safeJsonParse(meta.historical_adaptation_content_items_json, []));
+      const current = items.find((item) => item.node_id === targetNodeId);
+      if (!current) throw new Error('当前章节尚未建立正文迁移方案');
+      if (['direct', 'local-rewrite'].includes(targetMode) && (!current.source_path || !current.source_excerpt)) throw new Error('当前章节没有可靠历史正文，请选择定向改写并填写补充要求');
+      const manualInstruction = targetMode === 'rewrite' ? String(instruction || '').trim() : '';
+      if (targetMode === 'rewrite' && !manualInstruction) throw new Error('请填写定向改写要求');
+      const timestamp = now();
+      updateMeta({
+        historical_adaptation_content_items_json: jsonOrNull(items.map((item) => item.node_id === targetNodeId ? {
+          ...item,
+          manual_mode: targetMode,
+          manual_instruction: manualInstruction,
+          status: item.status === 'idle' ? 'idle' : 'stale',
+          updated_at: timestamp,
+        } : item)),
+      });
+      staleHistoricalAdaptationContentCheck();
+    });
+    transaction();
+    return loadTechnicalPlan();
+  }
+
+  function resetHistoricalAdaptationContentStrategies() {
+    const transaction = db.transaction(() => {
+      assertContentEditingAllowed();
+      const state = loadTechnicalPlan();
+      const originalPlan = readOriginalPlanMarkdown();
+      assertContentPrerequisites(state, originalPlan);
+      const previousById = new Map(state.historicalAdaptationContentItems.map((item) => [item.node_id, item]));
+      const timestamp = now();
+      const nextItems = buildHistoricalContentItems({ state, originalPlan }).map(({ source_content: _sourceContent, ...item }) => {
+        const previous = previousById.get(item.node_id);
+        return {
+          ...item,
+          manual_mode: undefined,
+          manual_instruction: '',
+          status: previous?.content_origin === 'manual' ? previous.status
+            : !item.recommended_mode ? 'review'
+              : previous && previous.status !== 'idle' ? 'stale' : 'idle',
+          content_origin: previous?.content_origin,
+          residuals: previous?.residuals || [],
+          error: previous?.content_origin === 'manual' ? previous.error : undefined,
+          updated_at: timestamp,
+        };
+      });
+      updateMeta({ historical_adaptation_content_items_json: jsonOrNull(nextItems) });
+      staleHistoricalAdaptationContentCheck();
+    });
+    transaction();
+    return loadTechnicalPlan();
+  }
+
+  function saveHistoricalAdaptationChapterContent({ nodeId, content } = {}) {
+    const targetNodeId = String(nodeId || '').trim();
+    const nextContent = String(content || '');
+    const transaction = db.transaction(() => {
+      assertContentEditingAllowed();
+      const node = db.prepare('SELECT node_id FROM technical_plan_outline_nodes WHERE node_id = ?').get(targetNodeId);
+      if (!node) throw new Error('当前目录中未找到该章节');
+      const meta = readMetaRow();
+      const items = normalizeHistoricalAdaptationContentItems(safeJsonParse(meta.historical_adaptation_content_items_json, []));
+      const item = items.find((candidate) => candidate.node_id === targetNodeId);
+      if (!item) throw new Error('当前章节尚未建立正文迁移记录');
+      const timestamp = now();
+      const residuals = scanHistoricalResiduals(nextContent, item);
+      const placeholders = scanUnresolvedPlaceholders(nextContent);
+      const nextItems = items.map((candidate) => candidate.node_id === targetNodeId ? {
+        ...candidate,
+        status: nextContent.trim() && !residuals.length && !placeholders.length ? 'success' : 'review',
+        content_origin: 'manual',
+        residuals,
+        confirmed_at: undefined,
+        updated_at: timestamp,
+        error: placeholders.length ? `正文包含未处理占位符：${placeholders.join('、')}` : undefined,
+      } : candidate);
+      db.prepare('UPDATE technical_plan_outline_nodes SET content = ?, updated_at = ? WHERE node_id = ?').run(nextContent, timestamp, targetNodeId);
+      db.prepare(`
+        INSERT INTO technical_plan_content_sections (node_id, status, error, updated_at)
+        VALUES (?, ?, NULL, ?)
+        ON CONFLICT(node_id) DO UPDATE SET status = excluded.status, error = NULL, updated_at = excluded.updated_at
+      `).run(targetNodeId, nextContent.trim() ? 'success' : 'idle', timestamp);
+      updateMeta({
+        historical_adaptation_content_items_json: jsonOrNull(nextItems),
+      });
+      staleHistoricalAdaptationContentCheck();
+      clearContentIllustrationPlan();
+    });
+    transaction();
+    if (typeof onContentChanged === 'function') onContentChanged({ origin: 'historical-adaptation', nodeIds: [targetNodeId] });
+    return loadTechnicalPlan();
+  }
+
+  function confirmHistoricalAdaptationContentItem({ nodeId } = {}) {
+    const targetNodeId = String(nodeId || '').trim();
+    const transaction = db.transaction(() => {
+      assertContentEditingAllowed();
+      const node = db.prepare('SELECT content FROM technical_plan_outline_nodes WHERE node_id = ?').get(targetNodeId);
+      if (!node || !String(node.content || '').trim()) throw new Error('当前章节正文为空，不能确认');
+      const meta = readMetaRow();
+      const items = normalizeHistoricalAdaptationContentItems(safeJsonParse(meta.historical_adaptation_content_items_json, []));
+      const item = items.find((candidate) => candidate.node_id === targetNodeId);
+      if (!item) throw new Error('当前章节尚未建立正文迁移记录');
+      const residuals = scanHistoricalResiduals(node.content, item);
+      if (residuals.length) throw new Error(`正文仍包含历史残留：${residuals.join('、')}`);
+      const placeholders = scanUnresolvedPlaceholders(node.content);
+      if (placeholders.length) throw new Error(`正文仍包含未处理占位符：${placeholders.join('、')}`);
+      const timestamp = now();
+      updateMeta({
+        historical_adaptation_content_items_json: jsonOrNull(items.map((candidate) => candidate.node_id === targetNodeId ? {
+          ...candidate,
+          status: 'success',
+          residuals: [],
+          confirmed_at: timestamp,
+          updated_at: timestamp,
+          error: undefined,
+        } : candidate)),
+        historical_adaptation_content_confirmed_at: null,
+      });
+    });
+    transaction();
+    return loadTechnicalPlan();
+  }
+
+  function confirmHistoricalAdaptationContent() {
+    const transaction = db.transaction(() => {
+      assertContentEditingAllowed();
+      const readiness = getHistoricalAdaptationContentReadiness();
+      if (!readiness.ready) throw new Error(`仍有 ${readiness.blockingCount} 个正文问题需要处理`);
+      updateMeta({ historical_adaptation_content_confirmed_at: now() });
+    });
+    transaction();
+    return loadTechnicalPlan();
+  }
+
+  function getHistoricalAdaptationContentReadiness() {
+    const context = getHistoricalAdaptationContentCheckContext();
+    const leaves = collectLeafItems(context.outlineData?.outline || []);
+    const byId = new Map(context.items.map((item) => [item.node_id, item]));
+    const findings = [];
+    for (const leaf of leaves) {
+      const nodeId = String(leaf.id || '');
+      const item = byId.get(nodeId);
+      if (!item || item.status !== 'success' || !String(leaf.content || '').trim() || item.residuals.length) {
+        findings.push({
+          id: `chapter-${nodeId}`,
+          code: 'chapter-not-ready',
+          category: !String(leaf.content || '').trim() ? 'empty' : 'task',
+          severity: 'P0',
+          blocking: true,
+          node_ids: [nodeId],
+          message: '章节正文尚未成功完成迁移或仍需复核',
+          evidence: item?.error || item?.residuals?.join('、') || '',
+        });
+      }
+    }
+    const activeTask = db.prepare("SELECT type FROM technical_plan_tasks WHERE type IN ('historical-adaptation-content', 'historical-adaptation-content-check') AND status IN ('queued', 'running', 'pausing', 'paused') LIMIT 1").get();
+    if (activeTask) findings.push({ id: 'active-task', code: 'active-task', category: 'task', severity: 'P0', blocking: true, node_ids: [], message: '正文迁移或一致性检查任务仍在运行', evidence: activeTask.type });
+    const check = normalizeHistoricalAdaptationContentCheck(safeJsonParse(readMetaRow().historical_adaptation_content_check_json, null));
+    const checkCurrent = check.status === 'success'
+      && check.checked_content_hash === context.contentHash
+      && check.checked_inputs_hash === context.inputsHash;
+    if (!checkCurrent) findings.push({ id: 'check-stale', code: 'check-stale', category: 'task', severity: 'P0', blocking: true, node_ids: [], message: '请先运行最新的一致性检查', evidence: check.error || check.status });
+    if (checkCurrent) findings.push(...check.findings.filter((finding) => finding?.blocking));
+    const blocking = findings.filter((finding) => finding.blocking);
+    const leafOrder = new Map(leaves.map((leaf, index) => [String(leaf.id || ''), index]));
+    const firstNodeId = blocking.flatMap((finding) => finding.node_ids || [])
+      .filter((nodeId) => leafOrder.has(nodeId))
+      .sort((left, right) => leafOrder.get(left) - leafOrder.get(right))[0];
+    return { ready: blocking.length === 0, blockingCount: blocking.length, firstNodeId, findings };
+  }
+
+  function assertHistoricalAdaptationContentAccepted() {
+    const meta = readMetaRow();
+    if (!meta.historical_adaptation_content_confirmed_at) throw new Error('请先完成并确认环节五正文迁移');
+    const readiness = getHistoricalAdaptationContentReadiness();
+    if (!readiness.ready) throw new Error(`正文一致性检查已失效或仍有 ${readiness.blockingCount} 个阻断问题`);
+  }
+
+  function runHistoricalAdaptationReview() {
+    const transaction = db.transaction(() => {
+      assertHistoricalAdaptationContentAccepted();
+      const meta = readMetaRow();
+      const findings = reviewHistoricalAdaptationContent({
+        outline: loadOutlineData(meta)?.outline || [],
+        contentItems: safeJsonParse(meta.historical_adaptation_content_items_json, []),
+        differences: normalizeHistoricalAdaptationDifferences(safeJsonParse(meta.historical_adaptation_differences_json, [])),
+      }, safeJsonParse(meta.historical_adaptation_review_findings_json, []));
+      updateMeta({
+        historical_adaptation_review_findings_json: JSON.stringify(findings),
+        historical_adaptation_review_confirmed_at: null,
+      });
+    });
+    transaction();
+    return loadTechnicalPlan();
+  }
+
+  function setHistoricalAdaptationReviewFinding({ findingId, resolution, resolutionNote } = {}) {
+    if (!['resolved', 'ignored'].includes(resolution)) throw new Error('请选择有效的问题处置状态');
+    const note = String(resolutionNote || '').trim();
+    if (!note) throw new Error('请填写问题处置说明');
+    const transaction = db.transaction(() => {
+      const meta = readMetaRow();
+      if (!meta.historical_adaptation_review_findings_json) throw new Error('请先运行终审');
+      const findings = safeJsonParse(meta.historical_adaptation_review_findings_json, []);
+      if (!findings.some((finding) => finding.id === findingId)) throw new Error('该问题已变化，请重新运行终审');
+      const timestamp = now();
+      updateMeta({
+        historical_adaptation_review_findings_json: JSON.stringify(findings.map((finding) => finding.id === findingId ? {
+          ...finding,
+          resolution,
+          resolution_note: note,
+          resolved_at: timestamp,
+        } : finding)),
+        historical_adaptation_review_confirmed_at: null,
+      });
+    });
+    transaction();
+    return loadTechnicalPlan();
+  }
+
+  function assertHistoricalAdaptationReviewHasNoOpenP0(meta = readMetaRow()) {
+    if (!meta.historical_adaptation_review_findings_json) throw new Error('请先运行终审');
+    const findings = safeJsonParse(meta.historical_adaptation_review_findings_json, []);
+    const blockingCount = findings.filter((finding) => finding.severity === 'P0' && finding.resolution !== 'resolved').length;
+    if (blockingCount) throw new Error(`仍有 ${blockingCount} 个 P0 阻断问题未处置`);
+    return findings;
+  }
+
+  function confirmHistoricalAdaptationReview() {
+    const transaction = db.transaction(() => {
+      assertHistoricalAdaptationContentAccepted();
+      const meta = readMetaRow();
+      assertHistoricalAdaptationReviewHasNoOpenP0(meta);
+      updateMeta({ historical_adaptation_review_confirmed_at: now() });
+    });
+    transaction();
+    return loadTechnicalPlan();
+  }
+
+  function assertHistoricalAdaptationExportAllowed() {
+    assertHistoricalAdaptationContentAccepted();
+    const meta = readMetaRow();
+    assertHistoricalAdaptationReviewHasNoOpenP0(meta);
+    if (!meta.historical_adaptation_review_confirmed_at) throw new Error('请先完成人工终审验收');
+    return true;
   }
 
   function saveOutlineNodeKnowledge({ nodeId, knowledgeFolderIds, knowledgeDocumentIds } = {}) {
@@ -3270,6 +3770,7 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       if (reason !== 'variant-deduplication') {
         clearContentIllustrationPlan();
       }
+      if (changed) clearHistoricalAdaptationReviewState();
     });
     transaction();
     if (changed && typeof onContentChanged === 'function') onContentChanged({ origin: reason, nodeIds: [String(nodeId)] });
@@ -3769,6 +4270,20 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     switchWorkflowKind,
     saveBidAnalysisConfig,
     saveHistoricalAdaptationDifferences,
+    saveHistoricalAdaptationOutline,
+    confirmHistoricalAdaptationOutline,
+    saveHistoricalAdaptationChapterContent,
+    prepareHistoricalAdaptationContentPlan,
+    saveHistoricalAdaptationContentStrategy,
+    resetHistoricalAdaptationContentStrategies,
+    getHistoricalAdaptationContentCheckContext,
+    getHistoricalAdaptationContentReadiness,
+    confirmHistoricalAdaptationContentItem,
+    confirmHistoricalAdaptationContent,
+    runHistoricalAdaptationReview,
+    setHistoricalAdaptationReviewFinding,
+    confirmHistoricalAdaptationReview,
+    assertHistoricalAdaptationExportAllowed,
     saveOutlineConfig,
     saveOutlineSelection,
     saveOutline,

@@ -36,6 +36,7 @@ function runAssertions() {
       action: '全文替换并检查村级表述',
       note: '',
       decision: 'pending',
+      content_change_scope: 'none',
     };
 
     store.updateTechnicalPlan({

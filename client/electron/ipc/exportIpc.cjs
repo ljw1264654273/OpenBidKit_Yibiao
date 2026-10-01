@@ -24,7 +24,7 @@ function enrichExportPayload(payload, app) {
   };
 }
 
-function registerExportIpc({ app, ipcMain = defaultIpcMain, exportService }) {
+function registerExportIpc({ app, ipcMain = defaultIpcMain, exportService, bidProjectManager, resolveHistoricalAdaptationStore }) {
   ipcMain.handle('export:word', async (event, payload = {}) => {
     const requestId = payload.requestId || payload.request_id;
     const sendProgress = (progress) => {
@@ -32,6 +32,13 @@ function registerExportIpc({ app, ipcMain = defaultIpcMain, exportService }) {
     };
 
     try {
+      if (payload.historical_adaptation === true) {
+        const projectId = resolveProjectId(payload);
+        const store = resolveHistoricalAdaptationStore?.(projectId)
+          || bidProjectManager?.getTechnicalPlanStore(projectId);
+        if (!store) throw new Error('未找到历史标书适配项目');
+        store.assertHistoricalAdaptationExportAllowed();
+      }
       return await exportService.exportWord(enrichExportPayload(payload, app), sendProgress);
     } catch (error) {
       sendProgress({

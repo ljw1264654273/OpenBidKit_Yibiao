@@ -78,6 +78,64 @@ test('局部改写与续写只返回结构化候选，不修改正文', async (t
   assert.match(fixture.requests[1].messages[1].content, /光标前文/);
 });
 
+test('扩写和缩写返回替换候选且不虚构事实', async (t) => {
+  const fixture = createFixture();
+  t.after(fixture.cleanup);
+  fixture.service = createContentAiEditService({
+    app: { getPath: () => fixture.userData },
+    technicalPlanStore: { loadTechnicalPlan: () => fixture.savedState },
+    aiService: {
+      collectJsonResponse: async (request) => {
+        fixture.requests.push(request);
+        return request.normalizer({ replacementText: request.logTitle.includes('扩写') ? '扩写后的正文。' : '缩写后的正文。' });
+      },
+    },
+  });
+
+  const expanded = await fixture.service.aiEditContent({ content: '原正文。', selectionStart: 0, selectionEnd: 4, mode: 'expand' });
+  const shortened = await fixture.service.aiEditContent({ content: '较长的原正文。', selectionStart: 0, selectionEnd: 7, mode: 'shrink' });
+
+  assert.deepEqual(expanded, { mode: 'expand', replacementText: '扩写后的正文。' });
+  assert.deepEqual(shortened, { mode: 'shrink', replacementText: '缩写后的正文。' });
+  assert.match(fixture.requests[0].messages[0].content, /不得虚构事实/);
+  assert.match(fixture.requests[1].messages[0].content, /保留事实、数字和承诺/);
+});
+
+test('整章扩缩写保护内联图片、普通 Markdown 图片和 Mermaid 并校验占位符完整顺序', async (t) => {
+  const fixture = createFixture();
+  t.after(fixture.cleanup);
+  const inlineImage = '<!-- yibiao-inline-image:start id="img-1" -->\n![图](asset.png)\n<!-- yibiao-inline-image:end -->';
+  const markdownImage = '![现场照片](https://example.com/site_(1).png)';
+  const mermaid = '```mermaid\nflowchart LR\nA --> B\n```';
+  const content = `前文。\n${inlineImage}\n${markdownImage}\n${mermaid}\n后文。`;
+  fixture.service = createContentAiEditService({
+    app: { getPath: () => fixture.userData },
+    technicalPlanStore: { loadTechnicalPlan: () => fixture.savedState },
+    aiService: {
+      collectJsonResponse: async (request) => {
+        fixture.requests.push(request);
+        return request.normalizer({ replacementText: '扩写前文。\n<!-- YIBIAO_PROTECTED_BLOCK_1 -->\n<!-- YIBIAO_PROTECTED_BLOCK_2 -->\n<!-- YIBIAO_PROTECTED_BLOCK_3 -->\n扩写后文。' });
+      },
+    },
+  });
+
+  const candidate = await fixture.service.aiEditContent({ content, selectionStart: 0, selectionEnd: content.length, mode: 'expand' });
+  assert.equal(candidate.replacementText.includes(inlineImage), true);
+  assert.equal(candidate.replacementText.includes(markdownImage), true);
+  assert.equal(candidate.replacementText.includes(mermaid), true);
+  assert.doesNotMatch(fixture.requests[0].messages[1].content, /flowchart LR/);
+
+  fixture.service = createContentAiEditService({
+    app: { getPath: () => fixture.userData },
+    technicalPlanStore: { loadTechnicalPlan: () => fixture.savedState },
+    aiService: { collectJsonResponse: async (request) => request.normalizer({ replacementText: '缺少占位符的返回。' }) },
+  });
+  await assert.rejects(
+    fixture.service.aiEditContent({ content, selectionStart: 0, selectionEnd: content.length, mode: 'shrink' }),
+    /保护块占位符/,
+  );
+});
+
 test('AI 图片复制到项目候选目录并返回独立保护块', async (t) => {
   const fixture = createFixture();
   t.after(fixture.cleanup);

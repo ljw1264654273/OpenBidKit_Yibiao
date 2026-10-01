@@ -14,7 +14,7 @@ PRAGMA busy_timeout = 5000;
 
 -- 目标完整结构版本。
 -- 运行时代码应通过 PRAGMA user_version 判断是否需要自动升级。
-PRAGMA user_version = 38;
+PRAGMA user_version = 42;
 
 -- v27 标书项目工作区索引。正文和技术方案状态按项目专属表/目录保存。
 CREATE TABLE IF NOT EXISTS bid_projects (
@@ -153,6 +153,18 @@ CREATE TABLE IF NOT EXISTS technical_plan_meta (
   -- v39 历史标书适配差异台账及全部处理完成时间。
   historical_adaptation_differences_json TEXT,
   historical_adaptation_difference_confirmed_at TEXT,
+  -- v40 历史标书原目录快照、适配变更台账及目录确认时间。
+  historical_adaptation_original_outline_json TEXT,
+  historical_adaptation_outline_changes_json TEXT,
+  historical_adaptation_outline_confirmed_at TEXT,
+  -- v41 历史标书正文迁移逐章审阅状态及阶段确认时间。
+  historical_adaptation_content_items_json TEXT,
+  historical_adaptation_content_confirmed_at TEXT,
+  -- v43 历史标书正文一致性检查结果、输入哈希及检查时间。
+  historical_adaptation_content_check_json TEXT,
+  -- v42 历史标书适配终审问题与人工验收状态。
+  historical_adaptation_review_findings_json TEXT,
+  historical_adaptation_review_confirmed_at TEXT,
   -- v6 兼容字段（旧版客户端遗留，新代码不再使用但保留以兼容）
   current_bid_section_id TEXT,
   bid_sections_extracted INTEGER,

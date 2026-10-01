@@ -3,7 +3,7 @@ const path = require('node:path');
 const Database = require('better-sqlite3');
 const { getWorkspaceDatabasePath } = require('../utils/paths.cjs');
 
-const schemaVersion = 39;
+const schemaVersion = 43;
 
 function safeProjectTablePart(projectId) {
   return String(projectId || '')
@@ -66,6 +66,14 @@ function createTechnicalPlanProjectSchema(db, projectId) {
       content_generation_runtime_json TEXT,
       historical_adaptation_differences_json TEXT,
       historical_adaptation_difference_confirmed_at TEXT,
+      historical_adaptation_original_outline_json TEXT,
+      historical_adaptation_outline_changes_json TEXT,
+      historical_adaptation_outline_confirmed_at TEXT,
+      historical_adaptation_content_items_json TEXT,
+      historical_adaptation_content_confirmed_at TEXT,
+      historical_adaptation_content_check_json TEXT,
+      historical_adaptation_review_findings_json TEXT,
+      historical_adaptation_review_confirmed_at TEXT,
       selected_section_id TEXT,
       selected_section_title TEXT,
       selected_section_head_line TEXT,
@@ -259,6 +267,14 @@ function createInitialSchema(db) {
       content_generation_runtime_json TEXT,
       historical_adaptation_differences_json TEXT,
       historical_adaptation_difference_confirmed_at TEXT,
+      historical_adaptation_original_outline_json TEXT,
+      historical_adaptation_outline_changes_json TEXT,
+      historical_adaptation_outline_confirmed_at TEXT,
+      historical_adaptation_content_items_json TEXT,
+      historical_adaptation_content_confirmed_at TEXT,
+      historical_adaptation_content_check_json TEXT,
+      historical_adaptation_review_findings_json TEXT,
+      historical_adaptation_review_confirmed_at TEXT,
       selected_section_id TEXT,
       selected_section_title TEXT,
       selected_section_head_line TEXT,
@@ -557,6 +573,58 @@ function addHistoricalAdaptationDifferenceState(db) {
   for (const { name } of tables) {
     addColumnIfMissing(db, name, 'historical_adaptation_differences_json', 'TEXT');
     addColumnIfMissing(db, name, 'historical_adaptation_difference_confirmed_at', 'TEXT');
+  }
+}
+
+function addHistoricalAdaptationOutlineState(db) {
+  const tables = db.prepare(`
+    SELECT name
+    FROM sqlite_master
+    WHERE type = 'table'
+      AND (name = 'technical_plan_meta' OR name GLOB 'technical_plan_project_*_meta')
+  `).all();
+  for (const { name } of tables) {
+    addColumnIfMissing(db, name, 'historical_adaptation_original_outline_json', 'TEXT');
+    addColumnIfMissing(db, name, 'historical_adaptation_outline_changes_json', 'TEXT');
+    addColumnIfMissing(db, name, 'historical_adaptation_outline_confirmed_at', 'TEXT');
+  }
+}
+
+function addHistoricalAdaptationContentState(db) {
+  const tables = db.prepare(`
+    SELECT name
+    FROM sqlite_master
+    WHERE type = 'table'
+      AND (name = 'technical_plan_meta' OR name GLOB 'technical_plan_project_*_meta')
+  `).all();
+  for (const { name } of tables) {
+    addColumnIfMissing(db, name, 'historical_adaptation_content_items_json', 'TEXT');
+    addColumnIfMissing(db, name, 'historical_adaptation_content_confirmed_at', 'TEXT');
+  }
+}
+
+function addHistoricalAdaptationContentCheckState(db) {
+  const tables = db.prepare(`
+    SELECT name
+    FROM sqlite_master
+    WHERE type = 'table'
+      AND (name = 'technical_plan_meta' OR name GLOB 'technical_plan_project_*_meta')
+  `).all();
+  for (const { name } of tables) {
+    addColumnIfMissing(db, name, 'historical_adaptation_content_check_json', 'TEXT');
+  }
+}
+
+function addHistoricalAdaptationReviewState(db) {
+  const tables = db.prepare(`
+    SELECT name
+    FROM sqlite_master
+    WHERE type = 'table'
+      AND (name = 'technical_plan_meta' OR name GLOB 'technical_plan_project_*_meta')
+  `).all();
+  for (const { name } of tables) {
+    addColumnIfMissing(db, name, 'historical_adaptation_review_findings_json', 'TEXT');
+    addColumnIfMissing(db, name, 'historical_adaptation_review_confirmed_at', 'TEXT');
   }
 }
 
@@ -1904,6 +1972,30 @@ const schemaHealthColumnGroups = [
     },
   },
   {
+    version: 40,
+    table: 'technical_plan_meta',
+    columns: {
+      historical_adaptation_original_outline_json: 'TEXT',
+      historical_adaptation_outline_changes_json: 'TEXT',
+      historical_adaptation_outline_confirmed_at: 'TEXT',
+    },
+  },
+  {
+    version: 41,
+    table: 'technical_plan_meta',
+    columns: {
+      historical_adaptation_content_items_json: 'TEXT',
+      historical_adaptation_content_confirmed_at: 'TEXT',
+    },
+  },
+  {
+    version: 43,
+    table: 'technical_plan_meta',
+    columns: {
+      historical_adaptation_content_check_json: 'TEXT',
+    },
+  },
+  {
     version: 19,
     table: 'technical_plan_outline_nodes',
     columns: {
@@ -2054,6 +2146,15 @@ function ensureWorkspaceSchemaHealth(db, targetVersion = schemaVersion, onStatus
   }
   if (targetVersion >= 39) {
     addHistoricalAdaptationDifferenceState(db);
+  }
+  if (targetVersion >= 40) {
+    addHistoricalAdaptationOutlineState(db);
+  }
+  if (targetVersion >= 41) {
+    addHistoricalAdaptationContentState(db);
+  }
+  if (targetVersion >= 42) {
+    addHistoricalAdaptationReviewState(db);
   }
 }
 
@@ -2252,6 +2353,26 @@ const migrations = [
     version: 39,
     description: '历史标书适配新增差异确认状态',
     up: addHistoricalAdaptationDifferenceState,
+  },
+  {
+    version: 40,
+    description: '历史标书适配新增目录适配状态',
+    up: addHistoricalAdaptationOutlineState,
+  },
+  {
+    version: 41,
+    description: '历史标书适配新增正文迁移状态',
+    up: addHistoricalAdaptationContentState,
+  },
+  {
+    version: 42,
+    description: '历史标书适配新增终审与验收状态',
+    up: addHistoricalAdaptationReviewState,
+  },
+  {
+    version: 43,
+    description: '历史标书正文一致性检查状态',
+    up: addHistoricalAdaptationContentCheckState,
   },
 ];
 

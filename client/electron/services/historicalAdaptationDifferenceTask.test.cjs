@@ -17,6 +17,50 @@ test('差异分析提示词限定五类处理动作并排除字数扩写删减',
   assert.match(prompt, /工期进度更新/);
   assert.match(prompt, /其他人工判断/);
   assert.match(prompt, /不得提出字数扩写、压缩、删减或篇幅调整/);
+  assert.match(prompt, /location-target/);
+  assert.match(prompt, /workload/);
+  assert.match(prompt, /schedule/);
+  assert.match(prompt, /content_change_scope/);
+});
+
+test('差异结果严格归一化自动局改范围且忽略项不触发局改', () => {
+  const normalized = normalizeHistoricalAdaptationDifferences({
+    differences: [
+      {
+        id: 'location', category: '名称地点替换', priority: 'high', title: '调整实施地点',
+        historical_location: '全文', historical_excerpt: '五峰村', tender_requirement: '横泾街道',
+        action: '替换地点和实施对象。', content_change_scope: 'location-target', decision: 'confirmed',
+      },
+      {
+        id: 'workload', category: '数据更新', priority: 'medium', title: '调整工作量',
+        historical_location: '第二章', historical_excerpt: '100 宗', tender_requirement: '200 宗',
+        action: '按新工作量调整。', content_change_scope: 'workload', decision: 'confirmed',
+      },
+      {
+        id: 'schedule', category: '工期进度更新', priority: 'medium', title: '调整进度',
+        historical_location: '进度章节', historical_excerpt: '30 日', tender_requirement: '45 日',
+        action: '重新编排工期。', content_change_scope: 'schedule', decision: 'ignored',
+      },
+      {
+        id: 'invalid', category: '数据更新', priority: 'low', title: '更新人员数量',
+        historical_location: '人员章节', historical_excerpt: '5 人', tender_requirement: '8 人',
+        action: '更新人员。', content_change_scope: 'people', decision: 'confirmed',
+      },
+      {
+        id: 'legacy', category: '其他人工判断', priority: 'low', title: '人工判断',
+        historical_location: '其他', historical_excerpt: '旧内容', tender_requirement: '新要求',
+        action: '人工处理。', decision: 'confirmed',
+      },
+    ],
+  });
+
+  assert.deepEqual(normalized.map((item) => [item.id, item.content_change_scope]), [
+    ['location', 'location-target'],
+    ['workload', 'workload'],
+    ['schedule', 'none'],
+    ['invalid', 'none'],
+    ['legacy', 'none'],
+  ]);
 });
 
 test('差异结果过滤纯字数建议并保留同标识的人工确认', () => {
@@ -31,6 +75,7 @@ test('差异结果过滤纯字数建议并保留同标识的人工确认', () =>
     action: '全文将五峰村替换为横泾街道，并检查村级表述。',
     note: '已核对招标文件',
     decision: 'confirmed',
+    content_change_scope: 'location-target',
   }];
   const normalized = normalizeHistoricalAdaptationDifferences({
     differences: [
@@ -60,6 +105,7 @@ test('差异结果过滤纯字数建议并保留同标识的人工确认', () =>
   assert.equal(normalized[0].decision, 'confirmed');
   assert.equal(normalized[0].note, '已核对招标文件');
   assert.equal(normalized[0].action, '全文将五峰村替换为横泾街道，并检查村级表述。');
+  assert.equal(normalized[0].content_change_scope, 'location-target');
 });
 
 test('后台任务读取完整招标基线和历史标书并持久化差异', async () => {

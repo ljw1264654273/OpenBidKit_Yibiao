@@ -24,6 +24,7 @@ interface ProtectedRange {
 }
 
 const INLINE_IMAGE_PATTERN = /<!-- yibiao-inline-image:start\b[^>]*-->[\s\S]*?<!-- yibiao-inline-image:end -->/gi;
+const MERMAID_PATTERN = /```mermaid\s*[\s\S]*?```/gi;
 
 function clampOffset(value: number, contentLength: number) {
   return Math.max(0, Math.min(contentLength, Math.floor(Number(value) || 0)));
@@ -76,6 +77,34 @@ export function createContentAiEditSnapshot({
   };
 }
 
+export function createContentLengthEditSnapshot({
+  nodeId,
+  content,
+  selectionStart,
+  selectionEnd,
+  surface,
+}: {
+  nodeId: string;
+  content: string;
+  selectionStart: number;
+  selectionEnd: number;
+  surface: MarkdownEditorSurface;
+}): ContentAiEditSnapshot {
+  const source = String(content || '');
+  const range = normalizeRange(selectionStart, selectionEnd, source.length);
+  const hasSelection = range.end > range.start;
+  if (hasSelection && selectionIntersectsProtectedRange(range, findProtectedContentRanges(source))) {
+    throw new Error('选区不能包含图片或 Mermaid 图，请调整选区后重试');
+  }
+  return createContentAiEditSnapshot({
+    nodeId,
+    content: source,
+    selectionStart: hasSelection ? range.start : 0,
+    selectionEnd: hasSelection ? range.end : source.length,
+    surface,
+  });
+}
+
 export function validateContentAiEditSnapshot({
   currentNodeId,
   currentContent,
@@ -108,13 +137,13 @@ export function applyContentAiTextCandidate({
   currentNodeId: string;
   currentContent: string;
   snapshot: ContentAiEditSnapshot;
-  mode: 'rewrite' | 'continue';
+  mode: 'rewrite' | 'continue' | 'expand' | 'shrink';
   candidateText: string;
 }) {
   const validation = validateContentAiEditSnapshot({ currentNodeId, currentContent, snapshot });
   if (!validation.valid) throw new Error(validation.message);
 
-  if (mode === 'rewrite') {
+  if (mode !== 'continue') {
     const replacement = String(candidateText || '');
     const content = currentContent.slice(0, snapshot.selectionStart)
       + replacement
@@ -172,10 +201,69 @@ export function findProtectedInlineImageRanges(content: string): ProtectedRange[
   return ranges;
 }
 
+function findMarkdownImageRanges(content: string): ProtectedRange[] {
+  const source = String(content || '');
+  const ranges: ProtectedRange[] = [];
+  let cursor = 0;
+  while (cursor < source.length) {
+    const start = source.indexOf('![', cursor);
+    if (start < 0) break;
+    let altEnd = -1;
+    for (let index = start + 2; index < source.length; index += 1) {
+      if (source[index] === '\n' || source[index] === '\r') break;
+      if (source[index] === '\\') {
+        index += 1;
+        continue;
+      }
+      if (source[index] === ']') {
+        altEnd = index;
+        break;
+      }
+    }
+    if (altEnd < 0 || source[altEnd + 1] !== '(') {
+      cursor = start + 2;
+      continue;
+    }
+    let depth = 1;
+    let end = -1;
+    for (let index = altEnd + 2; index < source.length; index += 1) {
+      if (source[index] === '\n' || source[index] === '\r') break;
+      if (source[index] === '\\') {
+        index += 1;
+        continue;
+      }
+      if (source[index] === '(') depth += 1;
+      else if (source[index] === ')') {
+        depth -= 1;
+        if (depth === 0) {
+          end = index + 1;
+          break;
+        }
+      }
+    }
+    if (end > 0) ranges.push({ start, end });
+    cursor = end > 0 ? end : start + 2;
+  }
+  return ranges;
+}
+
+export function findProtectedContentRanges(content: string): ProtectedRange[] {
+  const source = String(content || '');
+  const ranges = [...findProtectedInlineImageRanges(source), ...findMarkdownImageRanges(source)];
+  for (const pattern of [MERMAID_PATTERN]) {
+    pattern.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(source))) {
+      ranges.push({ start: match.index, end: match.index + match[0].length });
+    }
+  }
+  const sorted = ranges.sort((left, right) => left.start - right.start || right.end - left.end);
+  return sorted.filter((range, index) => !sorted.slice(0, index).some((previous) => range.start >= previous.start && range.end <= previous.end));
+}
+
 export function selectionIntersectsProtectedRange(
   selection: Pick<ProtectedRange, 'start' | 'end'>,
   ranges: ProtectedRange[],
 ) {
   return ranges.some((range) => selection.start < range.end && selection.end > range.start);
 }
-

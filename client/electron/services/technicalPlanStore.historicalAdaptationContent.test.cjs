@@ -1,0 +1,159 @@
+const assert = require('node:assert/strict');
+const { spawnSync } = require('node:child_process');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const test = require('node:test');
+
+function runAssertions() {
+  const { createSqliteDatabase } = require('./sqliteDatabase.cjs');
+  const { createTechnicalPlanStore } = require('./technicalPlanStore.cjs');
+  const userDataPath = fs.mkdtempSync(path.join(os.tmpdir(), 'yibiao-adaptation-content-store-'));
+  const app = { getPath: () => userDataPath, once() {} };
+  let database;
+  try {
+    database = createSqliteDatabase(app);
+    const store = createTechnicalPlanStore({
+      app,
+      db: database.db,
+      fileService: {},
+      agentService: { deletePersistentTask() {} },
+      taskLogStore: { list: () => [], sync() {} },
+      configStore: { load: () => ({}) },
+    });
+    store.updateTechnicalPlan({
+      outlineData: { outline: [{ id: '1', title: '项目概况', content_mode: 'ai-generate' }] },
+      historicalAdaptationContentItems: [{
+        node_id: '1', source_path: '项目概况', recommended_mode: 'local-rewrite', status: 'success', reason: '地点替换',
+        difference_ids: ['location'], source_excerpt: '五峰村原文', blocked_terms: ['五峰村'], residuals: [],
+      }],
+    });
+
+    let state = store.saveHistoricalAdaptationChapterContent({ nodeId: '1', content: '仍写五峰村。' });
+    assert.equal(state.historicalAdaptationContentItems[0].status, 'review');
+    assert.deepEqual(state.historicalAdaptationContentItems[0].residuals, ['五峰村']);
+    assert.throws(() => store.confirmHistoricalAdaptationContentItem({ nodeId: '1' }), /历史残留/);
+
+    state = store.saveHistoricalAdaptationChapterContent({ nodeId: '1', content: '服务对象为【待补充】。' });
+    assert.equal(state.historicalAdaptationContentItems[0].status, 'review');
+    assert.match(state.historicalAdaptationContentItems[0].error, /待核实|待补充/);
+
+    state = store.saveHistoricalAdaptationChapterContent({ nodeId: '1', content: '服务地点为横泾街道。' });
+    assert.equal(state.historicalAdaptationContentItems[0].status, 'success');
+    assert.equal(state.historicalAdaptationContentItems[0].content_origin, 'manual');
+    assert.equal(state.historicalAdaptationContentCheck.status, 'stale');
+
+    state = store.saveHistoricalAdaptationContentStrategy({ nodeId: '1', mode: 'rewrite', instruction: '突出新项目执行要求' });
+    assert.equal(state.historicalAdaptationContentItems[0].manual_mode, 'rewrite');
+    assert.equal(state.historicalAdaptationContentItems[0].manual_instruction, '突出新项目执行要求');
+    assert.equal(state.historicalAdaptationContentItems[0].status, 'stale');
+    for (const mode of ['supplement', 'review']) {
+      assert.throws(() => store.saveHistoricalAdaptationContentStrategy({ nodeId: '1', mode }), /有效的正文迁移方式/);
+    }
+
+    store.saveHistoricalAdaptationChapterContent({ nodeId: '1', content: '服务地点为横泾街道。' });
+    const context = store.getHistoricalAdaptationContentCheckContext();
+    store.updateTechnicalPlan({
+      historicalAdaptationContentCheck: {
+        status: 'success', findings: [], checked_content_hash: context.contentHash,
+        checked_inputs_hash: context.inputsHash, checked_at: '2026-10-01T10:00:00.000Z',
+      },
+    });
+    const readiness = store.getHistoricalAdaptationContentReadiness();
+    assert.equal(readiness.ready, true);
+    state = store.confirmHistoricalAdaptationContent();
+    assert.equal(Boolean(state.historicalAdaptationContentConfirmedAt), true);
+    assert.equal(state.historicalAdaptationContentItems[0].confirmed_at, undefined);
+
+    store.updateTechnicalPlan({
+      historicalAdaptationContentTask: {
+        task_id: 'content-running', type: 'historical-adaptation-content', status: 'running', progress: 50, logs: [],
+      },
+    });
+    assert.throws(() => store.saveHistoricalAdaptationChapterContent({ nodeId: '1', content: '修改' }), /正文任务正在运行/);
+
+    store.updateTechnicalPlan({ historicalAdaptationContentTask: undefined });
+    store.updateTechnicalPlan({
+      historicalAdaptationContentCheckTask: {
+        task_id: 'check-paused', type: 'historical-adaptation-content-check', status: 'paused', progress: 50, logs: [],
+      },
+    });
+    assert.throws(() => store.saveHistoricalAdaptationContentStrategy({ nodeId: '1', mode: 'direct' }), /正文任务|一致性检查/);
+    store.updateTechnicalPlan({ historicalAdaptationContentCheckTask: undefined });
+    const beforeMissingSource = store.loadTechnicalPlan();
+    store.updateTechnicalPlan({
+      historicalAdaptationContentItems: beforeMissingSource.historicalAdaptationContentItems.map((item) => ({
+        ...item, source_path: '', source_excerpt: '', recommended_mode: null, manual_mode: undefined, manual_instruction: '', status: 'review',
+      })),
+    });
+    for (const mode of ['direct', 'local-rewrite']) {
+      assert.throws(() => store.saveHistoricalAdaptationContentStrategy({ nodeId: '1', mode }), /没有可靠历史正文/);
+    }
+    assert.throws(() => store.saveHistoricalAdaptationContentStrategy({ nodeId: '1', mode: 'rewrite' }), /填写定向改写要求/);
+    state = store.saveHistoricalAdaptationContentStrategy({ nodeId: '1', mode: 'rewrite', instruction: '补充横泾响应流程' });
+    assert.equal(state.historicalAdaptationContentItems[0].manual_mode, 'rewrite');
+    assert.equal(state.historicalAdaptationContentItems[0].manual_instruction, '补充横泾响应流程');
+    assert.equal(state.outlineData.outline[0].content, beforeMissingSource.outlineData.outline[0].content);
+
+    // 恢复默认必须重新计算推荐，不能将重点章节批量改为直迁。
+    const originalPlanDir = path.join(userDataPath, 'workspace', 'technical-plan');
+    fs.mkdirSync(originalPlanDir, { recursive: true });
+    fs.writeFileSync(path.join(originalPlanDir, 'original-plan.md'), '# 项目概况\n五峰村原项目概况。\n\n# 服务保障\n建立响应机制。\n\n# 人工章节\n原人工章节。', 'utf8');
+    database.db.prepare('UPDATE technical_plan_meta SET original_plan_markdown_path = ? WHERE id = 1').run('technical-plan/original-plan.md');
+    store.updateTechnicalPlan({
+      outlineData: { outline: [
+        { id: '1', title: '项目概况', content: '已生成概况。' },
+        { id: '2', title: '服务保障', content: '已生成保障。' },
+        { id: '3', title: '人工章节', content: '人工修改正文。' },
+        { id: '4', title: '新增章节', content: '' },
+      ] },
+      historicalAdaptationDifferenceConfirmedAt: '2026-10-01T09:00:00.000Z',
+      historicalAdaptationOutlineConfirmedAt: '2026-10-01T10:00:00.000Z',
+      historicalAdaptationDifferences: [{
+        id: 'location', category: '名称地点替换', priority: 'high', title: '地点变更',
+        historical_excerpt: '五峰村', tender_requirement: '横泾街道', action: '替换地点', decision: 'confirmed', content_change_scope: 'location-target',
+      }],
+      historicalAdaptationContentItems: ['1', '2', '3', '4'].map((node_id) => ({
+        node_id, source_path: node_id === '4' ? '' : '旧来源', source_excerpt: node_id === '4' ? '' : '旧来源正文',
+        recommended_mode: 'direct', manual_mode: 'rewrite', manual_instruction: '人工要求',
+        status: node_id === '4' ? 'review' : 'success', content_origin: node_id === '3' ? 'manual' : 'ai-rewrite',
+        difference_ids: [], blocked_terms: [], residuals: [],
+      })),
+      historicalAdaptationContentConfirmedAt: '2026-10-01T11:00:00.000Z',
+    });
+    const beforeReset = store.loadTechnicalPlan();
+    state = store.resetHistoricalAdaptationContentStrategies();
+    assert.deepEqual(state.historicalAdaptationContentItems.map((item) => item.recommended_mode), ['local-rewrite', 'direct', 'direct', null]);
+    assert.ok(state.historicalAdaptationContentItems.every((item) => !item.manual_mode && !item.manual_instruction));
+    assert.deepEqual(state.historicalAdaptationContentItems.map((item) => item.status), ['stale', 'stale', 'success', 'review']);
+    assert.equal(state.historicalAdaptationContentItems[2].content_origin, 'manual');
+    assert.deepEqual(state.outlineData, beforeReset.outlineData);
+    assert.equal(state.historicalAdaptationContentCheck.status, 'stale');
+    assert.equal(state.historicalAdaptationContentConfirmedAt, undefined);
+    assert.deepEqual(store.loadTechnicalPlan().historicalAdaptationContentItems, state.historicalAdaptationContentItems);
+    store.updateTechnicalPlan({ historicalAdaptationContentTask: { task_id: 'reset-running', type: 'historical-adaptation-content', status: 'running', progress: 0, logs: [] } });
+    assert.throws(() => store.resetHistoricalAdaptationContentStrategies(), /正文任务正在运行/);
+    store.updateTechnicalPlan({ historicalAdaptationContentTask: undefined });
+    database.close();
+    database = createSqliteDatabase(app);
+    const reopenedStore = createTechnicalPlanStore({
+      app, db: database.db, fileService: {}, agentService: { deletePersistentTask() {} },
+      taskLogStore: { list: () => [], sync() {} }, configStore: { load: () => ({}) },
+    });
+    const reopenedState = reopenedStore.loadTechnicalPlan();
+    assert.deepEqual(reopenedState.historicalAdaptationContentItems, state.historicalAdaptationContentItems);
+    assert.deepEqual(reopenedState.outlineData, beforeReset.outlineData);
+  } finally {
+    database?.close();
+    fs.rmSync(userDataPath, { recursive: true, force: true });
+  }
+}
+
+if (process.argv.includes('--electron-native')) {
+  try { runAssertions(); } catch (error) { console.error(error); process.exitCode = 1; } finally { process.exit(process.exitCode || 0); }
+} else {
+  test('persists, reviews and confirms historical adaptation content', () => {
+    const result = spawnSync(require('electron'), ['--runAsNode', __filename, '--electron-native'], { encoding: 'utf8', timeout: 30000 });
+    assert.equal(result.status, 0, result.stderr || result.stdout || 'Electron native store test timed out');
+  });
+}

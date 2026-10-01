@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
 import { renderMarkdownHtml } from '../markdown/renderMarkdownHtml';
 import { normalizeOrderedListMarkers } from '../markdown/normalizeMarkdownStructure';
+import { highlightTextRanges, type MarkdownTextHighlight } from '../markdown/textHighlights';
 
 type MarkdownImageMode = 'default' | 'preview' | 'lazy';
 type MarkdownLinkMode = 'default' | 'external' | 'text';
@@ -8,9 +9,11 @@ type MarkdownLinkMode = 'default' | 'external' | 'text';
 interface MarkdownRendererProps {
   children: string;
   allowRawHtml?: boolean;
+  allowHtmlTables?: boolean;
   enableGfm?: boolean;
   preserveTableCellSpans?: boolean;
   highlightTerms?: string[];
+  textHighlights?: MarkdownTextHighlight[];
   highlightSourceAnchor?: string;
   imageMode?: MarkdownImageMode;
   imageClassName?: string;
@@ -202,9 +205,11 @@ function childrenFromDom(nodes: ChildNode[], renderNode: (node: ChildNode, index
 function MarkdownRenderer({
   children,
   allowRawHtml = true,
+  allowHtmlTables = false,
   enableGfm = true,
   preserveTableCellSpans = false,
   highlightTerms = [],
+  textHighlights = [],
   highlightSourceAnchor,
   imageMode = 'default',
   imageClassName,
@@ -219,13 +224,14 @@ function MarkdownRenderer({
     () => normalizeOrderedListStructure ? normalizeOrderedListMarkers(children) : children,
     [children, normalizeOrderedListStructure],
   );
-  const html = useMemo(() => renderMarkdownHtml(markdown, { allowRawHtml, enableGfm }), [allowRawHtml, enableGfm, markdown]);
+  const html = useMemo(() => renderMarkdownHtml(markdown, { allowRawHtml, allowHtmlTables, enableGfm }), [allowRawHtml, allowHtmlTables, enableGfm, markdown]);
 
   const content = useMemo(() => {
     const document = new DOMParser().parseFromString(`<div>${html}</div>`, 'text/html');
     const root = document.body.firstElementChild;
     if (root) highlightTextNodes(root, highlightTerms);
     if (root && highlightSourceAnchor) highlightAnchoredTextNodes(root, highlightSourceAnchor);
+    if (root) highlightTextRanges(root, textHighlights);
     const renderNode = (node: ChildNode, index: number): ReactNode => {
       if (node.nodeType === Node.TEXT_NODE) return node.textContent || '';
       if (node.nodeType !== Node.ELEMENT_NODE) return null;
@@ -400,7 +406,7 @@ function MarkdownRenderer({
     };
 
     return Array.from(root?.childNodes || []).map((node, index) => renderNode(node, index));
-  }, [enableGfm, highlightSourceAnchor, highlightTerms, html, imageClassName, imageMode, linkMode, linkTextClassName, onPreviewImage, preserveTableCellSpans, previewImageTitle, renderMermaid]);
+  }, [enableGfm, highlightSourceAnchor, highlightTerms, textHighlights, html, imageClassName, imageMode, linkMode, linkTextClassName, onPreviewImage, preserveTableCellSpans, previewImageTitle, renderMermaid]);
 
   return <>{content}</>;
 }

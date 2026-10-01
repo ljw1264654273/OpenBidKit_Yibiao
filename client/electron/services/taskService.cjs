@@ -1,7 +1,10 @@
 const crypto = require('node:crypto');
 const { runBidSectionExtractionTask } = require('./bidSectionExtractionTask.cjs');
-const { runBidAnalysisTask } = require('./bidAnalysisTask.cjs');
+const { getBidAnalysisTasks, runBidAnalysisTask } = require('./bidAnalysisTask.cjs');
 const { runHistoricalAdaptationDifferenceTask } = require('./historicalAdaptationDifferenceTask.cjs');
+const { runHistoricalAdaptationOutlineTask } = require('./historicalAdaptationOutlineTask.cjs');
+const { runHistoricalAdaptationContentTask } = require('./historicalAdaptationContentTask.cjs');
+const { runHistoricalAdaptationContentCheckTask } = require('./historicalAdaptationContentCheckTask.cjs');
 const { runContentGenerationTask } = require('./contentGenerationTask.cjs');
 const { runGlobalFactsTaskV2 } = require('./globalFactsTaskV2.cjs');
 const { runOutlineGenerationTaskV2 } = require('./outlineGenerationTaskV2.cjs');
@@ -65,6 +68,33 @@ const taskDefinitions = {
     lockPolicy: 'scope-exclusive',
     stateKey: 'technicalPlan',
     field: 'historicalAdaptationDifferenceTask',
+  },
+  'historical-adaptation-outline': {
+    label: '历史标书目录适配',
+    group: 'technical-plan',
+    groupLabel: '历史标书适配',
+    step: 4,
+    lockPolicy: 'scope-exclusive',
+    stateKey: 'technicalPlan',
+    field: 'historicalAdaptationOutlineTask',
+  },
+  'historical-adaptation-content': {
+    label: '历史标书正文迁移',
+    group: 'technical-plan',
+    groupLabel: '历史标书适配',
+    step: 5,
+    lockPolicy: 'scope-exclusive',
+    stateKey: 'technicalPlan',
+    field: 'historicalAdaptationContentTask',
+  },
+  'historical-adaptation-content-check': {
+    label: '历史标书正文一致性检查',
+    group: 'technical-plan',
+    groupLabel: '历史标书适配',
+    step: 5,
+    lockPolicy: 'scope-exclusive',
+    stateKey: 'technicalPlan',
+    field: 'historicalAdaptationContentCheckTask',
   },
   'outline-generation': {
     label: '目录生成',
@@ -243,6 +273,8 @@ const technicalPlanStepByTaskType = Object.freeze({
   'global-facts-generation': 'global-facts',
   'global-facts-adjustment': 'global-facts',
   'content-generation': 'content-edit',
+  'historical-adaptation-content': 'content-edit',
+  'historical-adaptation-content-check': 'content-edit',
   'variant-deduplication': 'content-edit',
 });
 
@@ -501,6 +533,31 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
       copyPatchFields(patch, state, [
         'historicalAdaptationDifferences',
         'historicalAdaptationDifferenceConfirmedAt',
+      ]);
+    }
+
+    if (task.type === 'historical-adaptation-outline') {
+      copyPatchFields(patch, state, [
+        'historicalAdaptationOriginalOutline',
+        'historicalAdaptationOutlineChanges',
+        'historicalAdaptationOutlineConfirmedAt',
+        'outlineData',
+      ]);
+    }
+
+    if (task.type === 'historical-adaptation-content') {
+      copyPatchFields(patch, state, [
+        'historicalAdaptationContentItems',
+        'historicalAdaptationContentConfirmedAt',
+        'outlineData',
+        'contentGenerationSections',
+      ]);
+    }
+
+    if (task.type === 'historical-adaptation-content-check') {
+      copyPatchFields(patch, state, [
+        'historicalAdaptationContentCheck',
+        'historicalAdaptationContentConfirmedAt',
       ]);
     }
 
@@ -1538,6 +1595,80 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
     emit(recoveredTask, buildSnapshot(getTaskDefinition('historical-adaptation-difference'), partial, recoveredTask));
   }
 
+  function recoverInterruptedHistoricalAdaptationOutlineTask(technicalPlan, projectId, workspaceStore = technicalPlanStore) {
+    if (hasActiveTask('historical-adaptation-outline', projectId)) return;
+    const task = technicalPlan.historicalAdaptationOutlineTask;
+    if (!isActiveTaskStatus(task?.status)) return;
+    const message = '上次历史标书目录适配未完成，请重新生成';
+    const recoveredTask = {
+      ...task,
+      status: 'error',
+      progress: Math.max(0, Math.min(99, Number(task.progress || 0) || 0)),
+      pause_requested: false,
+      error: message,
+      logs: [...(Array.isArray(task.logs) ? task.logs : []), message],
+      updated_at: now(),
+    };
+    const partial = { historicalAdaptationOutlineTask: recoveredTask };
+    workspaceStore.updateTechnicalPlanWithoutReload(partial);
+    emit(recoveredTask, buildSnapshot(getTaskDefinition('historical-adaptation-outline'), partial, recoveredTask));
+  }
+
+  function recoverInterruptedHistoricalAdaptationContentTask(technicalPlan, projectId, workspaceStore = technicalPlanStore) {
+    if (hasActiveTask('historical-adaptation-content', projectId)) return;
+    const task = technicalPlan.historicalAdaptationContentTask;
+    if (!isActiveTaskStatus(task?.status)) return;
+    const message = '上次历史标书正文迁移未完成，请重新迁移未完成章节';
+    const recoveredTask = {
+      ...task,
+      status: 'error',
+      progress: Math.max(0, Math.min(99, Number(task.progress || 0) || 0)),
+      pause_requested: false,
+      error: message,
+      logs: [...(Array.isArray(task.logs) ? task.logs : []), message],
+      updated_at: now(),
+    };
+    const recoveredItems = (technicalPlan.historicalAdaptationContentItems || []).map((item) => (
+      item?.status === 'running'
+        ? {
+            ...item,
+            status: 'error',
+            confirmed_at: undefined,
+            error: message,
+            updated_at: recoveredTask.updated_at,
+          }
+        : item
+    ));
+    const partial = {
+      historicalAdaptationContentTask: recoveredTask,
+      historicalAdaptationContentItems: recoveredItems,
+    };
+    workspaceStore.updateTechnicalPlanWithoutReload(partial);
+    emit(recoveredTask, buildSnapshot(getTaskDefinition('historical-adaptation-content'), partial, recoveredTask));
+  }
+
+  function recoverInterruptedHistoricalAdaptationContentCheckTask(technicalPlan, projectId, workspaceStore = technicalPlanStore) {
+    if (hasActiveTask('historical-adaptation-content-check', projectId)) return;
+    const task = technicalPlan.historicalAdaptationContentCheckTask;
+    if (!isActiveTaskStatus(task?.status)) return;
+    const message = '上次正文一致性检查未完成，请重新检查';
+    const recoveredTask = {
+      ...task,
+      status: 'error',
+      progress: Math.max(0, Math.min(99, Number(task.progress || 0) || 0)),
+      pause_requested: false,
+      error: message,
+      logs: [...(Array.isArray(task.logs) ? task.logs : []), message],
+      updated_at: now(),
+    };
+    const partial = {
+      historicalAdaptationContentCheckTask: recoveredTask,
+      historicalAdaptationContentCheck: { status: 'stale', findings: [], error: message },
+    };
+    workspaceStore.updateTechnicalPlanWithoutReload(partial);
+    emit(recoveredTask, buildSnapshot(getTaskDefinition('historical-adaptation-content-check'), partial, recoveredTask));
+  }
+
   function recoverInterruptedBidSectionExtractionTask(technicalPlan, projectId, workspaceStore = technicalPlanStore) {
     if (hasActiveTask('bid-section-extraction', projectId)) {
       return;
@@ -1780,6 +1911,9 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
     recoverInterruptedBidSectionExtractionTask(state, projectId, store);
     recoverInterruptedBidAnalysisTask(state, projectId, store);
     recoverInterruptedHistoricalAdaptationDifferenceTask(state, projectId, store);
+    recoverInterruptedHistoricalAdaptationOutlineTask(state, projectId, store);
+    recoverInterruptedHistoricalAdaptationContentTask(state, projectId, store);
+    recoverInterruptedHistoricalAdaptationContentCheckTask(state, projectId, store);
     recoverInterruptedOutlineGenerationTask(state, projectId, store);
     recoverInterruptedOutlineAdjustmentTask(state, projectId, store);
     recoverInterruptedContentGenerationTask(state, projectId, store);
@@ -1847,6 +1981,16 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
           historicalAdaptationDifferenceTask: undefined,
           historicalAdaptationDifferences: [],
           historicalAdaptationDifferenceConfirmedAt: undefined,
+          historicalAdaptationOutlineTask: undefined,
+          historicalAdaptationOriginalOutline: null,
+          historicalAdaptationOutlineChanges: [],
+          historicalAdaptationOutlineConfirmedAt: undefined,
+          historicalAdaptationContentTask: undefined,
+          historicalAdaptationContentCheckTask: undefined,
+          historicalAdaptationContentItems: [],
+          historicalAdaptationContentConfirmedAt: undefined,
+          historicalAdaptationContentCheck: { status: 'idle', findings: [] },
+          outlineData: null,
         }
         : {};
       return startManagedTask(
@@ -1866,7 +2010,117 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
         'historical-adaptation-difference',
         payload,
         taskRunners.historicalAdaptationDifference || runHistoricalAdaptationDifferenceTask,
-        { historicalAdaptationDifferenceConfirmedAt: undefined },
+        {
+          historicalAdaptationDifferenceConfirmedAt: undefined,
+          historicalAdaptationOutlineTask: undefined,
+          historicalAdaptationOriginalOutline: null,
+          historicalAdaptationOutlineChanges: [],
+          historicalAdaptationOutlineConfirmedAt: undefined,
+          historicalAdaptationContentTask: undefined,
+          historicalAdaptationContentCheckTask: undefined,
+          historicalAdaptationContentItems: [],
+          historicalAdaptationContentConfirmedAt: undefined,
+          historicalAdaptationContentCheck: { status: 'idle', findings: [] },
+          outlineData: null,
+        },
+      );
+    },
+    async saveHistoricalAdaptationDifferences(payload) {
+      const projectId = requireProjectId(getProjectId(payload), '保存历史标书差异');
+      await cancelTechnicalPlanTasks('差异内容已修改，取消旧的目录及正文适配任务', ['historical-adaptation-outline', 'historical-adaptation-content', 'historical-adaptation-content-check'], projectId);
+      return getTechnicalPlanStore(projectId).saveHistoricalAdaptationDifferences(payload);
+    },
+    startHistoricalAdaptationOutline(payload) {
+      const projectId = getProjectId(payload);
+      const project = bidProjectManager?.getProject?.(projectId);
+      if (project?.projectType !== 'historical-bid-adaptation') {
+        throw new Error('当前项目不是历史标书适配项目');
+      }
+      const store = getTechnicalPlanStore(projectId);
+      const state = store.loadTechnicalPlan() || {};
+      const missingBaseline = getBidAnalysisTasks('full').filter((definition) => {
+        const item = state.bidAnalysisTasks?.[definition.id];
+        const content = String(item?.content || '').trim();
+        return item?.status !== 'success' || !content || content === '未提取到';
+      });
+      if (missingBaseline.length) throw new Error('请先完成全部招标基线提取');
+      if (!state.historicalAdaptationDifferenceConfirmedAt) throw new Error('请先完成并确认全部差异项');
+      const pendingCount = (state.historicalAdaptationDifferences || []).filter((item) => item?.decision === 'pending').length;
+      if (pendingCount) throw new Error(`仍有 ${pendingCount} 项差异待确认`);
+      if (!String(store.readOriginalPlanMarkdown?.() || '').trim()) throw new Error('未找到历史标书原文，请重新上传材料');
+      return startManagedTask(
+        'historical-adaptation-outline',
+        payload,
+        taskRunners.historicalAdaptationOutline || runHistoricalAdaptationOutlineTask,
+        { historicalAdaptationOutlineConfirmedAt: undefined },
+      );
+    },
+    async saveHistoricalAdaptationOutline(payload) {
+      const projectId = requireProjectId(getProjectId(payload), '保存历史标书适配目录');
+      await cancelTechnicalPlanTasks('适配目录已修改，取消旧的正文迁移任务', ['historical-adaptation-content', 'historical-adaptation-content-check'], projectId);
+      return getTechnicalPlanStore(projectId).saveHistoricalAdaptationOutline(payload);
+    },
+    prepareHistoricalAdaptationContentPlan(payload) {
+      const projectId = requireProjectId(getProjectId(payload), '建立正文迁移方案');
+      const project = bidProjectManager?.getProject?.(projectId);
+      if (project?.projectType !== 'historical-bid-adaptation') throw new Error('当前项目不是历史标书适配项目');
+      return getTechnicalPlanStore(projectId).prepareHistoricalAdaptationContentPlan();
+    },
+    startHistoricalAdaptationContent(payload) {
+      const projectId = getProjectId(payload);
+      const project = bidProjectManager?.getProject?.(projectId);
+      if (project?.projectType !== 'historical-bid-adaptation') throw new Error('当前项目不是历史标书适配项目');
+      const store = getTechnicalPlanStore(projectId);
+      const state = store.loadTechnicalPlan() || {};
+      const missingBaseline = getBidAnalysisTasks('full').filter((definition) => {
+        const item = state.bidAnalysisTasks?.[definition.id];
+        const content = String(item?.content || '').trim();
+        return item?.status !== 'success' || !content || content === '未提取到';
+      });
+      if (missingBaseline.length) throw new Error('请先完成全部招标基线提取');
+      if (!state.historicalAdaptationDifferenceConfirmedAt) throw new Error('请先完成并确认全部差异项');
+      if ((state.historicalAdaptationDifferences || []).some((item) => item?.decision === 'pending')) throw new Error('仍有差异待确认');
+      if (!state.historicalAdaptationOutlineConfirmedAt) throw new Error('请先确认适配目录');
+      if (!state.outlineData?.outline?.length) throw new Error('当前没有可迁移正文的适配目录');
+      if (!String(store.readOriginalPlanMarkdown?.() || '').trim()) throw new Error('未找到历史标书原文，请重新上传材料');
+      const nodeId = String(payload?.nodeId || '').trim();
+      const selectedItem = (state.historicalAdaptationContentItems || []).find((item) => item.node_id === nodeId);
+      if (selectedItem?.content_origin === 'manual' && payload?.forceOverwriteManual !== true) {
+        throw new Error('当前章节包含人工正文，请确认覆盖后再重新迁移');
+      }
+      const items = (state.historicalAdaptationContentItems || []).map((item) => (
+        !nodeId || item.node_id === nodeId ? { ...item, confirmed_at: undefined } : item
+      ));
+      return startManagedTask(
+        'historical-adaptation-content',
+        payload,
+        taskRunners.historicalAdaptationContent || runHistoricalAdaptationContentTask,
+        {
+          historicalAdaptationContentItems: items,
+          historicalAdaptationContentConfirmedAt: undefined,
+          historicalAdaptationContentCheck: { status: 'stale', findings: [] },
+          historicalAdaptationReviewFindings: [],
+          historicalAdaptationReviewConfirmedAt: undefined,
+        },
+      );
+    },
+    startHistoricalAdaptationContentCheck(payload) {
+      const projectId = getProjectId(payload);
+      const project = bidProjectManager?.getProject?.(projectId);
+      if (project?.projectType !== 'historical-bid-adaptation') throw new Error('当前项目不是历史标书适配项目');
+      const store = getTechnicalPlanStore(projectId);
+      const state = store.loadTechnicalPlan() || {};
+      if (!Array.isArray(state.historicalAdaptationContentItems) || !state.historicalAdaptationContentItems.length) {
+        throw new Error('请先建立并执行正文迁移方案');
+      }
+      return startManagedTask(
+        'historical-adaptation-content-check',
+        payload,
+        taskRunners.historicalAdaptationContentCheck || runHistoricalAdaptationContentCheckTask,
+        {
+          historicalAdaptationContentCheck: { status: 'running', findings: [] },
+          historicalAdaptationContentConfirmedAt: undefined,
+        },
       );
     },
     startOutlineGeneration(payload) {

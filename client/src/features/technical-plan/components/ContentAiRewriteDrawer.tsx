@@ -24,7 +24,7 @@ interface ContentAiRewriteDrawerProps {
   onDiscard: () => void;
 }
 
-const quickInstructions = ['更专业', '扩写', '更简洁', '增强可执行性'];
+const quickInstructions = ['更专业', '增加可执行细节', '保留关键事实', '增强可读性'];
 
 function isImageCandidate(candidate: ContentAiCandidate | null): candidate is InlineImageCandidate {
   return Boolean(candidate && 'assetUrl' in candidate);
@@ -95,7 +95,7 @@ function ContentAiRewriteDrawer(props: ContentAiRewriteDrawerProps) {
           <header>
             <div>
               <span className="section-kicker">AI 辅助编辑</span>
-              <Dialog.Title>{mode === 'rewrite' ? '改写选中内容' : mode === 'continue' ? '从光标处续写' : '在光标处插入图片'}</Dialog.Title>
+              <Dialog.Title>{mode === 'rewrite' ? '改写选中内容' : mode === 'continue' ? '从光标处续写' : mode === 'expand' ? '扩写正文' : mode === 'shrink' ? '缩写正文' : '在光标处插入图片'}</Dialog.Title>
               <p>{chapterTitle} · {selectionSummary}</p>
             </div>
             <button type="button" className="content-ai-rewrite-close" onClick={onDiscard} aria-label="关闭 AI 改写">×</button>
@@ -106,7 +106,7 @@ function ContentAiRewriteDrawer(props: ContentAiRewriteDrawerProps) {
               <>
                 <label className="content-ai-rewrite-field">
                   <span>改写要求</span>
-                  <textarea value={instruction} onChange={(event) => setInstruction(event.target.value)} placeholder={mode === 'rewrite' ? '例如：突出执行步骤，保持原有事实和数据。' : '例如：补充质量保障措施和验收安排。'} />
+                  <textarea value={instruction} onChange={(event) => setInstruction(event.target.value)} placeholder={mode === 'shrink' ? '例如：删除重复表述，保留全部数字和承诺。' : mode === 'continue' ? '例如：补充质量保障措施和验收安排。' : '例如：突出执行步骤，保持原有事实和数据。'} />
                 </label>
                 <div className="content-ai-rewrite-quick">
                   {quickInstructions.map((item) => <button type="button" key={item} onClick={() => setInstruction(item)}>{item}</button>)}
@@ -176,8 +176,8 @@ function ContentAiRewriteDrawer(props: ContentAiRewriteDrawerProps) {
                   <img src={candidate.assetUrl} alt={candidate.imageTitle} />
                 ) : (
                   <>
-                    {candidate.mode === 'rewrite' && <pre className="is-original">{snapshot?.selectedText}</pre>}
-                    <pre>{candidate.mode === 'rewrite' ? candidate.replacementText : candidate.insertionText}</pre>
+                    {candidate.mode !== 'continue' && <pre className="is-original">{snapshot?.selectedText}</pre>}
+                    <pre>{candidate.mode === 'continue' ? candidate.insertionText : candidate.replacementText}</pre>
                   </>
                 )}
               </section>

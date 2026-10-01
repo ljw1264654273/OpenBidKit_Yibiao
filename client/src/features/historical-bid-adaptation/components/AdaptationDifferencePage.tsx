@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
 import type { BidProject } from '../../bid-project/types';
 import type {
+  HistoricalAdaptationContentChangeScope,
   HistoricalAdaptationDifference,
   HistoricalAdaptationDifferenceCategory,
   TechnicalPlanState,
 } from '../../technical-plan/types';
-import { ProgressBar, useToast } from '../../../shared/ui';
+import { AppDialog, ProgressBar, useToast } from '../../../shared/ui';
+import { buildBulkConfirmedDifferences } from '../differenceConfirmation';
 
 const categories: HistoricalAdaptationDifferenceCategory[] = [
   '删除内容',
@@ -15,6 +17,13 @@ const categories: HistoricalAdaptationDifferenceCategory[] = [
   '其他人工判断',
 ];
 
+const contentChangeScopeLabels: Record<HistoricalAdaptationContentChangeScope, string> = {
+  'location-target': '地点 / 实施对象局改',
+  workload: '工作量局改',
+  schedule: '工期 / 进度局改',
+  none: '不自动改写',
+};
+
 type DifferenceFilter = 'all' | 'pending' | HistoricalAdaptationDifferenceCategory;
 
 interface AdaptationDifferencePageProps {
@@ -23,18 +32,27 @@ interface AdaptationDifferencePageProps {
   state: TechnicalPlanState;
   onStateChange: Dispatch<SetStateAction<TechnicalPlanState | null>>;
   onBack: () => void;
+  onContinue: () => void;
 }
 
-function AdaptationDifferencePage({ projectId, project, state, onStateChange, onBack }: AdaptationDifferencePageProps) {
+function AdaptationDifferencePage({ projectId, project, state, onStateChange, onBack, onContinue }: AdaptationDifferencePageProps) {
   const [filter, setFilter] = useState<DifferenceFilter>('pending');
   const [drafts, setDrafts] = useState<Record<string, HistoricalAdaptationDifference>>({});
   const [savingId, setSavingId] = useState('');
+  const [recentlyConfirmedId, setRecentlyConfirmedId] = useState('');
+  const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false);
+  const [bulkSaving, setBulkSaving] = useState(false);
   const { showToast } = useToast();
   const differences = state.historicalAdaptationDifferences || [];
   const task = state.historicalAdaptationDifferenceTask;
-  const running = task?.status === 'running' || task?.status === 'pausing';
+  const outlineTaskStatus = state.historicalAdaptationOutlineTask?.status;
+  const running = task?.status === 'running'
+    || task?.status === 'pausing'
+    || ['queued', 'running', 'pausing', 'paused'].includes(outlineTaskStatus || '');
   const processedCount = differences.filter((item) => item.decision !== 'pending').length;
+  const pendingCount = differences.length - processedCount;
   const differenceComplete = Boolean(state.historicalAdaptationDifferenceConfirmedAt);
+  const mutationPending = Boolean(savingId) || bulkSaving;
 
   useEffect(() => {
     setDrafts(Object.fromEntries(differences.map((item) => [item.id, { ...item }])));
@@ -46,9 +64,9 @@ function AdaptationDifferencePage({ projectId, project, state, onStateChange, on
 
   const filtered = useMemo(() => differences.filter((item) => {
     if (filter === 'all') return true;
-    if (filter === 'pending') return item.decision === 'pending';
+    if (filter === 'pending') return item.decision === 'pending' || item.id === recentlyConfirmedId;
     return item.category === filter;
-  }), [differences, filter]);
+  }), [differences, filter, recentlyConfirmedId]);
 
   const countFor = (value: DifferenceFilter) => {
     if (value === 'all') return differences.length;
@@ -58,6 +76,7 @@ function AdaptationDifferencePage({ projectId, project, state, onStateChange, on
 
   const startAnalysis = async () => {
     try {
+      setRecentlyConfirmedId('');
       await window.yibiao.tasks.startHistoricalAdaptationDifference({ projectId });
       showToast('历史标书差异分析任务已在后台启动', 'success');
     } catch (error) {
@@ -76,6 +95,7 @@ function AdaptationDifferencePage({ projectId, project, state, onStateChange, on
     try {
       const nextState = await window.yibiao.technicalPlan.saveHistoricalAdaptationDifferences({ projectId, differences: nextDifferences });
       onStateChange(nextState);
+      setRecentlyConfirmedId(decision === 'confirmed' ? id : '');
       showToast(decision === 'confirmed' ? '差异项已确认' : decision === 'ignored' ? '差异项已标记为无需处理' : '处理要求已保存', 'success');
     } catch (error) {
       showToast(error instanceof Error ? error.message : '保存差异确认失败', 'error');
@@ -91,6 +111,25 @@ function AdaptationDifferencePage({ projectId, project, state, onStateChange, on
     }));
   };
 
+  const confirmAllPending = async () => {
+    if (!pendingCount) return;
+    setBulkSaving(true);
+    try {
+      const nextState = await window.yibiao.technicalPlan.saveHistoricalAdaptationDifferences({
+        projectId,
+        differences: buildBulkConfirmedDifferences(differences, drafts),
+      });
+      onStateChange(nextState);
+      setRecentlyConfirmedId('');
+      setBulkConfirmOpen(false);
+      showToast(`已确认 ${pendingCount} 个待确认差异项`, 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '批量确认差异失败', 'error');
+    } finally {
+      setBulkSaving(false);
+    }
+  };
+
   return (
     <div className="historical-adaptation-difference-page">
       <header className="historical-adaptation-difference-head">
@@ -101,7 +140,7 @@ function AdaptationDifferencePage({ projectId, project, state, onStateChange, on
         </div>
         <div className="historical-adaptation-difference-actions">
           <button type="button" className="secondary-action" onClick={onBack}>返回我的标书</button>
-          <button type="button" className="primary-action" onClick={() => { void startAnalysis(); }} disabled={running}>
+          <button type="button" className="primary-action" onClick={() => { void startAnalysis(); }} disabled={running || mutationPending}>
             {running ? '分析中...' : differences.length ? '重新分析差异' : '开始差异分析'}
           </button>
         </div>
@@ -109,10 +148,22 @@ function AdaptationDifferencePage({ projectId, project, state, onStateChange, on
 
       <section className="historical-adaptation-difference-overview" aria-label="差异确认进度">
         <div><span>识别差异</span><strong>{differences.length}</strong></div>
-        <div><span>待确认</span><strong className={differences.length - processedCount > 0 ? 'is-warning' : 'is-success'}>{differences.length - processedCount}</strong></div>
+        <div><span>待确认</span><strong className={pendingCount > 0 ? 'is-warning' : 'is-success'}>{pendingCount}</strong></div>
         <div><span>已处理</span><strong>{processedCount}</strong></div>
         <div className="historical-adaptation-difference-progress">
-          <span>{running ? '后台分析进度' : differenceComplete ? '已全部处理，等待验收' : '确认进度'}</span>
+          <div>
+            <span>{running ? '后台分析进度' : differenceComplete ? '已全部处理，等待验收' : '确认进度'}</span>
+            {differences.length ? (
+              <button
+                type="button"
+                className="secondary-action historical-adaptation-difference-bulk-action"
+                disabled={running || bulkSaving || Boolean(savingId) || pendingCount === 0}
+                onClick={() => setBulkConfirmOpen(true)}
+              >
+                {pendingCount ? `确认全部待确认项（${pendingCount}）` : '全部待确认项已处理'}
+              </button>
+            ) : null}
+          </div>
           <ProgressBar value={running ? task?.progress || 0 : differences.length ? Math.round((processedCount / differences.length) * 100) : 0} />
         </div>
       </section>
@@ -130,7 +181,7 @@ function AdaptationDifferencePage({ projectId, project, state, onStateChange, on
         <div className="historical-adaptation-difference-workbench">
           <aside className="historical-adaptation-difference-filters" aria-label="差异筛选">
             {([['all', '全部差异'], ['pending', '待确认'], ...categories.map((category) => [category, category])] as Array<[DifferenceFilter, string]>).map(([value, label]) => (
-              <button type="button" key={value} className={filter === value ? 'is-active' : ''} onClick={() => setFilter(value)}>
+              <button type="button" key={value} className={filter === value ? 'is-active' : ''} onClick={() => { setFilter(value); setRecentlyConfirmedId(''); }}>
                 <span>{label}</span><strong>{countFor(value)}</strong>
               </button>
             ))}
@@ -150,7 +201,8 @@ function AdaptationDifferencePage({ projectId, project, state, onStateChange, on
                     </div>
                     <div className="historical-adaptation-difference-state">
                       <em className={`priority-${item.priority}`}>{item.priority === 'high' ? '高优先级' : item.priority === 'low' ? '低优先级' : '中优先级'}</em>
-                      <span>{item.decision === 'confirmed' ? '已确认' : item.decision === 'ignored' ? '无需处理' : '待确认'}</span>
+                      <em>{contentChangeScopeLabels[item.content_change_scope || 'none']}</em>
+                      <span className={`is-${item.decision}`}>{item.decision === 'confirmed' ? '已确认' : item.decision === 'ignored' ? '无需处理' : '待确认'}</span>
                     </div>
                   </header>
 
@@ -161,22 +213,28 @@ function AdaptationDifferencePage({ projectId, project, state, onStateChange, on
 
                   <div className="historical-adaptation-difference-editor">
                     <label>处理类型
-                      <select value={draft.category} disabled={running} onChange={(event) => updateDraft(item.id, { category: event.target.value as HistoricalAdaptationDifferenceCategory })}>
+                      <select value={draft.category} disabled={running || mutationPending} onChange={(event) => updateDraft(item.id, { category: event.target.value as HistoricalAdaptationDifferenceCategory })}>
                         {categories.map((category) => <option value={category} key={category}>{category}</option>)}
                       </select>
                     </label>
                     <label>处理要求
-                      <textarea value={draft.action} disabled={running} onChange={(event) => updateDraft(item.id, { action: event.target.value })} rows={3} />
+                      <textarea value={draft.action} disabled={running || mutationPending} onChange={(event) => updateDraft(item.id, { action: event.target.value })} rows={3} />
                     </label>
                     <label>确认备注
-                      <input value={draft.note} disabled={running} onChange={(event) => updateDraft(item.id, { note: event.target.value })} placeholder="可选：记录人工判断依据" />
+                      <input value={draft.note} disabled={running || mutationPending} onChange={(event) => updateDraft(item.id, { note: event.target.value })} placeholder="可选：记录人工判断依据" />
                     </label>
                   </div>
 
                   <footer>
-                    <button type="button" className="text-button" disabled={saving || running} onClick={() => { void saveDifference(item.id); }}>保存修改</button>
-                    <button type="button" className="secondary-action" disabled={saving || running} onClick={() => { void saveDifference(item.id, 'ignored'); }}>无需处理</button>
-                    <button type="button" className="primary-action" disabled={saving || running} onClick={() => { void saveDifference(item.id, 'confirmed'); }}>确认此项</button>
+                    <button type="button" className="text-button" disabled={mutationPending || running} onClick={() => { void saveDifference(item.id); }}>保存修改</button>
+                    <button type="button" className="secondary-action" disabled={mutationPending || running} onClick={() => { void saveDifference(item.id, 'ignored'); }}>无需处理</button>
+                    {item.decision === 'confirmed' ? (
+                      <button type="button" className="historical-adaptation-difference-confirmed-action" disabled aria-label={`${item.title}已确认`}>
+                        <span aria-hidden="true">✓</span>已确认
+                      </button>
+                    ) : (
+                      <button type="button" className="primary-action" disabled={mutationPending || running} onClick={() => { void saveDifference(item.id, 'confirmed'); }}>{saving ? '正在确认...' : '确认此项'}</button>
+                    )}
                   </footer>
                 </article>
               );
@@ -187,8 +245,25 @@ function AdaptationDifferencePage({ projectId, project, state, onStateChange, on
 
       <section className={`historical-adaptation-difference-acceptance${differenceComplete ? ' is-complete' : ''}`}>
         <div><span className="section-kicker">环节三状态</span><strong>{differenceComplete ? '全部差异已处理，等待验收' : '请完成全部差异确认'}</strong></div>
-        <span>环节四保持锁定</span>
+        {differenceComplete
+          ? <button type="button" className="primary-action" onClick={onContinue}>进入目录适配</button>
+          : <span>环节四保持锁定</span>}
       </section>
+
+      <AppDialog
+        open={bulkConfirmOpen}
+        onOpenChange={(open) => !bulkSaving && setBulkConfirmOpen(open)}
+        kicker="批量确认差异"
+        title={`确认全部 ${pendingCount} 个待确认项`}
+        description="将按当前处理类型、处理要求和确认备注一次性确认全部待确认项；已确认和无需处理的项目不会改变。"
+        preventClose={bulkSaving}
+        actions={<>
+          <button type="button" className="secondary-action" disabled={bulkSaving} onClick={() => setBulkConfirmOpen(false)}>取消</button>
+          <button type="button" className="primary-action" disabled={bulkSaving || pendingCount === 0} onClick={() => { void confirmAllPending(); }}>
+            {bulkSaving ? '正在确认...' : '确认全部待确认项'}
+          </button>
+        </>}
+      />
     </div>
   );
 }

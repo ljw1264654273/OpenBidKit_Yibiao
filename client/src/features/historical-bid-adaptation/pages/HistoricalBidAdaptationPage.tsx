@@ -4,8 +4,11 @@ import type { BidProject } from '../../bid-project/types';
 import BidAnalysisPage from '../../technical-plan/pages/BidAnalysisPage';
 import { bidAnalysisTasks, isMissingBidAnalysisResult } from '../../technical-plan/services/bidAnalysisWorkflow';
 import type { BackgroundTaskState, TechnicalPlanState } from '../../technical-plan/types';
-import { InlineSpinner } from '../../../shared/ui';
+import { AppDialog, InlineSpinner } from '../../../shared/ui';
 import AdaptationDifferencePage from '../components/AdaptationDifferencePage';
+import AdaptationOutlinePage from '../components/AdaptationOutlinePage';
+import AdaptationContentPage from '../components/AdaptationContentPage';
+import AdaptationReviewExportPage from '../components/AdaptationReviewExportPage';
 
 interface HistoricalBidAdaptationPageProps {
   projectId?: string;
@@ -63,6 +66,8 @@ function AdaptationProjectWorkspace({
   const [project, setProject] = useState<BidProject | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [contentDirty, setContentDirty] = useState(false);
+  const [pendingStage, setPendingStage] = useState<number | null>(null);
 
   const loadWorkspace = useCallback(async (showLoading = true) => {
     if (showLoading) setLoading(true);
@@ -82,8 +87,26 @@ function AdaptationProjectWorkspace({
   }, [projectId]);
 
   useEffect(() => {
+    setContentDirty(false);
+    setPendingStage(null);
     void loadWorkspace();
   }, [loadWorkspace]);
+
+  const requestStageChange = (stage: number) => {
+    if (activeStage === 4 && stage !== 4 && contentDirty) {
+      setPendingStage(stage);
+      return;
+    }
+    onStageChange(stage);
+  };
+
+  const discardDraftAndChangeStage = () => {
+    if (pendingStage == null) return;
+    const nextStage = pendingStage;
+    setPendingStage(null);
+    setContentDirty(false);
+    onStageChange(nextStage);
+  };
 
   useEffect(() => {
     const taskBridge = window.yibiao?.tasks;
@@ -93,7 +116,11 @@ function AdaptationProjectWorkspace({
       const eventProjectId = event.task.project_id || event.task.projectId || event.task.scope_id;
       if (eventProjectId !== projectId) return;
       const taskType = event.task.type;
-      if (taskType !== 'bid-analysis' && taskType !== 'historical-adaptation-difference') return;
+      if (taskType !== 'bid-analysis'
+        && taskType !== 'historical-adaptation-difference'
+        && taskType !== 'historical-adaptation-outline'
+        && taskType !== 'historical-adaptation-content'
+        && taskType !== 'historical-adaptation-content-check') return;
       const technicalPlan = event.technicalPlanPatch || event.technicalPlan || {};
 
       setState((previous) => previous ? {
@@ -101,7 +128,13 @@ function AdaptationProjectWorkspace({
         ...technicalPlan,
         ...(taskType === 'bid-analysis'
           ? { bidAnalysisTask: (technicalPlan.bidAnalysisTask || event.task) as BackgroundTaskState }
-          : { historicalAdaptationDifferenceTask: (technicalPlan.historicalAdaptationDifferenceTask || event.task) as BackgroundTaskState }),
+          : taskType === 'historical-adaptation-difference'
+            ? { historicalAdaptationDifferenceTask: (technicalPlan.historicalAdaptationDifferenceTask || event.task) as BackgroundTaskState }
+            : taskType === 'historical-adaptation-outline'
+              ? { historicalAdaptationOutlineTask: (technicalPlan.historicalAdaptationOutlineTask || event.task) as BackgroundTaskState }
+              : taskType === 'historical-adaptation-content'
+                ? { historicalAdaptationContentTask: (technicalPlan.historicalAdaptationContentTask || event.task) as BackgroundTaskState }
+                : { historicalAdaptationContentCheckTask: (technicalPlan.historicalAdaptationContentCheckTask || event.task) as BackgroundTaskState }),
         bidAnalysisTasks: {
           ...previous.bidAnalysisTasks,
           ...(technicalPlan.bidAnalysisTasks || {}),
@@ -139,6 +172,19 @@ function AdaptationProjectWorkspace({
   const differenceComplete = Boolean(state.historicalAdaptationDifferenceConfirmedAt);
   const differenceRunning = state.historicalAdaptationDifferenceTask?.status === 'running'
     || state.historicalAdaptationDifferenceTask?.status === 'pausing';
+  const outlineComplete = Boolean(state.historicalAdaptationOutlineConfirmedAt);
+  const outlineRunning = state.historicalAdaptationOutlineTask?.status === 'running'
+    || state.historicalAdaptationOutlineTask?.status === 'pausing';
+  const contentComplete = Boolean(state.historicalAdaptationContentConfirmedAt);
+  const reviewComplete = Boolean(state.historicalAdaptationReviewConfirmedAt);
+  const contentRunning = state.historicalAdaptationContentTask?.status === 'queued'
+    || state.historicalAdaptationContentTask?.status === 'running'
+    || state.historicalAdaptationContentTask?.status === 'pausing'
+    || state.historicalAdaptationContentTask?.status === 'paused'
+    || state.historicalAdaptationContentCheckTask?.status === 'queued'
+    || state.historicalAdaptationContentCheckTask?.status === 'running'
+    || state.historicalAdaptationContentCheckTask?.status === 'pausing'
+    || state.historicalAdaptationContentCheckTask?.status === 'paused';
 
   return (
     <div className="historical-adaptation-page">
@@ -149,7 +195,12 @@ function AdaptationProjectWorkspace({
         baselineRunning={baselineRunning}
         differenceComplete={differenceComplete}
         differenceRunning={differenceRunning}
-        onStageChange={onStageChange}
+        outlineComplete={outlineComplete}
+        outlineRunning={outlineRunning}
+        contentComplete={contentComplete}
+        contentRunning={contentRunning}
+        reviewComplete={reviewComplete}
+        onStageChange={requestStageChange}
       />
       <div className="historical-adaptation-content">
         {activeStage === 0 ? (
@@ -169,16 +220,55 @@ function AdaptationProjectWorkspace({
             onBack={onBack}
             onContinue={() => onStageChange(2)}
           />
-        ) : (
+        ) : activeStage === 2 ? (
           <AdaptationDifferencePage
             projectId={projectId}
             state={state}
             project={project}
             onStateChange={setState}
             onBack={onBack}
+            onContinue={() => onStageChange(3)}
           />
-        )}
+        ) : activeStage === 3 ? (
+          <AdaptationOutlinePage
+            projectId={projectId}
+            state={state}
+            project={project}
+            onStateChange={setState}
+            onBack={onBack}
+          />
+        ) : activeStage === 4 ? (
+          <AdaptationContentPage
+            projectId={projectId}
+            state={state}
+            project={project}
+            onStateChange={setState}
+            onDirtyChange={setContentDirty}
+            onBack={onBack}
+          />
+        ) : activeStage === 5 ? (
+          <AdaptationReviewExportPage
+            projectId={projectId}
+            state={state}
+            project={project}
+            onStateChange={setState}
+            onBack={onBack}
+          />
+        ) : <section className="historical-adaptation-error"><strong>该环节尚未开放</strong><span>请先完成并验收正文迁移。</span></section>}
       </div>
+      <AppDialog
+        open={pendingStage != null}
+        onOpenChange={(open) => !open && setPendingStage(null)}
+        kicker="未保存修改"
+        title="当前章节有未保存修改"
+        description="切换流程环节会放弃当前章节尚未保存的内容。"
+        actions={(
+          <>
+            <button type="button" className="secondary-action" onClick={() => setPendingStage(null)}>继续编辑</button>
+            <button type="button" className="danger-action" onClick={discardDraftAndChangeStage}>放弃修改并切换</button>
+          </>
+        )}
+      />
     </div>
   );
 }
@@ -190,6 +280,11 @@ function StageNavigation({
   baselineRunning = false,
   differenceComplete = false,
   differenceRunning = false,
+  outlineComplete = false,
+  outlineRunning = false,
+  contentComplete = false,
+  contentRunning = false,
+  reviewComplete = false,
   onStageChange,
 }: {
   activeStage: number;
@@ -198,21 +293,42 @@ function StageNavigation({
   baselineRunning?: boolean;
   differenceComplete?: boolean;
   differenceRunning?: boolean;
+  outlineComplete?: boolean;
+  outlineRunning?: boolean;
+  contentComplete?: boolean;
+  contentRunning?: boolean;
+  reviewComplete?: boolean;
   onStageChange: (stage: number) => void;
 }) {
   return (
     <section className="historical-adaptation-stage-panel" aria-label="历史标书适配流程">
       <div className="historical-adaptation-stages">
         {stages.map((stage, index) => {
-          const disabled = index > 2 || (!projectReady && index > 0) || (!baselineComplete && index === 2);
+          const disabled = index > 5
+            || (!projectReady && index > 0)
+            || (!baselineComplete && index === 2)
+            || (!differenceComplete && index === 3)
+            || (!outlineComplete && index === 4)
+            || (!contentComplete && index === 5);
           const current = index === activeStage;
-          const completed = projectReady && (index === 0 || (index === 1 && baselineComplete) || (index === 2 && differenceComplete));
+          const completed = projectReady && (index === 0
+            || (index === 1 && baselineComplete)
+            || (index === 2 && differenceComplete)
+            || (index === 3 && outlineComplete)
+            || (index === 4 && contentComplete)
+            || (index === 5 && reviewComplete));
           const status = index === 0
             ? projectReady ? '已完成' : '进行中'
             : index === 1 && projectReady
               ? baselineRunning ? '提取中' : baselineComplete ? '待验收' : '可开始'
               : baselineComplete && index === 2
                 ? differenceRunning ? '分析中' : differenceComplete ? '待验收' : '可开始'
+                : differenceComplete && index === 3
+                  ? outlineRunning ? '适配中' : outlineComplete ? '待验收' : '可开始'
+                  : outlineComplete && index === 4
+                    ? contentRunning ? '迁移中' : contentComplete ? '待验收' : '可开始'
+                    : contentComplete && index === 5
+                      ? reviewComplete ? '已验收' : '待审核'
                 : '待开放';
 
           return (
@@ -236,9 +352,13 @@ function StageNavigation({
         ? '完成材料上传后开放招标基线'
         : !baselineComplete
           ? '完整提取招标基线后开放差异确认'
-          : differenceComplete
-            ? '差异确认已完成，等待本阶段验收'
-            : '完成全部差异确认后进入本阶段验收'}</p>
+          : !differenceComplete
+            ? '完成全部差异确认后开放目录适配'
+            : !outlineComplete
+              ? '核对并确认适配目录后开放正文迁移'
+              : contentComplete
+                ? reviewComplete ? '终审已确认，可以导出 Word' : '完成终审并处理 P0 阻断项后进行人工验收'
+                : '逐章审阅并确认正文后完成本阶段'}</p>
     </section>
   );
 }

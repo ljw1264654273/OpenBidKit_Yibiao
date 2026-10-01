@@ -21,6 +21,18 @@ function registerTaskIpc({ taskService }) {
     taskService.subscribe(event.sender);
     return taskService.startHistoricalAdaptationDifference(payload);
   });
+  ipcMain.handle('tasks:start-historical-adaptation-outline', (event, payload) => {
+    taskService.subscribe(event.sender);
+    return taskService.startHistoricalAdaptationOutline(payload);
+  });
+  ipcMain.handle('tasks:start-historical-adaptation-content', (event, payload) => {
+    taskService.subscribe(event.sender);
+    return taskService.startHistoricalAdaptationContent(payload);
+  });
+  ipcMain.handle('tasks:start-historical-adaptation-content-check', (event, payload) => {
+    taskService.subscribe(event.sender);
+    return taskService.startHistoricalAdaptationContentCheck(payload);
+  });
   ipcMain.handle('tasks:start-outline-generation', (event, payload) => {
     taskService.subscribe(event.sender);
     return taskService.startOutlineGeneration(payload);

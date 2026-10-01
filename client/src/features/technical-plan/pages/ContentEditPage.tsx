@@ -969,7 +969,7 @@ function ContentEditPage({
         currentContent: draftContent,
         snapshot: aiEditSnapshot,
         mode: aiCandidate.mode,
-        candidateText: aiCandidate.mode === 'rewrite' ? aiCandidate.replacementText : aiCandidate.insertionText,
+        candidateText: aiCandidate.mode === 'continue' ? aiCandidate.insertionText : aiCandidate.replacementText,
       });
     }
     const before = draftContent;
