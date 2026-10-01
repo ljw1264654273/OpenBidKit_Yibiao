@@ -81,6 +81,15 @@ function findPathByTitle(items: OutlineItem[], title: string, parents: string[] 
   return [];
 }
 
+function findNodeByPath(items: OutlineItem[], path: string[], index = 0): OutlineItem | undefined {
+  if (!path.length || index >= path.length) return undefined;
+  const item = items.find((candidate) => candidate.title === path[index]);
+  if (!item) return undefined;
+  return index === path.length - 1
+    ? item
+    : findNodeByPath(item.children || [], path, index + 1);
+}
+
 function moveSibling(items: OutlineItem[], nodeId: string, direction: -1 | 1): OutlineItem[] {
   const index = items.findIndex((item) => item.id === nodeId);
   if (index >= 0) {
@@ -127,6 +136,23 @@ function AdaptationOutlinePage({ projectId, project, state, onStateChange, onBac
   const outlineData = state.outlineData;
   const outlineComplete = Boolean(state.historicalAdaptationOutlineConfirmedAt);
   const selected = useMemo(() => findNode(outlineData?.outline || [], selectedId), [outlineData, selectedId]);
+  const selectedOriginalId = useMemo(() => {
+    const originalOutline = state.historicalAdaptationOriginalOutline?.outline || [];
+    if (!selected || !originalOutline.length) return '';
+    const selectedChange = state.historicalAdaptationOutlineChanges.find(
+      (change) => change.target_node_id === selectedId && change.original_path,
+    );
+    const originalPaths = selectedChange?.original_path
+      ?.split('；')
+      .map((path) => path.split(' / ').filter(Boolean))
+      .filter((path) => path.length) || [];
+    const originalByPath = originalPaths.map((path) => findNodeByPath(originalOutline, path)).find(Boolean);
+    const originalByCurrentPath = findNodeByPath(
+      originalOutline,
+      findPath(outlineData?.outline || [], selectedId),
+    );
+    return originalByPath?.id || originalByCurrentPath?.id || findNode(originalOutline, selectedId)?.id || '';
+  }, [outlineData, selected, selectedId, state.historicalAdaptationOriginalOutline, state.historicalAdaptationOutlineChanges]);
   const selectedChanges = useMemo(() => state.historicalAdaptationOutlineChanges.filter(
     (change) => change.target_node_id === selectedId,
   ), [selectedId, state.historicalAdaptationOutlineChanges]);
@@ -276,19 +302,24 @@ function AdaptationOutlinePage({ projectId, project, state, onStateChange, onBac
           <section className="adaptation-outline-column is-original">
             <header><strong>原目录</strong><span>只读快照</span></header>
             <div className="adaptation-outline-scroll">
-              <OutlineTree items={state.historicalAdaptationOriginalOutline?.outline || []} readonly />
+              <OutlineTree items={state.historicalAdaptationOriginalOutline?.outline || []} selectedId={selectedOriginalId} readonly />
               {deletedChanges.length ? <div className="adaptation-outline-deleted-list"><strong>已删除目录</strong>{deletedChanges.map((change) => <article key={change.id}><span>{change.original_path}</span><small>{change.reason}</small>{change.difference_ids.length ? <em>关联差异：{change.difference_ids.map((id) => differenceTitles.get(id) || id).join('；')}</em> : null}</article>)}</div> : null}
             </div>
           </section>
           <section className="adaptation-outline-column is-adapted">
-            <header><strong>适配后目录</strong><span>{outlineData.outline.length} 个一级目录</span></header>
-            <div className="adaptation-outline-toolbar">
-              <button type="button" onClick={() => { void addRoot(); }} disabled={running || saving}>增加一级目录</button>
-              <button type="button" onClick={() => { void addChild(); }} disabled={!selected || running || saving}>增加子目录</button>
-              <button type="button" title="上移同级目录" onClick={() => { void move(-1); }} disabled={!selected || running || saving}>上移</button>
-              <button type="button" title="下移同级目录" onClick={() => { void move(1); }} disabled={!selected || running || saving}>下移</button>
-              <button type="button" className="is-danger" onClick={() => { void deleteSelected(); }} disabled={!selected || running || saving}>删除</button>
-            </div>
+            <header>
+              <div className="adaptation-outline-header-main">
+                <strong>适配后目录</strong>
+                <div className="adaptation-outline-toolbar">
+                  <button type="button" onClick={() => { void addRoot(); }} disabled={running || saving}>增加一级目录</button>
+                  <button type="button" onClick={() => { void addChild(); }} disabled={!selected || running || saving}>增加子目录</button>
+                  <button type="button" title="上移同级目录" onClick={() => { void move(-1); }} disabled={!selected || running || saving}>上移</button>
+                  <button type="button" title="下移同级目录" onClick={() => { void move(1); }} disabled={!selected || running || saving}>下移</button>
+                  <button type="button" className="is-danger" onClick={() => { void deleteSelected(); }} disabled={!selected || running || saving}>删除</button>
+                </div>
+              </div>
+              <span>{outlineData.outline.length} 个一级目录</span>
+            </header>
             <div className="adaptation-outline-scroll"><OutlineTree items={outlineData.outline} selectedId={selectedId} onSelect={setSelectedId} /></div>
           </section>
           <section className="adaptation-outline-column is-detail">
