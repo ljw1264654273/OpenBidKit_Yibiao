@@ -29,7 +29,30 @@ function isWordCountOnlyDifference(item) {
   return /(?:字数|篇幅|篇数|字符数)/u.test(value) && /(?:扩写|扩充|压缩|缩写|删减|增加|减少|调整)/u.test(value);
 }
 
-function normalizeHistoricalAdaptationDifferences(value, previousDifferences = []) {
+function inferLegacyContentChangeScope(difference) {
+  if (difference?.decision !== 'confirmed') return 'none';
+  const category = text(difference.category);
+  const historical = text(difference.historical_excerpt);
+  const current = text(difference.tender_requirement);
+  const title = text(difference.title);
+  const context = [title, difference.action].map(text).join(' ');
+  if (category === '名称地点替换' && !/项目名称|标段名称/u.test(context)
+    && /[\u4e00-\u9fa5]{2,16}(?:村|镇|街道|区|县|市)/u.test(historical)
+    && historical !== current) return 'location-target';
+  if (category === '数据更新'
+    && (/工作量|服务量|工程量|任务量/u.test(title)
+      && !/金额|预算|费用|报价|人员|设备|工资|岗位/u.test(title)
+      || /工作量|服务量|工程量|任务量|服务范围|实施范围/u.test(context)
+      && !/金额|预算|费用|报价|人员|设备|工资|岗位/u.test(context))
+    && /\d+(?:\.\d+)?\s*(?:户|宗|套|次|公里|平方米|亩)/u.test(historical)
+    && historical !== current) return 'workload';
+  if (category === '工期进度更新' && /工期|进度|期限|服务期|实施期|阶段|节点|启动|完工|竣工/u.test(context)
+    && /(?:20\d{2}年|\d+(?:\.\d+)?\s*(?:年|个月|月|日|天))/u.test(historical)
+    && historical !== current) return 'schedule';
+  return 'none';
+}
+
+function normalizeHistoricalAdaptationDifferences(value, previousDifferences = [], options = {}) {
   const source = Array.isArray(value) ? value : value?.differences;
   const previousById = new Map((Array.isArray(previousDifferences) ? previousDifferences : [])
     .map((item) => [text(item?.id), item]));
@@ -38,6 +61,7 @@ function normalizeHistoricalAdaptationDifferences(value, previousDifferences = [
 
   for (const raw of Array.isArray(source) ? source : []) {
     if (!raw || typeof raw !== 'object' || isWordCountOnlyDifference(raw)) continue;
+    const hasExplicitScope = Object.prototype.hasOwnProperty.call(raw, 'content_change_scope');
     const item = {
       id: text(raw.id),
       category: DIFFERENCE_CATEGORIES.includes(text(raw.category)) ? text(raw.category) : '其他人工判断',
@@ -51,7 +75,9 @@ function normalizeHistoricalAdaptationDifferences(value, previousDifferences = [
       decision: DIFFERENCE_DECISIONS.has(text(raw.decision)) ? text(raw.decision) : 'pending',
       content_change_scope: CONTENT_CHANGE_SCOPES.has(text(raw.content_change_scope))
         ? text(raw.content_change_scope)
-        : 'none',
+        : !hasExplicitScope && options.inferLegacyScopes === true
+          ? inferLegacyContentChangeScope(raw)
+          : 'none',
     };
     if (!item.title || !item.action || !item.tender_requirement) continue;
     if (!item.id) item.id = stableDifferenceId(item);
@@ -164,6 +190,7 @@ module.exports = {
   DIFFERENCE_CATEGORIES,
   CONTENT_CHANGE_SCOPES,
   buildHistoricalAdaptationDifferencePrompt,
+  inferLegacyContentChangeScope,
   normalizeHistoricalAdaptationDifferences,
   runHistoricalAdaptationDifferenceTask,
 };

@@ -52,6 +52,12 @@ function runAssertions() {
     assert.equal(next.historicalAdaptationDifferences[0].decision, 'confirmed');
     assert.equal(next.historicalAdaptationDifferenceConfirmedAt.length > 0, true);
     assert.equal(store.loadTechnicalPlan().historicalAdaptationDifferenceConfirmedAt, next.historicalAdaptationDifferenceConfirmedAt);
+
+    const legacyDifference = { ...difference, id: 'legacy-location', decision: 'confirmed' };
+    delete legacyDifference.content_change_scope;
+    database.db.prepare('UPDATE technical_plan_meta SET historical_adaptation_differences_json = ?')
+      .run(JSON.stringify([legacyDifference]));
+    assert.equal(store.loadTechnicalPlan().historicalAdaptationDifferences[0].content_change_scope, 'location-target');
   } finally {
     database?.close();
     fs.rmSync(userDataPath, { recursive: true, force: true });

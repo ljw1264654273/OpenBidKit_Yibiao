@@ -214,7 +214,7 @@ function buildHistoricalContentItems({ state, originalPlan }) {
       reason = '历史正文定位可靠，默认直接迁移';
     }
     const sourceHash = hashText(located.content);
-    const inputFingerprint = hashText(JSON.stringify({
+    const fingerprintInput = {
       node_id: leaf.nodeId,
       title: leaf.title,
       description: leaf.description,
@@ -229,11 +229,24 @@ function buildHistoricalContentItems({ state, originalPlan }) {
         action: text(difference.action),
       })),
       baseline_hash: hashText(JSON.stringify(state?.bidAnalysisTasks || {})),
+    };
+    const inputFingerprint = hashText(JSON.stringify(fingerprintInput));
+    const legacyScopeFingerprint = hashText(JSON.stringify({
+      ...fingerprintInput,
+      differences: fingerprintInput.differences.map((difference) => AUTOMATIC_CHANGE_SCOPES.has(difference.content_change_scope)
+        ? { ...difference, content_change_scope: 'none' }
+        : difference),
     }));
     const previous = previousById.get(leaf.nodeId);
-    const compatiblePrevious = previous && (!previous.source_hash || previous.source_hash === sourceHash)
-      && (!previous.source_locator || previous.source_locator === sourcePath)
-      && previous.input_fingerprint === inputFingerprint;
+    const sourceCompatible = previous && (!previous.source_hash || previous.source_hash === sourceHash)
+      && (!previous.source_locator || previous.source_locator === sourcePath);
+    const currentInputCompatible = sourceCompatible && previous.input_fingerprint === inputFingerprint
+      && (previous.recommended_mode === recommendedMode || Boolean(previous.manual_mode));
+    const legacyManualCompatible = sourceCompatible && Boolean(previous.manual_mode)
+      && previous.input_fingerprint === legacyScopeFingerprint;
+    const preserveManualSelection = currentInputCompatible || legacyManualCompatible;
+    const preserveCompletedResult = currentInputCompatible
+      || (legacyManualCompatible && previous.manual_mode === 'direct');
     const preserveManualContent = previous?.content_origin === 'manual';
     return {
       node_id: leaf.nodeId,
@@ -242,12 +255,12 @@ function buildHistoricalContentItems({ state, originalPlan }) {
       source_hash: sourceHash,
       input_fingerprint: inputFingerprint,
       recommended_mode: recommendedMode,
-      manual_mode: compatiblePrevious ? previous.manual_mode : undefined,
-      manual_instruction: compatiblePrevious ? previous.manual_instruction : '',
-      status: preserveManualContent && !compatiblePrevious
+      manual_mode: preserveManualSelection ? previous.manual_mode : undefined,
+      manual_instruction: preserveManualSelection ? previous.manual_instruction : '',
+      status: preserveManualContent && !currentInputCompatible
         ? 'review'
-        : compatiblePrevious && previous.status === 'success' ? 'success' : recommendedMode ? 'idle' : 'review',
-      content_origin: preserveManualContent ? 'manual' : compatiblePrevious ? previous.content_origin : undefined,
+        : preserveCompletedResult && previous.status === 'success' ? 'success' : recommendedMode ? 'idle' : 'review',
+      content_origin: preserveManualContent ? 'manual' : preserveManualSelection ? previous.content_origin : undefined,
       reason,
       difference_ids: differenceIds,
       source_excerpt: located.content,
@@ -263,6 +276,32 @@ function stripGeneratedWrapper(value) {
     .replace(/^```(?:markdown|md)?\s*/iu, '')
     .replace(/\s*```$/u, '')
     .trim();
+}
+
+function normalizeLocalRewriteResponse(response) {
+  let value = response;
+  if (typeof value === 'string') {
+    const wrapped = stripGeneratedWrapper(value);
+    try {
+      value = JSON.parse(wrapped);
+    } catch {
+      return value;
+    }
+  }
+  if (Array.isArray(value)) value = { edits: value };
+  if (!value || typeof value !== 'object') return value;
+  const nested = value.data && typeof value.data === 'object' ? value.data : value;
+  const aliases = ['edits', 'replacements', 'changes', 'patches'];
+  const editList = aliases.map((key) => nested[key]).find(Array.isArray);
+  if (editList?.length) {
+    return {
+      edits: editList.map((edit) => ({
+        old_text: edit?.old_text ?? edit?.oldText ?? edit?.before ?? edit?.old ?? edit?.from,
+        new_text: edit?.new_text ?? edit?.newText ?? edit?.after ?? edit?.new ?? edit?.to,
+      })),
+    };
+  }
+  return value;
 }
 
 async function requestJson(aiService, request) {
@@ -299,17 +338,115 @@ ${JSON.stringify(differences)}
 ${baseline}`;
 }
 
-function validateLocalRewriteResponse(response) {
+function extractFactTokens(value) {
+  return uniqueStrings(String(value || '').match(/(?:20\d{2}年(?:\d{1,2}月(?:\d{1,2}日)?)?|\d+(?:\.\d+)?\s*(?:万元|亿元|元|个月|年|月|日|天|人|台|辆|部|户|宗|套|次|公里|平方米|亩))/gu) || []);
+}
+
+function factScope(token) {
+  if (/(?:万元|亿元|元)$/u.test(token)) return 'amount';
+  if (/人$/u.test(token)) return 'personnel';
+  if (/(?:台|辆|部)$/u.test(token)) return 'equipment';
+  if (/(?:20\d{2}年|个月|年|月|日|天)/u.test(token)) return 'schedule';
+  if (/(?:户|宗|套|次|公里|平方米|亩)$/u.test(token)) return 'workload';
+  return 'other';
+}
+
+function countToken(value, token) {
+  if (!token) return 0;
+  let count = 0;
+  let offset = 0;
+  const source = String(value || '');
+  while (offset <= source.length) {
+    const index = source.indexOf(token, offset);
+    if (index < 0) break;
+    count += 1;
+    offset = index + token.length;
+  }
+  return count;
+}
+
+function localRewriteMarkers(differences) {
+  return uniqueStrings((differences || []).flatMap((difference) => {
+    const historical = text(difference?.historical_excerpt);
+    const markers = residualTermsFromDifference(difference);
+    if (historical && historical.length <= 120) markers.push(historical);
+    return markers;
+  }));
+}
+
+function scopedFactTokens(differences, field) {
+  return new Set((differences || []).flatMap((difference) => {
+    const scope = text(difference?.content_change_scope);
+    return extractFactTokens(difference?.[field]).filter((token) => factScope(token) === scope);
+  }));
+}
+
+function validateLocalRewriteResponse(response, { sourceContent = '', differences = [] } = {}) {
   if (!Array.isArray(response?.edits) || response.edits.length === 0) {
     throw new Error('返回结果必须包含非空 edits 数组');
   }
+  const errors = [];
+  const markers = localRewriteMarkers(differences).filter((marker) => sourceContent.includes(marker));
+  const edits = [];
   for (const [index, edit] of response.edits.entries()) {
     const oldText = edit?.old_text ?? edit?.oldText;
     const newText = edit?.new_text ?? edit?.newText;
     if (typeof oldText !== 'string' || !oldText.trim() || typeof newText !== 'string') {
-      throw new Error(`edits[${index}] 必须包含字符串 old_text 和 new_text`);
+      errors.push(`edits[${index}] 必须包含字符串 old_text 和 new_text`);
+      continue;
     }
+    const trimmedOldText = oldText.trim();
+    const trimmedSource = String(sourceContent || '').trim();
+    if (trimmedOldText === trimmedSource) errors.push(`edits[${index}] 不得替换完整来源正文或整章内容`);
+    if (trimmedSource.length >= 200 && trimmedOldText.length >= 120
+      && trimmedOldText.length / trimmedSource.length > 0.5) {
+      errors.push(`edits[${index}] 替换范围过大，不符合局部改写要求`);
+    }
+    if (!markers.some((marker) => oldText.includes(marker))) {
+      errors.push(`edits[${index}] old_text 未包含任何允许处理的历史差异标记`);
+    }
+    edits.push({ oldText, newText });
   }
+
+  const applied = applyTextEdits(sourceContent, edits);
+  errors.push(...applied.errors);
+  if (!applied.errors.length && !applied.changed) errors.push('替换内容与原文相同，没有产生任何修改');
+  if (!applied.errors.length && applied.changed) {
+    const allowedHistoricalFacts = scopedFactTokens(differences, 'historical_excerpt');
+    const allowedCurrentFacts = scopedFactTokens(differences, 'tender_requirement');
+    const sourceFacts = extractFactTokens(sourceContent);
+    const resultFacts = extractFactTokens(applied.content);
+    const changedProtectedFacts = sourceFacts.filter((token) => !allowedHistoricalFacts.has(token)
+      && countToken(sourceContent, token) !== countToken(applied.content, token));
+    const introducedProtectedFacts = resultFacts.filter((token) => !allowedCurrentFacts.has(token)
+      && countToken(applied.content, token) > countToken(sourceContent, token));
+    const changedFacts = uniqueStrings([...changedProtectedFacts, ...introducedProtectedFacts]);
+    if (changedFacts.length) errors.push(`不得改动允许范围外的事实：${changedFacts.join('、')}`);
+  }
+  if (errors.length) throw new Error(errors.join('；'));
+}
+
+function buildLocalRewriteRepairMessages({ invalidContent, issues }, { sourceContent, differences }) {
+  const issueText = Array.isArray(issues) ? issues.join('\n') : text(issues);
+  const invalidText = typeof invalidContent === 'string' ? invalidContent : JSON.stringify(invalidContent);
+  return [{
+    role: 'user',
+    content: `上次局部改写结果未通过校验。只修复返回结构和局部替换，不得返回完整章节正文。
+
+校验错误：
+${issueText || '未知校验错误'}
+
+历史正文：
+${sourceContent}
+
+允许处理的已确认差异：
+${JSON.stringify(differences)}
+
+上次无效结果：
+${invalidText}
+
+只返回 JSON：{"edits":[{"old_text":"唯一命中的历史原文","new_text":"局部替换后的正文"}]}`,
+  }];
 }
 
 function buildLocalRewritePrompt({ leaf, item, differences, baseline, sourceContent, correction }) {
@@ -317,6 +454,7 @@ function buildLocalRewritePrompt({ leaf, item, differences, baseline, sourceCont
 
 目标章节：${leaf.path.join(' / ')}
 只处理项目地点/实施对象、工作量、工期或进度三类已确认差异。不得扩写、缩写、优化或重写其他内容。
+即使差异处理要求同时提及人员、设备、金额或项目名称，也不得自动修改这些信息；仅对允许的三类内容返回替换。
 每个 old_text 必须从历史正文中逐字复制，保留标点、空格和换行，并包含足够上下文以保证只命中一处；不要自行概括或改写 old_text。
 每个 new_text 仅替换对应片段，保留该片段里其他仍适用的信息。不同位置分别返回 edit；不要返回完整章节正文。
 只返回 JSON：{"edits":[{"old_text":"唯一命中的历史原文","new_text":"局部替换后的正文"}]}
@@ -419,7 +557,9 @@ async function runHistoricalAdaptationContentTask({ aiService, workspaceStore, u
                 correction: attempt ? failureMessage : '',
               }) }],
               response_format: { type: 'json_object' },
-              validator: validateLocalRewriteResponse,
+              validator: (value) => validateLocalRewriteResponse(value, { sourceContent, differences }),
+              normalizer: normalizeLocalRewriteResponse,
+              repairMessagesBuilder: (context) => buildLocalRewriteRepairMessages(context, { sourceContent, differences }),
               progressLabel: '局部改写结果',
               failureMessage: '模型多次未能返回有效的局部替换结构',
               logTitle: `历史标书适配-正文局改-${leaf.nodeId}${attempt ? '-纠正' : ''}`,
@@ -429,7 +569,20 @@ async function runHistoricalAdaptationContentTask({ aiService, workspaceStore, u
             if (attempt === 0) continue;
             break;
           }
-          const edits = response.edits.map((edit) => ({
+          const normalizedResponse = normalizeLocalRewriteResponse(response);
+          if (!Array.isArray(normalizedResponse?.edits) || !normalizedResponse.edits.length) {
+            failureMessage = '模型返回中未找到可应用的局部替换';
+            if (attempt === 0) continue;
+            break;
+          }
+          try {
+            validateLocalRewriteResponse(normalizedResponse, { sourceContent, differences });
+          } catch (error) {
+            failureMessage = error?.message || String(error);
+            if (attempt === 0) continue;
+            break;
+          }
+          const edits = normalizedResponse.edits.map((edit) => ({
             oldText: edit.old_text ?? edit.oldText,
             newText: edit.new_text ?? edit.newText,
           }));

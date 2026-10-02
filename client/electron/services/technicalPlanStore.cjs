@@ -153,6 +153,11 @@ const taskFieldTypes = {
 };
 
 const taskTypeFields = Object.fromEntries(Object.entries(taskFieldTypes).map(([field, type]) => [type, field]));
+
+function readHistoricalAdaptationDifferences(value) {
+  return normalizeHistoricalAdaptationDifferences(safeJsonParse(value, []), [], { inferLegacyScopes: true });
+}
+
 const originalPlanDownstreamTaskTypes = Object.freeze([
   'historical-adaptation-difference',
   'historical-adaptation-outline',
@@ -2971,7 +2976,7 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       bidAnalysisSelectedTaskIds,
       bidAnalysisTasks,
       bidAnalysisProgress: calculateBidProgress(bidAnalysisMode, bidAnalysisTasks, bidAnalysisSelectedTaskIds),
-      historicalAdaptationDifferences: normalizeHistoricalAdaptationDifferences(safeJsonParse(meta.historical_adaptation_differences_json, [])),
+      historicalAdaptationDifferences: readHistoricalAdaptationDifferences(meta.historical_adaptation_differences_json),
       historicalAdaptationDifferenceConfirmedAt: meta.historical_adaptation_difference_confirmed_at || undefined,
       historicalAdaptationOriginalOutline: safeJsonParse(meta.historical_adaptation_original_outline_json, null),
       historicalAdaptationOutlineChanges: normalizeHistoricalAdaptationOutlineChanges(
@@ -3406,7 +3411,7 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     const contentSnapshot = leaves.map((item) => ({ node_id: String(item.id || ''), content: String(item.content || '') }));
     const inputSnapshot = {
       outline: leaves.map((item) => ({ node_id: String(item.id || ''), title: String(item.title || '') })),
-      differences: normalizeHistoricalAdaptationDifferences(safeJsonParse(meta.historical_adaptation_differences_json, [])),
+      differences: readHistoricalAdaptationDifferences(meta.historical_adaptation_differences_json),
       strategies: leaves.map((item) => {
         const plan = byId.get(String(item.id || ''));
         return { node_id: String(item.id || ''), recommended_mode: plan?.recommended_mode, manual_mode: plan?.manual_mode, manual_instruction: plan?.manual_instruction };
@@ -3614,7 +3619,7 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       const findings = reviewHistoricalAdaptationContent({
         outline: loadOutlineData(meta)?.outline || [],
         contentItems: safeJsonParse(meta.historical_adaptation_content_items_json, []),
-        differences: normalizeHistoricalAdaptationDifferences(safeJsonParse(meta.historical_adaptation_differences_json, [])),
+        differences: readHistoricalAdaptationDifferences(meta.historical_adaptation_differences_json),
       }, safeJsonParse(meta.historical_adaptation_review_findings_json, []));
       updateMeta({
         historical_adaptation_review_findings_json: JSON.stringify(findings),

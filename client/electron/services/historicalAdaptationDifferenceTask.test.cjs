@@ -63,6 +63,42 @@ test('差异结果严格归一化自动局改范围且忽略项不触发局改',
   ]);
 });
 
+test('仅对持久化旧记录中真正缺失的 scope 做保守推断', () => {
+  const base = {
+    category: '名称地点替换', priority: 'high', historical_location: '项目概况',
+    historical_excerpt: '五峰村', tender_requirement: '横泾街道', action: '替换地点', decision: 'confirmed',
+  };
+  const normalized = normalizeHistoricalAdaptationDifferences([
+    { ...base, id: 'legacy-location', title: '地点调整' },
+    { ...base, id: 'legacy-workload', category: '数据更新', title: '工作量调整', historical_excerpt: '100宗', tender_requirement: '200宗', action: '更新工作量' },
+    { ...base, id: 'legacy-schedule', category: '工期进度更新', title: '服务期调整', historical_excerpt: '服务期30日', tender_requirement: '服务期45日', action: '更新服务期限' },
+    { ...base, id: 'explicit-none', title: '地点调整', content_change_scope: 'none' },
+    { ...base, id: 'explicit-null', title: '地点调整', content_change_scope: null },
+    { ...base, id: 'explicit-empty', title: '地点调整', content_change_scope: '' },
+    { ...base, id: 'explicit-invalid', title: '地点调整', content_change_scope: 'location' },
+    { ...base, id: 'project-name', title: '项目名称调整', historical_excerpt: '五峰村项目', tender_requirement: '横泾街道项目', action: '修改项目名称' },
+    { ...base, id: 'staff', category: '数据更新', title: '人员数量调整', historical_excerpt: '10人', tender_requirement: '12人', action: '增加人员' },
+    { ...base, id: 'equipment', category: '数据更新', title: '设备数量调整', historical_excerpt: '2台设备', tender_requirement: '3台设备', action: '增加设备' },
+    { ...base, id: 'pending', title: '地点调整', decision: 'pending' },
+    { ...base, id: 'ignored', title: '地点调整', decision: 'ignored' },
+  ], [], { inferLegacyScopes: true });
+
+  assert.deepEqual(normalized.map((item) => [item.id, item.content_change_scope]), [
+    ['legacy-location', 'location-target'],
+    ['legacy-workload', 'workload'],
+    ['legacy-schedule', 'schedule'],
+    ['explicit-none', 'none'],
+    ['explicit-null', 'none'],
+    ['explicit-empty', 'none'],
+    ['explicit-invalid', 'none'],
+    ['project-name', 'none'],
+    ['staff', 'none'],
+    ['equipment', 'none'],
+    ['pending', 'none'],
+    ['ignored', 'none'],
+  ]);
+});
+
 test('差异结果过滤纯字数建议并保留同标识的人工确认', () => {
   const previous = [{
     id: 'stable-id',
