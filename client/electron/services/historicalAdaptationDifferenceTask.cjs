@@ -62,7 +62,8 @@ function hasStructuredDifferenceContract(item) {
   if (item.target_action === 'remove' || item.target_action === 'rewrite-fragment') {
     return item.evidence_kind === 'locked-range'
       && item.old_content_evidence.length > 0
-      && item.replacements.length === 0;
+      && item.replacements.length === 0
+      && item.content_change_scope === 'none';
   }
   return item.evidence_kind === 'contextual'
     && item.replacements.length === 0
@@ -123,7 +124,7 @@ function normalizeHistoricalAdaptationDifferences(value, previousDifferences = [
       if (Object.prototype.hasOwnProperty.call(previous, 'old_content_evidence')) item.old_content_evidence = normalizeEvidence(previous.old_content_evidence);
     }
     const previousHasV2Contract = Number(previous?.difference_schema_version) === 2;
-    if (item.target_action === 'review') item.content_change_scope = 'none';
+    if (item.target_action !== 'replace') item.content_change_scope = 'none';
     if (item.decision === 'confirmed' && !(rawHasV2Contract || previousHasV2Contract && hasStructuredDifferenceContract(item))) {
       item.decision = 'pending';
       item.content_change_scope = 'none';

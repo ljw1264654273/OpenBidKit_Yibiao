@@ -117,6 +117,7 @@ test('差异确认页面按动作要求匹配证据类型并禁止 review 映射
 
   assert.match(component, /target_action === 'replace'[\s\S]*evidence_kind !== 'exact-value'/);
   assert.match(component, /target_action === 'remove' \|\| item\.target_action === 'rewrite-fragment'[\s\S]*evidence_kind !== 'locked-range'/);
+  assert.match(component, /target_action === 'remove' \|\| item\.target_action === 'rewrite-fragment'[\s\S]*content_change_scope !== 'none'/);
   assert.match(component, /target_action === 'review'[\s\S]*isContextualEvidence/);
   assert.match(component, /target_action === 'review'[\s\S]*replacements\.length/);
   assert.match(component, /isContextualEvidence[\s\S]*confidence === 'high'/);

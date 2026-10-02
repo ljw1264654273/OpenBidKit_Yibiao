@@ -56,6 +56,7 @@ function getDifferenceConfirmationError(item: HistoricalAdaptationDifference): s
     }
   }
   if (item.target_action === 'remove' || item.target_action === 'rewrite-fragment') {
+    if (item.content_change_scope !== 'none') return '删除或局部重写的正文影响范围必须为“不自动改写”。';
     if (replacements.length > 0) return '删除或局部重写不能携带可执行替换映射。';
     if (item.evidence_kind !== 'locked-range') return '删除或局部重写必须使用“锁定范围”证据类型。';
     if (!(item.old_content_evidence || []).some((evidence) => evidence.trim())) {
@@ -291,7 +292,7 @@ function AdaptationDifferencePage({ projectId, project, state, onStateChange, on
                       </select>
                     </label>
                     <label>正文影响范围
-                      <select value={draft.content_change_scope} disabled={running || mutationPending} onChange={(event) => updateDraft(item.id, { content_change_scope: event.target.value as HistoricalAdaptationContentChangeScope })}>
+                      <select value={draft.content_change_scope} disabled={running || mutationPending || draft.target_action !== 'replace'} onChange={(event) => updateDraft(item.id, { content_change_scope: event.target.value as HistoricalAdaptationContentChangeScope })}>
                         {Object.entries(contentChangeScopeLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}
                       </select>
                     </label>

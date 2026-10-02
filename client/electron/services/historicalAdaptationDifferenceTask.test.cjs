@@ -156,6 +156,25 @@ test('review contextual 始终清除正文自动局改范围', () => {
   assert.equal(difference.decision, 'confirmed');
 });
 
+test('remove 和 rewrite-fragment 始终清除正文自动局改范围', () => {
+  const base = {
+    category: '删除内容', priority: 'medium', historical_location: '服务章节',
+    historical_excerpt: '旧事项', tender_requirement: '不再包含', action: '删除旧事项',
+    decision: 'confirmed', difference_schema_version: 2, evidence_kind: 'locked-range',
+    confidence: 'high', old_content_evidence: ['完整旧事项'], replacements: [],
+    content_change_scope: 'workload',
+  };
+  const [remove, rewrite] = normalizeHistoricalAdaptationDifferences({ differences: [
+    { ...base, id: 'remove-scope', title: '删除事项', target_action: 'remove' },
+    { ...base, id: 'rewrite-scope', title: '局部改写', target_action: 'rewrite-fragment', action: '局部改写旧事项' },
+  ] });
+
+  assert.equal(remove.content_change_scope, 'none');
+  assert.equal(remove.decision, 'pending');
+  assert.equal(rewrite.content_change_scope, 'none');
+  assert.equal(rewrite.decision, 'pending');
+});
+
 test('差异结果严格归一化自动局改范围且忽略项不触发局改', () => {
   const normalized = normalizeHistoricalAdaptationDifferences({
     differences: [
