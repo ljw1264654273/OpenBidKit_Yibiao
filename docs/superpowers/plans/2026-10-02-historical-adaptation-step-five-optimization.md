@@ -65,7 +65,7 @@
 
 - [ ] **Step 1: 写差异契约失败测试**
 
-断言地点、工作量、工期差异生成结构化 `replacements`、`target_action`、`evidence_kind`、`confidence`；服务内容差异生成完整 `old_content_evidence` 和明确动作。用户确认前可修正正文影响范围、旧值、新值和动作；缺少结构化字段不能确认。旧数据无法证明 mapping/action 时，清除差异确认时间和目录/正文方案/检查/终审结果，并先取消活动中的目录、正文和检查任务、等待 runner settled，确保旧 runner 不能继续 checkpoint。
+断言地点、工作量、工期差异生成结构化 `replacements`、`target_action`、`evidence_kind`、`confidence`；服务内容差异生成完整 `old_content_evidence` 和明确动作。用户确认前可修正正文影响范围、旧值、新值和动作；缺少结构化字段不能确认。运行时用户修改差异继续通过现有 TaskService 取消相关活动任务并等待 runner settled；启动期旧数据升级及持久任务失效统一放到 Task 4 的 v44 SQLite migration，不在 Task 0 重复实现。
 
 - [ ] **Step 2: 运行测试确认失败**
 
@@ -198,7 +198,7 @@ git commit -m "fix: apply historical local edits atomically"
 
 - [ ] **Step 1: 写 v44 失败测试**
 
-断言创建 `technical_plan_historical_source_versions`、`technical_plan_historical_content_items` 和必要索引；旧 JSON 在同一 migration 事务导入，`content_items_storage_version=1` 后新表权威；重复启动不重复导入。
+断言创建 `technical_plan_historical_source_versions`、`technical_plan_historical_content_items` 和必要索引；旧 JSON 在同一 migration 事务导入，`content_items_storage_version=1` 后新表权威；重复启动不重复导入。migration 同时把可证明的旧差异升级到 schema v2；无法证明 mapping/action 的差异恢复为待确认，原子清除差异确认时间、目录/正文方案、检查和终审，并把相关持久任务标记为启动升级中断。迁移发生在 TaskService 恢复任务之前，此时不存在活跃 runner。
 
 - [ ] **Step 2: 运行测试确认失败**
 
@@ -207,7 +207,7 @@ Expected: FAIL，schema 仍为 43。
 
 - [ ] **Step 3: 实现 v44 migration 和 schema health**
 
-提升 `schemaVersion` 到 44，创建表、导入旧 JSON、写完成标记，确保 migration 事务失败整体回滚；同步 `sql/workspace_schema.sql`。
+提升 `schemaVersion` 到 44，创建表、导入旧 JSON、升级差异契约、原子失效不兼容下游和持久任务、写完成标记，确保 migration 事务失败整体回滚；同步 `sql/workspace_schema.sql`。任务恢复随后只会看到已持久化的中断状态，不能恢复旧 runner 或继续 checkpoint。
 
 - [ ] **Step 4: 验证 migration**
 
