@@ -104,6 +104,14 @@ test('差异确认页面支持类型筛选编辑及逐项处理', () => {
   assert.match(component, /showToast\(validationError, 'error'\)/);
 });
 
+test('差异确认页面允许逐行编辑并归一化旧内容证据', () => {
+  const component = readFileSync(join(__dirname, 'components/AdaptationDifferencePage.tsx'), 'utf8');
+
+  assert.match(component, /aria-label="旧内容证据"[\s\S]*value=\{\(draft\.old_content_evidence \|\| \[\]\)\.join\('\\n'\)\}/);
+  assert.ok(component.includes('split(/\\r?\\n/)'));
+  assert.match(component, /\.map\(\(evidence\) => evidence\.trim\(\)\)[\s\S]*\.filter\(Boolean\)/);
+});
+
 test('差异确认页面按动作要求匹配证据类型并禁止 review 映射', () => {
   const component = readFileSync(join(__dirname, 'components/AdaptationDifferencePage.tsx'), 'utf8');
 

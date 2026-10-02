@@ -310,6 +310,18 @@ function AdaptationDifferencePage({ projectId, project, state, onStateChange, on
                         {Object.entries(confidenceLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}
                       </select>
                     </label>
+                    <label>旧内容证据
+                      <textarea
+                        aria-label="旧内容证据"
+                        value={(draft.old_content_evidence || []).join('\n')}
+                        disabled={running || mutationPending}
+                        onChange={(event) => updateDraft(item.id, {
+                          old_content_evidence: event.target.value.split(/\r?\n/).map((evidence) => evidence.trim()).filter(Boolean),
+                        })}
+                        rows={3}
+                        placeholder="每行填写一条完整旧内容或可定位段落"
+                      />
+                    </label>
                     <label>处理要求
                       <textarea value={draft.action} disabled={running || mutationPending} onChange={(event) => updateDraft(item.id, { action: event.target.value })} rows={3} />
                     </label>
