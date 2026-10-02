@@ -104,6 +104,16 @@ test('差异确认页面支持类型筛选编辑及逐项处理', () => {
   assert.match(component, /showToast\(validationError, 'error'\)/);
 });
 
+test('差异确认页面按动作要求匹配证据类型并禁止 review 映射', () => {
+  const component = readFileSync(join(__dirname, 'components/AdaptationDifferencePage.tsx'), 'utf8');
+
+  assert.match(component, /target_action === 'replace'[\s\S]*evidence_kind !== 'exact-value'/);
+  assert.match(component, /target_action === 'remove' \|\| item\.target_action === 'rewrite-fragment'[\s\S]*evidence_kind !== 'locked-range'/);
+  assert.match(component, /target_action === 'review'[\s\S]*evidence_kind !== 'contextual'/);
+  assert.match(component, /target_action === 'review'[\s\S]*replacements\.length/);
+  assert.match(component, /evidence_kind !== 'contextual'[\s\S]*confidence === 'high'/);
+});
+
 test('差异确认页面明确展示单项确认状态并支持批量确认待确认项', () => {
   const component = readFileSync(join(__dirname, 'components/AdaptationDifferencePage.tsx'), 'utf8');
 

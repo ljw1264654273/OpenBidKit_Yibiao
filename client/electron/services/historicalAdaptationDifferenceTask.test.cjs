@@ -113,6 +113,33 @@ test('v2 可执行差异缺少结构化映射时不能保持已确认', () => {
   assert.equal(difference.content_change_scope, 'location-target');
 });
 
+test('拒绝非法动作与证据组合，并接受合法 v2 组合', () => {
+  const base = {
+    category: '其他人工判断', priority: 'medium', title: '结构化差异',
+    historical_location: '服务内容', historical_excerpt: '旧事项', tender_requirement: '新要求',
+    action: '按确认规则处理', decision: 'confirmed', content_change_scope: 'none',
+    difference_schema_version: 2, confidence: 'high',
+  };
+  const invalid = normalizeHistoricalAdaptationDifferences({ differences: [
+    { ...base, id: 'remove-exact', target_action: 'remove', evidence_kind: 'exact-value', old_content_evidence: ['旧事项'] },
+    { ...base, id: 'rewrite-contextual', target_action: 'rewrite-fragment', evidence_kind: 'contextual', old_content_evidence: ['旧事项'] },
+    { ...base, id: 'replace-empty', target_action: 'replace', evidence_kind: 'exact-value', replacements: [] },
+    { ...base, id: 'review-mapped', target_action: 'review', evidence_kind: 'contextual', replacements: [{ old_value: '旧', new_value: '新' }], confidence: 'low' },
+    { ...base, id: 'review-high', target_action: 'review', evidence_kind: 'contextual', replacements: [], confidence: 'high' },
+  ] });
+
+  for (const item of invalid) assert.equal(item.decision, 'pending', item.id);
+
+  const valid = normalizeHistoricalAdaptationDifferences({ differences: [
+    { ...base, id: 'replace-valid', target_action: 'replace', evidence_kind: 'exact-value', replacements: [{ old_value: '旧', new_value: '新' }] },
+    { ...base, id: 'remove-valid', target_action: 'remove', evidence_kind: 'locked-range', old_content_evidence: ['完整旧事项'] },
+    { ...base, id: 'rewrite-valid', target_action: 'rewrite-fragment', evidence_kind: 'locked-range', old_content_evidence: ['完整旧事项'] },
+    { ...base, id: 'review-valid', target_action: 'review', evidence_kind: 'contextual', replacements: [], confidence: 'low' },
+  ] });
+
+  for (const item of valid) assert.equal(item.decision, 'confirmed', item.id);
+});
+
 test('差异结果严格归一化自动局改范围且忽略项不触发局改', () => {
   const normalized = normalizeHistoricalAdaptationDifferences({
     differences: [

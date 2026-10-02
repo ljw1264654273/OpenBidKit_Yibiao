@@ -56,11 +56,15 @@ function hasStructuredDifferenceContract(item) {
     || !TARGET_ACTIONS.has(item.target_action)
     || !EVIDENCE_KINDS.has(item.evidence_kind)
     || !CONFIDENCE_LEVELS.has(item.confidence)) return false;
-  if (item.target_action === 'replace') return item.replacements.length > 0;
-  if (item.target_action === 'remove' || item.target_action === 'rewrite-fragment') {
-    return item.old_content_evidence.length > 0;
+  if (item.target_action === 'replace') {
+    return item.evidence_kind === 'exact-value' && item.replacements.length > 0;
   }
-  return item.evidence_kind === 'contextual';
+  if (item.target_action === 'remove' || item.target_action === 'rewrite-fragment') {
+    return item.evidence_kind === 'locked-range' && item.old_content_evidence.length > 0;
+  }
+  return item.evidence_kind === 'contextual'
+    && item.replacements.length === 0
+    && item.confidence !== 'high';
 }
 
 function normalizeHistoricalAdaptationDifferences(value, previousDifferences = []) {

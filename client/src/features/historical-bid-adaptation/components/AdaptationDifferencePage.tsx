@@ -35,16 +35,22 @@ const targetActionLabels: Record<HistoricalAdaptationTargetAction, string> = {
 function getDifferenceConfirmationError(item: HistoricalAdaptationDifference): string {
   if (item.difference_schema_version !== 2) return '该差异缺少 v2 结构化契约，请先重新分析或补全字段。';
   const replacements = item.replacements || [];
-  if (item.target_action === 'replace'
-    && !replacements.some((replacement) => replacement.old_value.trim() && replacement.new_value.trim())) {
-    return '确定替换必须填写至少一组完整的旧值和新值。';
+  if (item.target_action === 'replace') {
+    if (item.evidence_kind !== 'exact-value') return '确定替换必须使用 exact-value 证据类型。';
+    if (!replacements.some((replacement) => replacement.old_value.trim() && replacement.new_value.trim())) {
+      return '确定替换必须填写至少一组完整的旧值和新值。';
+    }
   }
-  if ((item.target_action === 'remove' || item.target_action === 'rewrite-fragment')
-    && !(item.old_content_evidence || []).some((evidence) => evidence.trim())) {
-    return '删除或局部重写必须保留完整的旧内容证据。';
+  if (item.target_action === 'remove' || item.target_action === 'rewrite-fragment') {
+    if (item.evidence_kind !== 'locked-range') return '删除或局部重写必须使用 locked-range 证据类型。';
+    if (!(item.old_content_evidence || []).some((evidence) => evidence.trim())) {
+      return '删除或局部重写必须保留完整的旧内容证据。';
+    }
   }
-  if (item.target_action === 'review' && item.evidence_kind !== 'contextual') {
-    return '人工复核差异必须使用 contextual 证据类型。';
+  if (item.target_action === 'review') {
+    if (item.evidence_kind !== 'contextual') return '人工复核差异必须使用 contextual 证据类型。';
+    if (replacements.length > 0) return '人工复核差异不能携带可执行替换映射。';
+    if (item.confidence === 'high') return 'contextual 证据不能标记为高置信度。';
   }
   return '';
 }
