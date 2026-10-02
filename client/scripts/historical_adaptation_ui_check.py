@@ -1,9 +1,10 @@
 import json
+import os
 from pathlib import Path
 from playwright.sync_api import sync_playwright
 
 
-OUTPUT_DIR = Path(r"C:\Users\admin\.codex\visualizations\2026\10\01\01a0f550-e94a-7740-b677-a9c7405a9a58")
+OUTPUT_DIR = Path(os.environ.get("HISTORICAL_UI_OUTPUT_DIR", r"C:\Users\admin\.codex\visualizations\2026\10\02\01a0fa92-e230-7ba3-a686-1f9fd9f1ded0"))
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 TENDER_NAME = "本次招标文件-横泾街道房地一体农村不动产登记服务-发布稿.docx"
@@ -63,28 +64,32 @@ with sync_playwright() as playwright:
               title: '删除数据建库和登记发证章节', historical_location: '第四章 4.数据建库和登记发证',
               historical_excerpt: '完成不动产数据库建设、登记审核及证书发放。',
               tender_requirement: '横泾街道本次采购范围不包含数据建库和登记发证。',
-              action: '删除本章及全文中与数据建库、登记发证相关的承诺和进度节点。', note: '', decision: 'pending', content_change_scope: 'none'
+              action: '删除本章及全文中与数据建库、登记发证相关的承诺和进度节点。', note: '', decision: 'pending', content_change_scope: 'none',
+              difference_schema_version: 2, target_action: 'remove', evidence_kind: 'locked-range', confidence: 'high', replacements: [], old_content_evidence: ['完成不动产数据库建设、登记审核及证书发放。']
             },
             {
               id: 'replace-location', category: '名称地点替换', priority: 'high',
               title: '项目实施地点由五峰村调整为横泾街道', historical_location: '全文项目名称、服务地点及组织架构',
               historical_excerpt: '项目实施范围为五峰村，配合村级工作人员开展服务。',
               tender_requirement: '本项目实施范围为横泾街道，表述层级统一为街道。',
-              action: '全文替换地点和行政层级，不保留“五峰村”及村级表述。', note: '', decision: 'pending', content_change_scope: 'location-target'
+              action: '全文替换地点和行政层级，不保留“五峰村”及村级表述。', note: '', decision: 'pending', content_change_scope: 'location-target',
+              difference_schema_version: 2, target_action: 'replace', evidence_kind: 'exact-value', confidence: 'high', replacements: [{ old_value: '五峰村', new_value: '横泾街道' }], old_content_evidence: ['项目实施范围为五峰村']
             },
             {
               id: 'update-workload', category: '数据更新', priority: 'medium',
               title: '按横泾街道实际工作量更新数量', historical_location: '第二章 项目概况与工作量测算',
               historical_excerpt: '原方案工作量按五峰村存量宗地数量测算。',
               tender_requirement: '以横泾街道招标文件载明的服务规模和数量为准。',
-              action: '更新工作量基数、人员投入和设备配置中的关联数据。', note: '', decision: 'pending', content_change_scope: 'workload'
+              action: '更新工作量基数、人员投入和设备配置中的关联数据。', note: '', decision: 'pending', content_change_scope: 'workload',
+              difference_schema_version: 2, target_action: 'replace', evidence_kind: 'exact-value', confidence: 'high', replacements: [{ old_value: '120户', new_value: '350户' }], old_content_evidence: ['工作量120户']
             },
             {
               id: 'update-schedule', category: '工期进度更新', priority: 'high',
               title: '重排三年服务期及分阶段节点', historical_location: '第六章 项目进度计划',
               historical_excerpt: '原方案以2026年6月开标为起点安排三年进度。',
               tender_requirement: '按2026年10月开标时间重新计算三年服务周期。',
-              action: '更新起止日期，并同步调整准备、实施、验收各阶段节点。', note: '', decision: 'pending', content_change_scope: 'schedule'
+              action: '更新起止日期，并同步调整准备、实施、验收各阶段节点。', note: '', decision: 'pending', content_change_scope: 'schedule',
+              difference_schema_version: 2, target_action: 'replace', evidence_kind: 'exact-value', confidence: 'high', replacements: [{ old_value: '2026年6月', new_value: '2026年10月' }], old_content_evidence: ['原方案以2026年6月开标为起点安排三年进度。']
             }
           ];
           const originalOutline = { outline: [
@@ -136,9 +141,17 @@ with sync_playwright() as playwright:
             referenceKnowledgeDocumentIds: [], remoteKnowledgeScopes: [], globalFacts: [],
             contentGenerationSections: {}, contentGenerationPlans: {}, outlineData: null
           };
-          const emitTask = (task, patch) => {
+          const immutableSources = new Map();
+          const emitTask = (task, patch, delta = {}) => {
             workspaceState = { ...workspaceState, ...patch };
-            taskListener?.({ task, technicalPlanPatch: patch });
+            if (delta.contentItemPatch) {
+              workspaceState.historicalAdaptationContentItems = workspaceState.historicalAdaptationContentItems.map((item) => item.node_id === delta.contentItemPatch.node_id ? { ...item, ...delta.contentItemPatch } : item);
+            }
+            if (delta.outlineContentPatch) {
+              const update = (items) => items.map((item) => item.id === delta.outlineContentPatch.nodeId ? { ...item, content: delta.outlineContentPatch.content } : item.children?.length ? { ...item, children: update(item.children) } : item);
+              workspaceState.outlineData = { ...workspaceState.outlineData, outline: update(workspaceState.outlineData.outline) };
+            }
+            taskListener?.({ task, technicalPlanPatch: patch, ...delta });
           };
           window.__historicalMock = {
             calls: [],
@@ -147,7 +160,7 @@ with sync_playwright() as playwright:
             failPrepareOnce: false,
             markMissingSource() {
               const items = workspaceState.historicalAdaptationContentItems.map((item, index) => index === 0
-                ? { ...item, source_path: '', source_excerpt: '', recommended_mode: null, manual_mode: undefined, manual_instruction: '', status: 'review' } : item);
+                ? { ...item, source_path: '', source_section_id: '', source_excerpt: '', recommended_mode: null, manual_mode: undefined, manual_instruction: '', status: 'review' } : item);
               emitTask({ task_id: 'missing-source', type: 'historical-adaptation-content', status: 'success', progress: 100, project_id: project.projectId }, { historicalAdaptationContentItems: items });
             },
             completeBaseline() {
@@ -175,13 +188,13 @@ with sync_playwright() as playwright:
               if (nodeId) {
                 const migration = workspaceState.historicalAdaptationContentItems.find((item) => item.node_id === nodeId);
                 const mode = migration.manual_mode || migration.recommended_mode;
-                const content = mode === 'rewrite' ? `按人工要求迁移：${migration.manual_instruction}。` : migration.source_excerpt;
-                const update = (items) => items.map((item) => item.id === nodeId ? { ...item, content } : { ...item, children: item.children ? update(item.children) : item.children });
+                const content = mode === 'rewrite' ? `按人工要求迁移：${migration.manual_instruction}。` : immutableSources.get(nodeId);
                 emitTask({ task_id: 'single-content', type: 'historical-adaptation-content', status: 'success', progress: 100, project_id: project.projectId }, {
-                  outlineData: { ...workspaceState.outlineData, outline: update(workspaceState.outlineData.outline) },
-                  historicalAdaptationContentItems: workspaceState.historicalAdaptationContentItems.map((item) => item.node_id === nodeId ? { ...item, status: 'success', content_origin: mode === 'rewrite' ? 'ai-rewrite' : 'migrated' } : item),
                   historicalAdaptationContentConfirmedAt: undefined,
                   historicalAdaptationContentCheck: { status: 'stale', findings: [], checked_content_hash: '', checked_inputs_hash: '' }
+                }, {
+                  contentItemPatch: { ...migration, status: 'success', content_origin: mode === 'rewrite' ? 'ai-rewrite' : 'migrated', error: undefined, residuals: [] },
+                  outlineContentPatch: { nodeId, content }
                 });
                 return;
               }
@@ -207,18 +220,22 @@ with sync_playwright() as playwright:
               });
               const outlineData = { ...workspaceState.outlineData, outline: applyContent(workspaceState.outlineData.outline) };
               const historicalAdaptationContentItems = leaves.map(({ item, path, content, preserved }, index) => preserved ? previousById.get(item.id) : ({
-                node_id: item.id, source_path: path.join(' / '),
+                node_id: item.id, source_path: path.join(' / '), source_section_id: `source-${index}`,
                 recommended_mode: index === 0 ? 'local-rewrite' : 'direct', manual_mode: undefined,
                 manual_instruction: '', status: 'success', content_origin: index === 0 ? 'local-rewrite' : 'migrated',
                 reason: index === 0 ? '地点和行政层级按招标要求局部改写' : '历史正文定位可靠且未受差异影响',
-                difference_ids: index === 0 ? ['replace-location'] : [], source_excerpt: previousById.get(item.id)?.content_origin ? previousById.get(item.id).source_excerpt : index === 0 ? content.replace('横泾街道。', '五峰村。').replace('<td><p>1台</p>', '<td><p>4台</p>') : content,
+                difference_ids: index === 0 ? ['replace-location'] : [], source_excerpt: '存储快照不包含历史原文',
                 blocked_terms: index === 0 ? ['五峰村'] : [], residuals: [],
                 source_locator: path.join(' / '), source_hash: `source-${index}`, input_fingerprint: `input-${index}`
               }));
-              emitTask(
-                { task_id: 'content-complete', type: 'historical-adaptation-content', status: 'success', progress: 100, project_id: project.projectId },
-                { outlineData, historicalAdaptationContentItems, historicalAdaptationContentCheck: { status: 'stale', findings: [], checked_content_hash: '', checked_inputs_hash: '' }, historicalAdaptationContentTask: { type: 'historical-adaptation-content', status: 'success', progress: 100 } }
-              );
+              leaves.forEach(({ item, content }, index) => {
+                if (!immutableSources.has(item.id)) immutableSources.set(item.id, index === 0 ? content.replace('横泾街道。', '五峰村。').replace('<td><p>1台</p>', '<td><p>4台</p>') : content);
+                emitTask(
+                  { task_id: 'content-complete', type: 'historical-adaptation-content', status: 'success', progress: 100, project_id: project.projectId },
+                  { historicalAdaptationContentCheck: { status: 'stale', findings: [], checked_content_hash: '', checked_inputs_hash: '' } },
+                  { contentItemPatch: historicalAdaptationContentItems[index], outlineContentPatch: { nodeId: item.id, content } }
+                );
+              });
             }
           };
           window.yibiao = {
@@ -251,6 +268,11 @@ with sync_playwright() as playwright:
                   throw new Error('模拟启动失败');
                 }
                 setTimeout(() => window.__historicalMock.showContent(request.nodeId), 20);
+                return { status: 'running' };
+              },
+              retryHistoricalAdaptationContent: async (request) => {
+                window.__historicalMock.calls.push({ action: 'retry', ...request });
+                setTimeout(() => window.__historicalMock.showContent(), 20);
                 return { status: 'running' };
               },
               startHistoricalAdaptationContentCheck: async () => {
@@ -338,7 +360,18 @@ with sync_playwright() as playwright:
                   })),
                   historicalAdaptationContentCheck: { status: 'stale', findings: [], checked_content_hash: '', checked_inputs_hash: '' }
                 };
+                if (window.__historicalMock.failStartOnce) {
+                  window.__historicalMock.failStartOnce = false;
+                  setTimeout(() => emitTask({ task_id: 'prepare-content-error', type: 'historical-adaptation-content', status: 'error', progress: 0, error: '模拟迁移失败', project_id: project.projectId }, {}), 20);
+                } else {
+                  setTimeout(() => window.__historicalMock.showContent(), 20);
+                }
                 return workspaceState;
+              },
+              getHistoricalAdaptationSourceSection: async ({ nodeId }) => {
+                const item = workspaceState.historicalAdaptationContentItems.find((entry) => entry.node_id === nodeId);
+                const available = Boolean(item?.source_path && immutableSources.has(nodeId));
+                return { available, content: available ? immutableSources.get(nodeId) : '', sourceVersionHash: 'immutable-history' };
               },
               saveHistoricalAdaptationContentStrategy: async ({ nodeId, mode, instruction }) => {
                 window.__historicalMock.calls.push({ action: 'save', nodeId, mode, instruction });
@@ -437,8 +470,8 @@ with sync_playwright() as playwright:
     page.screenshot(path=OUTPUT_DIR / "historical-adaptation-differences.png", full_page=True)
 
     first_item = page.locator(".historical-adaptation-difference-item").first
-    first_item.locator("textarea").fill("删除相关章节，并清理全文交叉引用和对应进度节点。")
-    first_item.locator("input").fill("已核对横泾街道招标范围")
+    first_item.get_by_label("处理要求").fill("删除相关章节，并清理全文交叉引用和对应进度节点。")
+    first_item.get_by_label("确认备注").fill("已核对横泾街道招标范围")
     first_item.get_by_role("button", name="保存修改").click()
     first_item.get_by_role("button", name="确认此项").click()
     confirmed_item = page.locator(".historical-adaptation-difference-item").filter(has_text="删除数据建库和登记发证章节")
@@ -495,12 +528,12 @@ with sync_playwright() as playwright:
     assert page.evaluate("window.__historicalMock.calls.slice(-1)[0].action") == "prepare"
     page.evaluate("window.__historicalMock.failStartOnce = true")
     plan.click()
-    page.get_by_text('方案已更新，迁移启动失败：模拟启动失败。请点击“建立/更新迁移方案”重试。', exact=True).wait_for()
+    page.get_by_text('模拟迁移失败', exact=True).wait_for()
     assert page.locator(".adaptation-content-preview").inner_text() == "当前章节正文为空。"
     dismiss_toasts(page)
-    plan.click()
+    page.get_by_role("button", name="重试未完成章节", exact=True).click()
     page.locator(".adaptation-content-preview table").first.wait_for()
-    assert [item["action"] for item in page.evaluate("window.__historicalMock.calls.slice(-2)")] == ["prepare", "start"]
+    assert [item["action"] for item in page.evaluate("window.__historicalMock.calls.slice(-2)")] == ["prepare", "retry"]
     assert page.get_by_role("button", name="批量设为直接迁移").count() == 0
     reset = page.get_by_role("button", name="恢复默认处理方式", exact=True)
     mode = page.get_by_label("迁移方式", exact=True)
@@ -517,6 +550,7 @@ with sync_playwright() as playwright:
     assert page.get_by_role("button", name="审核导出 待开放").is_disabled()
     source = page.locator(".adaptation-content-source-markdown")
     source.locator("table").first.wait_for()
+    assert "存储快照不包含历史原文" not in source.inner_text()
     assert source.locator("table").count() == 2
     assert source.locator("table").first.locator("tr").count() == 5
     assert source.locator('td[rowspan="2"]').inner_text() == "测量组"
@@ -543,6 +577,14 @@ with sync_playwright() as playwright:
     dismiss_toasts(page)
     page.locator(".historical-adaptation-content-head").scroll_into_view_if_needed()
     page.screenshot(path=OUTPUT_DIR / "historical-adaptation-content-tables.png", full_page=True)
+    for width in [780, 900, 1000, 1100]:
+        page.set_viewport_size({"width": width, "height": 900})
+        workbench = page.locator(".historical-adaptation-content-workbench")
+        assert workbench.evaluate("element => element.scrollWidth <= element.clientWidth + 2"), f"workbench clipped at {width}px"
+        bounds = workbench.bounding_box()
+        editor_bounds = page.locator(".adaptation-content-column.is-editor").bounding_box()
+        assert editor_bounds["x"] + editor_bounds["width"] <= bounds["x"] + bounds["width"] + 2, f"editor clipped at {width}px"
+    page.screenshot(path=OUTPUT_DIR / "historical-adaptation-content-comparison-medium.png", full_page=True)
     page.set_viewport_size({"width": 760, "height": 900})
     source.scroll_into_view_if_needed()
     page.screenshot(path=OUTPUT_DIR / "historical-adaptation-content-comparison-narrow.png", full_page=True)
@@ -635,6 +677,16 @@ with sync_playwright() as playwright:
     page.get_by_role("button", name="取消", exact=True).click()
     assert page.evaluate("window.__historicalMock.calls.length") == calls_before
     assert editor.input_value() == manual_content
+    dismiss_toasts(page)
+    page.set_viewport_size({"width": 760, "height": 900})
+    migrate.click()
+    page.get_by_role("heading", name="覆盖人工正文", exact=True).wait_for()
+    page.wait_for_timeout(400)
+    page.screenshot(path=OUTPUT_DIR / "historical-adaptation-manual-cancel-narrow.png", full_page=True)
+    page.get_by_role("button", name="取消", exact=True).click()
+    assert page.evaluate("window.__historicalMock.calls.length") == calls_before
+    assert editor.input_value() == manual_content
+    page.set_viewport_size({"width": 1440, "height": 1000})
     migrate.click()
     page.get_by_role("button", name="确认覆盖并迁移", exact=True).click()
     page.wait_for_function("() => !document.querySelector('.adaptation-content-markdown-editor .markdown-editor-textarea').value.includes('manual draft')")
@@ -645,6 +697,8 @@ with sync_playwright() as playwright:
     page.get_by_text('当前章节已按“直接迁移”开始迁移', exact=True).wait_for()
     page.evaluate("window.__historicalMock.markMissingSource()")
     page.get_by_text("请选择迁移方式", exact=True).wait_for(state="attached")
+    assert page.get_by_role("button", name="修改对比", exact=True).is_disabled()
+    assert page.locator(".adaptation-content-preview mark").count() == 0
     dismiss_toasts(page)
     reset.click()
     assert mode.input_value() == ""

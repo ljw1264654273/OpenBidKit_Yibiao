@@ -124,6 +124,8 @@ function normalizeHistoricalAdaptationDifferences(value, previousDifferences = [
       if (Object.prototype.hasOwnProperty.call(previous, 'old_content_evidence')) item.old_content_evidence = normalizeEvidence(previous.old_content_evidence);
     }
     const previousHasV2Contract = Number(previous?.difference_schema_version) === 2;
+    const invalidLockedRangeScope = item.target_action !== 'replace' && item.content_change_scope !== 'none';
+    if (invalidLockedRangeScope && item.decision === 'confirmed') item.decision = 'pending';
     if (item.target_action !== 'replace') item.content_change_scope = 'none';
     if (item.decision === 'confirmed' && !(rawHasV2Contract || previousHasV2Contract && hasStructuredDifferenceContract(item))) {
       item.decision = 'pending';
@@ -234,6 +236,7 @@ async function runHistoricalAdaptationDifferenceTask({ aiService, workspaceStore
 module.exports = {
   DIFFERENCE_CATEGORIES,
   CONTENT_CHANGE_SCOPES,
+  hasStructuredDifferenceContract,
   buildHistoricalAdaptationDifferencePrompt,
   normalizeHistoricalAdaptationDifferences,
   runHistoricalAdaptationDifferenceTask,

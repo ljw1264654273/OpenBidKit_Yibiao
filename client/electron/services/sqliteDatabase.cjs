@@ -3,7 +3,7 @@ const path = require('node:path');
 const Database = require('better-sqlite3');
 const { getWorkspaceDatabasePath } = require('../utils/paths.cjs');
 
-const schemaVersion = 43;
+const schemaVersion = 44;
 
 function safeProjectTablePart(projectId) {
   return String(projectId || '')
@@ -70,6 +70,7 @@ function createTechnicalPlanProjectSchema(db, projectId) {
       historical_adaptation_outline_changes_json TEXT,
       historical_adaptation_outline_confirmed_at TEXT,
       historical_adaptation_content_items_json TEXT,
+      content_items_storage_version INTEGER NOT NULL DEFAULT 1,
       historical_adaptation_content_confirmed_at TEXT,
       historical_adaptation_content_check_json TEXT,
       historical_adaptation_review_findings_json TEXT,
@@ -612,6 +613,76 @@ function addHistoricalAdaptationContentCheckState(db) {
   `).all();
   for (const { name } of tables) {
     addColumnIfMissing(db, name, 'historical_adaptation_content_check_json', 'TEXT');
+  }
+}
+
+function createHistoricalAdaptationPlanSchema(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS technical_plan_historical_source_versions (
+      source_hash TEXT PRIMARY KEY,
+      relative_path TEXT NOT NULL,
+      index_json TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS technical_plan_historical_content_items (
+      project_id TEXT NOT NULL,
+      node_id TEXT NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL,
+      source_version_hash TEXT,
+      plan_inputs_hash TEXT,
+      item_json TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (project_id, node_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_historical_content_items_project_order
+      ON technical_plan_historical_content_items(project_id, sort_order);
+    CREATE INDEX IF NOT EXISTS idx_historical_content_items_source
+      ON technical_plan_historical_content_items(source_version_hash);
+  `);
+}
+
+function migrateHistoricalAdaptationPlans(db) {
+  createHistoricalAdaptationPlanSchema(db);
+  const { normalizeHistoricalAdaptationDifferences, hasStructuredDifferenceContract } = require('./historicalAdaptationDifferenceTask.cjs');
+  const projects = db.prepare('SELECT project_id FROM bid_projects').all();
+  const projectByMeta = new Map(projects.map(({ project_id }) => [`${getTechnicalPlanProjectTablePrefix(project_id)}meta`, project_id]));
+  const metas = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND (name = 'technical_plan_meta' OR name GLOB 'technical_plan_project_*_meta')").all();
+  const insert = db.prepare(`INSERT INTO technical_plan_historical_content_items
+    (project_id, node_id, sort_order, status, source_version_hash, plan_inputs_hash, item_json, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
+  for (const { name } of metas) {
+    addColumnIfMissing(db, name, 'content_items_storage_version', 'INTEGER NOT NULL DEFAULT 0');
+    const meta = db.prepare(`SELECT * FROM ${quoteIdentifier(name)} WHERE id = 1`).get();
+    if (!meta || meta.content_items_storage_version === 1) continue;
+    const projectId = projectByMeta.get(name) || (name === 'technical_plan_meta' ? '' : name.slice('technical_plan_project_'.length, -'_meta'.length));
+    const oldDifferences = meta.historical_adaptation_differences_json ? JSON.parse(meta.historical_adaptation_differences_json) : [];
+    const differences = normalizeHistoricalAdaptationDifferences(oldDifferences.map((item) => {
+      const proven = hasStructuredDifferenceContract({ ...item, difference_schema_version: 2, replacements: item.replacements || [], old_content_evidence: item.old_content_evidence || [] });
+      return proven ? { ...item, difference_schema_version: 2 } : item;
+    }));
+    const incompatible = oldDifferences.some((item) => item.decision === 'confirmed'
+      && !differences.some((next) => next.id === item.id && next.decision === 'confirmed' && hasStructuredDifferenceContract(next)));
+    const items = meta.historical_adaptation_content_items_json ? JSON.parse(meta.historical_adaptation_content_items_json) : [];
+    const seen = new Set();
+    for (const [index, raw] of items.entries()) {
+      if (!raw.node_id || seen.has(raw.node_id)) continue;
+      seen.add(raw.node_id);
+      const item = { ...raw, status: raw.content_origin === 'manual' ? raw.status : 'stale' };
+      insert.run(projectId, item.node_id, index, item.status || 'stale', null, item.input_fingerprint || null, JSON.stringify(item), item.updated_at || meta.updated_at);
+    }
+    db.prepare(`UPDATE ${quoteIdentifier(name)} SET content_items_storage_version = 1,
+      historical_adaptation_differences_json = ?, historical_adaptation_content_confirmed_at = NULL,
+      historical_adaptation_content_check_json = NULL, historical_adaptation_review_findings_json = NULL,
+      historical_adaptation_review_confirmed_at = NULL WHERE id = 1`).run(JSON.stringify(differences));
+    if (incompatible) {
+      db.prepare(`UPDATE ${quoteIdentifier(name)} SET historical_adaptation_difference_confirmed_at = NULL,
+        historical_adaptation_outline_confirmed_at = NULL, historical_adaptation_outline_changes_json = NULL WHERE id = 1`).run();
+      db.prepare(`DELETE FROM ${quoteIdentifier(name.replace(/meta$/u, 'content_plans'))}`).run();
+    }
+    const taskTable = name.replace(/meta$/u, 'tasks');
+    db.prepare(`UPDATE ${quoteIdentifier(taskTable)} SET status = 'error', error = '数据库升级中断旧迁移任务，请重新建立方案', pause_requested = 0
+      WHERE type LIKE 'historical-adaptation-%' AND status IN ('queued', 'running', 'pausing', 'paused')`).run();
   }
 }
 
@@ -1688,6 +1759,11 @@ function createFeasibilityReportSchema(db) {
 
 const schemaHealthTableGroups = [
   {
+    version: 44,
+    tables: ['technical_plan_historical_source_versions', 'technical_plan_historical_content_items'],
+    repair: createHistoricalAdaptationPlanSchema,
+  },
+  {
     version: 1,
     tables: [
       'technical_plan_meta',
@@ -1808,6 +1884,7 @@ function removeKnowledgeMigrationMeta(db) {
 }
 
 const schemaHealthColumnGroups = [
+  { version: 44, table: 'technical_plan_meta', columns: { content_items_storage_version: 'INTEGER NOT NULL DEFAULT 1' } },
   {
     version: 1,
     table: 'technical_plan_meta',
@@ -2374,6 +2451,7 @@ const migrations = [
     description: '历史标书正文一致性检查状态',
     up: addHistoricalAdaptationContentCheckState,
   },
+  { version: 44, description: '历史标书逐章方案与不可变来源版本', up: migrateHistoricalAdaptationPlans },
 ];
 
 function timestampForFileName() {

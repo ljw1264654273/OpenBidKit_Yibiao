@@ -34,6 +34,7 @@ function makeHarness({
     outlineExpansionMode: 'ai-complement',
     outlineWordControlOptions: {},
     outlineWordControlSnapshot: {},
+    outlineMinimumDepthSnapshot: 3,
     referenceKnowledgeDocumentIds: [],
     remoteKnowledgeScopes: [],
     outlineData: {

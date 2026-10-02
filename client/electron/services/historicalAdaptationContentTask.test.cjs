@@ -14,6 +14,119 @@ const completeBaseline = Object.fromEntries(getBidAnalysisTasks('full').map((ite
   status: 'success', content: `${item.label}内容`,
 }]));
 
+test('重建人工正文方案保留实际迁移来源，而显式覆盖切换到当前来源', () => {
+  const state = baseState();
+  const oldSource = '# 项目概况\n五峰村旧来源。\n# 服务保障\n旧保障。';
+  const newSource = '# 新概况\n五峰村新来源。\n# 服务保障\n新保障。';
+  const [previous] = buildHistoricalContentItems({ state, originalPlan: oldSource });
+  state.historicalAdaptationContentItems = [{ ...previous, status: 'success', content_origin: 'manual' }];
+  state.historicalAdaptationOutlineChanges[0].original_path = '新概况';
+  const [updated] = buildHistoricalContentItems({ state, originalPlan: newSource });
+  for (const key of ['source_path', 'source_locator', 'source_hash', 'source_version_hash', 'source_content_hash', 'source_section_id']) {
+    assert.equal(updated[key], previous[key], `manual provenance must retain ${key}`);
+  }
+  assert.equal(updated.recommended_mode, 'local-rewrite');
+  const [overwritten] = buildHistoricalContentItems({ state, originalPlan: newSource, overwriteManualNodeIds: ['1'] });
+  assert.equal(overwritten.source_path, '新概况');
+  assert.notEqual(overwritten.source_version_hash, previous.source_version_hash);
+  assert.equal(overwritten.source_content, '五峰村新来源。');
+});
+
+test('单章确认覆盖人工正文使用当前来源正文与同一版本 provenance', async () => {
+  const state = baseState();
+  const oldSource = '# 项目概况\n五峰村旧来源。\n# 服务保障\n旧保障。';
+  const originalPlan = '# 项目概况\n五峰村新来源。\n# 服务保障\n新保障。';
+  const [previous] = buildHistoricalContentItems({ state, originalPlan: oldSource });
+  state.historicalAdaptationContentItems = [{ ...previous, status: 'success', content_origin: 'manual' }];
+  const expected = buildHistoricalContentItems({ state: { ...state, historicalAdaptationContentItems: [] }, originalPlan })[0];
+  const patches = [];
+  await runHistoricalAdaptationContentTask({ aiService: {},
+    workspaceStore: { loadTechnicalPlan: () => state, readOriginalPlanMarkdown: () => originalPlan,
+      getHistoricalAdaptationSourceSection: ({ sourceItem: item }) => {
+        return { available: true, content: item.source_version_hash === previous.source_version_hash ? '五峰村旧来源。' : '五峰村新来源。' };
+      } },
+    payload: { nodeId: '1', forceOverwriteManual: true }, updateTask() {},
+    checkpointTask(_task, patch) {
+      patches.push(patch);
+      if (patch?.historicalAdaptationContentItem) state.historicalAdaptationContentItems = [patch.historicalAdaptationContentItem];
+    } });
+  const output = patches.find((patch) => patch?.contentGenerationItem);
+  assert.equal(output.contentGenerationItem.section.content, '横泾街道新来源。');
+  assert.equal(output.historicalAdaptationContentItem.source_version_hash, expected.source_version_hash);
+  assert.equal(output.historicalAdaptationContentItem.source_content_hash, expected.source_content_hash);
+  assert.equal(output.historicalAdaptationContentItem.source_section_id, expected.source_section_id);
+});
+
+for (const failure of ['模型失败', '任务取消']) {
+  test(`覆盖人工正文${failure}时所有 checkpoint 保留原实际来源`, async () => {
+    const state = baseState();
+    const oldSource = '# 项目概况\n五峰村旧来源。\n# 服务保障\n旧保障。';
+    const originalPlan = '# 项目概况\n五峰村新来源。\n# 服务保障\n新保障。';
+    const [previous] = buildHistoricalContentItems({ state, originalPlan: oldSource });
+    state.outlineData.outline[0].content = '旧人工正文。';
+    state.historicalAdaptationContentItems = [{ ...previous, status: 'success', content_origin: 'manual',
+      manual_mode: 'rewrite', manual_instruction: '按新来源更新' }];
+    let bodyWrites = 0;
+    let cancelled = false;
+    const provenanceKeys = ['source_path', 'source_locator', 'source_hash', 'source_version_hash', 'source_content_hash', 'source_section_id'];
+    const patches = [];
+    const run = runHistoricalAdaptationContentTask({
+      aiService: { requestJson: async () => { cancelled = failure === '任务取消'; throw new Error(failure); } },
+      workspaceStore: { loadTechnicalPlan: () => state, readOriginalPlanMarkdown: () => originalPlan },
+      payload: { nodeId: '1', forceOverwriteManual: true }, updateTask() {},
+      checkpointTask(_task, patch) {
+        if (cancelled) throw new Error('任务取消');
+        if (patch?.historicalAdaptationContentItem?.node_id === '1') {
+          patches.push(patch.historicalAdaptationContentItem);
+          state.historicalAdaptationContentItems = [patch.historicalAdaptationContentItem];
+        }
+        if (patch?.contentGenerationItem) bodyWrites += 1;
+      },
+    });
+    if (failure === '任务取消') await assert.rejects(run, /任务取消/);
+    else await run;
+    assert.equal(bodyWrites, 0);
+    assert.equal(state.outlineData.outline[0].content, '旧人工正文。');
+    for (const item of patches) {
+      assert.equal(item.content_origin, 'manual');
+      for (const key of provenanceKeys) assert.equal(item[key], previous[key], `${failure}: ${key}`);
+    }
+    const rebuilt = buildHistoricalContentItems({ state, originalPlan })[0];
+    for (const key of provenanceKeys) assert.equal(rebuilt[key], previous[key], `rebuild: ${key}`);
+  });
+}
+
+test('输入未变且成功章节不再产生初始化逐章 checkpoint', async () => {
+  const state = baseState();
+  const originalPlan = '# 项目概况\n五峰村正文。\n# 服务保障\n保障正文。';
+  state.historicalAdaptationContentItems = buildHistoricalContentItems({ state, originalPlan }).map((item) => ({
+    ...item, status: 'success', content_origin: 'migrated', plan_id: 'same-plan',
+  }));
+  const patches = [];
+  await runHistoricalAdaptationContentTask({ aiService: {},
+    workspaceStore: { loadTechnicalPlan: () => state, readOriginalPlanMarkdown: () => originalPlan },
+    payload: {}, updateTask() {}, checkpointTask: (_task, patch) => patches.push(patch) });
+  assert.equal(patches.filter((patch) => patch?.historicalAdaptationContentItem).length, 0);
+});
+
+test('100 章 checkpoint 只传单章 patch 且小于 64 KiB', async () => {
+  const state = baseState();
+  state.historicalAdaptationOutlineChanges = [];
+  state.outlineData.outline = Array.from({ length: 100 }, (_, index) => ({ id: String(index), title: `章节${index}` }));
+  const originalPlan = state.outlineData.outline.map((leaf, index) => `# ${leaf.title}\n${index % 2 ? '开展农村、展农村、村辖区。' : '五峰村与五峰村。'}${'正文。'.repeat(395)}`).join('\n');
+  const items = buildHistoricalContentItems({ state, originalPlan });
+  assert.deepEqual(items.map((item) => item.recommended_mode), items.map((_, index) => index % 2 ? 'direct' : 'local-rewrite'));
+  const events = [];
+  await runHistoricalAdaptationContentTask({ aiService: { requestJson() { throw new Error('not needed'); } },
+    workspaceStore: { loadTechnicalPlan: () => state, readOriginalPlanMarkdown: () => originalPlan },
+    checkpointTask: (_task, patch, event) => events.push({ patch, event }), updateTask() {}, payload: {} });
+  for (const event of events) {
+    assert.equal(event.patch?.historicalAdaptationContentItems, undefined);
+    assert.equal(event.event?.technicalPlanPatch?.outlineData, undefined);
+    assert.ok(Buffer.byteLength(JSON.stringify(event), 'utf8') <= 65536);
+  }
+});
+
 function baseState() {
   return {
     bidAnalysisTasks: completeBaseline,
@@ -23,6 +136,8 @@ function baseState() {
       id: 'location', category: '名称地点替换', priority: 'high', title: '地点变更',
       historical_location: '项目概况', historical_excerpt: '五峰村', tender_requirement: '服务范围为横泾街道',
       action: '将五峰村统一改为横泾街道', note: '', decision: 'confirmed', content_change_scope: 'location-target',
+      difference_schema_version: 2, target_action: 'replace', evidence_kind: 'exact-value', confidence: 'high',
+      replacements: [{ old_value: '五峰村', new_value: '横泾街道' }], old_content_evidence: ['五峰村'],
     }],
     historicalAdaptationOutlineChanges: [{
       id: 'renamed', change_type: 'renamed', original_path: '项目概况', target_node_id: '1',
@@ -36,6 +151,97 @@ function baseState() {
     },
   };
 }
+
+function useLockedFragment(state, evidence = '五峰村') {
+  Object.assign(state.historicalAdaptationDifferences[0], {
+    target_action: 'rewrite-fragment', evidence_kind: 'locked-range', confidence: 'high',
+    content_change_scope: 'none', replacements: [], old_content_evidence: [evidence],
+  });
+  return state;
+}
+
+test('重建同一输入保留待执行状态、计划 ID 和成功结果指纹', () => {
+  const state = baseState();
+  const originalPlan = '# 项目概况\n五峰村正文。\n# 服务保障\n保障正文。';
+  state.historicalAdaptationContentItems = buildHistoricalContentItems({ state, originalPlan }).map((item, index) => ({
+    ...item, plan_id: 'original-plan', status: index ? 'success' : 'idle',
+    content_origin: index ? 'migrated' : undefined, migration_output_hash: index ? 'output-hash' : '',
+  }));
+  const rebuilt = buildHistoricalContentItems({ state, originalPlan });
+  assert.equal(rebuilt[0].status, 'idle');
+  assert.equal(rebuilt[0].plan_id, 'original-plan');
+  assert.equal(rebuilt[1].status, 'success');
+  assert.equal(rebuilt[1].content_origin, 'migrated');
+  assert.equal(rebuilt[1].migration_output_hash, 'output-hash');
+});
+
+test('低置信规则命中超过三成章节时在正文提交前阻断，高置信旧值不阻断', async () => {
+  const state = baseState();
+  const originalPlan = '# 项目概况\n五峰村正文。\n# 服务保障\n五峰村保障。';
+  state.historicalAdaptationDifferences[0].confidence = 'low';
+  const patches = [];
+  const options = { aiService: {}, workspaceStore: { loadTechnicalPlan: () => state, readOriginalPlanMarkdown: () => originalPlan },
+    checkpointTask: (_task, patch) => patches.push(patch), updateTask() {} };
+  await assert.rejects(runHistoricalAdaptationContentTask(options), /低置信/);
+  assert.equal(patches.some((patch) => patch?.contentGenerationItem), false);
+  state.historicalAdaptationDifferences[0].confidence = 'high';
+  await runHistoricalAdaptationContentTask(options);
+  assert.equal(patches.filter((patch) => patch?.contentGenerationItem).length, 2);
+});
+
+test('重试只处理原计划可重试章节，不重复成功或人工章节', async () => {
+  const state = baseState();
+  const originalPlan = '# 项目概况\n五峰村正文。\n# 服务保障\n保障正文。';
+  state.historicalAdaptationContentItems = buildHistoricalContentItems({ state, originalPlan }).map((item, index) => ({
+    ...item, plan_id: 'retry-plan', status: index ? 'success' : 'error', error_code: index ? undefined : 'model-temporary',
+  }));
+  const patches = [];
+  await runHistoricalAdaptationContentTask({ aiService: {}, workspaceStore: { loadTechnicalPlan: () => state, readOriginalPlanMarkdown: () => originalPlan },
+    payload: { retry: true }, checkpointTask: (_task, patch) => patches.push(patch), updateTask() {} });
+  const outputs = patches.filter((patch) => patch?.contentGenerationItem);
+  assert.equal(outputs.length, 1);
+  assert.equal(outputs[0].historicalAdaptationContentItem.plan_id, 'retry-plan');
+  state.historicalAdaptationDifferences[0].replacements[0].new_value = '新街道';
+  patches.length = 0;
+  await runHistoricalAdaptationContentTask({ aiService: {}, workspaceStore: { loadTechnicalPlan: () => state, readOriginalPlanMarkdown: () => originalPlan },
+    payload: { retry: true }, checkpointTask: (_task, patch) => patches.push(patch), updateTask() {} });
+  assert.equal(patches.some((patch) => patch?.contentGenerationItem), false);
+  assert.equal(patches.find((patch) => patch?.historicalAdaptationContentItem?.node_id === '1').historicalAdaptationContentItem.status, 'stale');
+});
+
+test('只按完整旧值命中并直接迁移无关短语章节', () => {
+  const state = baseState();
+  state.outlineData.outline = [
+    { id: '1', title: '项目概况' }, { id: '2', title: '服务保障' }, { id: '3', title: '工作安排' },
+  ];
+  const items = buildHistoricalContentItems({ state,
+    originalPlan: '# 项目概况\n五峰村与五峰村。\n# 服务保障\n开展农村工作。\n# 工作安排\n村辖区服务。' });
+  assert.deepEqual(items.map((item) => item.recommended_mode), ['local-rewrite', 'direct', 'direct']);
+  assert.deepEqual(items[0].authorized_ranges.map((range) => range.occurrence), [1, 2]);
+  assert.deepEqual(items[1].blocked_terms, []);
+});
+
+test('同章两处五峰村一键确定性替换且不调用 AI', async () => {
+  const state = baseState();
+  const originalPlan = '# 项目概况\n五峰村与五峰村。开展农村服务。\n# 服务保障\n常态化响应。';
+  const patches = [];
+  let aiCount = 0;
+  await runHistoricalAdaptationContentTask({
+    aiService: { requestJson: async () => { aiCount += 1; throw new Error('精确替换不应调用 AI'); } },
+    workspaceStore: { loadTechnicalPlan: () => state, readOriginalPlanMarkdown: () => originalPlan },
+    payload: {}, updateTask: () => {}, checkpointTask: (_task, patch) => { if (patch) patches.push(patch); },
+  });
+  const content = patches.find((patch) => patch.contentGenerationItem?.nodeId === '1')?.contentGenerationItem.section.content;
+  assert.equal(content, '横泾街道与横泾街道。开展农村服务。');
+  assert.equal(aiCount, 0);
+});
+
+test('没有 v2 完整映射时不从旧地点描述猜测局改', () => {
+  const state = baseState();
+  delete state.historicalAdaptationDifferences[0].difference_schema_version;
+  const [item] = buildHistoricalContentItems({ state, originalPlan: '# 项目概况\n五峰村原项目概况。' });
+  assert.notEqual(item.recommended_mode, 'local-rewrite');
+});
 
 test('正文迁移规划默认直迁并仅对明确 scope 推荐局部改写', () => {
   const state = baseState();
@@ -51,18 +257,18 @@ test('正文迁移规划默认直迁并仅对明确 scope 推荐局部改写', (
   assert.match(items[1].source_excerpt, /常态化响应机制/);
 });
 
-test('旧方案 scope 为 none、持久化加载补齐 scope 后重新规划局改', async () => {
+test('已确认旧值即使 scope 为 none 也按结构化映射局改', async () => {
   const state = baseState();
   const originalPlan = '# 项目概况\n五峰村共100宗，计划2026年6月启动。\n\n# 服务保障\n建立常态化响应机制。';
   state.historicalAdaptationDifferences = [
     { ...state.historicalAdaptationDifferences[0], content_change_scope: 'location-target' },
-    { ...state.historicalAdaptationDifferences[0], id: 'workload', category: '数据更新', title: '工作量调整', historical_excerpt: '100宗', tender_requirement: '200宗', action: '以新清单200宗为准', content_change_scope: 'workload' },
-    { ...state.historicalAdaptationDifferences[0], id: 'schedule', category: '工期进度更新', title: '启动时间调整', historical_excerpt: '2026年6月启动', tender_requirement: '2026年10月启动', action: '重新编排启动时间', content_change_scope: 'schedule' },
+    { ...state.historicalAdaptationDifferences[0], id: 'workload', category: '数据更新', title: '工作量调整', historical_excerpt: '100宗', tender_requirement: '200宗', action: '以新清单200宗为准', content_change_scope: 'workload', replacements: [{ old_value: '100宗', new_value: '200宗' }], old_content_evidence: ['100宗'] },
+    { ...state.historicalAdaptationDifferences[0], id: 'schedule', category: '工期进度更新', title: '启动时间调整', historical_excerpt: '2026年6月启动', tender_requirement: '2026年10月启动', action: '重新编排启动时间', content_change_scope: 'schedule', replacements: [{ old_value: '2026年6月', new_value: '2026年10月' }], old_content_evidence: ['2026年6月'] },
   ];
   state.historicalAdaptationOutlineChanges[0].difference_ids = ['location', 'workload', 'schedule'];
   const oldState = { ...state, historicalAdaptationDifferences: state.historicalAdaptationDifferences.map((item) => ({ ...item, content_change_scope: 'none' })) };
   const oldPlan = buildHistoricalContentItems({ state: oldState, originalPlan });
-  assert.equal(oldPlan[0].recommended_mode, 'direct');
+  assert.equal(oldPlan[0].recommended_mode, 'local-rewrite');
   // Persisted direct-migration plans from the old release have already completed.
   state.historicalAdaptationContentItems = oldPlan.map(({ source_content: _sourceContent, ...item }) => ({
     ...item, recommended_mode: 'direct', status: 'success', content_origin: 'migrated',
@@ -87,12 +293,10 @@ test('旧方案 scope 为 none、持久化加载补齐 scope 后重新规划局�
     workspaceStore: { loadTechnicalPlan: () => state, readOriginalPlanMarkdown: () => originalPlan },
     payload: {}, updateTask: () => {}, checkpointTask: (_task, patch) => { if (patch) patches.push(patch); },
   });
-  assert.equal(requests.length, 1);
-  assert.match(requests[0].messages[0].content, /工作量调整/);
-  assert.match(requests[0].messages[0].content, /启动时间调整/);
+  assert.equal(requests.length, 0);
   const rewritten = patches.find((patch) => patch.contentGenerationItem?.nodeId === '1')?.contentGenerationItem.section.content;
   assert.match(rewritten, /横泾街道共200宗，计划2026年10月启动/);
-  assert.equal(patches.find((patch) => patch.historicalAdaptationContentItem?.node_id === '1')?.historicalAdaptationContentItem.content_origin, 'local-rewrite');
+  assert.equal(patches.findLast((patch) => patch.historicalAdaptationContentItem?.node_id === '1')?.historicalAdaptationContentItem.content_origin, 'local-rewrite');
 });
 
 test('旧方案已应用的人工迁移方式在自动范围兼容升级后仍保留', () => {
@@ -128,6 +332,20 @@ test('scope 升级保留人工局改和定向改写选择但要求重新执行',
   }
 });
 
+test('人工直迁来源未变时保留成功结果，来源变更则必须重迁', () => {
+  const state = baseState();
+  const originalPlan = '# 项目概况\n五峰村原项目概况。';
+  const item = buildHistoricalContentItems({ state, originalPlan })[0];
+  state.historicalAdaptationContentItems = [{ ...item, manual_mode: 'direct', status: 'success', content_origin: 'migrated' }];
+  state.bidAnalysisTasks = { ...state.bidAnalysisTasks, changed: { status: 'success', content: '新基线' } };
+  const updated = buildHistoricalContentItems({ state, originalPlan })[0];
+  assert.equal(updated.manual_mode, 'direct');
+  assert.equal(updated.status, 'success');
+  assert.notEqual(updated.input_fingerprint, item.input_fingerprint);
+  const changedSource = buildHistoricalContentItems({ state, originalPlan: '# 项目概况\n新来源正文。' })[0];
+  assert.equal(changedSource.status, 'stale');
+});
+
 test('金额人员设备和无明确地点证据的旧 none 差异不触发自动改写', () => {
   const state = baseState();
   state.historicalAdaptationDifferences = [
@@ -159,7 +377,7 @@ test('显式 none 即使文本像工作量也保持直接迁移且不调用 AI',
   assert.equal(requestCount, 0);
 });
 
-test('显式 none 的地点差异不会作为全局自动局改传播', () => {
+test('显式 none 的高置信完整旧值仍全局精确传播', () => {
   const state = baseState();
   state.historicalAdaptationDifferences[0].content_change_scope = 'none';
   state.historicalAdaptationOutlineChanges[0].difference_ids = [];
@@ -167,8 +385,8 @@ test('显式 none 的地点差异不会作为全局自动局改传播', () => {
     state,
     originalPlan: '# 项目概况\n五峰村需开展农村不动产登记工作。\n\n# 服务保障\n建立常态化响应机制。',
   });
-  assert.equal(items[0].recommended_mode, 'direct');
-  assert.deepEqual(items[0].difference_ids, []);
+  assert.equal(items[0].recommended_mode, 'local-rewrite');
+  assert.deepEqual(items[0].difference_ids, ['location']);
   assert.equal(items[1].recommended_mode, 'direct');
 });
 
@@ -207,6 +425,8 @@ test('父目录关联差异会传递到其下正文章节', () => {
     id: 'schedule', category: '工期进度更新', priority: 'high', title: '进度更新',
     historical_location: '项目进度', historical_excerpt: '2026年6月启动，服务期三年。',
     tender_requirement: '2026年10月启动，服务期三年。', action: '重排节点', note: '', decision: 'confirmed', content_change_scope: 'schedule',
+    difference_schema_version: 2, target_action: 'replace', evidence_kind: 'exact-value', confidence: 'high',
+    replacements: [{ old_value: '2026年6月', new_value: '2026年10月' }],
   });
   state.historicalAdaptationOutlineChanges = [{
     id: 'schedule-parent', change_type: 'updated', original_path: '项目进度', target_node_id: '1',
@@ -218,7 +438,7 @@ test('父目录关联差异会传递到其下正文章节', () => {
   state.historicalAdaptationOriginalOutline = { outline: [{
     id: '1', title: '项目进度', children: [{ id: '1.1', title: '实施阶段', content_mode: 'ai-generate' }],
   }] };
-  const [item] = buildHistoricalContentItems({ state, originalPlan: '# 实施阶段\n2026年6月启动，服务期三年。' });
+  const [item] = buildHistoricalContentItems({ state, originalPlan: '# 项目进度\n## 实施阶段\n2026年6月启动，服务期三年。' });
   assert.equal(item.recommended_mode, 'local-rewrite');
   assert.deepEqual(item.difference_ids, ['schedule']);
   assert.deepEqual(item.blocked_terms, ['2026年6月']);
@@ -231,11 +451,15 @@ test('旧日期和旧工作量会在所有历史正文中全局阻断', () => {
       id: 'schedule', category: '工期进度更新', priority: 'high', title: '进度更新',
       historical_location: '实施计划', historical_excerpt: '2026年6月启动',
       tender_requirement: '2026年10月启动', action: '更新启动时间', note: '', decision: 'confirmed', content_change_scope: 'schedule',
+      difference_schema_version: 2, target_action: 'replace', evidence_kind: 'exact-value', confidence: 'high',
+      replacements: [{ old_value: '2026年6月', new_value: '2026年10月' }],
     },
     {
       id: 'workload', category: '数据更新', priority: 'high', title: '工作量更新',
       historical_location: '工作量统计', historical_excerpt: '预计办理1500户',
       tender_requirement: '以横泾街道实际清单为准', action: '更新工作量', note: '', decision: 'confirmed', content_change_scope: 'workload',
+      difference_schema_version: 2, target_action: 'replace', evidence_kind: 'exact-value', confidence: 'high',
+      replacements: [{ old_value: '1500户', new_value: '实际清单' }],
     },
   );
   state.historicalAdaptationOutlineChanges = [{
@@ -314,13 +538,12 @@ test('正文迁移逐章 checkpoint，直接迁移原文并原子局改受影响
     },
   });
 
-  assert.equal(aiCalls.length, 1);
-  assert.match(aiCalls[0].messages[0].content, /五峰村原项目概况/);
+  assert.equal(aiCalls.length, 0);
   const contentUpdates = patches.filter((patch) => patch.contentGenerationItem?.section?.content);
   assert.equal(contentUpdates.length, 2);
   assert.match(contentUpdates.find((patch) => patch.contentGenerationItem.nodeId === '1').contentGenerationItem.section.content, /横泾街道/);
   assert.match(contentUpdates.find((patch) => patch.contentGenerationItem.nodeId === '2').contentGenerationItem.section.content, /常态化响应机制/);
-  assert.equal(eventPatches.some((patch) => patch.technicalPlanPatch?.outlineData?.outline?.[0]?.content?.includes('横泾街道')), true);
+  assert.equal(eventPatches.some((patch) => patch.outlineContentPatch?.nodeId === '1' && patch.outlineContentPatch?.content?.includes('横泾街道')), true);
   assert.equal(taskPatches.at(-1).status, 'success');
 });
 
@@ -357,7 +580,7 @@ test('旧自动重写和补写不会升级为新的人工授权', () => {
   assert.equal(normalized[2].status, 'stale');
 });
 
-test('重建方案时输入指纹变化会清除旧人工策略', () => {
+test('重建方案时输入指纹变化保留人工策略与正文但标记待复核', () => {
   const state = baseState();
   const originalPlan = '# 项目概况\n五峰村原项目概况。\n\n# 服务保障\n原保障内容。';
   const firstPlan = buildHistoricalContentItems({ state, originalPlan });
@@ -375,10 +598,18 @@ test('重建方案时输入指纹变化会清除旧人工策略', () => {
 
   const rebuilt = buildHistoricalContentItems({ state, originalPlan });
 
-  assert.equal(rebuilt[0].manual_mode, undefined);
-  assert.equal(rebuilt[0].manual_instruction, '');
+  assert.equal(rebuilt[0].manual_mode, 'rewrite');
+  assert.equal(rebuilt[0].manual_instruction, '只修改服务对象说明');
   assert.equal(rebuilt[0].content_origin, 'manual');
   assert.equal(rebuilt[0].status, 'review');
+});
+
+test('无可证明结构化规则的已确认差异不能直接迁移关联章节', () => {
+  const state = baseState();
+  delete state.historicalAdaptationDifferences[0].difference_schema_version;
+  const [item] = buildHistoricalContentItems({ state, originalPlan: '# 项目概况\n五峰村原项目概况。' });
+  assert.equal(item.recommended_mode, null);
+  assert.equal(item.status, 'review');
 });
 
 test('定向改写统一执行有来源改写与无来源补充，两者都需要人工要求', async () => {
@@ -396,7 +627,7 @@ test('定向改写统一执行有来源改写与无来源补充，两者都需�
     payload: {}, updateTask: () => {}, checkpointTask: (_task, patch) => { if (patch) patches.push(patch); },
   });
   assert.equal(aiCalls.length, 2);
-  const completed = patches.filter((patch) => patch.historicalAdaptationContentItem).map((patch) => patch.historicalAdaptationContentItem);
+  const completed = patches.filter((patch) => patch.historicalAdaptationContentItem?.status === 'success').map((patch) => patch.historicalAdaptationContentItem);
   assert.deepEqual(completed.map((item) => item.content_origin), ['ai-rewrite', 'ai-rewrite']);
   assert.match(aiCalls[0].messages[0].content, /按人工要求定向改写/);
   assert.match(aiCalls[1].messages[0].content, /依据招标基线和人工要求补充正文/);
@@ -434,7 +665,7 @@ test('未选择方式的新增章节批量跳过，定向改写缺少要求时�
 });
 
 test('局部改写任一替换不唯一时不应用任何编辑并进入待复核', async () => {
-  const state = baseState();
+  const state = useLockedFragment(baseState());
   const originalPlan = '# 项目概况\n五峰村与五峰村均为旧地点。\n\n# 服务保障\n原保障内容。';
   const planned = buildHistoricalContentItems({ state, originalPlan }).map(({ source_content: _sourceContent, ...item }) => item);
   const patches = [];
@@ -443,15 +674,15 @@ test('局部改写任一替换不唯一时不应用任何编辑并进入待复�
     workspaceStore: { loadTechnicalPlan: () => ({ ...state, historicalAdaptationContentItems: planned }), readOriginalPlanMarkdown: () => originalPlan },
     payload: { nodeId: '1' }, updateTask: () => {}, checkpointTask: (_task, patch) => { if (patch) patches.push(patch); },
   });
-  const completed = patches.find((patch) => patch.historicalAdaptationContentItem)?.historicalAdaptationContentItem;
+  const completed = patches.findLast((patch) => patch.historicalAdaptationContentItem)?.historicalAdaptationContentItem;
   assert.equal(completed.status, 'review');
   assert.match(completed.error, /multiple|多处|唯一/u);
   assert.equal(patches.some((patch) => patch.contentGenerationItem?.section?.content?.includes('横泾街道')), false);
 });
 
 test('局部改写片段首次未命中时带校验错误重试并应用修正结果', async () => {
-  const state = baseState();
-  const originalPlan = '# 项目概况\n五峰村原项目概况。\n\n# 服务保障\n原保障内容。';
+  const state = useLockedFragment(baseState(), '旧服务方式');
+  const originalPlan = '# 项目概况\n旧服务方式原项目概况。保留既有工作流程和服务保障措施。\n\n# 服务保障\n原保障内容。';
   const planned = buildHistoricalContentItems({ state, originalPlan }).map(({ source_content: _sourceContent, ...item }) => item);
   const aiCalls = [];
   const patches = [];
@@ -460,8 +691,8 @@ test('局部改写片段首次未命中时带校验错误重试并应用修正�
     aiService: { requestJson: async (request) => {
       aiCalls.push(request);
       return aiCalls.length === 1
-        ? { edits: [{ old_text: '五峰社区', new_text: '横泾街道' }] }
-        : { edits: [{ old_text: '五峰村', new_text: '横泾街道' }] };
+        ? { edits: [{ old_text: '不存在的服务方式', new_text: '新服务方式' }] }
+        : { edits: [{ old_text: '旧服务方式', new_text: '新服务方式' }] };
     } },
     workspaceStore: { loadTechnicalPlan: () => ({ ...state, historicalAdaptationContentItems: planned }), readOriginalPlanMarkdown: () => originalPlan },
     payload: { nodeId: '1' }, updateTask: () => {}, checkpointTask: (_task, patch) => { if (patch) patches.push(patch); },
@@ -470,31 +701,31 @@ test('局部改写片段首次未命中时带校验错误重试并应用修正�
   assert.equal(aiCalls.length, 2);
   assert.match(aiCalls[1].messages[0].content, /上次返回的替换未通过校验/u);
   assert.match(aiCalls[1].messages[0].content, /Could not find oldText/u);
-  const completed = patches.find((patch) => patch.historicalAdaptationContentItem)?.historicalAdaptationContentItem;
+  const completed = patches.findLast((patch) => patch.historicalAdaptationContentItem)?.historicalAdaptationContentItem;
   assert.equal(completed.status, 'success');
   assert.equal(completed.content_origin, 'local-rewrite');
-  assert.match(patches.find((patch) => patch.contentGenerationItem)?.contentGenerationItem.section.content, /横泾街道原项目概况/u);
+  assert.match(patches.find((patch) => patch.contentGenerationItem)?.contentGenerationItem.section.content, /新服务方式原项目概况/u);
 });
 
 test('局部改写请求校验模型必须返回非空 edits 数组', async () => {
-  const state = baseState();
-  const originalPlan = '# 项目概况\n五峰村原项目概况。\n\n# 服务保障\n原保障内容。';
+  const state = useLockedFragment(baseState(), '旧服务方式');
+  const originalPlan = '# 项目概况\n旧服务方式原项目概况。保留既有工作流程和服务保障措施。\n\n# 服务保障\n原保障内容。';
   const planned = buildHistoricalContentItems({ state, originalPlan }).map(({ source_content: _sourceContent, ...item }) => item);
   let localRewriteRequest;
 
   await runHistoricalAdaptationContentTask({
-    aiService: { requestJson: async (request) => { localRewriteRequest = request; const response = { edits: [{ old_text: '五峰村', new_text: '横泾街道' }] }; request.validator(response); return response; } },
+    aiService: { requestJson: async (request) => { localRewriteRequest = request; const response = { edits: [{ old_text: '旧服务方式', new_text: '新服务方式' }] }; request.validator(response); return response; } },
     workspaceStore: { loadTechnicalPlan: () => ({ ...state, historicalAdaptationContentItems: planned }), readOriginalPlanMarkdown: () => originalPlan },
     payload: { nodeId: '1' }, updateTask: () => {}, checkpointTask: () => {},
   });
 
   assert.throws(() => localRewriteRequest.validator({ content: '横泾街道' }), /edits/u);
-  assert.doesNotThrow(() => localRewriteRequest.validator({ edits: [{ old_text: '五峰村', new_text: '横泾街道' }] }));
+  assert.doesNotThrow(() => localRewriteRequest.validator({ edits: [{ old_text: '旧服务方式', new_text: '新服务方式' }] }));
 });
 
 test('局部改写返回其他合法 JSON 时会要求模型纠正结构', async () => {
-  const state = baseState();
-  const originalPlan = '# 项目概况\n五峰村原项目概况。\n\n# 服务保障\n原保障内容。';
+  const state = useLockedFragment(baseState(), '旧服务方式');
+  const originalPlan = '# 项目概况\n旧服务方式原项目概况。保留既有工作流程和服务保障措施。\n\n# 服务保障\n原保障内容。';
   const planned = buildHistoricalContentItems({ state, originalPlan }).map(({ source_content: _sourceContent, ...item }) => item);
   const aiCalls = [];
   const patches = [];
@@ -503,8 +734,8 @@ test('局部改写返回其他合法 JSON 时会要求模型纠正结构', async
     aiService: { requestJson: async (request) => {
       aiCalls.push(request);
       const response = aiCalls.length === 1
-        ? { content: '横泾街道原项目概况。' }
-        : { edits: [{ old_text: '五峰村', new_text: '横泾街道' }] };
+        ? { content: '新服务方式原项目概况。' }
+        : { edits: [{ old_text: '旧服务方式', new_text: '新服务方式' }] };
       request.validator(response);
       return response;
     } },
@@ -514,7 +745,7 @@ test('局部改写返回其他合法 JSON 时会要求模型纠正结构', async
 
   assert.equal(aiCalls.length, 2);
   assert.match(aiCalls[1].messages[0].content, /非空 edits 数组/u);
-  const completed = patches.find((patch) => patch.historicalAdaptationContentItem)?.historicalAdaptationContentItem;
+  const completed = patches.findLast((patch) => patch.historicalAdaptationContentItem)?.historicalAdaptationContentItem;
   assert.equal(completed.status, 'success');
 });
 
@@ -530,14 +761,14 @@ test('局部改写兼容 replacements 和 oldText/newText 别名', async () => {
     payload: { nodeId: '1' }, updateTask: () => {}, checkpointTask: (_task, patch) => { if (patch) patches.push(patch); },
   });
 
-  const completed = patches.find((patch) => patch.historicalAdaptationContentItem)?.historicalAdaptationContentItem;
+  const completed = patches.findLast((patch) => patch.historicalAdaptationContentItem)?.historicalAdaptationContentItem;
   assert.equal(completed.status, 'success');
   assert.equal(completed.content_origin, 'local-rewrite');
   assert.match(patches.find((patch) => patch.contentGenerationItem)?.contentGenerationItem.section.content, /横泾街道原项目概况/u);
 });
 
 test('局部改写模型误返完整正文时保留来源正文并进入待复核', async () => {
-  const state = baseState();
+  const state = useLockedFragment(baseState());
   state.historicalAdaptationOriginalOutline = state.outlineData;
   const originalPlan = '# 项目概况\n五峰村原项目概况。\n服务地点仍需明确。\n\n# 服务保障\n原保障内容。';
   const planned = buildHistoricalContentItems({ state, originalPlan }).map(({ source_content: _sourceContent, ...item }) => item);
@@ -551,15 +782,15 @@ test('局部改写模型误返完整正文时保留来源正文并进入待复�
   });
 
   assert.equal(aiCalls.length, 2);
-  const completed = patches.find((patch) => patch.historicalAdaptationContentItem)?.historicalAdaptationContentItem;
+  const completed = patches.findLast((patch) => patch.historicalAdaptationContentItem)?.historicalAdaptationContentItem;
   assert.equal(completed.status, 'review');
-  assert.equal(completed.content_origin, 'migrated');
+  assert.equal(completed.content_origin, undefined);
   assert.match(completed.error, /edits|局部替换/u);
-  assert.equal(patches.find((patch) => patch.contentGenerationItem)?.contentGenerationItem.section.content, '五峰村原项目概况。\n服务地点仍需明确。');
+  assert.equal(patches.some((patch) => patch.contentGenerationItem), false);
 });
 
 test('局部改写拒绝用单个 edit 替换整个来源正文', async () => {
-  const state = baseState();
+  const state = useLockedFragment(baseState());
   state.historicalAdaptationOriginalOutline = state.outlineData;
   const sourceContent = '五峰村原项目概况。\n保留既有服务流程和保障措施。';
   const originalPlan = `# 项目概况\n${sourceContent}\n\n# 服务保障\n原保障内容。`;
@@ -572,17 +803,18 @@ test('局部改写拒绝用单个 edit 替换整个来源正文', async () => {
     payload: { nodeId: '1' }, updateTask: () => {}, checkpointTask: (_task, patch) => { if (patch) patches.push(patch); },
   });
 
-  const completed = patches.find((patch) => patch.historicalAdaptationContentItem)?.historicalAdaptationContentItem;
+  const completed = patches.findLast((patch) => patch.historicalAdaptationContentItem)?.historicalAdaptationContentItem;
   assert.equal(completed.status, 'review');
-  assert.match(completed.error, /整章|完整来源|范围过大/u);
-  assert.equal(patches.find((patch) => patch.contentGenerationItem)?.contentGenerationItem.section.content, sourceContent);
+  assert.match(completed.error, /non-local-edit/u);
+  assert.equal(patches.some((patch) => patch.contentGenerationItem), false);
 });
 
 test('地点局改拒绝夹带工作量人员设备和金额事实变化', async () => {
-  const state = baseState();
+  const state = useLockedFragment(baseState());
   state.historicalAdaptationOriginalOutline = state.outlineData;
   const changedParagraph = '五峰村项目共100宗，配置10人、2台设备，预算20万元。';
-  const sourceContent = `${changedParagraph}\n既有服务流程保持不变。`;
+  state.historicalAdaptationDifferences[0].old_content_evidence = [changedParagraph];
+  const sourceContent = `${changedParagraph}\n${'既有服务流程保持不变。'.repeat(30)}`;
   const originalPlan = `# 项目概况\n${sourceContent}\n\n# 服务保障\n原保障内容。`;
   const planned = buildHistoricalContentItems({ state, originalPlan }).map(({ source_content: _sourceContent, ...item }) => item);
   const patches = [];
@@ -596,14 +828,14 @@ test('地点局改拒绝夹带工作量人员设备和金额事实变化', async
     payload: { nodeId: '1' }, updateTask: () => {}, checkpointTask: (_task, patch) => { if (patch) patches.push(patch); },
   });
 
-  const completed = patches.find((patch) => patch.historicalAdaptationContentItem)?.historicalAdaptationContentItem;
+  const completed = patches.findLast((patch) => patch.historicalAdaptationContentItem)?.historicalAdaptationContentItem;
   assert.equal(completed.status, 'review');
   assert.match(completed.error, /100宗|10人|2台|20万元|事实/u);
-  assert.equal(patches.find((patch) => patch.contentGenerationItem)?.contentGenerationItem.section.content, sourceContent);
+  assert.equal(patches.some((patch) => patch.contentGenerationItem), false);
 });
 
 test('局部改写修复提示包含来源正文允许差异和校验错误', async () => {
-  const state = baseState();
+  const state = useLockedFragment(baseState());
   const sourceContent = '五峰村原项目概况。';
   const originalPlan = `# 项目概况\n${sourceContent}\n\n# 服务保障\n原保障内容。`;
   const planned = buildHistoricalContentItems({ state, originalPlan }).map(({ source_content: _sourceContent, ...item }) => item);
@@ -621,7 +853,8 @@ test('局部改写修复提示包含来源正文允许差异和校验错误', as
     progressLabel: '局部改写结果',
   });
   const repairPrompt = messages.map((message) => message.content).join('\n');
-  assert.match(repairPrompt, /五峰村原项目概况/u);
+  assert.match(repairPrompt, /历史正文：\n五峰村\n/u);
+  assert.doesNotMatch(repairPrompt, /历史正文：\n五峰村原项目概况/u);
   assert.match(repairPrompt, /地点变更/u);
   assert.match(repairPrompt, /返回结果必须包含非空 edits 数组/u);
   assert.match(repairPrompt, /横泾街道原项目概况/u);
@@ -640,19 +873,19 @@ test('人工保存正文没有显式覆盖标记时拒绝重新迁移', async ()
 });
 
 test('局部改写只向模型提供允许自动处理的三类差异', async () => {
-  const state = baseState();
+  const state = useLockedFragment(baseState(), '旧服务方式');
   state.historicalAdaptationDifferences.push({
     id: 'manual-only', category: '其他人工判断', priority: 'high', title: '不得自动处理的人员配置',
     historical_location: '项目概况', historical_excerpt: '原人员配置', tender_requirement: '需人工判断',
-    action: '仅人工决定是否改写', note: '', decision: 'confirmed', content_change_scope: 'none',
+    action: '仅人工决定是否改写', note: '', decision: 'ignored', content_change_scope: 'none',
   });
   state.historicalAdaptationOutlineChanges[0].difference_ids = ['location', 'manual-only'];
-  const originalPlan = '# 项目概况\n五峰村原项目概况，原人员配置保持不变。\n\n# 服务保障\n原保障内容。';
+  const originalPlan = '# 项目概况\n旧服务方式原项目概况，原人员配置保持不变。保留既有工作流程和服务保障措施。\n\n# 服务保障\n原保障内容。';
   const planned = buildHistoricalContentItems({ state, originalPlan }).map(({ source_content: _sourceContent, ...item }) => item);
   const aiCalls = [];
 
   await runHistoricalAdaptationContentTask({
-    aiService: { requestJson: async (request) => { aiCalls.push(request); return { edits: [{ old_text: '五峰村', new_text: '横泾街道' }] }; } },
+    aiService: { requestJson: async (request) => { aiCalls.push(request); return { edits: [{ old_text: '旧服务方式', new_text: '新服务方式' }] }; } },
     workspaceStore: { loadTechnicalPlan: () => ({ ...state, historicalAdaptationContentItems: planned }), readOriginalPlanMarkdown: () => originalPlan },
     payload: { nodeId: '1' }, updateTask: () => {}, checkpointTask: () => {},
   });
@@ -695,7 +928,7 @@ test('迁移正文含待核实占位符时立即进入待人工处理', async ()
     payload: { nodeId: '1' }, updateTask: () => {}, checkpointTask: (_task, patch) => { if (patch) patches.push(patch); },
   });
 
-  const completed = patches.find((patch) => patch.historicalAdaptationContentItem)?.historicalAdaptationContentItem;
+  const completed = patches.findLast((patch) => patch.historicalAdaptationContentItem)?.historicalAdaptationContentItem;
   assert.equal(completed.status, 'review');
   assert.match(completed.error, /待核实|待补充/);
 });

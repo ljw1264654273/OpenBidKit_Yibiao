@@ -215,6 +215,7 @@ function normalizeHistoricalAdaptationContentCheck(value) {
     findings: Array.isArray(source.findings) ? source.findings : [],
     checked_content_hash: String(source.checked_content_hash || ''),
     checked_inputs_hash: String(source.checked_inputs_hash || ''),
+    rule_engine_version: Number(source.rule_engine_version) || 0,
     checked_at: source.checked_at ? String(source.checked_at) : undefined,
     error: source.error ? String(source.error) : undefined,
   };
@@ -934,13 +935,124 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
 
   function updateMeta(fields) {
     ensureMetaRow();
-    const entries = Object.entries(fields || {}).filter(([, value]) => value !== undefined);
+    if (hasOwn(fields, 'historical_adaptation_content_items_json')) {
+      replaceHistoricalContentItems(safeJsonParse(fields.historical_adaptation_content_items_json, []));
+    }
+    const entries = Object.entries(fields || {}).filter(([key, value]) => value !== undefined && key !== 'historical_adaptation_content_items_json');
     if (!entries.length) return;
     const assignments = entries.map(([key]) => `${key} = @${key}`).join(', ');
     db.prepare(`UPDATE technical_plan_meta SET ${assignments}, updated_at = @updated_at WHERE id = 1`).run({
       ...Object.fromEntries(entries),
       updated_at: now(),
     });
+  }
+
+  function readHistoricalContentItems() {
+    return normalizeHistoricalAdaptationContentItems(db.prepare(`SELECT item_json FROM technical_plan_historical_content_items
+      WHERE project_id = ? ORDER BY sort_order`).all(projectId || '').map((row) => JSON.parse(row.item_json)));
+  }
+
+  function readHistoricalContentItem(nodeId) {
+    const row = db.prepare('SELECT item_json FROM technical_plan_historical_content_items WHERE project_id = ? AND node_id = ?').get(projectId || '', nodeId);
+    return row ? normalizeHistoricalAdaptationContentItems([JSON.parse(row.item_json)])[0] : undefined;
+  }
+
+  function writeHistoricalContentItem(item, sortOrder) {
+    const existing = db.prepare('SELECT sort_order FROM technical_plan_historical_content_items WHERE project_id = ? AND node_id = ?').get(projectId || '', item.node_id);
+    const { source_content: _content, ...stored } = item;
+    if (stored.source_version_hash) delete stored.source_excerpt;
+    db.prepare(`INSERT INTO technical_plan_historical_content_items
+      (project_id, node_id, sort_order, status, source_version_hash, plan_inputs_hash, item_json, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(project_id, node_id) DO UPDATE SET sort_order = excluded.sort_order, status = excluded.status,
+        source_version_hash = excluded.source_version_hash, plan_inputs_hash = excluded.plan_inputs_hash,
+        item_json = excluded.item_json, updated_at = excluded.updated_at`).run(projectId || '', item.node_id,
+      sortOrder ?? existing?.sort_order ?? 0, item.status, item.source_version_hash || null,
+      item.input_fingerprint || null, JSON.stringify(stored), item.updated_at || now());
+  }
+
+  function replaceHistoricalContentItems(items) {
+    const normalized = normalizeHistoricalAdaptationContentItems(items);
+    const previous = new Map(db.prepare('SELECT node_id, item_json FROM technical_plan_historical_content_items WHERE project_id = ?').all(projectId || '').map((row) => [row.node_id, row.item_json]));
+    for (const [index, item] of normalized.entries()) {
+      const stored = { ...item };
+      if (stored.source_version_hash) delete stored.source_excerpt;
+      if (previous.get(item.node_id) !== JSON.stringify(stored)) writeHistoricalContentItem(item, index);
+      previous.delete(item.node_id);
+    }
+    const remove = db.prepare('DELETE FROM technical_plan_historical_content_items WHERE project_id = ? AND node_id = ?');
+    for (const nodeId of previous.keys()) remove.run(projectId || '', nodeId);
+  }
+
+  let historicalSourceArchiveCache;
+  function getHistoricalAdaptationSourceSection({ nodeId, sourceItem } = {}) {
+    const item = sourceItem || readHistoricalContentItem(nodeId);
+    if (!item) throw new Error('当前章节尚未建立正文迁移方案');
+    if (!item.source_version_hash) return { content: item.source_excerpt || '', available: Boolean(item.source_excerpt) };
+    const version = db.prepare('SELECT relative_path, index_json FROM technical_plan_historical_source_versions WHERE source_hash = ?').get(item.source_version_hash);
+    if (!version) return { content: '', available: false, error: '来源快照不可用，请重新建立方案' };
+    try {
+      const { readHistoricalSourceVersion, sourceHash } = require('./historicalSourceArchive.cjs');
+      const archivePath = path.join(require('../utils/paths.cjs').getWorkspaceDir(app), version.relative_path);
+      const stat = fs.statSync(archivePath);
+      const signature = `${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}:${stat.ino}`;
+      if (historicalSourceArchiveCache?.hash !== item.source_version_hash
+        || historicalSourceArchiveCache.signature !== signature || historicalSourceArchiveCache.metadata !== version.index_json) {
+        const markdown = readHistoricalSourceVersion(app, { hash: item.source_version_hash, relativePath: version.relative_path });
+        const metadata = JSON.parse(version.index_json);
+        const sections = Array.isArray(metadata) ? metadata : metadata.sections;
+        const byId = new Map();
+        const byLocator = new Map();
+        for (const section of sections) {
+          byId.set(section.id, [section]);
+          const locator = section.path.join(' / ');
+          if (!byLocator.has(locator)) byLocator.set(locator, []);
+          byLocator.get(locator).push(section);
+        }
+        historicalSourceArchiveCache = { hash: item.source_version_hash, signature, metadata: version.index_json, markdown, byId, byLocator };
+      }
+      const { markdown, byId, byLocator } = historicalSourceArchiveCache;
+      const matches = (item.source_section_id ? byId.get(item.source_section_id) : byLocator.get(item.source_locator)) || [];
+      const section = matches.length === 1 ? matches[0] : null;
+      const content = section ? markdown.slice(section.startOffset, section.endOffset) : '';
+      if (!content || sourceHash(content) !== item.source_content_hash) throw new Error('章节来源哈希不匹配');
+      return { content, available: true, sourceVersionHash: item.source_version_hash };
+    } catch (error) {
+      return { content: '', available: false, error: error.message };
+    }
+  }
+
+  let historicalSourceIndexCache;
+  function getHistoricalAdaptationSourceIndex(originalPlan, { persist = true } = {}) {
+    const { sourceHash, writeHistoricalSourceVersion } = require('./historicalSourceArchive.cjs');
+    const hash = sourceHash(originalPlan);
+    const row = db.prepare('SELECT index_json FROM technical_plan_historical_source_versions WHERE source_hash = ?').get(hash);
+    if (row && historicalSourceIndexCache?.sourceVersionHash === hash) return historicalSourceIndexCache;
+    const { buildHistoricalSourceIndex, normalizePath } = require('./historicalSourceIndex.cjs');
+    const reference = persist ? writeHistoricalSourceVersion(app, originalPlan) : undefined;
+    const metadata = safeJsonParse(row?.index_json, null);
+    let index;
+    if (metadata?.version === 2 && Array.isArray(metadata.sections)
+      && metadata.sections.every((section) => section && Array.isArray(section.path)
+        && Number.isInteger(section.startOffset) && Number.isInteger(section.endOffset))) {
+      const sections = metadata.sections.map((section) => ({ ...section, content: originalPlan.slice(section.startOffset, section.endOffset) }));
+      const byPath = new Map();
+      for (const section of sections) {
+        const key = normalizePath(section.path).join('/');
+        if (!byPath.has(key)) byPath.set(key, []);
+        byPath.get(key).push(section);
+      }
+      index = { sourceVersionHash: hash, sections, byPath };
+    } else {
+      index = historicalSourceIndexCache?.sourceVersionHash === hash ? historicalSourceIndexCache : buildHistoricalSourceIndex(originalPlan);
+      if (persist) {
+        db.prepare(`INSERT INTO technical_plan_historical_source_versions (source_hash, relative_path, index_json, created_at)
+          VALUES (?, ?, ?, ?) ON CONFLICT(source_hash) DO UPDATE SET index_json = excluded.index_json`)
+          .run(hash, reference.relativePath, JSON.stringify({ version: 2, sections: index.sections.map(({ content: _content, ...section }) => section) }), now());
+      }
+    }
+    historicalSourceIndexCache = index;
+    return index;
   }
 
   function resolveMarkdownPath(relativeOrAbsolutePath) {
@@ -2863,6 +2975,7 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
         normalizeHistoricalAdaptationContentItems(partial.historicalAdaptationContentItems),
       );
     }
+    if (partial.historicalAdaptationContentItem) writeHistoricalContentItem(normalizeHistoricalAdaptationContentItems([partial.historicalAdaptationContentItem])[0]);
     if (hasOwn(partial, 'historicalAdaptationContentConfirmedAt')) {
       metaUpdates.historical_adaptation_content_confirmed_at = partial.historicalAdaptationContentConfirmedAt
         ? String(partial.historicalAdaptationContentConfirmedAt)
@@ -2984,7 +3097,7 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       ),
       historicalAdaptationOutlineConfirmedAt: meta.historical_adaptation_outline_confirmed_at || undefined,
       historicalAdaptationContentItems: normalizeHistoricalAdaptationContentItems(
-        safeJsonParse(meta.historical_adaptation_content_items_json, []),
+        readHistoricalContentItems(),
       ),
       historicalAdaptationContentConfirmedAt: meta.historical_adaptation_content_confirmed_at || undefined,
       historicalAdaptationContentCheck: normalizeHistoricalAdaptationContentCheck(
@@ -3163,29 +3276,46 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     const complete = normalized.every((item) => item.decision === 'confirmed' || item.decision === 'ignored');
     const transaction = db.transaction(() => {
       db.prepare("DELETE FROM technical_plan_tasks WHERE type IN ('historical-adaptation-outline', 'historical-adaptation-content', 'content-generation', 'global-facts-generation')").run();
-      db.prepare('DELETE FROM technical_plan_outline_nodes').run();
-      db.prepare('DELETE FROM technical_plan_global_fact_groups').run();
-      db.prepare('DELETE FROM technical_plan_content_sections').run();
-      db.prepare('DELETE FROM technical_plan_content_plans').run();
-      clearContentIllustrationPlan();
-      clearOriginalOutlineRuntime();
-      clearTechnicalPlanMermaidCache();
+      const meta = readMetaRow();
+      const previousDifferences = readHistoricalAdaptationDifferences(meta.historical_adaptation_differences_json);
+      const previousById = new Map(previousDifferences.map((item) => [item.id, item]));
+      const nextById = new Map(normalized.map((item) => [item.id, item]));
+      const signature = (item) => JSON.stringify({
+        category: item.category,
+        title: item.title,
+        historical_excerpt: item.historical_excerpt,
+        tender_requirement: item.tender_requirement,
+        action: item.action,
+        content_change_scope: item.content_change_scope,
+        replacements: item.replacements,
+        target_action: item.target_action,
+        evidence_kind: item.evidence_kind,
+        confidence: item.confidence,
+        old_content_evidence: item.old_content_evidence,
+        decision: item.decision,
+      });
+      const changedDifferenceIds = new Set([...previousById.keys(), ...nextById.keys()].filter((id) => {
+        const previous = previousById.get(id);
+        const next = nextById.get(id);
+        return !previous || !next || signature(previous) !== signature(next);
+      }));
+      const contentItems = normalizeHistoricalAdaptationContentItems(readHistoricalContentItems())
+        .map((item) => {
+          if (!item.difference_ids.some((id) => changedDifferenceIds.has(id)) || item.content_origin === 'manual') return item;
+          return { ...item, status: 'stale', confirmed_at: undefined, updated_at: now() };
+        });
+      if (changedDifferenceIds.size) {
+        updateMeta({
+          historical_adaptation_content_items_json: jsonOrNull(contentItems),
+          historical_adaptation_content_confirmed_at: null,
+          historical_adaptation_content_check_json: jsonOrNull({ status: 'stale', findings: [] }),
+          historical_adaptation_review_findings_json: null,
+          historical_adaptation_review_confirmed_at: null,
+        });
+      }
       updateMeta({
         historical_adaptation_differences_json: jsonOrNull(normalized),
         historical_adaptation_difference_confirmed_at: complete ? now() : null,
-        historical_adaptation_original_outline_json: null,
-        historical_adaptation_outline_changes_json: null,
-        historical_adaptation_outline_confirmed_at: null,
-        historical_adaptation_content_items_json: null,
-        historical_adaptation_content_confirmed_at: null,
-        historical_adaptation_content_check_json: null,
-        historical_adaptation_review_findings_json: null,
-        historical_adaptation_review_confirmed_at: null,
-        outline_project_name: null,
-        outline_project_overview: null,
-        content_generation_runtime_json: null,
-        outline_word_control_snapshot_json: null,
-        outline_minimum_depth_snapshot: null,
       });
     });
     transaction();
@@ -3394,9 +3524,15 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       const state = loadTechnicalPlan();
       const originalPlan = readOriginalPlanMarkdown();
       assertContentPrerequisites(state, originalPlan);
-      const items = buildHistoricalContentItems({ state, originalPlan }).map(({ source_content: _sourceContent, ...item }) => item);
+      const index = getHistoricalAdaptationSourceIndex(originalPlan);
+      const planId = require('node:crypto').randomUUID();
+      const beforeContext = getHistoricalAdaptationContentCheckContext();
+      const items = buildHistoricalContentItems({ state, originalPlan, sourceIndex: index }).map(({ source_content: _sourceContent, ...item }) => ({ ...item, plan_id: item.plan_id || planId }));
+      const distribution = require('./historicalAdaptationRuleEngine.cjs').summarizeRuleDistribution(
+        require('./historicalAdaptationRuleEngine.cjs').buildHistoricalAdaptationRules(state.historicalAdaptationDifferences), items);
+      if (distribution.blocked) throw new Error('低置信规则覆盖范围异常，请返回差异确认修正规则后重新建立方案');
       updateMeta({ historical_adaptation_content_items_json: jsonOrNull(items) });
-      staleHistoricalAdaptationContentCheck();
+      if (getHistoricalAdaptationContentCheckContext().inputsHash !== beforeContext.inputsHash) staleHistoricalAdaptationContentCheck();
     });
     transaction();
     return loadTechnicalPlan();
@@ -3406,7 +3542,7 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     const meta = readMetaRow();
     const outlineData = loadOutlineData(meta);
     const leaves = collectLeafItems(outlineData?.outline || []);
-    const items = normalizeHistoricalAdaptationContentItems(safeJsonParse(meta.historical_adaptation_content_items_json, []));
+    const items = normalizeHistoricalAdaptationContentItems(readHistoricalContentItems());
     const byId = new Map(items.map((item) => [item.node_id, item]));
     const contentSnapshot = leaves.map((item) => ({ node_id: String(item.id || ''), content: String(item.content || '') }));
     const inputSnapshot = {
@@ -3417,13 +3553,33 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
         return { node_id: String(item.id || ''), recommended_mode: plan?.recommended_mode, manual_mode: plan?.manual_mode, manual_instruction: plan?.manual_instruction };
       }),
       baseline: loadBidItems(),
+      rule_engine_version: 2,
+      semantic_check_version: 2,
+      plans: items.map((item) => ({ node_id: item.node_id, input_fingerprint: item.input_fingerprint,
+        source_version_hash: item.source_version_hash, source_content_hash: item.source_content_hash,
+        rule_engine_version: item.rule_engine_version, content_plan_version: item.content_plan_version })),
     };
+    const originalPlan = readOriginalPlanMarkdown();
+    const sourceAvailability = items.map((item) => {
+      const { available, error } = getHistoricalAdaptationSourceSection({ nodeId: item.node_id });
+      return { node_id: item.node_id, available, error };
+    });
+    const expectedItems = originalPlan ? buildHistoricalContentItems({
+      state: { outlineData, historicalAdaptationContentItems: items, historicalAdaptationDifferences: inputSnapshot.differences,
+        historicalAdaptationOutlineChanges: normalizeHistoricalAdaptationOutlineChanges(safeJsonParse(meta.historical_adaptation_outline_changes_json, [])),
+        bidAnalysisTasks: inputSnapshot.baseline },
+      originalPlan, sourceIndex: getHistoricalAdaptationSourceIndex(originalPlan, { persist: false }),
+    }) : [];
     return {
       contentHash: stableHash(JSON.stringify(contentSnapshot)),
       inputsHash: stableHash(JSON.stringify(inputSnapshot)),
       outlineData,
       items,
+      expectedItems,
+      sourceAvailability,
       baseline: inputSnapshot.baseline,
+      differences: inputSnapshot.differences,
+      check: normalizeHistoricalAdaptationContentCheck(safeJsonParse(meta.historical_adaptation_content_check_json, null)),
     };
   }
 
@@ -3433,22 +3589,18 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     if (!['direct', 'local-rewrite', 'rewrite'].includes(targetMode)) throw new Error('请选择有效的正文迁移方式');
     const transaction = db.transaction(() => {
       assertContentEditingAllowed();
-      const meta = readMetaRow();
-      const items = normalizeHistoricalAdaptationContentItems(safeJsonParse(meta.historical_adaptation_content_items_json, []));
-      const current = items.find((item) => item.node_id === targetNodeId);
+      const current = readHistoricalContentItem(targetNodeId);
       if (!current) throw new Error('当前章节尚未建立正文迁移方案');
-      if (['direct', 'local-rewrite'].includes(targetMode) && (!current.source_path || !current.source_excerpt)) throw new Error('当前章节没有可靠历史正文，请选择定向改写并填写补充要求');
+      if (['direct', 'local-rewrite'].includes(targetMode) && (!current.source_path || !(current.source_content_hash || current.source_excerpt))) throw new Error('当前章节没有可靠历史正文，请选择定向改写并填写补充要求');
       const manualInstruction = targetMode === 'rewrite' ? String(instruction || '').trim() : '';
       if (targetMode === 'rewrite' && !manualInstruction) throw new Error('请填写定向改写要求');
       const timestamp = now();
-      updateMeta({
-        historical_adaptation_content_items_json: jsonOrNull(items.map((item) => item.node_id === targetNodeId ? {
-          ...item,
-          manual_mode: targetMode,
-          manual_instruction: manualInstruction,
-          status: item.status === 'idle' ? 'idle' : 'stale',
-          updated_at: timestamp,
-        } : item)),
+      writeHistoricalContentItem({
+        ...current,
+        manual_mode: targetMode,
+        manual_instruction: manualInstruction,
+        status: current.status === 'idle' ? 'idle' : 'stale',
+        updated_at: timestamp,
       });
       staleHistoricalAdaptationContentCheck();
     });
@@ -3464,7 +3616,7 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       assertContentPrerequisites(state, originalPlan);
       const previousById = new Map(state.historicalAdaptationContentItems.map((item) => [item.node_id, item]));
       const timestamp = now();
-      const nextItems = buildHistoricalContentItems({ state, originalPlan }).map(({ source_content: _sourceContent, ...item }) => {
+      const nextItems = buildHistoricalContentItems({ state, originalPlan, sourceIndex: getHistoricalAdaptationSourceIndex(originalPlan) }).map(({ source_content: _sourceContent, ...item }) => {
         const previous = previousById.get(item.node_id);
         return {
           ...item,
@@ -3493,31 +3645,27 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       assertContentEditingAllowed();
       const node = db.prepare('SELECT node_id FROM technical_plan_outline_nodes WHERE node_id = ?').get(targetNodeId);
       if (!node) throw new Error('当前目录中未找到该章节');
-      const meta = readMetaRow();
-      const items = normalizeHistoricalAdaptationContentItems(safeJsonParse(meta.historical_adaptation_content_items_json, []));
-      const item = items.find((candidate) => candidate.node_id === targetNodeId);
+      const item = readHistoricalContentItem(targetNodeId);
       if (!item) throw new Error('当前章节尚未建立正文迁移记录');
       const timestamp = now();
       const residuals = scanHistoricalResiduals(nextContent, item);
       const placeholders = scanUnresolvedPlaceholders(nextContent);
-      const nextItems = items.map((candidate) => candidate.node_id === targetNodeId ? {
-        ...candidate,
+      const nextItem = {
+        ...item,
         status: nextContent.trim() && !residuals.length && !placeholders.length ? 'success' : 'review',
         content_origin: 'manual',
         residuals,
         confirmed_at: undefined,
         updated_at: timestamp,
         error: placeholders.length ? `正文包含未处理占位符：${placeholders.join('、')}` : undefined,
-      } : candidate);
+      };
       db.prepare('UPDATE technical_plan_outline_nodes SET content = ?, updated_at = ? WHERE node_id = ?').run(nextContent, timestamp, targetNodeId);
       db.prepare(`
         INSERT INTO technical_plan_content_sections (node_id, status, error, updated_at)
         VALUES (?, ?, NULL, ?)
         ON CONFLICT(node_id) DO UPDATE SET status = excluded.status, error = NULL, updated_at = excluded.updated_at
       `).run(targetNodeId, nextContent.trim() ? 'success' : 'idle', timestamp);
-      updateMeta({
-        historical_adaptation_content_items_json: jsonOrNull(nextItems),
-      });
+      writeHistoricalContentItem(nextItem);
       staleHistoricalAdaptationContentCheck();
       clearContentIllustrationPlan();
     });
@@ -3532,26 +3680,22 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       assertContentEditingAllowed();
       const node = db.prepare('SELECT content FROM technical_plan_outline_nodes WHERE node_id = ?').get(targetNodeId);
       if (!node || !String(node.content || '').trim()) throw new Error('当前章节正文为空，不能确认');
-      const meta = readMetaRow();
-      const items = normalizeHistoricalAdaptationContentItems(safeJsonParse(meta.historical_adaptation_content_items_json, []));
-      const item = items.find((candidate) => candidate.node_id === targetNodeId);
+      const item = readHistoricalContentItem(targetNodeId);
       if (!item) throw new Error('当前章节尚未建立正文迁移记录');
       const residuals = scanHistoricalResiduals(node.content, item);
       if (residuals.length) throw new Error(`正文仍包含历史残留：${residuals.join('、')}`);
       const placeholders = scanUnresolvedPlaceholders(node.content);
       if (placeholders.length) throw new Error(`正文仍包含未处理占位符：${placeholders.join('、')}`);
       const timestamp = now();
-      updateMeta({
-        historical_adaptation_content_items_json: jsonOrNull(items.map((candidate) => candidate.node_id === targetNodeId ? {
-          ...candidate,
-          status: 'success',
-          residuals: [],
-          confirmed_at: timestamp,
-          updated_at: timestamp,
-          error: undefined,
-        } : candidate)),
-        historical_adaptation_content_confirmed_at: null,
+      writeHistoricalContentItem({
+        ...item,
+        status: 'success',
+        residuals: [],
+        confirmed_at: timestamp,
+        updated_at: timestamp,
+        error: undefined,
       });
+      updateMeta({ historical_adaptation_content_confirmed_at: null });
     });
     transaction();
     return loadTechnicalPlan();
@@ -3573,6 +3717,7 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     const leaves = collectLeafItems(context.outlineData?.outline || []);
     const byId = new Map(context.items.map((item) => [item.node_id, item]));
     const findings = [];
+    findings.push(...require('./historicalAdaptationContentCheckTask.cjs').collectDeterministicFindings(context));
     for (const leaf of leaves) {
       const nodeId = String(leaf.id || '');
       const item = byId.get(nodeId);
@@ -3594,7 +3739,8 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     const check = normalizeHistoricalAdaptationContentCheck(safeJsonParse(readMetaRow().historical_adaptation_content_check_json, null));
     const checkCurrent = check.status === 'success'
       && check.checked_content_hash === context.contentHash
-      && check.checked_inputs_hash === context.inputsHash;
+      && check.checked_inputs_hash === context.inputsHash
+      && check.rule_engine_version === 2;
     if (!checkCurrent) findings.push({ id: 'check-stale', code: 'check-stale', category: 'task', severity: 'P0', blocking: true, node_ids: [], message: '请先运行最新的一致性检查', evidence: check.error || check.status });
     if (checkCurrent) findings.push(...check.findings.filter((finding) => finding?.blocking));
     const blocking = findings.filter((finding) => finding.blocking);
@@ -3602,7 +3748,8 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     const firstNodeId = blocking.flatMap((finding) => finding.node_ids || [])
       .filter((nodeId) => leafOrder.has(nodeId))
       .sort((left, right) => leafOrder.get(left) - leafOrder.get(right))[0];
-    return { ready: blocking.length === 0, blockingCount: blocking.length, firstNodeId, findings };
+    return { ready: blocking.length === 0, blockingCount: blocking.length, firstNodeId, findings,
+      planInputsHash: context.inputsHash, contentHash: context.contentHash, checkSnapshotValid: checkCurrent };
   }
 
   function assertHistoricalAdaptationContentAccepted() {
@@ -3618,7 +3765,7 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       const meta = readMetaRow();
       const findings = reviewHistoricalAdaptationContent({
         outline: loadOutlineData(meta)?.outline || [],
-        contentItems: safeJsonParse(meta.historical_adaptation_content_items_json, []),
+        contentItems: readHistoricalContentItems(),
         differences: readHistoricalAdaptationDifferences(meta.historical_adaptation_differences_json),
       }, safeJsonParse(meta.historical_adaptation_review_findings_json, []));
       updateMeta({
@@ -3639,6 +3786,7 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       if (!meta.historical_adaptation_review_findings_json) throw new Error('请先运行终审');
       const findings = safeJsonParse(meta.historical_adaptation_review_findings_json, []);
       if (!findings.some((finding) => finding.id === findingId)) throw new Error('该问题已变化，请重新运行终审');
+      if (findings.find((finding) => finding.id === findingId).severity === 'P0') throw new Error('P0 阻断问题必须整改正文或修改差异规则，不能通过备注豁免');
       const timestamp = now();
       updateMeta({
         historical_adaptation_review_findings_json: JSON.stringify(findings.map((finding) => finding.id === findingId ? {
@@ -3657,7 +3805,7 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
   function assertHistoricalAdaptationReviewHasNoOpenP0(meta = readMetaRow()) {
     if (!meta.historical_adaptation_review_findings_json) throw new Error('请先运行终审');
     const findings = safeJsonParse(meta.historical_adaptation_review_findings_json, []);
-    const blockingCount = findings.filter((finding) => finding.severity === 'P0' && finding.resolution !== 'resolved').length;
+    const blockingCount = findings.filter((finding) => finding.severity === 'P0').length;
     if (blockingCount) throw new Error(`仍有 ${blockingCount} 个 P0 阻断问题未处置`);
     return findings;
   }
@@ -4279,6 +4427,8 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     confirmHistoricalAdaptationOutline,
     saveHistoricalAdaptationChapterContent,
     prepareHistoricalAdaptationContentPlan,
+    getHistoricalAdaptationSourceSection,
+    getHistoricalAdaptationSourceIndex,
     saveHistoricalAdaptationContentStrategy,
     resetHistoricalAdaptationContentStrategies,
     getHistoricalAdaptationContentCheckContext,

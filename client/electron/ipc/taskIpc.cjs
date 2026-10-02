@@ -29,6 +29,10 @@ function registerTaskIpc({ taskService }) {
     taskService.subscribe(event.sender);
     return taskService.startHistoricalAdaptationContent(payload);
   });
+  ipcMain.handle('tasks:retry-historical-adaptation-content', (event, payload) => {
+    taskService.subscribe(event.sender);
+    return taskService.retryHistoricalAdaptationContent(payload);
+  });
   ipcMain.handle('tasks:start-historical-adaptation-content-check', (event, payload) => {
     taskService.subscribe(event.sender);
     return taskService.startHistoricalAdaptationContentCheck(payload);

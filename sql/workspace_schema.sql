@@ -96,6 +96,27 @@ CREATE TABLE IF NOT EXISTS bid_project_duplicate_matches (
 -- 招标文件 Markdown 原文不进入 SQLite，原始文件保存到 userData/workspace/technical-plan/tender-original.md，当前投标范围工作副本保存到 userData/workspace/technical-plan/tender.md。
 -- 原方案 Markdown 原文不进入 SQLite，保存到 userData/workspace/technical-plan/original-plan.md。
 -- pending_tender_* 为旧版 Step01 标段待选择兼容清理字段，新流程不再写入。
+-- v44 内容项按项目及章节存储，正文仍在 outline_nodes。
+CREATE TABLE IF NOT EXISTS technical_plan_historical_source_versions (
+  source_hash TEXT PRIMARY KEY,
+  relative_path TEXT NOT NULL,
+  index_json TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS technical_plan_historical_content_items (
+  project_id TEXT NOT NULL,
+  node_id TEXT NOT NULL,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL,
+  source_version_hash TEXT,
+  plan_inputs_hash TEXT,
+  item_json TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (project_id, node_id)
+);
+CREATE INDEX IF NOT EXISTS idx_historical_content_items_project_order ON technical_plan_historical_content_items(project_id, sort_order);
+CREATE INDEX IF NOT EXISTS idx_historical_content_items_source ON technical_plan_historical_content_items(source_version_hash);
+
 CREATE TABLE IF NOT EXISTS technical_plan_meta (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   -- v9 工作流类型：technical-plan / existing-plan-expansion
@@ -159,6 +180,7 @@ CREATE TABLE IF NOT EXISTS technical_plan_meta (
   historical_adaptation_outline_confirmed_at TEXT,
   -- v41 历史标书正文迁移逐章审阅状态及阶段确认时间。
   historical_adaptation_content_items_json TEXT,
+  content_items_storage_version INTEGER NOT NULL DEFAULT 1,
   historical_adaptation_content_confirmed_at TEXT,
   -- v43 历史标书正文一致性检查结果、输入哈希及检查时间。
   historical_adaptation_content_check_json TEXT,

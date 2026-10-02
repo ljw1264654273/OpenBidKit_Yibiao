@@ -99,9 +99,9 @@ test('does not persist transient remote disable state and exposes decision field
 
 test('cancel and dispose release the task knowledge session', async () => {
   const harness = makeService();
-  harness.start();
+  harness.start({ projectId: 'knowledge-fixture' });
   const session = harness.sessions[0];
-  await harness.service.resetTechnicalPlan();
+  await harness.service.resetTechnicalPlan('knowledge-fixture');
   assert.equal(session.disposed, true);
 });
 

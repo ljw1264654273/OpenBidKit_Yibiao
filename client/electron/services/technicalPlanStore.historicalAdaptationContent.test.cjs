@@ -28,6 +28,12 @@ function runAssertions() {
         difference_ids: ['location'], source_excerpt: '五峰村原文', blocked_terms: ['五峰村'], residuals: [],
       }],
     });
+    const authority = database.db.prepare('SELECT item_json FROM technical_plan_historical_content_items WHERE project_id = ? AND node_id = ?').get('', '1');
+    assert.ok(authority, 'content items must be persisted in the chapter table');
+    database.db.prepare('UPDATE technical_plan_meta SET historical_adaptation_content_items_json = ? WHERE id = 1').run(JSON.stringify([{ node_id: 'obsolete' }]));
+    assert.equal(store.loadTechnicalPlan().historicalAdaptationContentItems[0].node_id, '1');
+    store.updateTechnicalPlan({ historicalAdaptationContentItem: { ...store.loadTechnicalPlan().historicalAdaptationContentItems[0], reason: '逐章更新' } });
+    assert.equal(store.loadTechnicalPlan().historicalAdaptationContentItems[0].reason, '逐章更新');
 
     let state = store.saveHistoricalAdaptationChapterContent({ nodeId: '1', content: '仍写五峰村。' });
     assert.equal(state.historicalAdaptationContentItems[0].status, 'review');
@@ -57,10 +63,16 @@ function runAssertions() {
       historicalAdaptationContentCheck: {
         status: 'success', findings: [], checked_content_hash: context.contentHash,
         checked_inputs_hash: context.inputsHash, checked_at: '2026-10-01T10:00:00.000Z',
+        rule_engine_version: 2,
       },
     });
     const readiness = store.getHistoricalAdaptationContentReadiness();
     assert.equal(readiness.ready, true);
+    const manualItem = store.loadTechnicalPlan().historicalAdaptationContentItems[0];
+    store.updateTechnicalPlan({ historicalAdaptationContentItem: { ...manualItem, content_origin: 'migrated' } });
+    assert.equal(store.getHistoricalAdaptationContentReadiness().ready, false,
+      'old automatic success without a current source/plan/output fingerprint cannot pass readiness');
+    store.updateTechnicalPlan({ historicalAdaptationContentItem: manualItem });
     state = store.confirmHistoricalAdaptationContent();
     assert.equal(Boolean(state.historicalAdaptationContentConfirmedAt), true);
     assert.equal(state.historicalAdaptationContentItems[0].confirmed_at, undefined);
@@ -112,6 +124,7 @@ function runAssertions() {
       historicalAdaptationDifferences: [{
         id: 'location', category: '名称地点替换', priority: 'high', title: '地点变更',
         historical_excerpt: '五峰村', tender_requirement: '横泾街道', action: '替换地点', decision: 'confirmed', content_change_scope: 'location-target',
+        difference_schema_version: 2, replacements: [{ old_value: '五峰村', new_value: '横泾街道' }], target_action: 'replace', evidence_kind: 'exact-value', confidence: 'high', old_content_evidence: [],
       }],
       historicalAdaptationContentItems: ['1', '2', '3', '4'].map((node_id) => ({
         node_id, source_path: node_id === '4' ? '' : '旧来源', source_excerpt: node_id === '4' ? '' : '旧来源正文',
@@ -131,6 +144,57 @@ function runAssertions() {
     assert.equal(state.historicalAdaptationContentCheck.status, 'stale');
     assert.equal(state.historicalAdaptationContentConfirmedAt, undefined);
     assert.deepEqual(store.loadTechnicalPlan().historicalAdaptationContentItems, state.historicalAdaptationContentItems);
+    store.prepareHistoricalAdaptationContentPlan();
+    const source = store.getHistoricalAdaptationSourceSection({ nodeId: '1' });
+    assert.equal(source.available, true);
+    assert.equal(source.content, '五峰村原项目概况。');
+    assert.equal(store.loadTechnicalPlan().historicalAdaptationContentItems[0].source_excerpt, '');
+    const prepared = store.loadTechnicalPlan();
+    const preparedContext = store.getHistoricalAdaptationContentCheckContext();
+    store.updateTechnicalPlan({ historicalAdaptationContentCheck: {
+      status: 'success', findings: [], checked_content_hash: preparedContext.contentHash,
+      checked_inputs_hash: preparedContext.inputsHash, rule_engine_version: 2,
+    } });
+    const rebuilt = store.prepareHistoricalAdaptationContentPlan();
+    const cachedIndex = store.getHistoricalAdaptationSourceIndex(fs.readFileSync(path.join(originalPlanDir, 'original-plan.md'), 'utf8'));
+    assert.equal(cachedIndex, store.getHistoricalAdaptationSourceIndex(fs.readFileSync(path.join(originalPlanDir, 'original-plan.md'), 'utf8')),
+      'the same source hash must reuse the parsed index');
+    assert.equal(rebuilt.historicalAdaptationContentItems[0].plan_id, prepared.historicalAdaptationContentItems[0].plan_id,
+      'same inputs must preserve the plan identity');
+    assert.equal(rebuilt.historicalAdaptationContentCheck.status, 'success', 'unchanged plan must preserve check cache');
+    assert.equal(rebuilt.historicalAdaptationContentCheck.rule_engine_version, 2);
+    const sourceItem = rebuilt.historicalAdaptationContentItems[0];
+    store.updateTechnicalPlan({ historicalAdaptationContentItem: { ...sourceItem, source_locator: 'display path changed' } });
+    assert.equal(store.getHistoricalAdaptationSourceSection({ nodeId: '1' }).content, '五峰村原项目概况。',
+      'immutable section ID, not display path, selects the source');
+    store.updateTechnicalPlan({ historicalAdaptationContentItem: sourceItem });
+    const rolledBackSource = '# 回滚来源\n事务失败后也能重新建立索引。';
+    const { sourceHash } = require('./historicalSourceArchive.cjs');
+    assert.throws(database.db.transaction(() => {
+      store.getHistoricalAdaptationSourceIndex(rolledBackSource);
+      throw new Error('模拟方案事务失败');
+    }), /模拟方案事务失败/);
+    store.getHistoricalAdaptationSourceIndex(rolledBackSource);
+    assert.ok(database.db.prepare('SELECT source_hash FROM technical_plan_historical_source_versions WHERE source_hash = ?').get(sourceHash(rolledBackSource)),
+      'a rolled-back in-memory index must not skip persisting its source reference');
+    const archiveRow = database.db.prepare('SELECT relative_path FROM technical_plan_historical_source_versions WHERE source_hash = ?').get(sourceItem.source_version_hash);
+    const archivePath = path.join(userDataPath, 'workspace', archiveRow.relative_path);
+    const originalRead = fs.readFileSync;
+    let archiveReads = 0;
+    fs.readFileSync = function(file, ...args) {
+      if (file === archivePath) archiveReads += 1;
+      return originalRead.call(this, file, ...args);
+    };
+    try {
+      for (let index = 0; index < 100; index += 1) assert.equal(store.getHistoricalAdaptationSourceSection({ nodeId: '1' }).available, true);
+      assert.ok(archiveReads <= 1, `100 section reads must reuse one verified archive, got ${archiveReads}`);
+      fs.writeFileSync(archivePath, '损坏后的来源快照', 'utf8');
+      assert.equal(store.getHistoricalAdaptationSourceSection({ nodeId: '1' }).available, false,
+        'changed archives must be revalidated, not silently served from memory');
+    } finally {
+      fs.readFileSync = originalRead;
+    }
+    state = store.loadTechnicalPlan();
     store.updateTechnicalPlan({ historicalAdaptationContentTask: { task_id: 'reset-running', type: 'historical-adaptation-content', status: 'running', progress: 0, logs: [] } });
     assert.throws(() => store.resetHistoricalAdaptationContentStrategies(), /正文任务正在运行/);
     store.updateTechnicalPlan({ historicalAdaptationContentTask: undefined });

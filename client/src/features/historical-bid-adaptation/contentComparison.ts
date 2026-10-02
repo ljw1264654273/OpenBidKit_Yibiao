@@ -99,3 +99,9 @@ export function compareContentText(before: string, after: string) {
   }
   return result;
 }
+
+// Diff rendered text coordinates, never Markdown markup: tables, images and code remain intact.
+export function compareRenderedContent(before: string | undefined, after: string, renderedText: (markdown: string) => string) {
+  if (before === undefined || before === after) return { before: [], after: [] };
+  return compareContentText(renderedText(before), renderedText(after));
+}

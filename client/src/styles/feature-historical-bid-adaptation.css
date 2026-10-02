@@ -418,12 +418,14 @@
 .historical-adaptation-outline-acceptance strong { color: #294761; }
 .historical-adaptation-outline-acceptance > span { color: #7c8999; font-size: 11px; }
 
-.historical-adaptation-content-page { display: grid; min-width: 0; min-height: 0; gap: 14px; padding: 18px 28px 28px; }
+.historical-adaptation-content-page { display: grid; min-width: 0; min-height: 0; gap: 14px; padding: 18px 28px 28px; container-type: inline-size; }
 .historical-adaptation-content-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
 .historical-adaptation-content-head > div:first-child { min-width: 0; }
 .historical-adaptation-content-head h1 { margin: 5px 0 6px; color: #213753; font-size: 24px; }
 .historical-adaptation-content-head p { margin: 0; color: #697386; font-size: 13px; }
-.historical-adaptation-content-actions { display: flex; flex: 0 0 auto; gap: 8px; }
+.historical-adaptation-content-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; flex: 0 1 auto; gap: 8px; }
+.adaptation-content-source-unavailable { display: grid; gap: 8px; color: #7f4d35; font-size: 13px; overflow-wrap: anywhere; }
+.adaptation-content-source-unavailable .text-button { justify-self: start; }
 
 .historical-adaptation-content-overview { display: grid; grid-template-columns: repeat(3, minmax(100px, 0.55fr)) minmax(260px, 2fr); background: #fff; border: 1px solid #dfe7f0; }
 .historical-adaptation-content-overview > div { display: grid; gap: 4px; padding: 12px 15px; border-right: 1px solid #e6ecf2; }
@@ -602,6 +604,12 @@
 .historical-adaptation-error { display: flex; min-height: 280px; align-items: center; justify-content: center; gap: 9px; color: #68798c; }
 .historical-adaptation-error { flex-direction: column; }
 .historical-adaptation-error strong { color: #a44732; }
+
+@container (max-width: 900px) {
+  .historical-adaptation-content-workbench { grid-template-columns: 1fr; min-height: auto; overflow: visible; }
+  .adaptation-content-column { min-height: 340px; border-right: 0; border-bottom: 1px solid #e2e8ef; }
+  .adaptation-content-column.is-editor { min-height: 600px; border-bottom: 0; }
+}
 
 @media (max-width: 1100px) {
   .historical-adaptation-stages { grid-template-columns: repeat(3, minmax(140px, 1fr)); }

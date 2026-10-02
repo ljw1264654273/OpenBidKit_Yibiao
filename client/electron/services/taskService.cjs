@@ -547,10 +547,7 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
 
     if (task.type === 'historical-adaptation-content') {
       copyPatchFields(patch, state, [
-        'historicalAdaptationContentItems',
         'historicalAdaptationContentConfirmedAt',
-        'outlineData',
-        'contentGenerationSections',
       ]);
     }
 
@@ -662,6 +659,8 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
     }
 
     const event = { technicalPlanPatch: patch };
+    if (state.historicalAdaptationContentItem) event.contentItemPatch = state.historicalAdaptationContentItem;
+    if (eventPatch.outlineContentPatch) event.outlineContentPatch = eventPatch.outlineContentPatch;
     if (hasOwn(eventPatch, 'bidItem')) event.bidItem = eventPatch.bidItem;
     if (hasOwn(eventPatch, 'outlineData')) event.outlineData = eventPatch.outlineData;
     if (hasOwn(eventPatch, 'contentSection')) event.contentSection = eventPatch.contentSection;
@@ -735,14 +734,41 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
     return {};
   }
 
-  function subscribe(webContents) {
-    subscribers.add(webContents);
-    for (const task of activeTasks.values()) {
-      if (!webContents.isDestroyed()) {
-        webContents.send('tasks:event', { task, ...getSnapshotForTask(task) });
-      }
+  function replayTask(task, callback) {
+    if (task.type !== 'historical-adaptation-content') {
+      callback({ task, ...getSnapshotForTask(task) });
+      return;
     }
-    webContents.once('destroyed', () => subscribers.delete(webContents));
+    const state = getTechnicalPlanStore(getProjectId(task)).loadTechnicalPlan();
+    callback({ task, ...buildTechnicalPlanSnapshot(task, state) });
+    const outlineNodes = new Map();
+    const collectNodes = (nodes) => {
+      for (const node of nodes || []) {
+        outlineNodes.set(node.id, node);
+        collectNodes(node.children);
+      }
+    };
+    collectNodes(state.outlineData?.outline);
+    for (const item of state.historicalAdaptationContentItems || []) {
+      const node = outlineNodes.get(item.node_id);
+      callback({
+        task,
+        contentItemPatch: item,
+        ...(node ? { outlineContentPatch: { nodeId: item.node_id, content: node.content || '' } } : {}),
+      });
+    }
+  }
+
+  function subscribe(webContents) {
+    if (!subscribers.has(webContents)) {
+      subscribers.add(webContents);
+      webContents.once('destroyed', () => subscribers.delete(webContents));
+    }
+    for (const task of activeTasks.values()) {
+      replayTask(task, (event) => {
+        if (!webContents.isDestroyed()) webContents.send('tasks:event', event);
+      });
+    }
   }
 
   /**
@@ -751,7 +777,7 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
   function subscribeCallback(callback) {
     callbackSubscribers.add(callback);
     for (const task of activeTasks.values()) {
-      callback({ task, ...getSnapshotForTask(task) });
+      replayTask(task, callback);
     }
     return () => callbackSubscribers.delete(callback);
   }
@@ -1258,30 +1284,34 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
       if (aiService?.resumeQueueScope) {
         aiService.resumeQueueScope(queueScopeId);
       }
-      if (type === 'variant-deduplication' && taskControl.signal.aborted) {
-        bidProjectManager?.updateProject?.(projectId, {
-          status: 'incomplete',
-          uniquenessStatus: 'pending',
-          uniquenessAutoRunRequested: false,
-          lastTaskType: type,
-          lastTaskStatus: 'interrupted',
-          lastError: null,
-        });
-      } else if (type === 'content-generation'
-        && taskControl.signal.aborted
-        && currentTask.status !== 'paused') {
-        bidProjectManager?.updateProject?.(projectId, {
-          status: 'incomplete',
-          uniquenessAutoRunRequested: false,
-          lastTaskType: type,
-          lastTaskStatus: 'interrupted',
-          lastError: null,
-        });
-      } else {
-        updateBidProjectTaskStatus(currentTask);
+      if (activeTasks.get(taskKey) === currentTask) {
+        if (type === 'variant-deduplication' && taskControl.signal.aborted) {
+          bidProjectManager?.updateProject?.(projectId, {
+            status: 'incomplete',
+            uniquenessStatus: 'pending',
+            uniquenessAutoRunRequested: false,
+            lastTaskType: type,
+            lastTaskStatus: 'interrupted',
+            lastError: null,
+          });
+        } else if (type === 'content-generation'
+          && taskControl.signal.aborted
+          && currentTask.status !== 'paused') {
+          bidProjectManager?.updateProject?.(projectId, {
+            status: 'incomplete',
+            uniquenessAutoRunRequested: false,
+            lastTaskType: type,
+            lastTaskStatus: 'interrupted',
+            lastError: null,
+          });
+        } else {
+          updateBidProjectTaskStatus(currentTask);
+        }
+        activeTasks.delete(taskKey);
       }
-      activeTasks.delete(taskKey);
-      activeTaskControls.delete(taskKey);
+      if (activeTaskControls.get(taskKey) === taskControl) {
+        activeTaskControls.delete(taskKey);
+      }
       resolveSettled();
       drainTechnicalPlanQueue();
       if (scheduleVariantAfterContent) {
@@ -1307,7 +1337,7 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
     for (const [taskKey, task] of activeTasks.entries()) {
       const definition = getTaskDefinition(task.type);
       const control = activeTaskControls.get(taskKey);
-      if (definition.group !== 'technical-plan' || !isActiveTaskStatus(task.status) || !control?.cancel) continue;
+      if (definition.group !== 'technical-plan' || !control?.cancel) continue;
       if (typeFilter && !typeFilter.has(task.type)) continue;
       if (String(getScopeId(task) || '').trim() !== targetProjectId) continue;
       controls.push(control);
@@ -1628,23 +1658,24 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
       logs: [...(Array.isArray(task.logs) ? task.logs : []), message],
       updated_at: now(),
     };
-    const recoveredItems = (technicalPlan.historicalAdaptationContentItems || []).map((item) => (
-      item?.status === 'running'
-        ? {
-            ...item,
-            status: 'error',
-            confirmed_at: undefined,
-            error: message,
-            updated_at: recoveredTask.updated_at,
-          }
-        : item
-    ));
-    const partial = {
-      historicalAdaptationContentTask: recoveredTask,
-      historicalAdaptationContentItems: recoveredItems,
-    };
+    const recoveredItems = (technicalPlan.historicalAdaptationContentItems || [])
+      .filter((item) => item?.status === 'running')
+      .map((item) => ({
+        ...item,
+        status: 'error',
+        confirmed_at: undefined,
+        error: message,
+        error_code: 'interrupted',
+        updated_at: recoveredTask.updated_at,
+      }));
+    const partial = { historicalAdaptationContentTask: recoveredTask };
     workspaceStore.updateTechnicalPlanWithoutReload(partial);
     emit(recoveredTask, buildSnapshot(getTaskDefinition('historical-adaptation-content'), partial, recoveredTask));
+    for (const item of recoveredItems) {
+      const itemPartial = { historicalAdaptationContentItem: item };
+      workspaceStore.updateTechnicalPlanWithoutReload(itemPartial);
+      emit(recoveredTask, buildSnapshot(getTaskDefinition('historical-adaptation-content'), itemPartial, recoveredTask));
+    }
   }
 
   function recoverInterruptedHistoricalAdaptationContentCheckTask(technicalPlan, projectId, workspaceStore = technicalPlanStore) {
@@ -2060,11 +2091,14 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
       await cancelTechnicalPlanTasks('适配目录已修改，取消旧的正文迁移任务', ['historical-adaptation-content', 'historical-adaptation-content-check'], projectId);
       return getTechnicalPlanStore(projectId).saveHistoricalAdaptationOutline(payload);
     },
-    prepareHistoricalAdaptationContentPlan(payload) {
+    async prepareHistoricalAdaptationContentPlan(payload) {
       const projectId = requireProjectId(getProjectId(payload), '建立正文迁移方案');
       const project = bidProjectManager?.getProject?.(projectId);
       if (project?.projectType !== 'historical-bid-adaptation') throw new Error('当前项目不是历史标书适配项目');
-      return getTechnicalPlanStore(projectId).prepareHistoricalAdaptationContentPlan();
+      await cancelTechnicalPlanTasks('重新建立正文迁移方案，取消旧的正文迁移及检查任务', ['historical-adaptation-content', 'historical-adaptation-content-check'], projectId);
+      const snapshot = getTechnicalPlanStore(projectId).prepareHistoricalAdaptationContentPlan();
+      const task = this.startHistoricalAdaptationContent({ ...payload, projectId });
+      return { ...snapshot, historicalAdaptationContentTask: task };
     },
     startHistoricalAdaptationContent(payload) {
       const projectId = getProjectId(payload);
@@ -2088,21 +2122,20 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
       if (selectedItem?.content_origin === 'manual' && payload?.forceOverwriteManual !== true) {
         throw new Error('当前章节包含人工正文，请确认覆盖后再重新迁移');
       }
-      const items = (state.historicalAdaptationContentItems || []).map((item) => (
-        !nodeId || item.node_id === nodeId ? { ...item, confirmed_at: undefined } : item
-      ));
       return startManagedTask(
         'historical-adaptation-content',
         payload,
         taskRunners.historicalAdaptationContent || runHistoricalAdaptationContentTask,
         {
-          historicalAdaptationContentItems: items,
           historicalAdaptationContentConfirmedAt: undefined,
           historicalAdaptationContentCheck: { status: 'stale', findings: [] },
           historicalAdaptationReviewFindings: [],
           historicalAdaptationReviewConfirmedAt: undefined,
         },
       );
+    },
+    retryHistoricalAdaptationContent(payload) {
+      return this.startHistoricalAdaptationContent({ ...payload, retry: true });
     },
     startHistoricalAdaptationContentCheck(payload) {
       const projectId = getProjectId(payload);
@@ -2118,7 +2151,6 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
         payload,
         taskRunners.historicalAdaptationContentCheck || runHistoricalAdaptationContentCheckTask,
         {
-          historicalAdaptationContentCheck: { status: 'running', findings: [] },
           historicalAdaptationContentConfirmedAt: undefined,
         },
       );

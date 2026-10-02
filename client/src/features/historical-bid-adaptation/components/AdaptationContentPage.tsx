@@ -5,9 +5,9 @@ import type { BidProject } from '../../bid-project/types';
 import ContentAiRewriteDrawer, { type ContentAiCandidate } from '../../technical-plan/components/ContentAiRewriteDrawer';
 import ContentAiRewriteMenu, { type ContentAiRewriteMode } from '../../technical-plan/components/ContentAiRewriteMenu';
 import { applyContentAiTextCandidate, createContentLengthEditSnapshot, validateContentAiEditSnapshot, type ContentAiEditSnapshot } from '../../technical-plan/services/contentAiEdit';
-import type { HistoricalAdaptationContentMode, TechnicalPlanState } from '../../technical-plan/types';
+import type { HistoricalAdaptationContentMode, HistoricalAdaptationSourceSection, TechnicalPlanState } from '../../technical-plan/types';
 import { renderMarkdownHtml } from '../../../shared/markdown/renderMarkdownHtml';
-import { compareContentText } from '../contentComparison';
+import { compareRenderedContent } from '../contentComparison';
 
 interface AdaptationContentPageProps {
   projectId: string;
@@ -65,6 +65,12 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onDir
   const [view, setView] = useState<'edit' | 'preview'>('preview');
   const [saving, setSaving] = useState(false);
   const [strategySaving, setStrategySaving] = useState(false);
+  const [preparing, setPreparing] = useState(false);
+  const [retrying, setRetrying] = useState(false);
+  const [sourceSection, setSourceSection] = useState<HistoricalAdaptationSourceSection | null>(null);
+  const [sourceNodeId, setSourceNodeId] = useState('');
+  const [sourceLoading, setSourceLoading] = useState(false);
+  const [sourceRetry, setSourceRetry] = useState(0);
   const [strategyMode, setStrategyMode] = useState<HistoricalAdaptationContentMode | ''>('');
   const [strategyInstruction, setStrategyInstruction] = useState('');
   const [editorSelection, setEditorSelection] = useState<MarkdownEditorSelection | null>(null);
@@ -81,13 +87,14 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onDir
   const checkTask = state.historicalAdaptationContentCheckTask;
   const migrationRunning = ['queued', 'running', 'pausing', 'paused'].includes(migrationTask?.status || '');
   const checkRunning = ['queued', 'running', 'pausing', 'paused'].includes(checkTask?.status || '');
-  const running = migrationRunning || checkRunning || strategySaving;
+  const running = migrationRunning || checkRunning || strategySaving || preparing || retrying;
   const selectedLeaf = leaves.find((entry) => entry.item.id === selectedId) || leaves[0];
   const selectedItem = selectedLeaf ? itemByNode.get(selectedLeaf.item.id) : undefined;
   const dirty = Boolean(selectedLeaf && draft !== (selectedLeaf.item.content || ''));
   const strategyChanged = Boolean(selectedItem && (strategyMode !== effectiveMode(selectedItem)
     || (strategyMode === 'rewrite' && strategyInstruction.trim() !== selectedItem.manual_instruction)));
-  const hasHistoricalSource = Boolean(selectedItem?.source_path && selectedItem.source_excerpt);
+  const hasHistoricalSource = Boolean(sourceNodeId === selectedItem?.node_id && sourceSection?.available);
+  const retryCount = state.historicalAdaptationContentItems.filter((item) => ['idle', 'stale', 'error', 'running'].includes(item.status) && item.content_origin !== 'manual').length;
   const successCount = state.historicalAdaptationContentItems.filter((item) => item.status === 'success').length;
   const reviewCount = state.historicalAdaptationContentItems.filter((item) => ['review', 'stale', 'error'].includes(item.status)).length;
   const stageConfirmed = Boolean(state.historicalAdaptationContentConfirmedAt);
@@ -97,17 +104,38 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onDir
     .map((id) => state.historicalAdaptationDifferences.find((difference) => difference.id === id))
     .filter(Boolean) || [];
   const comparison = useMemo(() => {
-    if (!selectedItem || (!draft && !selectedItem.content_origin)) return { before: [], after: [] };
+    if (!hasHistoricalSource || (!draft && !selectedItem?.content_origin)) return { before: [], after: [] };
     const renderedText = (value: string) => {
       const html = renderMarkdownHtml(value, { allowRawHtml: false, allowHtmlTables: true });
       return new DOMParser().parseFromString(`<div>${html}</div>`, 'text/html').body.firstElementChild?.textContent || '';
     };
-    const changes = compareContentText(renderedText(selectedItem.source_excerpt), renderedText(draft));
+    const changes = compareRenderedContent(sourceSection?.available ? sourceSection.content : undefined, draft, renderedText);
     return {
       before: changes.before.map((range) => ({ ...range, className: 'adaptation-content-diff-removed' })),
       after: changes.after.map((range) => ({ ...range, className: 'adaptation-content-diff-added' })),
     };
-  }, [selectedItem?.source_excerpt, selectedItem?.content_origin, selectedItem?.node_id, draft]);
+  }, [hasHistoricalSource, sourceSection, selectedItem?.content_origin, draft]);
+
+  useEffect(() => {
+    let active = true;
+    setSourceSection(null);
+    setSourceNodeId('');
+    if (!selectedItem) { setSourceLoading(false); return; }
+    setSourceLoading(true);
+    void window.yibiao.technicalPlan.getHistoricalAdaptationSourceSection({ projectId, nodeId: selectedItem.node_id })
+      .then((section) => {
+        if (!active) return;
+        setSourceSection(section);
+        setSourceNodeId(selectedItem.node_id);
+      })
+      .catch((error) => {
+        if (!active) return;
+        setSourceSection({ available: false, content: '', error: error instanceof Error ? error.message : '历史原文读取失败' });
+        setSourceNodeId(selectedItem.node_id);
+      })
+      .finally(() => { if (active) setSourceLoading(false); });
+    return () => { active = false; };
+  }, [projectId, selectedItem?.node_id, selectedItem?.source_section_id, selectedItem?.source_version_hash, sourceRetry]);
 
   useEffect(() => {
     if (!selectedLeaf && leaves[0]) setSelectedId(leaves[0].item.id);
@@ -158,20 +186,30 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onDir
       showToast('当前选择尚未应用，请先点击“按此方式迁移本章”或恢复默认处理方式', 'info');
       return;
     }
-    setStrategySaving(true);
-    let planPrepared = false;
+    setPreparing(true);
     try {
       const nextState = await window.yibiao.technicalPlan.prepareHistoricalAdaptationContentPlan({ projectId });
       onStateChange(nextState);
-      planPrepared = true;
-      await window.yibiao.tasks.startHistoricalAdaptationContent({ projectId });
       setView('preview');
       showToast('方案已更新，待处理章节已按推荐或已应用的人工方式开始迁移', 'success');
     } catch (error) {
       const message = error instanceof Error ? error.message : '操作失败';
-      showToast(planPrepared ? `方案已更新，迁移启动失败：${message}。请点击“建立/更新迁移方案”重试。` : `建立正文迁移方案失败：${message}`, 'error');
+      showToast(`建立正文迁移方案失败：${message}`, 'error');
     } finally {
-      setStrategySaving(false);
+      setPreparing(false);
+    }
+  };
+
+  const retryIncomplete = async () => {
+    if (running || saving || dirty) return;
+    setRetrying(true);
+    try {
+      await window.yibiao.tasks.retryHistoricalAdaptationContent({ projectId });
+      showToast('未完成章节已开始重试，已完成及人工正文保留', 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '重试正文迁移失败', 'error');
+    } finally {
+      setRetrying(false);
     }
   };
 
@@ -373,11 +411,11 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onDir
         <div>
           <span className="section-kicker">环节五 · 正文迁移</span>
           <h1>{project?.projectName || '历史标书适配项目'}</h1>
-          <p>默认直接迁移；项目地点与实施对象、工作量、工期进度按当前招标资料局部改写，其余改写由人工指定。</p>
         </div>
         <div className="historical-adaptation-content-actions">
           <button type="button" className="secondary-action" onClick={() => requestNavigation({ type: 'back' })}>返回我的标书</button>
-          <button type="button" className="primary-action" disabled={running || saving || dirty} title={dirty ? '请先保存人工修改' : '建立推荐方案并直接迁移待处理章节；保留已应用的人工方式和已保存的人工正文'} onClick={() => { void preparePlan(); }}>建立/更新迁移方案</button>
+          <button type="button" className="primary-action" disabled={running || saving || dirty} title={dirty ? '请先保存人工修改' : '建立推荐方案并迁移待处理章节；保留人工正文'} onClick={() => { void preparePlan(); }}>{preparing ? '准备迁移方案中...' : '建立/更新迁移方案'}</button>
+          <button type="button" className="secondary-action" disabled={running || saving || dirty || !retryCount} onClick={() => { void retryIncomplete(); }}>{retrying ? '重试启动中...' : '重试未完成章节'}</button>
           <button type="button" className="secondary-action" disabled={running || saving || dirty || !state.historicalAdaptationContentItems.length} title={dirty ? '请先保存人工修改' : '清除全部人工选择和改写要求，恢复默认规则；正文在执行迁移后更新，已保存的人工正文保留'} onClick={() => { void resetStrategies(); }}>恢复默认处理方式</button>
         </div>
       </header>
@@ -387,7 +425,7 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onDir
         <div><span>迁移完成</span><strong className="is-success">{successCount}</strong></div>
         <div><span>待人工处理 / 失败</span><strong className={reviewCount ? 'is-warning' : ''}>{reviewCount}</strong></div>
         <div className="historical-adaptation-content-progress">
-          <span>{migrationRunning ? '后台迁移中' : migrationTask?.status === 'error' ? '迁移任务异常' : stageConfirmed ? '本阶段已确认' : '等待迁移或审阅'}</span>
+          <span>{preparing ? '准备迁移方案中' : migrationRunning ? '后台迁移中' : checkRunning ? '一致性检查中' : migrationTask?.status === 'error' ? '迁移任务异常' : stageConfirmed ? '本阶段已确认' : '等待迁移或审阅'}</span>
           <ProgressBar value={migrationTask?.progress || (stageConfirmed ? 100 : leaves.length ? Math.round((successCount / leaves.length) * 100) : 0)} />
         </div>
       </section>
@@ -397,7 +435,6 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onDir
       <div className="adaptation-content-diff-legend" aria-label="修改对比说明">
         <span><mark className="adaptation-content-diff-removed">修改前 / 已删除</mark>历史正文</span>
         <span><mark className="adaptation-content-diff-added">修改后 / 新增</mark>迁移后正文</span>
-        <span>{view === 'edit' ? '切换“修改对比”查看正文高亮。' : '未变化文字保持原样。'}</span>
       </div>
 
       <section className="historical-adaptation-content-workbench">
@@ -440,7 +477,7 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onDir
                 </dl>
                 {selectedItem.residuals.length ? <div className="adaptation-content-residual"><strong>检测到历史残留</strong><span>{selectedItem.residuals.join('、')}</span></div> : null}
                 {selectedItem.error ? <div className="adaptation-content-residual"><strong>本章迁移失败</strong><span>{selectedItem.error}</span></div> : null}
-                <section><h2>历史正文</h2><div className="markdown-viewer adaptation-content-source-markdown"><MarkdownRenderer allowRawHtml={false} allowHtmlTables preserveTableCellSpans textHighlights={comparison.before}>{selectedItem.source_excerpt || '该章节未可靠定位到历史正文。'}</MarkdownRenderer></div></section>
+                <section><h2>历史正文</h2>{sourceLoading ? <div className="adaptation-content-empty" role="status">正在读取历史原文...</div> : hasHistoricalSource ? <div className="markdown-viewer adaptation-content-source-markdown"><MarkdownRenderer allowRawHtml={false} allowHtmlTables preserveTableCellSpans textHighlights={comparison.before}>{sourceSection?.content || '历史章节正文为空。'}</MarkdownRenderer></div> : <div className="adaptation-content-source-unavailable"><span>{sourceSection?.error || '本章无可靠历史原文，无法显示修改对比。'}</span><button type="button" className="text-button" onClick={() => setSourceRetry((value) => value + 1)}>重新读取原文</button></div>}</section>
                 <section>
                   <h2>关联差异</h2>
                   {selectedDifferences.length ? selectedDifferences.map((difference) => difference ? <article key={difference.id}><span>{difference.category}</span><strong>{difference.title}</strong><p>{difference.action}</p></article> : null) : <p className="adaptation-content-no-difference">无直接关联差异</p>}
@@ -455,7 +492,7 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onDir
             <strong>迁移后正文</strong>
             <div className="adaptation-content-editor-tools">
               {view === 'edit' ? <ContentAiRewriteMenu selection={editorSelection} disabled={running || !selectedLeaf} compact enableLengthEditing lengthEditingOnly onSelect={openLengthEdit} /> : null}
-              <div className="adaptation-content-view-switch"><button type="button" className={view === 'edit' ? 'is-active' : ''} onClick={() => setView('edit')}>编辑</button><button type="button" className={view === 'preview' ? 'is-active' : ''} onClick={() => setView('preview')}>修改对比</button></div>
+              <div className="adaptation-content-view-switch"><button type="button" className={view === 'edit' ? 'is-active' : ''} onClick={() => setView('edit')}>编辑</button><button type="button" className={view === 'preview' ? 'is-active' : ''} disabled={!hasHistoricalSource} onClick={() => setView('preview')}>修改对比</button></div>
             </div>
           </header>
           <div className="adaptation-content-editor-body">

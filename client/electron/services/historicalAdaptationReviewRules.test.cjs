@@ -45,6 +45,8 @@ test('detects historical residue, deleted content residue and vague language', (
   input.outline[0].content = '可能继续按五峰村旧方式办理。';
   input.differences.push({
     id: 'remove-old-scope', category: '删除内容', decision: 'confirmed', historical_excerpt: '旧方式办理',
+    difference_schema_version: 2, target_action: 'remove', evidence_kind: 'locked-range', confidence: 'high',
+    old_content_evidence: ['旧方式办理'], tender_requirement: '不再办理旧事项',
   });
   input.contentItems[0].difference_ids.push('remove-old-scope');
 
@@ -55,6 +57,26 @@ test('detects historical residue, deleted content residue and vague language', (
     ['historical-residue', 'P0'],
     ['vague-language', 'P1'],
   ]);
+});
+
+test('must-replace scans every chapter and cannot carry a previous exemption', () => {
+  const input = fixture();
+  input.outline[0].content = '五峰村正文。';
+  input.contentItems[0].blocked_terms = [];
+  Object.assign(input.differences[0], { difference_schema_version: 2, target_action: 'replace',
+    evidence_kind: 'exact-value', confidence: 'high', replacements: [{ old_value: '五峰村', new_value: '横泾街道' }],
+    tender_requirement: '横泾街道' });
+  const first = reviewHistoricalAdaptationContent(input);
+  assert.equal(first[0].code, 'historical-residue');
+  const repeat = reviewHistoricalAdaptationContent(input, [{ ...first[0], resolution: 'resolved', resolution_note: '保留旧称' }]);
+  assert.equal(repeat[0].resolution, 'open');
+});
+
+test('legacy deletion prose is not treated as executable evidence', () => {
+  const input = fixture();
+  input.outline[0].content = '旧方式办理。';
+  input.differences.push({ id: 'old', category: '删除内容', decision: 'confirmed', historical_excerpt: '旧方式办理' });
+  assert.equal(reviewHistoricalAdaptationContent(input).some((finding) => finding.code === 'deleted-content-residue'), false);
 });
 
 test('blocks an empty chapter even when its migration record is confirmed', () => {

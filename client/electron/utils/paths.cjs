@@ -33,6 +33,10 @@ function getTechnicalPlanDir(app) {
   return path.join(getWorkspaceDir(app), 'technical-plan');
 }
 
+function getHistoricalSourceVersionsDir(app) {
+  return path.join(getTechnicalPlanDir(app), 'historical-source-versions');
+}
+
 function getBidProjectsDir(app) {
   return path.join(getWorkspaceDir(app), 'bid-projects');
 }
@@ -224,6 +228,7 @@ module.exports = {
   getRejectionCheckDir,
   getRejectionCheckDocumentMarkdownPath,
   getTechnicalPlanDir,
+  getHistoricalSourceVersionsDir,
   getBidProjectsDir,
   getBidProjectDir,
   getBidProjectTechnicalPlanDir,

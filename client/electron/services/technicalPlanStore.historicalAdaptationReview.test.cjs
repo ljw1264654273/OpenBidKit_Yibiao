@@ -40,16 +40,29 @@ function runAssertions() {
         checked_content_hash: checkContext.contentHash,
         checked_inputs_hash: checkContext.inputsHash,
         checked_at: '2026-10-01T00:05:00.000Z',
+        rule_engine_version: 2,
       },
     });
 
-    let state = store.runHistoricalAdaptationReview();
-    assert.equal(state.historicalAdaptationReviewFindings[0].severity, 'P0');
-    assert.throws(() => store.confirmHistoricalAdaptationReview(), /P0/);
-    assert.throws(() => store.assertHistoricalAdaptationExportAllowed(), /P0/);
-
-    const finding = state.historicalAdaptationReviewFindings[0];
-    state = store.setHistoricalAdaptationReviewFinding({ findingId: finding.id, resolution: 'resolved', resolutionNote: '已整改并补充明确表述' });
+    assert.throws(() => store.runHistoricalAdaptationReview(), /阻断/, 'a forged successful check cannot bypass deterministic blockers');
+    store.saveHistoricalAdaptationChapterContent({ nodeId: '1', content: '本项目实施方案已明确。' });
+    const validContext = store.getHistoricalAdaptationContentCheckContext();
+    store.updateTechnicalPlan({ historicalAdaptationContentCheck: {
+      status: 'success', findings: [], rule_engine_version: 2,
+      checked_content_hash: validContext.contentHash, checked_inputs_hash: validContext.inputsHash,
+    } });
+    store.confirmHistoricalAdaptationContent();
+    store.updateTechnicalPlan({ historicalAdaptationReviewFindings: [
+      { id: 'non-waivable', severity: 'P0', resolution: 'open' },
+      { id: 'advice', severity: 'P1', resolution: 'open' },
+    ] });
+    for (const resolution of ['resolved', 'ignored']) {
+      assert.throws(() => store.setHistoricalAdaptationReviewFinding({ findingId: 'non-waivable', resolution, resolutionNote: '备注不得代替正文整改' }), /P0|阻断/);
+    }
+    store.updateTechnicalPlan({ historicalAdaptationReviewFindings: [{ id: 'non-waivable', severity: 'P0', resolution: 'resolved' }] });
+    assert.throws(() => store.confirmHistoricalAdaptationReview(), /P0/, 'legacy resolved P0 findings must still block acceptance');
+    store.updateTechnicalPlan({ historicalAdaptationReviewFindings: [{ id: 'advice', severity: 'P1', resolution: 'open' }] });
+    let state = store.setHistoricalAdaptationReviewFinding({ findingId: 'advice', resolution: 'resolved', resolutionNote: '已复核建议' });
     assert.equal(state.historicalAdaptationReviewFindings[0].resolution, 'resolved');
     state = store.confirmHistoricalAdaptationReview();
     assert.ok(state.historicalAdaptationReviewConfirmedAt);

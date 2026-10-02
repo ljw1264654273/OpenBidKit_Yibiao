@@ -9,6 +9,7 @@ import AdaptationDifferencePage from '../components/AdaptationDifferencePage';
 import AdaptationOutlinePage from '../components/AdaptationOutlinePage';
 import AdaptationContentPage from '../components/AdaptationContentPage';
 import AdaptationReviewExportPage from '../components/AdaptationReviewExportPage';
+import { applyHistoricalAdaptationContentPatch } from '../contentItemPatch';
 
 interface HistoricalBidAdaptationPageProps {
   projectId?: string;
@@ -122,22 +123,21 @@ function AdaptationProjectWorkspace({
         && taskType !== 'historical-adaptation-content'
         && taskType !== 'historical-adaptation-content-check') return;
       const technicalPlan = event.technicalPlanPatch || event.technicalPlan || {};
+      const owns = (key: keyof TechnicalPlanState) => Object.prototype.hasOwnProperty.call(technicalPlan, key);
 
       setState((previous) => previous ? {
-        ...previous,
-        ...technicalPlan,
+        ...applyHistoricalAdaptationContentPatch(previous, event),
         ...(taskType === 'bid-analysis'
-          ? { bidAnalysisTask: (technicalPlan.bidAnalysisTask || event.task) as BackgroundTaskState }
+          ? { bidAnalysisTask: (owns('bidAnalysisTask') ? technicalPlan.bidAnalysisTask : event.task) as BackgroundTaskState }
           : taskType === 'historical-adaptation-difference'
-            ? { historicalAdaptationDifferenceTask: (technicalPlan.historicalAdaptationDifferenceTask || event.task) as BackgroundTaskState }
+            ? { historicalAdaptationDifferenceTask: (owns('historicalAdaptationDifferenceTask') ? technicalPlan.historicalAdaptationDifferenceTask : event.task) as BackgroundTaskState }
             : taskType === 'historical-adaptation-outline'
-              ? { historicalAdaptationOutlineTask: (technicalPlan.historicalAdaptationOutlineTask || event.task) as BackgroundTaskState }
+              ? { historicalAdaptationOutlineTask: (owns('historicalAdaptationOutlineTask') ? technicalPlan.historicalAdaptationOutlineTask : event.task) as BackgroundTaskState }
               : taskType === 'historical-adaptation-content'
-                ? { historicalAdaptationContentTask: (technicalPlan.historicalAdaptationContentTask || event.task) as BackgroundTaskState }
-                : { historicalAdaptationContentCheckTask: (technicalPlan.historicalAdaptationContentCheckTask || event.task) as BackgroundTaskState }),
+                ? { historicalAdaptationContentTask: (owns('historicalAdaptationContentTask') ? technicalPlan.historicalAdaptationContentTask : event.task) as BackgroundTaskState }
+                : { historicalAdaptationContentCheckTask: (owns('historicalAdaptationContentCheckTask') ? technicalPlan.historicalAdaptationContentCheckTask : event.task) as BackgroundTaskState }),
         bidAnalysisTasks: {
-          ...previous.bidAnalysisTasks,
-          ...(technicalPlan.bidAnalysisTasks || {}),
+          ...(owns('bidAnalysisTasks') ? technicalPlan.bidAnalysisTasks : previous.bidAnalysisTasks),
           ...(event.bidItem ? { [event.bidItem.id]: event.bidItem } : {}),
         },
       } : previous);
@@ -358,7 +358,7 @@ function StageNavigation({
               ? '核对并确认适配目录后开放正文迁移'
               : contentComplete
                 ? reviewComplete ? '终审已确认，可以导出 Word' : '完成终审并处理 P0 阻断项后进行人工验收'
-                : '逐章审阅并确认正文后完成本阶段'}</p>
+                : '完成正文迁移与一致性检查后统一确认本阶段'}</p>
     </section>
   );
 }

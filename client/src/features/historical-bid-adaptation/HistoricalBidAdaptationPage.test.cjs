@@ -200,6 +200,41 @@ test('正文迁移保护人工正文，明确确认后才允许覆盖', () => {
   assert.match(component, /确认覆盖并迁移/);
 });
 
+test('建立方案由 Main 自动启动，Renderer 不重复启动且提供未完成章节重试', () => {
+  const component = readFileSync(join(__dirname, 'components/AdaptationContentPage.tsx'), 'utf8');
+  const prepare = component.slice(component.indexOf('const preparePlan ='), component.indexOf('const resetStrategies ='));
+  assert.match(prepare, /prepareHistoricalAdaptationContentPlan/);
+  assert.doesNotMatch(prepare, /startHistoricalAdaptationContent/);
+  assert.match(component, /retryHistoricalAdaptationContent/);
+  assert.match(component, /重试未完成章节/);
+  assert.doesNotMatch(component, /执行待处理迁移|一键迁移待处理章节/);
+  assert.equal((component.match(/tasks\.startHistoricalAdaptationContent\(/g) || []).length, 1);
+});
+
+test('人工覆盖确认在任何策略写入前，恢复默认不启动覆盖迁移', () => {
+  const component = readFileSync(join(__dirname, 'components/AdaptationContentPage.tsx'), 'utf8');
+  const single = component.slice(component.indexOf('const migrateChapter ='), component.indexOf('const runConsistencyCheck ='));
+  assert.ok(single.indexOf("content_origin === 'manual'") < single.indexOf('saveHistoricalAdaptationContentStrategy'));
+  assert.match(single, /setPendingManualOverwrite\(migration\);\s*return;/);
+  const reset = component.slice(component.indexOf('const resetStrategies ='), component.indexOf('const migrateChapter ='));
+  assert.doesNotMatch(reset, /startHistoricalAdaptationContent|forceOverwriteManual/);
+});
+
+test('对比只使用按章节读取的不可变原文，缺来源禁用伪对比', () => {
+  const component = readFileSync(join(__dirname, 'components/AdaptationContentPage.tsx'), 'utf8');
+  assert.match(component, /getHistoricalAdaptationSourceSection\(\{ projectId, nodeId/);
+  assert.match(component, /compareRenderedContent/);
+  assert.doesNotMatch(component, /selectedItem\.source_excerpt|selectedItem\?\.source_excerpt/);
+  assert.match(component, /sourceSection\?\.available/);
+  assert.match(component, /disabled=\{!hasHistoricalSource\}/);
+});
+
+test('任务事件实际使用纯函数合并章节局部 patch', () => {
+  const page = readFileSync(pagePath, 'utf8');
+  assert.match(page, /applyHistoricalAdaptationContentPatch/);
+  assert.match(page, /applyHistoricalAdaptationContentPatch\(previous, event\)/);
+});
+
 test('历史适配正文支持选区或整章扩写缩写，普通正文页不启用入口', () => {
   const component = readFileSync(join(__dirname, 'components/AdaptationContentPage.tsx'), 'utf8');
   const menu = readFileSync(join(__dirname, '../technical-plan/components/ContentAiRewriteMenu.tsx'), 'utf8');

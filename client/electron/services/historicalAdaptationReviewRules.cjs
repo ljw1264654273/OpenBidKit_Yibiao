@@ -43,6 +43,8 @@ function reviewHistoricalAdaptationContent({ outline, contentItems, differences 
   const leaves = flattenLeaves(outline);
   const itemsById = new Map((contentItems || []).map((item) => [item.node_id, item]));
   const findings = [];
+  const rules = require('./historicalAdaptationRuleEngine.cjs').buildHistoricalAdaptationRules(differences);
+  const globalTerms = rules.filter((rule) => rule.policy === 'must-replace').flatMap((rule) => rule.oldValues);
 
   for (const node of leaves) {
     const nodeId = String(node.item.id || '');
@@ -58,7 +60,7 @@ function reviewHistoricalAdaptationContent({ outline, contentItems, differences 
       addFinding(findings, 'chapter-not-ready', 'P0', node, item.error || item.status, '章节迁移未完成', '环节五的章节迁移状态不是 success。');
     }
 
-    const blockedTerms = [...new Set([...(item?.blocked_terms || []), ...(item?.residuals || [])])]
+    const blockedTerms = [...new Set([...(item?.blocked_terms || []), ...(item?.residuals || []), ...globalTerms])]
       .filter((term) => String(term || '').trim())
       .filter((term) => content.includes(term));
     if (blockedTerms.length) {
@@ -71,11 +73,12 @@ function reviewHistoricalAdaptationContent({ outline, contentItems, differences 
       }
     }
 
-    for (const difference of differences || []) {
-      if (difference.category !== '删除内容' || difference.decision !== 'confirmed') continue;
-      const excerpt = normalizeEvidence(difference.historical_excerpt);
-      if (excerpt.length >= 3 && content.includes(excerpt)) {
-        addFinding(findings, 'deleted-content-residue', 'P0', node, excerpt, '删除内容仍出现在正文', `已确认删除的历史内容仍出现在本章：${excerpt}。`);
+    for (const rule of rules) {
+      if (rule.targetAction !== 'remove') continue;
+      for (const excerpt of rule.oldContentEvidence) {
+        if (content.includes(excerpt)) {
+          addFinding(findings, 'deleted-content-residue', 'P0', node, excerpt, '删除内容仍出现在正文', `已确认删除的历史内容仍出现在本章：${excerpt}。`);
+        }
       }
     }
 
@@ -103,7 +106,7 @@ function reviewHistoricalAdaptationContent({ outline, contentItems, differences 
     || left.chapter_path.localeCompare(right.chapter_path, 'zh-CN')
     || left.code.localeCompare(right.code)).map((finding) => {
     const previous = previousById.get(finding.id);
-    return previous ? {
+    return previous && finding.severity !== 'P0' ? {
       ...finding,
       resolution: previous.resolution || 'open',
       resolution_note: previous.resolution_note || '',

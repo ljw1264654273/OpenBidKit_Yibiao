@@ -45,10 +45,12 @@ test('workspace database lifecycle includes historical adaptation difference, ou
     'technical-plan:save-historical-adaptation-outline',
     'technical-plan:confirm-historical-adaptation-outline',
     'tasks:start-historical-adaptation-content',
+    'tasks:retry-historical-adaptation-content',
     'technical-plan:prepare-historical-adaptation-content-plan',
     'technical-plan:save-historical-adaptation-content-strategy',
     'technical-plan:reset-historical-adaptation-content-strategies',
     'technical-plan:get-historical-adaptation-content-readiness',
+    'technical-plan:get-historical-adaptation-source-section',
     'tasks:start-historical-adaptation-content-check',
     'technical-plan:save-historical-adaptation-chapter-content',
     'technical-plan:confirm-historical-adaptation-content-item',
@@ -59,5 +61,27 @@ test('workspace database lifecycle includes historical adaptation difference, ou
     'technical-plan:assert-historical-adaptation-export-allowed',
   ]) {
     assert.match(channelBlock, new RegExp(`['"]${channel}['"]`), channel);
+  }
+});
+
+test('historical adaptation prepare subscribes before launching and new commands forward payloads', () => {
+  const technicalPlanIpc = fs.readFileSync(path.join(__dirname, 'technicalPlanIpc.cjs'), 'utf8');
+  const taskIpc = fs.readFileSync(path.join(__dirname, 'taskIpc.cjs'), 'utf8');
+  assert.match(technicalPlanIpc, /handle\('technical-plan:prepare-historical-adaptation-content-plan', \(event, payload\) => \{\s*taskService.subscribe\(event.sender\);\s*return taskService.prepareHistoricalAdaptationContentPlan\(payload\);/);
+  assert.match(technicalPlanIpc, /handle\('technical-plan:get-historical-adaptation-source-section', .*resolveStore\(payload\).getHistoricalAdaptationSourceSection\(payload\)/);
+  assert.match(taskIpc, /handle\('tasks:retry-historical-adaptation-content', \(event, payload\) => \{\s*taskService.subscribe\(event.sender\);\s*return taskService.retryHistoricalAdaptationContent\(payload\);/);
+});
+
+test('preload and Renderer types expose historical adaptation source, retry and singleton events', () => {
+  const preload = fs.readFileSync(path.join(__dirname, '../preload.cjs'), 'utf8');
+  const types = fs.readFileSync(path.join(__dirname, '../../src/shared/types/ipc.ts'), 'utf8');
+  for (const method of ['getHistoricalAdaptationSourceSection', 'retryHistoricalAdaptationContent']) {
+    assert.match(preload, new RegExp(`${method}:`));
+    assert.match(types, new RegExp(`${method}:`));
+  }
+  for (const field of ['contentItemPatch', 'outlineContentPatch']) assert.match(types, new RegExp(`${field}\\?:`));
+  const featureTypes = fs.readFileSync(path.join(__dirname, '../../src/features/technical-plan/types.ts'), 'utf8');
+  for (const field of ['source_section_id', 'source_version_hash', 'source_content_hash', 'plan_id', 'error_code']) {
+    assert.match(featureTypes, new RegExp(`${field}\\??:`));
   }
 });

@@ -66,6 +66,21 @@ function runAssertions() {
     assert.equal(next.historicalAdaptationDifferenceConfirmedAt.length > 0, true);
     assert.equal(store.loadTechnicalPlan().historicalAdaptationDifferenceConfirmedAt, next.historicalAdaptationDifferenceConfirmedAt);
 
+    store.updateTechnicalPlan({
+      outlineData: { outline: [{ id: 'manual-node', title: '人工章节', content: '用户人工正文。' }] },
+      historicalAdaptationContentItems: [{
+        node_id: 'manual-node', source_path: '人工章节', status: 'success', content_origin: 'manual',
+        difference_ids: ['location'], source_excerpt: '历史正文', blocked_terms: [], residuals: [],
+      }],
+      historicalAdaptationContentConfirmedAt: '2026-10-01T10:00:00.000Z',
+    });
+    const savedWithManualContent = store.saveHistoricalAdaptationDifferences({
+      differences: [{ ...difference, note: '仅补充复核备注', decision: 'confirmed' }],
+    });
+    assert.equal(savedWithManualContent.outlineData.outline[0].content, '用户人工正文。');
+    assert.equal(savedWithManualContent.historicalAdaptationContentItems[0].content_origin, 'manual');
+    assert.equal(savedWithManualContent.historicalAdaptationContentItems[0].status, 'success');
+
     const legacyDifference = {
       id: 'legacy-location', category: '名称地点替换', priority: 'high', title: '替换项目地点',
       historical_location: '项目概况', historical_excerpt: '五峰村', tender_requirement: '横泾街道',

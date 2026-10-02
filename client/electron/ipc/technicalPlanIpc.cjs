@@ -54,10 +54,14 @@ function registerTechnicalPlanIpc({ technicalPlanStore, bidProjectManager, taskS
   ipcMain.handle('technical-plan:save-historical-adaptation-differences', (_event, payload) => taskService.saveHistoricalAdaptationDifferences(payload));
   ipcMain.handle('technical-plan:save-historical-adaptation-outline', (_event, payload) => taskService.saveHistoricalAdaptationOutline(payload));
   ipcMain.handle('technical-plan:confirm-historical-adaptation-outline', (_event, payload) => resolveStore(payload).confirmHistoricalAdaptationOutline());
-  ipcMain.handle('technical-plan:prepare-historical-adaptation-content-plan', (_event, payload) => taskService.prepareHistoricalAdaptationContentPlan(payload));
+  ipcMain.handle('technical-plan:prepare-historical-adaptation-content-plan', (event, payload) => {
+    taskService.subscribe(event.sender);
+    return taskService.prepareHistoricalAdaptationContentPlan(payload);
+  });
   ipcMain.handle('technical-plan:save-historical-adaptation-content-strategy', (_event, payload) => resolveStore(payload).saveHistoricalAdaptationContentStrategy(payload));
   ipcMain.handle('technical-plan:reset-historical-adaptation-content-strategies', (_event, payload) => resolveStore(payload).resetHistoricalAdaptationContentStrategies());
   ipcMain.handle('technical-plan:get-historical-adaptation-content-readiness', (_event, payload) => resolveStore(payload).getHistoricalAdaptationContentReadiness());
+  ipcMain.handle('technical-plan:get-historical-adaptation-source-section', (_event, payload) => resolveStore(payload).getHistoricalAdaptationSourceSection(payload));
   ipcMain.handle('technical-plan:save-historical-adaptation-chapter-content', (_event, payload) => resolveStore(payload).saveHistoricalAdaptationChapterContent(payload));
   ipcMain.handle('technical-plan:confirm-historical-adaptation-content-item', (_event, payload) => resolveStore(payload).confirmHistoricalAdaptationContentItem(payload));
   ipcMain.handle('technical-plan:confirm-historical-adaptation-content', (_event, payload) => resolveStore(payload).confirmHistoricalAdaptationContent());

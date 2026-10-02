@@ -40,8 +40,8 @@ function runAssertions() {
     database.close();
 
     database = createSqliteDatabase(app);
-    assert.equal(schemaVersion, 43);
-    assert.equal(database.db.pragma('user_version', { simple: true }), 43);
+    assert.equal(schemaVersion, 44);
+    assert.equal(database.db.pragma('user_version', { simple: true }), 44);
     for (const tableName of ['technical_plan_meta', projectMeta]) {
       const columns = new Set(database.db.prepare(`PRAGMA table_info(${quoteIdentifier(tableName)})`).all().map((row) => row.name));
       assert.equal(columns.has('historical_adaptation_original_outline_json'), true);

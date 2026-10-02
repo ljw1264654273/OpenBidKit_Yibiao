@@ -8,6 +8,15 @@ const {
 } = require('./historicalAdaptationDifferenceTask.cjs');
 const { getBidAnalysisTasks } = require('./bidAnalysisTask.cjs');
 
+test('旧版已忽略差异保留人工决定并清除不可执行的影响范围', () => {
+  const [difference] = normalizeHistoricalAdaptationDifferences([{
+    id: 'ignored-old-workload', title: '工作量更新', action: '更新工作量',
+    tender_requirement: '200宗', decision: 'ignored', content_change_scope: 'workload',
+  }]);
+  assert.equal(difference.decision, 'ignored');
+  assert.equal(difference.content_change_scope, 'none');
+});
+
 test('差异分析提示词限定五类处理动作并排除字数扩写删减', () => {
   const prompt = buildHistoricalAdaptationDifferencePrompt('项目概述：横泾街道不动产登记服务');
 
@@ -153,7 +162,7 @@ test('review contextual 始终清除正文自动局改范围', () => {
   }] });
 
   assert.equal(difference.content_change_scope, 'none');
-  assert.equal(difference.decision, 'confirmed');
+  assert.equal(difference.decision, 'pending');
 });
 
 test('remove 和 rewrite-fragment 始终清除正文自动局改范围', () => {

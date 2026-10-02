@@ -276,6 +276,11 @@ export type HistoricalAdaptationContentOrigin = 'migrated' | 'local-rewrite' | '
 
 export interface HistoricalAdaptationContentItem {
   node_id: string;
+  source_section_id?: string;
+  source_version_hash?: string;
+  source_content_hash?: string;
+  plan_id?: string;
+  error_code?: string;
   source_path: string;
   recommended_mode: HistoricalAdaptationContentMode | null;
   manual_mode?: HistoricalAdaptationContentMode;
@@ -295,8 +300,15 @@ export interface HistoricalAdaptationContentItem {
   error?: string;
 }
 
+export interface HistoricalAdaptationSourceSection {
+  content: string;
+  available: boolean;
+  sourceVersionHash?: string;
+  error?: string;
+}
+
 export type HistoricalAdaptationContentCheckStatus = 'idle' | 'running' | 'success' | 'stale' | 'error';
-export type HistoricalAdaptationContentCheckCategory = 'residual' | 'workload' | 'schedule' | 'cross-chapter' | 'placeholder' | 'empty' | 'task';
+export type HistoricalAdaptationContentCheckCategory = 'residual' | 'workload' | 'schedule' | 'service-content' | 'cross-chapter' | 'placeholder' | 'empty' | 'task';
 
 export interface HistoricalAdaptationContentCheckFinding {
   id: string;

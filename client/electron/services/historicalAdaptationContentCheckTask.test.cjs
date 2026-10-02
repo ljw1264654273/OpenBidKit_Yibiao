@@ -1,11 +1,106 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 
+test('确定性 blocker 阻断语义检查且重新扫描当前正文旧值', async () => {
+  const { runHistoricalAdaptationContentCheckTask } = require('./historicalAdaptationContentCheckTask.cjs');
+  let calls = 0;
+  const patches = [];
+  await runHistoricalAdaptationContentCheckTask({ aiService: { requestJson: async () => { calls++; return { findings: [] }; } },
+    workspaceStore: { getHistoricalAdaptationContentCheckContext: () => ({ contentHash: 'content', inputsHash: 'input',
+      outlineData: { outline: [{ id: '1', title: '章节', content: '五峰村。' }] },
+      items: [{ node_id: '1', status: 'success', residuals: [], blocked_terms: ['五峰村'] }] }) },
+    checkpointTask: (_task, patch) => patches.push(patch) });
+  assert.equal(calls, 0);
+  assert.ok(patches.at(-1).historicalAdaptationContentCheck.findings.some((finding) => finding.category === 'residual'));
+});
+
 const {
+  buildSemanticCheckPrompt,
   collectDeterministicFindings,
   normalizeHistoricalAdaptationContentFindings,
   runHistoricalAdaptationContentCheckTask,
 } = require('./historicalAdaptationContentCheckTask.cjs');
+
+test('真实来源不可用时阻断人工正文，无历史来源的人工补写不阻断', () => {
+  const context = {
+    outlineData: { outline: [{ id: '1', title: '章节', content: '人工正文' }] },
+    items: [{ node_id: '1', status: 'success', content_origin: 'manual', source_version_hash: 'version',
+      source_content_hash: 'hash', source_section_id: 'section' }],
+    sourceAvailability: [{ node_id: '1', available: false, error: '来源快照损坏' }],
+  };
+  const findings = collectDeterministicFindings(context);
+  assert.ok(findings.some((finding) => finding.code === 'source-stale' && finding.blocking && finding.node_ids[0] === '1'));
+  context.items[0] = { node_id: '1', status: 'success', content_origin: 'manual', source_version_hash: 'version' };
+  assert.equal(collectDeterministicFindings(context).length, 0);
+  context.items[0] = { node_id: '1', status: 'success', content_origin: 'ai-rewrite', manual_mode: 'rewrite', manual_instruction: '人工补写要求' };
+  assert.equal(collectDeterministicFindings(context).length, 0);
+});
+
+test('语义检查包含服务内容并接收对应发现', async () => {
+  assert.match(buildSemanticCheckPrompt({}), /服务内容/);
+  const patches = [];
+  await runHistoricalAdaptationContentCheckTask({
+    aiService: { requestJson: async () => ({ findings: [{ code: 'obsolete-service', category: 'service-content', severity: 'P0', blocking: true,
+      node_ids: ['1'], message: '保留了不适用的旧服务', evidence: '旧服务与当前基线不符' }] }) },
+    workspaceStore: { getHistoricalAdaptationContentCheckContext: () => ({ contentHash: 'c', inputsHash: 'i',
+      outlineData: { outline: [{ id: '1', title: '服务', content: '旧服务内容。' }] }, items: [{ node_id: '1', status: 'success' }] }) },
+    checkpointTask: (_task, patch) => patches.push(patch),
+  });
+  assert.equal(patches.at(-1).historicalAdaptationContentCheck.findings[0].category, 'service-content');
+});
+
+test('长正文分批检查并从各批事实证据保留跨章节冲突检查', async () => {
+  const calls = [];
+  const patches = [];
+  const outline = Array.from({ length: 6 }, (_, index) => ({ id: String(index + 1), title: `章节${index + 1}`, content: `唯一章${index + 1}：${'正文。'.repeat(4000)}` }));
+  await runHistoricalAdaptationContentCheckTask({
+    aiService: { requestJson: async (request) => {
+      calls.push(request);
+      return request.messages[0].content.includes('跨批次事实证据') ? { findings: [{
+        code: 'cross-batch', category: 'cross-chapter', severity: 'P0', blocking: true, node_ids: ['1', '6'], message: '跨批次事实冲突', evidence: '第一章100宗，第六章200宗',
+      }] } : { findings: [], fact_summary: `批次${calls.length}证据：第一章100宗/第六章200宗` };
+    } },
+    workspaceStore: { getHistoricalAdaptationContentCheckContext: () => ({ contentHash: 'c', inputsHash: 'i',
+      outlineData: { outline }, items: outline.map((node) => ({ node_id: node.id, status: 'success' })) }) },
+    checkpointTask: (_task, patch) => patches.push(patch),
+  });
+  assert.ok(calls.length > 2, 'long content must not be one oversized model request');
+  const globalCall = calls.at(-1).messages[0].content;
+  assert.match(globalCall, /跨批次事实证据/);
+  assert.match(globalCall, /批次1证据/);
+  assert.match(globalCall, new RegExp(`批次${calls.length - 1}证据`));
+  for (const node of outline) assert.ok(calls.slice(0, -1).some((request) => request.messages[0].content.includes(`唯一章${node.id}`)), 'every chapter is checked');
+  assert.ok(calls.slice(0, -1).every((request) => request.messages[0].content.length < 30000));
+  assert.equal(patches.at(-1).historicalAdaptationContentCheck.findings[0].code, 'cross-batch');
+});
+
+test('相同正文、输入和规则版本复用语义检查缓存', async () => {
+  let calls = 0;
+  const cached = { status: 'success', findings: [], checked_content_hash: 'content', checked_inputs_hash: 'inputs', rule_engine_version: 2 };
+  const patches = [];
+  await runHistoricalAdaptationContentCheckTask({
+    aiService: { requestJson: async () => { calls++; return { findings: [] }; } },
+    workspaceStore: { getHistoricalAdaptationContentCheckContext: () => ({
+      contentHash: 'content', inputsHash: 'inputs', check: cached,
+      outlineData: { outline: [{ id: '1', title: '章节', content: '正文' }] }, items: [{ node_id: '1', status: 'success' }],
+    }) }, checkpointTask: (_task, patch) => patches.push(patch),
+  });
+  assert.equal(calls, 0);
+  assert.equal(patches.at(-1).historicalAdaptationContentCheck.rule_engine_version, 2);
+});
+
+test('旧规则版本的检查缓存不得复用', async () => {
+  let calls = 0;
+  await runHistoricalAdaptationContentCheckTask({
+    aiService: { requestJson: async () => { calls++; return { findings: [] }; } },
+    workspaceStore: { getHistoricalAdaptationContentCheckContext: () => ({
+      contentHash: 'content', inputsHash: 'inputs',
+      check: { status: 'success', findings: [], checked_content_hash: 'content', checked_inputs_hash: 'inputs', rule_engine_version: 1 },
+      outlineData: { outline: [{ id: '1', title: '章节', content: '正文' }] }, items: [{ node_id: '1', status: 'success' }],
+    }) }, checkpointTask() {},
+  });
+  assert.equal(calls, 1);
+});
 
 test('确定性检查识别空正文、待复核状态、占位符和历史残留', () => {
   const findings = collectDeterministicFindings({
