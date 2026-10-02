@@ -16,8 +16,14 @@
 
 - Create `client/electron/services/historicalAdaptationRuleEngine.cjs`: 差异到结构化规则、证据与异常分布统计。
 - Create `client/electron/services/historicalAdaptationRuleEngine.test.cjs`: 五峰村真值、通用短语拒绝、服务内容分支。
+- Modify `client/electron/services/historicalAdaptationDifferenceTask.cjs`: 生成结构化 replacements、targetAction、证据类型和服务内容证据。
+- Modify `client/electron/services/historicalAdaptationDifferenceTask.test.cjs`: 差异契约、旧数据和确认边界测试。
+- Modify `client/src/features/historical-bid-adaptation/components/AdaptationDifferencePage.tsx`: 展示并允许用户确认正文动作与替换映射。
 - Create `client/electron/services/historicalSourceIndex.cjs`: 不可变源版本、路径感知 Markdown 索引、occurrence/range 定位。
 - Create `client/electron/services/historicalSourceIndex.test.cjs`: 同名标题、重复旧值、哈希与范围测试。
+- Create `client/electron/services/historicalSourceArchive.cjs`: 内容寻址源档案原子写入、读取和哈希校验。
+- Create `client/electron/services/historicalSourceArchive.test.cjs`: UTF-8、中文路径、去重和损坏检测。
+- Modify `client/electron/utils/paths.cjs`: 历史来源档案目录。
 - Create `client/electron/services/historicalAdaptationLocalEdit.cjs`: 确定性 replace/remove、授权片段 AI 编辑校验、原子范围应用。
 - Create `client/electron/services/historicalAdaptationLocalEdit.test.cjs`: 多 occurrence、整章编辑、小范围无关润色和保护事实测试。
 - Modify `client/electron/services/historicalAdaptationContentTask.cjs`: 只保留计划编排、Prompt 和 Runner；调用新模块。
@@ -41,10 +47,49 @@
 - Modify `client/src/features/historical-bid-adaptation/HistoricalBidAdaptationPage.test.cjs`: 页面行为回归。
 - Modify `client/src/styles/feature-historical-bid-adaptation.css`: 紧凑状态与对比样式。
 - Modify `client/scripts/historical_adaptation_ui_check.py`: 真实第五步交互和视觉回归。
+- Create `client/scripts/historical_adaptation_performance_check.cjs`: 固定 100 章性能、事件负载和 patch P95 阈值。
 
 ---
 
-### Task 1: 结构化规则引擎
+### Task 0: 差异确认结构化契约
+
+**Files:**
+- Modify: `client/electron/services/historicalAdaptationDifferenceTask.cjs`
+- Modify: `client/electron/services/historicalAdaptationDifferenceTask.test.cjs`
+- Modify: `client/electron/services/technicalPlanStore.cjs`
+- Modify: `client/electron/services/technicalPlanStore.historicalAdaptationDifferences.test.cjs`
+- Modify: `client/src/features/technical-plan/types.ts`
+- Modify: `client/src/features/historical-bid-adaptation/components/AdaptationDifferencePage.tsx`
+- Modify: `client/src/features/historical-bid-adaptation/HistoricalBidAdaptationPage.test.cjs`
+
+- [ ] **Step 1: 写差异契约失败测试**
+
+断言地点、工作量、工期差异生成结构化 `replacements`、`target_action`、`evidence_kind`、`confidence`；服务内容差异生成完整 `old_content_evidence` 和明确动作。用户确认前可修正正文影响范围、旧值、新值和动作；缺少结构化字段不能确认。
+
+- [ ] **Step 2: 运行测试确认失败**
+
+Run: `cd client; node --test electron/services/historicalAdaptationDifferenceTask.test.cjs electron/services/technicalPlanStore.historicalAdaptationDifferences.test.cjs src/features/historical-bid-adaptation/HistoricalBidAdaptationPage.test.cjs`
+Expected: FAIL，当前差异只有自然语言字段。
+
+- [ ] **Step 3: 实现差异 schema v2 与一次性升级**
+
+生成并持久化 `difference_schema_version=2`。旧数据只从完整、可证明字段升级；无法证明的 mapping/action 保持待确认，不再在读取时推断 `content_change_scope`。确认后的差异必须携带可执行结构或明确 `contextual-review`。
+
+- [ ] **Step 4: 实现第三步确认 UI**
+
+复用现有紧凑表单，展示旧值、新值、目标动作、正文影响范围和证据；只在用户输入层校验，不在 Renderer/Main 内部重复堆叠校验。
+
+- [ ] **Step 5: 运行测试并提交**
+
+Run: `cd client; node --check electron/services/historicalAdaptationDifferenceTask.cjs; node --test electron/services/historicalAdaptationDifferenceTask.test.cjs electron/services/technicalPlanStore.historicalAdaptationDifferences.test.cjs src/features/historical-bid-adaptation/HistoricalBidAdaptationPage.test.cjs`
+Expected: PASS。
+
+```powershell
+git add client/electron/services/historicalAdaptationDifferenceTask.cjs client/electron/services/historicalAdaptationDifferenceTask.test.cjs client/electron/services/technicalPlanStore.cjs client/electron/services/technicalPlanStore.historicalAdaptationDifferences.test.cjs client/src/features/technical-plan/types.ts client/src/features/historical-bid-adaptation
+git commit -m "feat: structure historical adaptation differences"
+```
+
+### Task 1: 结构化语义规则引擎
 
 **Files:**
 - Create: `client/electron/services/historicalAdaptationRuleEngine.cjs`
@@ -53,7 +98,7 @@
 
 - [ ] **Step 1: 写失败测试**
 
-固定夹具包含：11 个正文含“五峰村”的节点、只含“开展农村/展农村/村辖区”的无关节点、工作量和工期节点。断言规则只产生完整 `replacements`/`authorizedRanges`，无关节点为 `direct`，同一精确 `must-replace` 可命中多个节点。
+固定夹具包含：11 个正文含“五峰村”的节点、只含“开展农村/展农村/村辖区”的无关节点、工作量和工期节点。断言语义规则只消费差异 v2 的完整 `replacements`/动作/证据，不重新解析自然语言；无关节点为 `direct`，同一精确 `must-replace` 可命中多个节点。另断言低置信规则超过 30%/50% 会产生阻断摘要，精确高置信 `must-replace` 高覆盖只产生预览、不阻断。
 
 - [ ] **Step 2: 运行测试确认失败**
 
@@ -62,7 +107,7 @@ Expected: FAIL，模块不存在或当前宽泛后缀仍误命中。
 
 - [ ] **Step 3: 实现最小规则引擎**
 
-导出 `buildHistoricalAdaptationRules()`、`matchRulesToSection()`、`summarizeRuleDistribution()`；删除 `residualTermsFromDifference()` 的后缀枚举。只从完整历史值、结构化目标值和锁定服务内容证据生成规则。
+导出 `buildHistoricalAdaptationRules()` 和 `summarizeRuleDistribution()`；删除 `residualTermsFromDifference()` 的后缀枚举。该任务只生成不含 source offset 的语义规则草案；最终章节绑定和 `authorizedRanges` 在 Task 2 基于来源索引生成。
 
 - [ ] **Step 4: 运行测试确认通过**
 
@@ -81,30 +126,33 @@ git commit -m "fix: replace fuzzy historical migration matching"
 **Files:**
 - Create: `client/electron/services/historicalSourceIndex.cjs`
 - Create: `client/electron/services/historicalSourceIndex.test.cjs`
+- Create: `client/electron/services/historicalSourceArchive.cjs`
+- Create: `client/electron/services/historicalSourceArchive.test.cjs`
+- Modify: `client/electron/utils/paths.cjs`
 - Modify: `client/electron/services/historicalAdaptationContentTask.cjs`
 
 - [ ] **Step 1: 写失败测试**
 
-覆盖完整目录路径、标题层级、同名标题 occurrence、章节 offset/hash、同章多次“五峰村”range，以及歧义来源返回 review。
+覆盖完整目录路径、标题层级、同名标题 occurrence、章节 offset/hash、同章多次“五峰村”range、语义规则到最终 `authorizedRanges` 的绑定，以及歧义来源返回 review。档案测试覆盖 Windows 中文临时目录、UTF-8、哈希去重、原子写入、相对路径和损坏检测。
 
 - [ ] **Step 2: 运行测试确认失败**
 
-Run: `cd client; node --test electron/services/historicalSourceIndex.test.cjs`
+Run: `cd client; node --test electron/services/historicalSourceIndex.test.cjs electron/services/historicalSourceArchive.test.cjs`
 Expected: FAIL。
 
 - [ ] **Step 3: 实现索引与内容寻址源版本**
 
-导出 `buildHistoricalSourceIndex()`、`locateHistoricalSection()`、`findAllValueRanges()`；把 `findHistoricalSection()` 的逐章全文扫描替换为一次索引查询。源版本文件由 Store 在 Task 4 接入，当前模块只处理文本和哈希。
+导出 `buildHistoricalSourceIndex()`、`locateHistoricalSection()`、`findAllValueRanges()` 和 `bindRulesToSourceRanges()`；把 `findHistoricalSection()` 的逐章全文扫描替换为一次索引查询。源档案写入 `userData/workspace/technical-plan/historical-source-versions/<sha256>.md`，使用同目录临时文件后原子 rename，显式 UTF-8；SQLite 只保存相对路径、源哈希和引用元数据。只保留仍被项目/迁移计划引用的版本，不在普通方案更新中删除档案；清理由独立引用扫描执行。
 
 - [ ] **Step 4: 运行定向测试**
 
-Run: `cd client; node --test electron/services/historicalSourceIndex.test.cjs electron/services/historicalAdaptationContentTask.test.cjs`
+Run: `cd client; node --test electron/services/historicalSourceIndex.test.cjs electron/services/historicalSourceArchive.test.cjs electron/services/historicalAdaptationContentTask.test.cjs`
 Expected: PASS。
 
 - [ ] **Step 5: 提交**
 
 ```powershell
-git add client/electron/services/historicalSourceIndex.cjs client/electron/services/historicalSourceIndex.test.cjs client/electron/services/historicalAdaptationContentTask.cjs
+git add client/electron/services/historicalSourceIndex.cjs client/electron/services/historicalSourceIndex.test.cjs client/electron/services/historicalSourceArchive.cjs client/electron/services/historicalSourceArchive.test.cjs client/electron/utils/paths.cjs client/electron/services/historicalAdaptationContentTask.cjs
 git commit -m "perf: index historical source sections once"
 ```
 
@@ -213,7 +261,7 @@ git commit -m "refactor: persist historical plans by chapter"
 
 - [ ] **Step 1: 写任务失败测试**
 
-断言“建立/更新”先生成计划再自动启动；排除人工正文和 stale 人工 rewrite；计划中断后 direct 与可重试 local-rewrite 可按 `plan_id + node_id + plan_inputs_hash` 幂等重试；成功章不重复执行。
+断言“建立/更新”先生成计划再自动启动；排除人工正文和 stale 人工 rewrite；计划中断后 direct 与可重试 local-rewrite 可按 `plan_id + node_id + plan_inputs_hash` 幂等重试；成功章不重复执行。低置信规则超过 30%/50% 时必须在第一个正文 checkpoint 前阻断，正文哈希保持不变；精确高置信 must-replace 高覆盖时显示预览但继续执行。
 
 - [ ] **Step 2: 运行测试确认失败**
 
@@ -363,7 +411,7 @@ Expected: FAIL 新交互断言。
 
 - [ ] **Step 4: 运行页面测试和 UI 脚本**
 
-Run: `cd client; node --test src/features/historical-bid-adaptation/HistoricalBidAdaptationPage.test.cjs; python -X utf8 scripts/historical_adaptation_ui_check.py`
+先在持久终端 A 运行 `cd client; npm run dev` 并等待 Vite 与 Electron 就绪；再在终端 B 运行：`cd client; node --test src/features/historical-bid-adaptation/HistoricalBidAdaptationPage.test.cjs; python -X utf8 scripts/historical_adaptation_ui_check.py`。
 Expected: PASS，生成桌面和窄屏截图。
 
 - [ ] **Step 5: 提交**
@@ -377,45 +425,43 @@ git commit -m "feat: streamline historical content migration UI"
 
 **Files:**
 - Create: `client/scripts/verify_historical_adaptation_project.cjs`
+- Create: `client/scripts/historical_adaptation_performance_check.cjs`
 - Modify: relevant tests only if the real fixture reveals a missing documented case
 
 - [ ] **Step 1: 编写只读真实项目验证脚本**
 
-脚本读取指定项目，输出逐章期望/实际 mode、规则证据、五峰村来源节点、误匹配通用短语节点、人工正文哈希和事件负载；默认不写数据库。
+脚本要求显式传入 `--database <absolute-path> --project-id <id> --output <baseline.json>`，输出逐章期望/实际 mode、规则证据、五峰村来源节点、误匹配通用短语节点和人工正文哈希；默认只读数据库，不提供写入开关。
 
 - [ ] **Step 2: 运行只读验证并保存基线**
 
-Run: `cd client; node --no-warnings --experimental-sqlite scripts/verify_historical_adaptation_project.cjs`
-Expected: 方案分布可解释；无通用短语误匹配；列出所有必须迁移的五峰村节点。
+Run: `cd client; node --no-warnings --experimental-sqlite scripts/verify_historical_adaptation_project.cjs --database "C:\Users\admin\AppData\Roaming\yibiao-client\workspace\yibiao.sqlite" --project-id "dace08dc-a85f-46a2-95bd-a9c97b7d82a8" --output "scripts/.historical-adaptation-before.json"`
+Expected: 退出 0；无通用短语误匹配；保存所有必须迁移的五峰村节点和人工正文哈希基线。脚本中的数据库和项目参数在实际运行前通过只读项目列表重新核对，不把本机路径提交到仓库。
 
 - [ ] **Step 3: 备份并执行应用内受控恢复**
 
-启动最新客户端，通过新“一键建立/更新”运行；确认数据库自动备份、人工正文哈希不变、旧自动结果按新计划重迁。不得用脚本绕过 Store 直接改业务数据。
+保持 Task 10 的开发服务运行，通过新“一键建立/更新”执行应用内恢复；确认数据库自动备份、旧自动结果按新计划重迁。不得用脚本绕过 Store 直接改业务数据。迁移结束后再次运行验证脚本并传入 `--baseline scripts/.historical-adaptation-before.json --output scripts/.historical-adaptation-after.json`，机器断言“五峰村”残留为零、通用短语误匹配为零、全部人工正文哈希不变；任一不满足则退出非零。
 
 - [ ] **Step 4: 运行完整验证**
 
 ```powershell
 cd client
 node --test electron/services/historicalAdaptationRuleEngine.test.cjs electron/services/historicalSourceIndex.test.cjs electron/services/historicalAdaptationLocalEdit.test.cjs electron/services/historicalAdaptationContentTask.test.cjs electron/services/historicalAdaptationContentCheckTask.test.cjs electron/services/historicalAdaptationReviewRules.test.cjs electron/services/sqliteDatabase.historicalAdaptationContentMigration.test.cjs electron/services/technicalPlanStore.historicalAdaptationContent.test.cjs electron/services/technicalPlanStore.historicalAdaptationReview.test.cjs electron/services/taskService.historicalAdaptation.test.cjs electron/ipc/index.workspaceDatabaseChannels.test.cjs src/features/historical-bid-adaptation/contentComparison.test.ts src/features/historical-bid-adaptation/HistoricalBidAdaptationPage.test.cjs
-node --check electron/preload.cjs
-node --check electron/services/historicalAdaptationRuleEngine.cjs
-node --check electron/services/historicalSourceIndex.cjs
-node --check electron/services/historicalAdaptationLocalEdit.cjs
-node --check electron/services/historicalAdaptationContentTask.cjs
-node --check electron/services/technicalPlanStore.cjs
+$changedCjs = git -C .. diff --name-only 9ea56c8..HEAD -- 'client/**/*.cjs'
+foreach ($file in $changedCjs) { $clientPath = $file -replace '^client/', ''; node --check $clientPath; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } }
+node scripts/historical_adaptation_performance_check.cjs
 npm run smoke:electron-native
 npm run build
 ```
 
-Expected: 全部退出 0；构建仅允许既有 chunk 警告。
+Expected: 全部退出 0；性能脚本使用固定 100 章/约 120,000 字符夹具，断言来源只解析一次、checkpoint payload 均不超过 64 KiB、Renderer patch 合并 P95 不超过 16 ms，超限退出非零；构建仅允许既有 chunk 警告。
 
 - [ ] **Step 5: 运行 UI 验收并提交**
 
-Run: `cd client; python -X utf8 scripts/historical_adaptation_ui_check.py`
+保持 `npm run dev` 会话运行，在另一终端执行：`cd client; python -X utf8 scripts/historical_adaptation_ui_check.py`
 Expected: 一键迁移、三种方式、人工保护、真实红绿对比、重试、检查和统一确认全部通过。
 
 ```powershell
-git add client/scripts/verify_historical_adaptation_project.cjs
+git add client/scripts/verify_historical_adaptation_project.cjs client/scripts/historical_adaptation_performance_check.cjs
 git commit -m "test: add historical migration project verification"
 ```
 
