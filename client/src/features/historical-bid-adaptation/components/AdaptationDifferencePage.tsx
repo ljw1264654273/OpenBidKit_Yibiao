@@ -4,6 +4,7 @@ import type {
   HistoricalAdaptationContentChangeScope,
   HistoricalAdaptationDifference,
   HistoricalAdaptationDifferenceCategory,
+  HistoricalAdaptationTargetAction,
   TechnicalPlanState,
 } from '../../technical-plan/types';
 import { AppDialog, ProgressBar, useToast } from '../../../shared/ui';
@@ -23,6 +24,30 @@ const contentChangeScopeLabels: Record<HistoricalAdaptationContentChangeScope, s
   schedule: '工期 / 进度局改',
   none: '不自动改写',
 };
+
+const targetActionLabels: Record<HistoricalAdaptationTargetAction, string> = {
+  replace: '确定替换',
+  remove: '删除旧内容',
+  'rewrite-fragment': '局部重写',
+  review: '仅人工复核',
+};
+
+function getDifferenceConfirmationError(item: HistoricalAdaptationDifference): string {
+  if (item.difference_schema_version !== 2) return '该差异缺少 v2 结构化契约，请先重新分析或补全字段。';
+  const replacements = item.replacements || [];
+  if (item.target_action === 'replace'
+    && !replacements.some((replacement) => replacement.old_value.trim() && replacement.new_value.trim())) {
+    return '确定替换必须填写至少一组完整的旧值和新值。';
+  }
+  if ((item.target_action === 'remove' || item.target_action === 'rewrite-fragment')
+    && !(item.old_content_evidence || []).some((evidence) => evidence.trim())) {
+    return '删除或局部重写必须保留完整的旧内容证据。';
+  }
+  if (item.target_action === 'review' && item.evidence_kind !== 'contextual') {
+    return '人工复核差异必须使用 contextual 证据类型。';
+  }
+  return '';
+}
 
 type DifferenceFilter = 'all' | 'pending' | HistoricalAdaptationDifferenceCategory;
 
@@ -91,6 +116,13 @@ function AdaptationDifferencePage({ projectId, project, state, onStateChange, on
       ...draft,
       decision: decision || draft.decision,
     } : item);
+    if (decision === 'confirmed') {
+      const validationError = getDifferenceConfirmationError(nextDifferences.find((item) => item.id === id)!);
+      if (validationError) {
+        showToast(validationError, 'error');
+        return;
+      }
+    }
     setSavingId(id);
     try {
       const nextState = await window.yibiao.technicalPlan.saveHistoricalAdaptationDifferences({ projectId, differences: nextDifferences });
@@ -113,11 +145,20 @@ function AdaptationDifferencePage({ projectId, project, state, onStateChange, on
 
   const confirmAllPending = async () => {
     if (!pendingCount) return;
+    const nextDifferences = buildBulkConfirmedDifferences(differences, drafts);
+    const validationError = nextDifferences
+      .filter((item) => item.decision === 'confirmed' && differences.find((original) => original.id === item.id)?.decision === 'pending')
+      .map(getDifferenceConfirmationError)
+      .find(Boolean);
+    if (validationError) {
+      showToast(validationError, 'error');
+      return;
+    }
     setBulkSaving(true);
     try {
       const nextState = await window.yibiao.technicalPlan.saveHistoricalAdaptationDifferences({
         projectId,
-        differences: buildBulkConfirmedDifferences(differences, drafts),
+        differences: nextDifferences,
       });
       onStateChange(nextState);
       setRecentlyConfirmedId('');
@@ -191,6 +232,7 @@ function AdaptationDifferencePage({ projectId, project, state, onStateChange, on
             {!filtered.length ? <div className="historical-adaptation-difference-no-result">当前筛选下没有差异项</div> : null}
             {filtered.map((item, index) => {
               const draft = drafts[item.id] || item;
+              const replacements = draft.replacements || [];
               const saving = savingId === item.id;
               return (
                 <article className={`historical-adaptation-difference-item is-${item.decision}`} key={item.id}>
@@ -209,6 +251,8 @@ function AdaptationDifferencePage({ projectId, project, state, onStateChange, on
                   <div className="historical-adaptation-difference-evidence">
                     <div><span>历史标书现状</span><p>{item.historical_excerpt || '未提供摘录'}</p></div>
                     <div><span>招标基线要求</span><p>{item.tender_requirement}</p></div>
+                    <div><span>证据类型 / 置信度</span><p>{item.evidence_kind || 'contextual'} / {item.confidence || 'low'}</p></div>
+                    <div><span>旧内容证据</span><p>{(item.old_content_evidence || []).join('；') || '未提供完整旧内容证据'}</p></div>
                   </div>
 
                   <div className="historical-adaptation-difference-editor">
@@ -217,9 +261,34 @@ function AdaptationDifferencePage({ projectId, project, state, onStateChange, on
                         {categories.map((category) => <option value={category} key={category}>{category}</option>)}
                       </select>
                     </label>
+                    <label>正文影响范围
+                      <select value={draft.content_change_scope} disabled={running || mutationPending} onChange={(event) => updateDraft(item.id, { content_change_scope: event.target.value as HistoricalAdaptationContentChangeScope })}>
+                        {Object.entries(contentChangeScopeLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}
+                      </select>
+                    </label>
+                    <label>目标动作
+                      <select value={draft.target_action || 'review'} disabled={running || mutationPending} onChange={(event) => updateDraft(item.id, { target_action: event.target.value as HistoricalAdaptationTargetAction })}>
+                        {Object.entries(targetActionLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}
+                      </select>
+                    </label>
                     <label>处理要求
                       <textarea value={draft.action} disabled={running || mutationPending} onChange={(event) => updateDraft(item.id, { action: event.target.value })} rows={3} />
                     </label>
+                    <div className="historical-adaptation-difference-replacements">
+                      <span>旧值 / 新值</span>
+                      {replacements.map((replacement, replacementIndex) => (
+                        <div key={`${item.id}-replacement-${replacementIndex}`}>
+                          <input aria-label={`旧值 ${replacementIndex + 1}`} value={replacement.old_value} disabled={running || mutationPending} onChange={(event) => updateDraft(item.id, {
+                            replacements: replacements.map((current, index) => index === replacementIndex ? { ...current, old_value: event.target.value } : current),
+                          })} placeholder="旧值" />
+                          <input aria-label={`新值 ${replacementIndex + 1}`} value={replacement.new_value} disabled={running || mutationPending} onChange={(event) => updateDraft(item.id, {
+                            replacements: replacements.map((current, index) => index === replacementIndex ? { ...current, new_value: event.target.value } : current),
+                          })} placeholder="新值" />
+                          <button type="button" className="text-button" disabled={running || mutationPending} onClick={() => updateDraft(item.id, { replacements: replacements.filter((_, index) => index !== replacementIndex) })}>删除映射</button>
+                        </div>
+                      ))}
+                      <button type="button" className="text-button" disabled={running || mutationPending} onClick={() => updateDraft(item.id, { replacements: [...(draft.replacements || []), { old_value: '', new_value: '' }] })}>添加替换映射</button>
+                    </div>
                     <label>确认备注
                       <input value={draft.note} disabled={running || mutationPending} onChange={(event) => updateDraft(item.id, { note: event.target.value })} placeholder="可选：记录人工判断依据" />
                     </label>

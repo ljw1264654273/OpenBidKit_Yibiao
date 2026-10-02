@@ -155,10 +155,7 @@ const taskFieldTypes = {
 const taskTypeFields = Object.fromEntries(Object.entries(taskFieldTypes).map(([field, type]) => [type, field]));
 
 function readHistoricalAdaptationDifferences(value) {
-  return normalizeHistoricalAdaptationDifferences(safeJsonParse(value, []), [], {
-    inferLegacyScopes: true,
-    inferLegacyAllNoneScopes: true,
-  });
+  return normalizeHistoricalAdaptationDifferences(safeJsonParse(value, []));
 }
 
 const originalPlanDownstreamTaskTypes = Object.freeze([

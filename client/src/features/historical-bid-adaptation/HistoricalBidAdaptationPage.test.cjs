@@ -94,6 +94,14 @@ test('差异确认页面支持类型筛选编辑及逐项处理', () => {
   assert.match(component, /开始差异分析/);
   assert.match(component, /确认此项/);
   assert.match(component, /无需处理/);
+  for (const label of ['正文影响范围', '目标动作', '旧值', '新值', '证据类型', '置信度', '旧内容证据', '添加替换映射']) {
+    assert.match(component, new RegExp(label));
+  }
+  assert.match(component, /content_change_scope/);
+  assert.match(component, /target_action/);
+  assert.match(component, /replacements\.map/);
+  assert.match(component, /getDifferenceConfirmationError/);
+  assert.match(component, /showToast\(validationError, 'error'\)/);
 });
 
 test('差异确认页面明确展示单项确认状态并支持批量确认待确认项', () => {

@@ -36,7 +36,13 @@ function runAssertions() {
       action: '全文替换并检查村级表述',
       note: '',
       decision: 'pending',
-      content_change_scope: 'none',
+      content_change_scope: 'location-target',
+      difference_schema_version: 2,
+      replacements: [{ old_value: '五峰村', new_value: '横泾街道' }],
+      target_action: 'replace',
+      evidence_kind: 'exact-value',
+      confidence: 'high',
+      old_content_evidence: ['五峰村'],
     };
 
     store.updateTechnicalPlan({
@@ -44,35 +50,36 @@ function runAssertions() {
       historicalAdaptationDifferenceConfirmedAt: null,
     });
     assert.deepEqual(store.loadTechnicalPlan().historicalAdaptationDifferences, [difference]);
+    assert.deepEqual(store.loadTechnicalPlan().historicalAdaptationDifferences[0].replacements, difference.replacements);
+    assert.equal(store.loadTechnicalPlan().historicalAdaptationDifferences[0].target_action, 'replace');
+    assert.equal(store.loadTechnicalPlan().historicalAdaptationDifferences[0].evidence_kind, 'exact-value');
+    assert.equal(store.loadTechnicalPlan().historicalAdaptationDifferences[0].confidence, 'high');
+    assert.deepEqual(store.loadTechnicalPlan().historicalAdaptationDifferences[0].old_content_evidence, ['五峰村']);
     assert.equal(store.loadTechnicalPlan().historicalAdaptationDifferenceConfirmedAt, undefined);
 
     const next = store.saveHistoricalAdaptationDifferences({
       differences: [{ ...difference, note: '人工复核完成', decision: 'confirmed' }],
     });
     assert.equal(next.historicalAdaptationDifferences[0].decision, 'confirmed');
+    assert.deepEqual(next.historicalAdaptationDifferences[0].replacements, difference.replacements);
+    assert.equal(next.historicalAdaptationDifferences[0].difference_schema_version, 2);
     assert.equal(next.historicalAdaptationDifferenceConfirmedAt.length > 0, true);
     assert.equal(store.loadTechnicalPlan().historicalAdaptationDifferenceConfirmedAt, next.historicalAdaptationDifferenceConfirmedAt);
 
-    const legacyDifference = { ...difference, id: 'legacy-location', decision: 'confirmed' };
-    delete legacyDifference.content_change_scope;
+    const legacyDifference = {
+      id: 'legacy-location', category: '名称地点替换', priority: 'high', title: '替换项目地点',
+      historical_location: '项目概况', historical_excerpt: '五峰村', tender_requirement: '横泾街道',
+      action: '全文替换并检查村级表述', note: '', decision: 'confirmed',
+    };
     database.db.prepare('UPDATE technical_plan_meta SET historical_adaptation_differences_json = ?')
       .run(JSON.stringify([legacyDifference]));
-    assert.equal(store.loadTechnicalPlan().historicalAdaptationDifferences[0].content_change_scope, 'location-target');
-
-    const legacyAllNone = [
-      { ...difference, id: 'legacy-location-none', decision: 'confirmed', content_change_scope: 'none' },
-      {
-        ...difference, id: 'legacy-workload-none', category: '数据更新', title: '工作量由965宗更新为3082宗',
-        historical_excerpt: '工作量约965宗', tender_requirement: '工作量约3082宗', action: '更新工作量',
-        decision: 'confirmed', content_change_scope: 'none',
-      },
-    ];
-    database.db.prepare('UPDATE technical_plan_meta SET historical_adaptation_differences_json = ?')
-      .run(JSON.stringify(legacyAllNone));
-    assert.deepEqual(store.loadTechnicalPlan().historicalAdaptationDifferences.map((item) => item.content_change_scope), [
-      'location-target',
-      'workload',
-    ]);
+    const [legacy] = store.loadTechnicalPlan().historicalAdaptationDifferences;
+    assert.equal(legacy.content_change_scope, 'none');
+    assert.equal(legacy.decision, 'pending');
+    assert.equal(legacy.target_action, 'review');
+    assert.equal(legacy.evidence_kind, 'contextual');
+    assert.equal(legacy.confidence, 'low');
+    assert.deepEqual(legacy.replacements, []);
   } finally {
     database?.close();
     fs.rmSync(userDataPath, { recursive: true, force: true });

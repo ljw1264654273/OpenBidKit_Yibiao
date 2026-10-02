@@ -229,6 +229,14 @@ export type BidAnalysisTasks = Record<string, BidAnalysisTaskState>;
 export type HistoricalAdaptationDifferenceCategory = '删除内容' | '名称地点替换' | '数据更新' | '工期进度更新' | '其他人工判断';
 export type HistoricalAdaptationDifferenceDecision = 'pending' | 'confirmed' | 'ignored';
 export type HistoricalAdaptationContentChangeScope = 'location-target' | 'workload' | 'schedule' | 'none';
+export type HistoricalAdaptationTargetAction = 'replace' | 'remove' | 'rewrite-fragment' | 'review';
+export type HistoricalAdaptationEvidenceKind = 'exact-value' | 'locked-range' | 'contextual';
+export type HistoricalAdaptationConfidence = 'high' | 'medium' | 'low';
+
+export interface HistoricalAdaptationReplacement {
+  old_value: string;
+  new_value: string;
+}
 
 export interface HistoricalAdaptationDifference {
   id: string;
@@ -242,6 +250,12 @@ export interface HistoricalAdaptationDifference {
   note: string;
   decision: HistoricalAdaptationDifferenceDecision;
   content_change_scope: HistoricalAdaptationContentChangeScope;
+  difference_schema_version?: 2;
+  replacements?: HistoricalAdaptationReplacement[];
+  target_action?: HistoricalAdaptationTargetAction;
+  evidence_kind?: HistoricalAdaptationEvidenceKind;
+  confidence?: HistoricalAdaptationConfidence;
+  old_content_evidence?: string[];
 }
 
 export type HistoricalAdaptationOutlineChangeType = 'renamed' | 'updated' | 'added' | 'moved' | 'deleted';

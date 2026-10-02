@@ -21,6 +21,96 @@ test('差异分析提示词限定五类处理动作并排除字数扩写删减',
   assert.match(prompt, /workload/);
   assert.match(prompt, /schedule/);
   assert.match(prompt, /content_change_scope/);
+  assert.match(prompt, /difference_schema_version/);
+  assert.match(prompt, /replacements/);
+  assert.match(prompt, /target_action/);
+  assert.match(prompt, /evidence_kind/);
+  assert.match(prompt, /confidence/);
+  assert.match(prompt, /old_content_evidence/);
+});
+
+test('地点、工作量和工期差异保留 schema v2 的确定性替换契约', () => {
+  const cases = [
+    ['location', '名称地点替换', 'location-target', '五峰村', '横泾街道'],
+    ['workload', '数据更新', 'workload', '965宗', '3082宗'],
+    ['schedule', '工期进度更新', 'schedule', '30日', '45日'],
+  ];
+  const differences = cases.map(([id, category, scope, oldValue, newValue]) => ({
+    id,
+    category,
+    priority: 'high',
+    title: `${oldValue}调整为${newValue}`,
+    historical_location: '项目概况',
+    historical_excerpt: oldValue,
+    tender_requirement: newValue,
+    action: `将${oldValue}替换为${newValue}`,
+    decision: 'pending',
+    content_change_scope: scope,
+    difference_schema_version: 2,
+    replacements: [{ old_value: oldValue, new_value: newValue }],
+    target_action: 'replace',
+    evidence_kind: 'exact-value',
+    confidence: 'high',
+    old_content_evidence: [oldValue],
+  }));
+
+  const normalized = normalizeHistoricalAdaptationDifferences({ differences });
+
+  assert.deepEqual(normalized.map((item) => ({
+    id: item.id,
+    version: item.difference_schema_version,
+    scope: item.content_change_scope,
+    replacements: item.replacements,
+    action: item.target_action,
+    evidence: item.evidence_kind,
+    confidence: item.confidence,
+  })), cases.map(([id, , scope, oldValue, newValue]) => ({
+    id,
+    version: 2,
+    scope,
+    replacements: [{ old_value: oldValue, new_value: newValue }],
+    action: 'replace',
+    evidence: 'exact-value',
+    confidence: 'high',
+  })));
+});
+
+test('服务内容差异保留完整旧内容证据和明确目标动作', () => {
+  const [difference] = normalizeHistoricalAdaptationDifferences({ differences: [{
+    id: 'service-content',
+    category: '删除内容',
+    priority: 'high',
+    title: '删除登记发证服务',
+    historical_location: '第四章 服务内容',
+    historical_excerpt: '完成数据建库、登记发证及成果移交。',
+    tender_requirement: '新招标范围不包含登记发证服务。',
+    action: '删除登记发证事项及其明确从属内容。',
+    decision: 'pending',
+    content_change_scope: 'none',
+    difference_schema_version: 2,
+    replacements: [],
+    target_action: 'remove',
+    evidence_kind: 'locked-range',
+    confidence: 'high',
+    old_content_evidence: ['登记发证', '完成数据建库、登记发证及成果移交。'],
+  }] });
+
+  assert.equal(difference.target_action, 'remove');
+  assert.equal(difference.evidence_kind, 'locked-range');
+  assert.deepEqual(difference.old_content_evidence, ['登记发证', '完成数据建库、登记发证及成果移交。']);
+});
+
+test('v2 可执行差异缺少结构化映射时不能保持已确认', () => {
+  const [difference] = normalizeHistoricalAdaptationDifferences({ differences: [{
+    id: 'incomplete-replace', category: '名称地点替换', priority: 'high', title: '地点替换',
+    historical_location: '项目概况', historical_excerpt: '五峰村', tender_requirement: '横泾街道',
+    action: '替换地点', decision: 'confirmed', content_change_scope: 'location-target',
+    difference_schema_version: 2, replacements: [], target_action: 'replace',
+    evidence_kind: 'exact-value', confidence: 'high', old_content_evidence: ['五峰村'],
+  }] });
+
+  assert.equal(difference.decision, 'pending');
+  assert.equal(difference.content_change_scope, 'location-target');
 });
 
 test('差异结果严格归一化自动局改范围且忽略项不触发局改', () => {
@@ -30,26 +120,36 @@ test('差异结果严格归一化自动局改范围且忽略项不触发局改',
         id: 'location', category: '名称地点替换', priority: 'high', title: '调整实施地点',
         historical_location: '全文', historical_excerpt: '五峰村', tender_requirement: '横泾街道',
         action: '替换地点和实施对象。', content_change_scope: 'location-target', decision: 'confirmed',
+        difference_schema_version: 2, replacements: [{ old_value: '五峰村', new_value: '横泾街道' }],
+        target_action: 'replace', evidence_kind: 'exact-value', confidence: 'high', old_content_evidence: ['五峰村'],
       },
       {
         id: 'workload', category: '数据更新', priority: 'medium', title: '调整工作量',
         historical_location: '第二章', historical_excerpt: '100 宗', tender_requirement: '200 宗',
         action: '按新工作量调整。', content_change_scope: 'workload', decision: 'confirmed',
+        difference_schema_version: 2, replacements: [{ old_value: '100 宗', new_value: '200 宗' }],
+        target_action: 'replace', evidence_kind: 'exact-value', confidence: 'high', old_content_evidence: ['100 宗'],
       },
       {
         id: 'schedule', category: '工期进度更新', priority: 'medium', title: '调整进度',
         historical_location: '进度章节', historical_excerpt: '30 日', tender_requirement: '45 日',
         action: '重新编排工期。', content_change_scope: 'schedule', decision: 'ignored',
+        difference_schema_version: 2, replacements: [{ old_value: '30 日', new_value: '45 日' }],
+        target_action: 'replace', evidence_kind: 'exact-value', confidence: 'high', old_content_evidence: ['30 日'],
       },
       {
         id: 'invalid', category: '数据更新', priority: 'low', title: '更新人员数量',
         historical_location: '人员章节', historical_excerpt: '5 人', tender_requirement: '8 人',
         action: '更新人员。', content_change_scope: 'people', decision: 'confirmed',
+        difference_schema_version: 2, replacements: [{ old_value: '5 人', new_value: '8 人' }],
+        target_action: 'replace', evidence_kind: 'exact-value', confidence: 'high', old_content_evidence: ['5 人'],
       },
       {
         id: 'legacy', category: '其他人工判断', priority: 'low', title: '人工判断',
         historical_location: '其他', historical_excerpt: '旧内容', tender_requirement: '新要求',
         action: '人工处理。', decision: 'confirmed',
+        difference_schema_version: 2, replacements: [], target_action: 'review',
+        evidence_kind: 'contextual', confidence: 'low', old_content_evidence: ['旧内容'],
       },
     ],
   });
@@ -63,7 +163,7 @@ test('差异结果严格归一化自动局改范围且忽略项不触发局改',
   ]);
 });
 
-test('仅对持久化旧记录中真正缺失的 scope 做保守推断', () => {
+test('旧记录缺少结构化契约时保持待确认且不从自然语言推断可执行范围', () => {
   const base = {
     category: '名称地点替换', priority: 'high', historical_location: '项目概况',
     historical_excerpt: '五峰村', tender_requirement: '横泾街道', action: '替换地点', decision: 'confirmed',
@@ -81,55 +181,17 @@ test('仅对持久化旧记录中真正缺失的 scope 做保守推断', () => {
     { ...base, id: 'equipment', category: '数据更新', title: '设备数量调整', historical_excerpt: '2台设备', tender_requirement: '3台设备', action: '增加设备' },
     { ...base, id: 'pending', title: '地点调整', decision: 'pending' },
     { ...base, id: 'ignored', title: '地点调整', decision: 'ignored' },
-  ], [], { inferLegacyScopes: true });
-
-  assert.deepEqual(normalized.map((item) => [item.id, item.content_change_scope]), [
-    ['legacy-location', 'location-target'],
-    ['legacy-workload', 'workload'],
-    ['legacy-schedule', 'schedule'],
-    ['explicit-none', 'none'],
-    ['explicit-null', 'none'],
-    ['explicit-empty', 'none'],
-    ['explicit-invalid', 'none'],
-    ['project-name', 'none'],
-    ['staff', 'none'],
-    ['equipment', 'none'],
-    ['pending', 'none'],
-    ['ignored', 'none'],
-  ]);
-});
-
-test('仅整批旧记录都被归一化成 none 时兼容推断明确范围', () => {
-  const location = {
-    id: 'legacy-location', category: '名称地点替换', priority: 'high', title: '服务主体由五峰村调整为横泾街道',
-    historical_location: '项目概况', historical_excerpt: '五峰村需开展农村不动产登记工作', tender_requirement: '横泾街道开展登记服务',
-    action: '将实施地点调整为横泾街道', decision: 'confirmed', content_change_scope: 'none',
-  };
-  const workload = {
-    ...location, id: 'legacy-workload', category: '数据更新', title: '工作量由965宗更新为3082宗',
-    historical_excerpt: '工作量约965宗', tender_requirement: '工作量约3082宗', action: '更新工作量',
-  };
-  const personnel = {
-    ...location, id: 'personnel', category: '数据更新', title: '人员配备调整',
-    historical_excerpt: '配置10人', tender_requirement: '配置12人', action: '人工核对人员配置',
-  };
-  const options = { inferLegacyScopes: true, inferLegacyAllNoneScopes: true };
-
-  const legacyBatch = normalizeHistoricalAdaptationDifferences([location, workload, personnel], [], options);
-  assert.deepEqual(legacyBatch.map((item) => [item.id, item.content_change_scope]), [
-    ['legacy-location', 'location-target'],
-    ['legacy-workload', 'workload'],
-    ['personnel', 'none'],
   ]);
 
-  const mixedBatch = normalizeHistoricalAdaptationDifferences([
-    location,
-    { ...workload, content_change_scope: 'workload' },
-  ], [], options);
-  assert.deepEqual(mixedBatch.map((item) => [item.id, item.content_change_scope]), [
-    ['legacy-location', 'none'],
-    ['legacy-workload', 'workload'],
-  ]);
+  for (const item of normalized.filter((difference) => difference.id !== 'ignored')) {
+    assert.equal(item.decision, 'pending', item.id);
+    assert.equal(item.content_change_scope, 'none', item.id);
+    assert.equal(item.target_action, 'review', item.id);
+    assert.equal(item.evidence_kind, 'contextual', item.id);
+    assert.equal(item.confidence, 'low', item.id);
+    assert.deepEqual(item.replacements, [], item.id);
+  }
+  assert.equal(normalized.find((item) => item.id === 'ignored')?.decision, 'ignored');
 });
 
 test('差异结果过滤纯字数建议并保留同标识的人工确认', () => {
@@ -145,6 +207,12 @@ test('差异结果过滤纯字数建议并保留同标识的人工确认', () =>
     note: '已核对招标文件',
     decision: 'confirmed',
     content_change_scope: 'location-target',
+    difference_schema_version: 2,
+    replacements: [{ old_value: '五峰村', new_value: '横泾街道' }],
+    target_action: 'replace',
+    evidence_kind: 'exact-value',
+    confidence: 'high',
+    old_content_evidence: ['五峰村'],
   }];
   const normalized = normalizeHistoricalAdaptationDifferences({
     differences: [
