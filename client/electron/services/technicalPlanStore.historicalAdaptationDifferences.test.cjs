@@ -58,6 +58,21 @@ function runAssertions() {
     database.db.prepare('UPDATE technical_plan_meta SET historical_adaptation_differences_json = ?')
       .run(JSON.stringify([legacyDifference]));
     assert.equal(store.loadTechnicalPlan().historicalAdaptationDifferences[0].content_change_scope, 'location-target');
+
+    const legacyAllNone = [
+      { ...difference, id: 'legacy-location-none', decision: 'confirmed', content_change_scope: 'none' },
+      {
+        ...difference, id: 'legacy-workload-none', category: '数据更新', title: '工作量由965宗更新为3082宗',
+        historical_excerpt: '工作量约965宗', tender_requirement: '工作量约3082宗', action: '更新工作量',
+        decision: 'confirmed', content_change_scope: 'none',
+      },
+    ];
+    database.db.prepare('UPDATE technical_plan_meta SET historical_adaptation_differences_json = ?')
+      .run(JSON.stringify(legacyAllNone));
+    assert.deepEqual(store.loadTechnicalPlan().historicalAdaptationDifferences.map((item) => item.content_change_scope), [
+      'location-target',
+      'workload',
+    ]);
   } finally {
     database?.close();
     fs.rmSync(userDataPath, { recursive: true, force: true });

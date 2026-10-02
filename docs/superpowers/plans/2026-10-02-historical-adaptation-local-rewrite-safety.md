@@ -8,6 +8,8 @@
 
 **Tech Stack:** Electron CommonJS services, Node.js test runner, existing `aiService` JSON normalizer/validator/repair APIs.
 
+**Legacy correction:** Production data inspection showed that the previous release normalized every missing model scope to an explicit `none` before its first persistence. Persisted reads therefore also recognize the narrow legacy signature where the entire valid difference batch is explicit `none`, then apply the same conservative classifier. Mixed-scope batches and ordinary runtime/write normalization still preserve explicit `none`.
+
 ---
 
 ### Task 1: Backfill only genuinely legacy difference scopes

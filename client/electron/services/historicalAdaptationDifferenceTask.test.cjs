@@ -99,6 +99,39 @@ test('仅对持久化旧记录中真正缺失的 scope 做保守推断', () => {
   ]);
 });
 
+test('仅整批旧记录都被归一化成 none 时兼容推断明确范围', () => {
+  const location = {
+    id: 'legacy-location', category: '名称地点替换', priority: 'high', title: '服务主体由五峰村调整为横泾街道',
+    historical_location: '项目概况', historical_excerpt: '五峰村需开展农村不动产登记工作', tender_requirement: '横泾街道开展登记服务',
+    action: '将实施地点调整为横泾街道', decision: 'confirmed', content_change_scope: 'none',
+  };
+  const workload = {
+    ...location, id: 'legacy-workload', category: '数据更新', title: '工作量由965宗更新为3082宗',
+    historical_excerpt: '工作量约965宗', tender_requirement: '工作量约3082宗', action: '更新工作量',
+  };
+  const personnel = {
+    ...location, id: 'personnel', category: '数据更新', title: '人员配备调整',
+    historical_excerpt: '配置10人', tender_requirement: '配置12人', action: '人工核对人员配置',
+  };
+  const options = { inferLegacyScopes: true, inferLegacyAllNoneScopes: true };
+
+  const legacyBatch = normalizeHistoricalAdaptationDifferences([location, workload, personnel], [], options);
+  assert.deepEqual(legacyBatch.map((item) => [item.id, item.content_change_scope]), [
+    ['legacy-location', 'location-target'],
+    ['legacy-workload', 'workload'],
+    ['personnel', 'none'],
+  ]);
+
+  const mixedBatch = normalizeHistoricalAdaptationDifferences([
+    location,
+    { ...workload, content_change_scope: 'workload' },
+  ], [], options);
+  assert.deepEqual(mixedBatch.map((item) => [item.id, item.content_change_scope]), [
+    ['legacy-location', 'none'],
+    ['legacy-workload', 'workload'],
+  ]);
+});
+
 test('差异结果过滤纯字数建议并保留同标识的人工确认', () => {
   const previous = [{
     id: 'stable-id',

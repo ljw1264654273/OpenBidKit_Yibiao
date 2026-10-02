@@ -54,6 +54,12 @@ function inferLegacyContentChangeScope(difference) {
 
 function normalizeHistoricalAdaptationDifferences(value, previousDifferences = [], options = {}) {
   const source = Array.isArray(value) ? value : value?.differences;
+  const legacyScopeRows = (Array.isArray(source) ? source : [])
+    .filter((item) => item && typeof item === 'object' && !isWordCountOnlyDifference(item));
+  const inferLegacyAllNoneScopes = options.inferLegacyAllNoneScopes === true
+    && legacyScopeRows.length > 0
+    && legacyScopeRows.every((item) => Object.prototype.hasOwnProperty.call(item, 'content_change_scope')
+      && text(item.content_change_scope) === 'none');
   const previousById = new Map((Array.isArray(previousDifferences) ? previousDifferences : [])
     .map((item) => [text(item?.id), item]));
   const seen = new Set();
@@ -62,6 +68,8 @@ function normalizeHistoricalAdaptationDifferences(value, previousDifferences = [
   for (const raw of Array.isArray(source) ? source : []) {
     if (!raw || typeof raw !== 'object' || isWordCountOnlyDifference(raw)) continue;
     const hasExplicitScope = Object.prototype.hasOwnProperty.call(raw, 'content_change_scope');
+    const shouldInferLegacyScope = (!hasExplicitScope && options.inferLegacyScopes === true)
+      || (inferLegacyAllNoneScopes && text(raw.content_change_scope) === 'none');
     const item = {
       id: text(raw.id),
       category: DIFFERENCE_CATEGORIES.includes(text(raw.category)) ? text(raw.category) : '其他人工判断',
@@ -73,9 +81,9 @@ function normalizeHistoricalAdaptationDifferences(value, previousDifferences = [
       action: text(raw.action),
       note: text(raw.note),
       decision: DIFFERENCE_DECISIONS.has(text(raw.decision)) ? text(raw.decision) : 'pending',
-      content_change_scope: CONTENT_CHANGE_SCOPES.has(text(raw.content_change_scope))
+      content_change_scope: !shouldInferLegacyScope && CONTENT_CHANGE_SCOPES.has(text(raw.content_change_scope))
         ? text(raw.content_change_scope)
-        : !hasExplicitScope && options.inferLegacyScopes === true
+        : shouldInferLegacyScope
           ? inferLegacyContentChangeScope(raw)
           : 'none',
     };

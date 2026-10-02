@@ -178,6 +178,21 @@ test('历史残留扫描识别旧地点并忽略已替换内容', () => {
   assert.deepEqual(scanHistoricalResiduals('服务地点为横泾街道。', item), []);
 });
 
+test('长差异摘录仍提取具体旧地点而不吞并后续村级表述', () => {
+  const state = baseState();
+  state.historicalAdaptationDifferences[0] = {
+    ...state.historicalAdaptationDifferences[0],
+    historical_excerpt: '“五峰村需开展农村不动产登记颁证工作”“五峰村开展农房不动产测绘和登记颁证”“在五峰村村级公告栏张贴领证公告”',
+  };
+  const [item] = buildHistoricalContentItems({
+    state,
+    originalPlan: '# 项目概况\n完成登记后，五峰村农民可以依法办理产权流转。',
+  });
+
+  assert.equal(item.blocked_terms.includes('五峰村'), true);
+  assert.deepEqual(scanHistoricalResiduals('完成登记后，五峰村农民可以依法办理产权流转。', item), ['五峰村']);
+});
+
 test('迁移对比保留超过五千字的完整历史来源及尾部表格', () => {
   const content = '常态化响应机制。'.repeat(700) + '\n\n<table><tr><td>尾部工作量120户</td></tr></table>';
   const items = buildHistoricalContentItems({ state: baseState(), originalPlan: `# 服务保障\n${content}` });
