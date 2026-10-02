@@ -115,8 +115,19 @@ type HistoricalAdaptationRule = {
   differenceId: string;
   scope: 'service-content' | 'location-target' | 'workload' | 'schedule';
   policy: 'must-replace' | 'contextual-review';
+  evidenceKind: 'exact-value' | 'locked-range' | 'contextual';
+  confidence: 'high' | 'medium' | 'low';
   oldValues: string[];
   oldContentEvidence?: string[];
+  replacements: Array<{ oldValue: string; newValue: string }>;
+  authorizedRanges: Array<{
+    sourceVersionHash: string;
+    sectionId: string;
+    startOffset: number;
+    endOffset: number;
+    contentHash: string;
+    occurrence: number;
+  }>;
   targetAction: 'replace' | 'remove' | 'rewrite-fragment' | 'review';
   targetRequirement: string;
   evidence: string;
@@ -127,17 +138,21 @@ type HistoricalAdaptationRule = {
 
 - `oldValues` 必须来自明确的历史项目名称、地点、对象、工作量、日期或完整旧服务事项名称，不允许用任意中文后缀、通用短语或分词残片代替。
 - 服务内容差异必须额外保存 `oldContentEvidence`：来自历史招标/标书的完整服务事项标题、完整业务短语或可定位段落摘要。只有差异确认阶段明确认定旧事项应删除或替换时，才生成可自动执行的规则。
+- `replacements` 是确定性 `oldValue -> newValue` 映射；`replace` 没有完整映射时不得执行。
+- `authorizedRanges` 绑定不可变源版本、章节、起止 offset、内容哈希和 occurrence；`remove` 或 `rewrite-fragment` 没有通过哈希校验的授权范围时不得执行。
+- `evidenceKind` 和 `confidence` 由规则生成阶段写入，运行时不得从 `evidence` 自然语言重新推断。
 - `targetAction` 明确是替换、删除、局部重写还是仅复核。系统不能从自然语言备注中临时猜测动作。
 - `targetRequirement` 必须来自当前招标基线或用户确认的差异处理要求。
 - `must-replace` 用于能够确定旧值不得保留的事实，例如“五峰村”。
 - `contextual-review` 用于语义上可能需要删除或重写、但缺少可安全执行边界的服务内容差异；它只把章节标记为 `review`，不能自动触发 AI。
 - 规则没有可靠旧值或目标要求时，不自动局部改写，进入待人工处理。
 
-章节与规则的关联只允许以下证据：
+章节与规则的关联按动作使用以下必要证据，而不是三者任选其一：
 
-1. 当前章节的来源正文包含完整、规范化后的 `oldValues`。
-2. 已确认差异明确绑定到该完整目录路径。
-3. 服务内容规则的证据覆盖该章节主题，且命中 `oldContentEvidence` 中的完整服务事项、完整业务短语或唯一段落，不是短后缀。
+1. `replace`：当前章节必须包含完整旧值，并在建方案时锁定全部 occurrence/range；目录路径只能加强定位，不能单独触发局改。
+2. `remove`：必须存在通过源版本和内容哈希校验的 `authorizedRanges`；目录路径或标题相似不能替代锁定范围。
+3. `rewrite-fragment`：必须同时存在锁定范围、完整服务内容证据和明确目标要求。
+4. `review`：可以只有上下文或目录证据，但不得进入自动执行。
 
 仅上级目录关联、标题相似、通用词命中或来源摘要中的短片段均不能触发局部改写。
 
@@ -156,12 +171,12 @@ type HistoricalAdaptationRule = {
 三种方式的行为：
 
 - `direct`：完整复制已锁定的历史来源正文，不调用 AI。
-- `local-rewrite`：只处理该章已关联规则。`replace` 由 Main 根据明确旧值和目标值构造确定性替换，不调用 AI；`remove` 只删除差异确认阶段锁定的证据范围；只有 `rewrite-fragment` 可以调用 AI，且输入和输出都限定在显式授权范围内。所有编辑必须在来源快照中唯一命中，并通过局部性与事实保护校验；应用后还必须通过对应 `must-replace` 或服务内容动作的成功判据；任一校验失败则整章不提交。
+- `local-rewrite`：只处理该章已关联规则。`replace` 由 Main 根据 `replacements` 和方案中锁定的全部 occurrence/range 构造确定性范围编辑，不调用 AI；`remove` 只删除 `authorizedRanges`；只有 `rewrite-fragment` 可以调用 AI，且输入和输出都限定在显式授权范围内。所有范围在来源快照中通过 offset、occurrence 和内容哈希校验后，使用 `applyRangeEdits()` 一次性应用；应用后还必须通过局部性、事实保护和动作成功判据；任一校验失败则整章不提交。
 - `rewrite`：只有用户选择并填写要求后执行。可结合历史正文、当前招标基线和人工要求整章生成；无历史来源时承担补充生成职责。
 
 局部改写不得修改未关联事实，不得顺带优化表达、扩写、缩写或重排章节。Main 在应用编辑前执行以下确定性局部性校验：
 
-- 每个 edit 的 `old_text` 必须覆盖至少一条关联规则的完整 `oldValues` 或 `oldContentEvidence`，不能只命中相邻通用文字。
+- 每个 edit 的锁定范围必须覆盖至少一条关联规则的完整 `oldValues` 或 `oldContentEvidence`，不能只命中相邻通用文字。同一旧值在一章出现多次时，方案必须枚举全部 occurrence/range 并原子替换，不要求字符串全章唯一。
 - 拒绝以整章原文作为单个 `old_text`，也拒绝编辑覆盖比例超过可配置上限；默认单个 edit 不超过来源正文的 20%，全部 edits 合计不超过 35%。服务内容删除若确需超过上限，必须在差异确认时保存明确的段落范围证据，而不是由模型自行扩大范围。
 - 提取并保护未关联的人员数量、设备数量、金额、百分比、日期、项目名称和地点等事实 token；编辑前后这些 token 必须保持一致，只有关联规则明确允许改变的 token 可以变化。
 - 编辑不得跨越 Markdown 标题、表格、图片、代码块或 Mermaid 保护边界。
@@ -319,7 +334,7 @@ Main 提供统一的 `getHistoricalAdaptationReadiness()`，供环节五确认�
 - 人工正文不进入自动恢复目标。
 - 检查任务中断后状态为 error，旧检查快照不可作为有效门禁。
 
-页面提供“重试未完成章节”，复用原 `plan_id`。目标只允许该计划中已有可执行 `local-rewrite`，且失败类型为模型临时错误、`invalid-edit-structure`、`old-text-not-found`、`old-text-ambiguous` 或 `no-effective-change` 的节点，以及尚未开始但已有自动推荐方式的节点；`success`、`contextual-review`、无 mode、人工 `rewrite`、人工正文、`source-stale`、`non-local-edit`、`protected-fact-changed` 和 `residual-old-value` 均不自动重试。重试前逐章重新校验计划版本、来源哈希、规则哈希和既有输出指纹：仍一致才执行，不一致则转为 `stale` 并要求重新建立方案。“重新建立/更新迁移方案”会生成新计划并重新计算目标，与重试旧计划严格区分。重复提交同一重试命令按 `plan_id + node_id + output_fingerprint` 幂等处理。
+页面提供“重试未完成章节”，复用原 `plan_id`。目标允许：因 checkpoint/存储/进程中断而未成功且仍匹配原计划的可执行 `direct`；已有可执行 `local-rewrite` 且失败类型为模型临时错误、`invalid-edit-structure`、`old-text-not-found`、`old-text-ambiguous` 或 `no-effective-change` 的节点；以及尚未开始但已有自动推荐方式的节点。`success`、`contextual-review`、无 mode、人工 `rewrite`、人工正文、`source-stale`、`non-local-edit`、`protected-fact-changed` 和 `residual-old-value` 均不自动重试。重试前逐章重新校验计划版本、来源哈希、规则哈希和计划输入指纹：仍一致才执行，不一致则转为 `stale` 并要求重新建立方案。“重新建立/更新迁移方案”会生成新计划并重新计算目标，与重试旧计划严格区分。运行记录以 `plan_id + node_id + plan_inputs_hash` 为唯一幂等键；`migration_output_hash` 只用于成功结果复用，不作为未开始或失败节点的幂等键。
 
 局部改写错误分类至少包括：
 
@@ -347,7 +362,7 @@ Main 提供统一的 `getHistoricalAdaptationReadiness()`，供环节五确认�
 7. 运行确定性检查，重点确认“五峰村”、旧行政层级、工作量和日期残留为零。
 8. 运行语义一致性检查，通过后再开放阶段确认。
 
-若新方案统计异常，任务在执行正文前自动阻断并提示检查规则，避免再次批量写入错误结果。默认阈值为：使用低置信或上下文证据的单条规则命中超过全部可靠来源章节的 30%，或这类规则造成的 `local-rewrite` 超过可靠来源章节的 50%。精确完整旧值驱动的全局 `must-replace` 不受覆盖率阈值阻断，即使“五峰村”真实出现在多数章节也必须全部处理；系统改为展示命中预览和数量。阈值命中只阻断低置信规则的自动执行，必须回到差异规则修正后重建方案。
+若新方案统计异常，任务在执行正文前自动阻断并提示检查规则，避免再次批量写入错误结果。参与阈值统计的仅是 `evidenceKind=contextual` 或 `confidence=low` 的可执行规则：单条规则命中超过全部可靠来源章节的 30%，或它们造成的 `local-rewrite` 超过可靠来源章节的 50% 时阻断。`contextual-review` 本身不执行，但计入待人工统计。`evidenceKind=exact-value`、`confidence=high` 且由完整旧值驱动的全局 `must-replace` 不受覆盖率阈值阻断，即使“五峰村”真实出现在多数章节也必须全部处理；系统改为展示命中预览和数量。阈值命中只阻断低置信规则的自动执行，必须回到差异规则修正后重建方案。
 
 ## 16. 分批实施
 
@@ -419,7 +434,7 @@ Main 提供统一的 `getHistoricalAdaptationReadiness()`，供环节五确认�
 ## 18. 验证计划
 
 - 规则单元测试：旧值规范化、精确命中、通用短语拒绝、服务内容规则和多规则关联。建立固定真值夹具，明确包含“五峰村”的预期节点集合、只包含“开展农村”“展农村”“村辖区”的非命中节点集合和每个节点的预期 mode，断言无额外 `local-rewrite`。
-- 迁移单元测试：直接迁移、确定性 replace、锁定范围 remove、局部编辑原子性、整章 edit 拒绝、编辑比例上限、小范围无关措辞改写拒绝、未授权事实保护、残留阻断、人工定向改写和人工正文保护。
+- 迁移单元测试：直接迁移、确定性 replace、同章多次出现“五峰村”全部范围原子替换、锁定范围 remove、局部编辑原子性、整章 edit 拒绝、编辑比例上限、小范围无关措辞改写拒绝、未授权事实保护、残留阻断、人工定向改写和人工正文保护。
 - Store/migration 测试：版本升级、逐章表、输入指纹、局部失效、任务恢复和增量 checkpoint。
 - 对比测试：插入、删除、替换、中文标点、Markdown 表格、图片、代码块和 Mermaid。
 - 流程测试：一键建立并迁移、单章迁移、恢复默认、检查、统一确认、终审和导出门禁。
