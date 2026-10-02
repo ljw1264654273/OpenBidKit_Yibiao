@@ -122,7 +122,9 @@ test('拒绝非法动作与证据组合，并接受合法 v2 组合', () => {
   };
   const invalid = normalizeHistoricalAdaptationDifferences({ differences: [
     { ...base, id: 'remove-exact', target_action: 'remove', evidence_kind: 'exact-value', old_content_evidence: ['旧事项'] },
+    { ...base, id: 'remove-mapped', target_action: 'remove', evidence_kind: 'locked-range', old_content_evidence: ['旧事项'], replacements: [{ old_value: '旧', new_value: '新' }] },
     { ...base, id: 'rewrite-contextual', target_action: 'rewrite-fragment', evidence_kind: 'contextual', old_content_evidence: ['旧事项'] },
+    { ...base, id: 'rewrite-mapped', target_action: 'rewrite-fragment', evidence_kind: 'locked-range', old_content_evidence: ['旧事项'], replacements: [{ old_value: '旧', new_value: '新' }] },
     { ...base, id: 'replace-empty', target_action: 'replace', evidence_kind: 'exact-value', replacements: [] },
     { ...base, id: 'review-mapped', target_action: 'review', evidence_kind: 'contextual', replacements: [{ old_value: '旧', new_value: '新' }], confidence: 'low' },
     { ...base, id: 'review-high', target_action: 'review', evidence_kind: 'contextual', replacements: [], confidence: 'high' },

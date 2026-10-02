@@ -50,23 +50,24 @@ function getDifferenceConfirmationError(item: HistoricalAdaptationDifference): s
   if (item.difference_schema_version !== 2) return '该差异缺少 v2 结构化契约，请先重新分析或补全字段。';
   const replacements = item.replacements || [];
   if (item.target_action === 'replace') {
-    if (item.evidence_kind !== 'exact-value') return '确定替换必须使用 exact-value 证据类型。';
+    if (item.evidence_kind !== 'exact-value') return '确定替换必须使用“精确值”证据类型。';
     if (!replacements.some((replacement) => replacement.old_value.trim() && replacement.new_value.trim())) {
       return '确定替换必须填写至少一组完整的旧值和新值。';
     }
   }
   if (item.target_action === 'remove' || item.target_action === 'rewrite-fragment') {
-    if (item.evidence_kind !== 'locked-range') return '删除或局部重写必须使用 locked-range 证据类型。';
+    if (replacements.length > 0) return '删除或局部重写不能携带可执行替换映射。';
+    if (item.evidence_kind !== 'locked-range') return '删除或局部重写必须使用“锁定范围”证据类型。';
     if (!(item.old_content_evidence || []).some((evidence) => evidence.trim())) {
       return '删除或局部重写必须保留完整的旧内容证据。';
     }
   }
   if (item.target_action === 'review') {
     const isContextualEvidence = item.evidence_kind === 'contextual';
-    if (!isContextualEvidence) return '人工复核差异必须使用 contextual 证据类型。';
+    if (!isContextualEvidence) return '人工复核差异必须使用“上下文复核”证据类型。';
     if (item.content_change_scope !== 'none') return '人工复核差异的正文影响范围必须为“不自动改写”。';
     if (replacements.length > 0) return '人工复核差异不能携带可执行替换映射。';
-    if (item.confidence === 'high') return 'contextual 证据不能标记为高置信度。';
+    if (item.confidence === 'high') return '上下文复核证据不能标记为高置信度。';
   }
   return '';
 }
@@ -163,6 +164,12 @@ function AdaptationDifferencePage({ projectId, project, state, onStateChange, on
       ...previous,
       [id]: { ...(previous[id] || differences.find((item) => item.id === id)!), ...patch },
     }));
+  };
+
+  const changeTargetAction = (id: string, target_action: HistoricalAdaptationTargetAction) => {
+    updateDraft(id, target_action === 'replace'
+      ? { target_action }
+      : { target_action, content_change_scope: 'none', replacements: [] });
   };
 
   const confirmAllPending = async () => {
@@ -289,7 +296,7 @@ function AdaptationDifferencePage({ projectId, project, state, onStateChange, on
                       </select>
                     </label>
                     <label>目标动作
-                      <select value={draft.target_action || 'review'} disabled={running || mutationPending} onChange={(event) => updateDraft(item.id, { target_action: event.target.value as HistoricalAdaptationTargetAction })}>
+                      <select value={draft.target_action || 'review'} disabled={running || mutationPending} onChange={(event) => changeTargetAction(item.id, event.target.value as HistoricalAdaptationTargetAction)}>
                         {Object.entries(targetActionLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}
                       </select>
                     </label>

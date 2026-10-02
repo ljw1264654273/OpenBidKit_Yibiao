@@ -115,6 +115,11 @@ test('差异确认页面按动作要求匹配证据类型并禁止 review 映射
   assert.match(component, /draft\.evidence_kind/);
   assert.match(component, /draft\.confidence/);
   assert.match(component, /evidence_kind === 'contextual'[\s\S]*content_change_scope !== 'none'/);
+  assert.match(component, /const changeTargetAction = \(id: string, target_action: HistoricalAdaptationTargetAction\)[\s\S]*content_change_scope: 'none'[\s\S]*replacements: \[\]/);
+  assert.match(component, /确定替换必须使用“精确值”证据类型/);
+  assert.match(component, /删除或局部重写必须使用“锁定范围”证据类型/);
+  assert.match(component, /人工复核差异必须使用“上下文复核”证据类型/);
+  assert.doesNotMatch(component, /必须使用 exact-value|必须使用 locked-range|必须使用 contextual/);
 });
 
 test('差异确认页面明确展示单项确认状态并支持批量确认待确认项', () => {
