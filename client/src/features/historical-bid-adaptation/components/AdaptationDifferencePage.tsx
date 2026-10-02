@@ -4,6 +4,8 @@ import type {
   HistoricalAdaptationContentChangeScope,
   HistoricalAdaptationDifference,
   HistoricalAdaptationDifferenceCategory,
+  HistoricalAdaptationEvidenceKind,
+  HistoricalAdaptationConfidence,
   HistoricalAdaptationTargetAction,
   TechnicalPlanState,
 } from '../../technical-plan/types';
@@ -32,6 +34,18 @@ const targetActionLabels: Record<HistoricalAdaptationTargetAction, string> = {
   review: '仅人工复核',
 };
 
+const evidenceKindLabels: Record<HistoricalAdaptationEvidenceKind, string> = {
+  'exact-value': '精确值',
+  'locked-range': '锁定范围',
+  contextual: '上下文复核',
+};
+
+const confidenceLabels: Record<HistoricalAdaptationConfidence, string> = {
+  high: '高',
+  medium: '中',
+  low: '低',
+};
+
 function getDifferenceConfirmationError(item: HistoricalAdaptationDifference): string {
   if (item.difference_schema_version !== 2) return '该差异缺少 v2 结构化契约，请先重新分析或补全字段。';
   const replacements = item.replacements || [];
@@ -48,7 +62,9 @@ function getDifferenceConfirmationError(item: HistoricalAdaptationDifference): s
     }
   }
   if (item.target_action === 'review') {
-    if (item.evidence_kind !== 'contextual') return '人工复核差异必须使用 contextual 证据类型。';
+    const isContextualEvidence = item.evidence_kind === 'contextual';
+    if (!isContextualEvidence) return '人工复核差异必须使用 contextual 证据类型。';
+    if (item.content_change_scope !== 'none') return '人工复核差异的正文影响范围必须为“不自动改写”。';
     if (replacements.length > 0) return '人工复核差异不能携带可执行替换映射。';
     if (item.confidence === 'high') return 'contextual 证据不能标记为高置信度。';
   }
@@ -275,6 +291,16 @@ function AdaptationDifferencePage({ projectId, project, state, onStateChange, on
                     <label>目标动作
                       <select value={draft.target_action || 'review'} disabled={running || mutationPending} onChange={(event) => updateDraft(item.id, { target_action: event.target.value as HistoricalAdaptationTargetAction })}>
                         {Object.entries(targetActionLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}
+                      </select>
+                    </label>
+                    <label>证据类型
+                      <select value={draft.evidence_kind || 'contextual'} disabled={running || mutationPending} onChange={(event) => updateDraft(item.id, { evidence_kind: event.target.value as HistoricalAdaptationEvidenceKind })}>
+                        {Object.entries(evidenceKindLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}
+                      </select>
+                    </label>
+                    <label>置信度
+                      <select value={draft.confidence || 'low'} disabled={running || mutationPending} onChange={(event) => updateDraft(item.id, { confidence: event.target.value as HistoricalAdaptationConfidence })}>
+                        {Object.entries(confidenceLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}
                       </select>
                     </label>
                     <label>处理要求

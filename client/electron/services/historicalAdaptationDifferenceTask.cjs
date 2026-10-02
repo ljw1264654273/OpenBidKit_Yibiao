@@ -64,6 +64,7 @@ function hasStructuredDifferenceContract(item) {
   }
   return item.evidence_kind === 'contextual'
     && item.replacements.length === 0
+    && item.content_change_scope === 'none'
     && item.confidence !== 'high';
 }
 
@@ -120,6 +121,7 @@ function normalizeHistoricalAdaptationDifferences(value, previousDifferences = [
       if (Object.prototype.hasOwnProperty.call(previous, 'old_content_evidence')) item.old_content_evidence = normalizeEvidence(previous.old_content_evidence);
     }
     const previousHasV2Contract = Number(previous?.difference_schema_version) === 2;
+    if (item.target_action === 'review') item.content_change_scope = 'none';
     if (item.decision === 'confirmed' && !(rawHasV2Contract || previousHasV2Contract && hasStructuredDifferenceContract(item))) {
       item.decision = 'pending';
       item.content_change_scope = 'none';

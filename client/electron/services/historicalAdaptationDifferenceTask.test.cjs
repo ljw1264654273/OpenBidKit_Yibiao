@@ -138,6 +138,20 @@ test('拒绝非法动作与证据组合，并接受合法 v2 组合', () => {
   ] });
 
   for (const item of valid) assert.equal(item.decision, 'confirmed', item.id);
+  assert.equal(valid.find((item) => item.id === 'review-valid')?.content_change_scope, 'none');
+});
+
+test('review contextual 始终清除正文自动局改范围', () => {
+  const [difference] = normalizeHistoricalAdaptationDifferences({ differences: [{
+    id: 'review-scope', category: '其他人工判断', priority: 'medium', title: '服务内容待复核',
+    historical_location: '服务章节', historical_excerpt: '旧事项', tender_requirement: '需人工判断',
+    action: '人工复核', decision: 'confirmed', content_change_scope: 'workload',
+    difference_schema_version: 2, replacements: [], target_action: 'review',
+    evidence_kind: 'contextual', confidence: 'low', old_content_evidence: [],
+  }] });
+
+  assert.equal(difference.content_change_scope, 'none');
+  assert.equal(difference.decision, 'confirmed');
 });
 
 test('差异结果严格归一化自动局改范围且忽略项不触发局改', () => {
