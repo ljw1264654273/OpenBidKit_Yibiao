@@ -152,6 +152,27 @@ test('拒绝非法动作与证据组合，并接受合法 v2 组合', () => {
   assert.equal(valid.find((item) => item.id === 'review-valid')?.content_change_scope, 'none');
 });
 
+test('拒绝无变化或冲突的替换映射，避免确认后没有确定性正文动作', () => {
+  const base = {
+    category: '名称地点替换', priority: 'medium', title: '地点替换',
+    historical_location: '项目概况', historical_excerpt: '五峰村', tender_requirement: '横泾街道',
+    action: '替换地点', decision: 'confirmed', content_change_scope: 'location-target',
+    difference_schema_version: 2, target_action: 'replace', evidence_kind: 'exact-value', confidence: 'high',
+    old_content_evidence: ['五峰村'],
+  };
+  const [noOp, conflicting] = normalizeHistoricalAdaptationDifferences({ differences: [
+    { ...base, id: 'no-op', replacements: [{ old_value: '五峰村', new_value: '五峰村' }] },
+    { ...base, id: 'conflicting', replacements: [
+      { old_value: '五峰村', new_value: '横泾街道' },
+      { old_value: '五峰村', new_value: '其他街道' },
+    ] },
+  ] });
+
+  assert.equal(noOp.decision, 'pending');
+  assert.deepEqual(noOp.replacements, []);
+  assert.equal(conflicting.decision, 'pending');
+});
+
 test('review contextual 始终清除正文自动局改范围', () => {
   const [difference] = normalizeHistoricalAdaptationDifferences({ differences: [{
     id: 'review-scope', category: '其他人工判断', priority: 'medium', title: '服务内容待复核',

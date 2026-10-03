@@ -104,6 +104,16 @@ test('差异确认页面支持类型筛选编辑及逐项处理', () => {
   assert.match(component, /showToast\(validationError, 'error'\)/);
 });
 
+test('差异确认默认展示系统推荐，高级字段按需展开', () => {
+  const component = readFileSync(join(__dirname, 'components/AdaptationDifferencePage.tsx'), 'utf8');
+
+  assert.match(component, /buildDifferenceRecommendation/);
+  assert.match(component, /系统推荐处理方案/);
+  assert.match(component, /确认此项（按系统推荐）/);
+  assert.match(component, /高级编辑（技术字段）/);
+  assert.match(component, /recommendation\.requiresAdvancedReview/);
+});
+
 test('差异确认页面允许逐行编辑并归一化旧内容证据', () => {
   const component = readFileSync(join(__dirname, 'components/AdaptationDifferencePage.tsx'), 'utf8');
 

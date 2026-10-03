@@ -86,6 +86,17 @@ function runAssertions() {
     });
     state = store.confirmHistoricalAdaptationOutline();
     assert.equal(Boolean(state.historicalAdaptationOutlineConfirmedAt), true);
+
+    state = store.saveHistoricalAdaptationOutline({
+      outlineData: { outline: [{ id: '1', title: '横泾街道目标', children: [
+        { id: '1.1', title: '保障群众合法权益', content_mode: 'ai-generate' },
+      ] }] },
+      reason: 'replace',
+      changes: [{ id: 'source-1.1', change_type: 'unchanged', original_path: '五峰村目标 / 保障群众合法权益',
+        target_node_id: '1.1', target_title: '保障群众合法权益', reason: '沿用历史章节', difference_ids: [] }],
+    });
+    assert.equal(state.historicalAdaptationOutlineChanges[0].original_path, '五峰村目标 / 保障群众合法权益');
+    assert.equal(store.loadTechnicalPlan().historicalAdaptationOutlineChanges[0].change_type, 'unchanged');
   } finally {
     database?.close();
     fs.rmSync(userDataPath, { recursive: true, force: true });

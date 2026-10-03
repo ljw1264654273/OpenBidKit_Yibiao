@@ -11,6 +11,7 @@ import type {
 } from '../../technical-plan/types';
 import { AppDialog, ProgressBar, useToast } from '../../../shared/ui';
 import { buildBulkConfirmedDifferences } from '../differenceConfirmation';
+import { buildDifferenceRecommendation } from '../differenceRecommendation';
 
 const categories: HistoricalAdaptationDifferenceCategory[] = [
   '删除内容',
@@ -51,8 +52,21 @@ function getDifferenceConfirmationError(item: HistoricalAdaptationDifference): s
   const replacements = item.replacements || [];
   if (item.target_action === 'replace') {
     if (item.evidence_kind !== 'exact-value') return '确定替换必须使用“精确值”证据类型。';
-    if (!replacements.some((replacement) => replacement.old_value.trim() && replacement.new_value.trim())) {
+    const completeReplacements = replacements.filter((replacement) => (
+      replacement.old_value.trim()
+      && replacement.new_value.trim()
+      && replacement.old_value.trim() !== replacement.new_value.trim()
+    ));
+    if (!completeReplacements.length) {
       return '确定替换必须填写至少一组完整的旧值和新值。';
+    }
+    const newValuesByOldValue = new Map<string, string>();
+    for (const replacement of completeReplacements) {
+      const oldValue = replacement.old_value.trim();
+      const newValue = replacement.new_value.trim();
+      const previous = newValuesByOldValue.get(oldValue);
+      if (previous && previous !== newValue) return `旧值“${oldValue}”存在多个新值，请保留唯一映射。`;
+      newValuesByOldValue.set(oldValue, newValue);
     }
   }
   if (item.target_action === 'remove' || item.target_action === 'rewrite-fragment') {
@@ -89,6 +103,7 @@ function AdaptationDifferencePage({ projectId, project, state, onStateChange, on
   const [drafts, setDrafts] = useState<Record<string, HistoricalAdaptationDifference>>({});
   const [savingId, setSavingId] = useState('');
   const [recentlyConfirmedId, setRecentlyConfirmedId] = useState('');
+  const [advancedOpen, setAdvancedOpen] = useState<Record<string, boolean>>({});
   const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false);
   const [bulkSaving, setBulkSaving] = useState(false);
   const { showToast } = useToast();
@@ -263,6 +278,7 @@ function AdaptationDifferencePage({ projectId, project, state, onStateChange, on
             {filtered.map((item, index) => {
               const draft = drafts[item.id] || item;
               const replacements = draft.replacements || [];
+              const recommendation = buildDifferenceRecommendation(draft);
               const saving = savingId === item.id;
               return (
                 <article className={`historical-adaptation-difference-item is-${item.decision}`} key={item.id}>
@@ -281,11 +297,27 @@ function AdaptationDifferencePage({ projectId, project, state, onStateChange, on
                   <div className="historical-adaptation-difference-evidence">
                     <div><span>历史标书现状</span><p>{item.historical_excerpt || '未提供摘录'}</p></div>
                     <div><span>招标基线要求</span><p>{item.tender_requirement}</p></div>
-                    <div><span>证据类型 / 置信度</span><p>{item.evidence_kind || 'contextual'} / {item.confidence || 'low'}</p></div>
-                    <div><span>旧内容证据</span><p>{(item.old_content_evidence || []).join('；') || '未提供完整旧内容证据'}</p></div>
                   </div>
 
-                  <div className="historical-adaptation-difference-editor">
+                  <section className={`historical-adaptation-difference-recommendation is-${recommendation.action}`} aria-label="系统推荐处理方案">
+                    <div className="historical-adaptation-difference-recommendation-head">
+                      <span>系统推荐</span>
+                      <strong>{recommendation.title.replace('系统推荐：', '')}</strong>
+                    </div>
+                    <p>{recommendation.summary}</p>
+                    <small>{recommendation.impact}</small>
+                  </section>
+
+                  <details
+                    className="historical-adaptation-difference-advanced"
+                    open={advancedOpen[item.id] ?? recommendation.requiresAdvancedReview}
+                    onToggle={(event) => {
+                      const open = event.currentTarget.open;
+                      setAdvancedOpen((previous) => ({ ...previous, [item.id]: open }));
+                    }}
+                  >
+                    <summary>高级编辑（技术字段）</summary>
+                    <div className="historical-adaptation-difference-editor">
                     <label>处理类型
                       <select value={draft.category} disabled={running || mutationPending} onChange={(event) => updateDraft(item.id, { category: event.target.value as HistoricalAdaptationDifferenceCategory })}>
                         {categories.map((category) => <option value={category} key={category}>{category}</option>)}
@@ -344,6 +376,13 @@ function AdaptationDifferencePage({ projectId, project, state, onStateChange, on
                     <label>确认备注
                       <input value={draft.note} disabled={running || mutationPending} onChange={(event) => updateDraft(item.id, { note: event.target.value })} placeholder="可选：记录人工判断依据" />
                     </label>
+                    </div>
+                  </details>
+
+                  <div className="historical-adaptation-difference-action-note">
+                    {recommendation.requiresAdvancedReview
+                      ? '当前推荐不会自动修改正文；如需自动处理，请先在高级编辑中补充完整证据。'
+                      : '确认后将按系统推荐处理，未被证据覆盖的正文不会被改动。'}
                   </div>
 
                   <footer>
@@ -354,7 +393,7 @@ function AdaptationDifferencePage({ projectId, project, state, onStateChange, on
                         <span aria-hidden="true">✓</span>已确认
                       </button>
                     ) : (
-                      <button type="button" className="primary-action" disabled={mutationPending || running} onClick={() => { void saveDifference(item.id, 'confirmed'); }}>{saving ? '正在确认...' : '确认此项'}</button>
+                      <button type="button" className="primary-action" disabled={mutationPending || running} onClick={() => { void saveDifference(item.id, 'confirmed'); }}>{saving ? '正在确认...' : '确认此项（按系统推荐）'}</button>
                     )}
                   </footer>
                 </article>

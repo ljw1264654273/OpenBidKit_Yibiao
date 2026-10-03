@@ -35,6 +35,17 @@ function flattenLeaves(items, parents = [], ancestorIds = [], result = []) {
   return result;
 }
 
+function sourcePathsForLeaf(leaf, changesByNode) {
+  const lineage = [...leaf.ancestorIds, leaf.nodeId];
+  for (let index = lineage.length - 1; index >= 0; index -= 1) {
+    const originalPath = text(changesByNode.get(lineage[index])?.original_path);
+    if (!originalPath) continue;
+    return originalPath.split('；').map(text).filter(Boolean).map((path) =>
+      [path, ...leaf.path.slice(index + 1)].join(' / '));
+  }
+  return [leaf.path.join(' / ')];
+}
+
 function buildBaseline(tasks) {
   const missing = [];
   const sections = [];
@@ -150,8 +161,9 @@ function buildHistoricalContentItems({ state, originalPlan, sourceIndex: supplie
     const change = changesByNode.get(leaf.nodeId);
     const lineageChanges = [...leaf.ancestorIds, leaf.nodeId].map((nodeId) => changesByNode.get(nodeId)).filter(Boolean);
     const addedChange = lineageChanges.find((item) => item?.change_type === 'added');
-    const sourcePath = text(change?.original_path) || leaf.path.join(' / ');
-    const located = addedChange
+    const sourcePaths = sourcePathsForLeaf(leaf, changesByNode);
+    const sourcePath = sourcePaths.length === 1 ? sourcePaths[0] : sourcePaths.join('；');
+    const located = addedChange || sourcePaths.length !== 1
       ? { content: '', reliable: false }
       : locateHistoricalSection(sourceIndex, sourcePath);
     const attachedDifferenceIds = uniqueStrings(lineageChanges.flatMap((item) => item?.difference_ids || []))
@@ -535,12 +547,17 @@ async function runHistoricalAdaptationContentTask({ aiService, workspaceStore, u
             : '替换内容与原文相同，没有产生任何修改';
         }
         if (!applied?.changed || applied.errors.length) {
-          const message = `${failureMessage}。已保留历史正文，请检查差异或改用人工定向改写`;
+          // 局部改写无法可靠应用时，先落库可审查的历史正文底稿；不要让章节停在空正文，等待用户再次启动迁移。
+          const fallbackContent = sourceContent;
+          const fallbackResiduals = scanHistoricalResiduals(fallbackContent, current);
+          const fallbackPlaceholders = scanUnresolvedPlaceholders(fallbackContent);
+          const message = `${failureMessage}。已保留直接迁移正文，请检查差异或改用人工定向改写`;
           const reviewItem = {
             ...current,
             status: 'review',
-            content_origin: current.content_origin,
-            residuals: scanHistoricalResiduals(sourceContent, current),
+            content_origin: 'migrated',
+            migration_output_hash: hashText(JSON.stringify([current.source_hash, current.input_fingerprint, effectiveMode, current.manual_instruction, fallbackContent])),
+            residuals: fallbackResiduals,
             error: message,
             error_code: migrationErrorCode(failureMessage),
             updated_at: new Date().toISOString(),
@@ -548,6 +565,12 @@ async function runHistoricalAdaptationContentTask({ aiService, workspaceStore, u
           items = items.map((item, candidateIndex) => candidateIndex === itemIndex ? reviewItem : item);
           checkpointTask({ status: 'running', progress: Math.round(4 + ((index + 1) / targetLeaves.length) * 90), logs: [`${leaf.path.join(' / ')}局部改造无法可靠应用，已保留直接迁移正文并等待复核。`] }, {
             historicalAdaptationContentItem: itemForCheckpoint(reviewItem),
+            contentGenerationItem: {
+              nodeId: leaf.nodeId,
+              section: { status: 'success', content: fallbackContent, error: fallbackPlaceholders.length ? `正文包含未处理占位符：${fallbackPlaceholders.join('、')}` : undefined, updated_at: reviewItem.updated_at },
+            },
+          }, {
+            outlineContentPatch: { nodeId: leaf.nodeId, content: fallbackContent },
           });
           continue;
         }

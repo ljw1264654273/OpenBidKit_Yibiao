@@ -12,6 +12,13 @@ function buildHistoricalAdaptationRules(differences) {
     const replacements = (Array.isArray(difference.replacements) ? difference.replacements : [])
       .map((item) => ({ oldValue: text(item?.old_value), newValue: text(item?.new_value) }))
       .filter((item) => item.oldValue && item.newValue && item.oldValue !== item.newValue);
+    const newValuesByOldValue = new Map();
+    const hasConflictingReplacement = replacements.some((replacement) => {
+      const previous = newValuesByOldValue.get(replacement.oldValue);
+      newValuesByOldValue.set(replacement.oldValue, replacement.newValue);
+      return Boolean(previous && previous !== replacement.newValue);
+    });
+    if (hasConflictingReplacement) continue;
     const oldContentEvidence = [...new Set((Array.isArray(difference.old_content_evidence)
       ? difference.old_content_evidence : []).map(text).filter(Boolean))];
     if (targetAction === 'replace' && (evidenceKind !== 'exact-value' || !replacements.length)) continue;

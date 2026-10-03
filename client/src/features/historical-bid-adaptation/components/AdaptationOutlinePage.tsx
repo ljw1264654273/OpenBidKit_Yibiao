@@ -71,16 +71,6 @@ function findPath(items: OutlineItem[], nodeId: string, parents: string[] = []):
   return [];
 }
 
-function findPathByTitle(items: OutlineItem[], title: string, parents: string[] = []): string[] {
-  for (const item of items) {
-    const path = [...parents, item.title];
-    if (item.title === title) return path;
-    const nested = item.children ? findPathByTitle(item.children, title, path) : [];
-    if (nested.length) return nested;
-  }
-  return [];
-}
-
 function findNodeByPath(items: OutlineItem[], path: string[], index = 0): OutlineItem | undefined {
   if (!path.length || index >= path.length) return undefined;
   const item = items.find((candidate) => candidate.title === path[index]);
@@ -154,7 +144,7 @@ function AdaptationOutlinePage({ projectId, project, state, onStateChange, onBac
     return originalByPath?.id || originalByCurrentPath?.id || findNode(originalOutline, selectedId)?.id || '';
   }, [outlineData, selected, selectedId, state.historicalAdaptationOriginalOutline, state.historicalAdaptationOutlineChanges]);
   const selectedChanges = useMemo(() => state.historicalAdaptationOutlineChanges.filter(
-    (change) => change.target_node_id === selectedId,
+    (change) => change.target_node_id === selectedId && change.change_type !== 'unchanged',
   ), [selectedId, state.historicalAdaptationOutlineChanges]);
   const deletedChanges = useMemo(() => state.historicalAdaptationOutlineChanges.filter(
     (change) => change.change_type === 'deleted',
@@ -216,12 +206,13 @@ function AdaptationOutlinePage({ projectId, project, state, onStateChange, onBac
     const existing = state.historicalAdaptationOutlineChanges.find((change) => change.target_node_id === selected.id);
     const changes = existing
       ? state.historicalAdaptationOutlineChanges.map((change) => change.id === existing.id
-        ? { ...change, target_title: title.trim(), reason: '人工调整目录标题或编制说明' }
+        ? { ...change, change_type: change.change_type === 'unchanged' ? 'updated' as const : change.change_type,
+          target_title: title.trim(), reason: '人工调整目录标题或编制说明' }
         : change)
       : [...state.historicalAdaptationOutlineChanges, {
         id: `manual-edit-${Date.now()}`,
         change_type: 'updated' as const,
-        original_path: findPathByTitle(state.historicalAdaptationOriginalOutline?.outline || [], selected.title).join(' / '),
+        original_path: findPath(state.historicalAdaptationOriginalOutline?.outline || [], selectedOriginalId).join(' / '),
         target_node_id: selected.id,
         target_title: title.trim(),
         reason: '人工调整目录标题或编制说明',

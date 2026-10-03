@@ -3,7 +3,7 @@ const { getBidAnalysisTasks } = require('./bidAnalysisTask.cjs');
 const { splitUserTextByContextLimit } = require('../utils/userTextSplitter.cjs');
 
 const CHANGE_TYPES = new Set(['unchanged', 'renamed', 'updated', 'added', 'moved']);
-const STORED_CHANGE_TYPES = new Set(['renamed', 'updated', 'added', 'moved', 'deleted']);
+const STORED_CHANGE_TYPES = new Set(['unchanged', 'renamed', 'updated', 'added', 'moved', 'deleted']);
 const OUTLINE_ATTRS = new Set(['通用', '商务', '资信', '技术', '其他']);
 
 function text(value) {
@@ -76,14 +76,14 @@ function normalizeAdaptedOutlineResult(value, projectName) {
     const sourcePaths = uniqueStrings(raw.source_paths || raw.original_paths);
     const changeType = CHANGE_TYPES.has(text(raw.change_type)) ? text(raw.change_type) : 'unchanged';
     const differenceIds = uniqueStrings(raw.difference_ids);
-    if (changeType !== 'unchanged') {
+    if (changeType !== 'unchanged' || sourcePaths.length) {
       changes.push({
         id: stableId([changeType, sourcePaths.join('|'), id, title]),
         change_type: changeType,
         original_path: sourcePaths.join('；'),
         target_node_id: id,
         target_title: title,
-        reason: text(raw.change_reason) || '依据招标基线调整目录',
+        reason: text(raw.change_reason) || (changeType === 'unchanged' ? '沿用历史章节' : '依据招标基线调整目录'),
         difference_ids: differenceIds,
       });
     }

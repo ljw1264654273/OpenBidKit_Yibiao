@@ -61,6 +61,20 @@ test('适配结果生成目录节点和可追溯变更记录', () => {
   assert.deepEqual(result.changes.find((item) => item.change_type === 'renamed').difference_ids, ['replace-location']);
 });
 
+test('未变化的子节点仍保存历史来源路径供正文迁移', () => {
+  const result = normalizeAdaptedOutlineResult({ outline: [{
+    title: '横泾街道目标', source_paths: ['五峰村目标'], change_type: 'renamed',
+    change_reason: '地点变化', children: [{
+      title: '保障群众合法权益', source_paths: ['五峰村目标 / 保障群众合法权益'], change_type: 'unchanged',
+    }],
+  }] });
+  assert.deepEqual(result.changes.find((item) => item.target_node_id === '1.1'), {
+    id: result.changes.find((item) => item.target_node_id === '1.1').id,
+    change_type: 'unchanged', original_path: '五峰村目标 / 保障群众合法权益',
+    target_node_id: '1.1', target_title: '保障群众合法权益', reason: '沿用历史章节', difference_ids: [],
+  });
+});
+
 test('后台任务读取完整基线和已确认差异并原子保存目录结果', async () => {
   const bidAnalysisTasks = Object.fromEntries(getBidAnalysisTasks('full').map((definition) => [definition.id, {
     id: definition.id,

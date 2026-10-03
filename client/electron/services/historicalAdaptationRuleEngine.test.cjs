@@ -40,6 +40,17 @@ test('缺映射、非 v2 和忽略项绝不从备注猜测规则', () => {
   assert.equal(rules.length, 0);
 });
 
+test('冲突替换映射不生成规则', () => {
+  const rules = buildHistoricalAdaptationRules([difference({
+    replacements: [
+      { old_value: '五峰村', new_value: '横泾街道' },
+      { old_value: '五峰村', new_value: '其他街道' },
+    ],
+  })]);
+
+  assert.equal(rules.length, 0);
+});
+
 test('服务内容证据保留原文，尚未绑定范围的动作只可复核', () => {
   const [rule] = buildHistoricalAdaptationRules([difference({
     id: 'service', target_action: 'remove', evidence_kind: 'locked-range',

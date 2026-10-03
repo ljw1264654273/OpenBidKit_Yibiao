@@ -38,13 +38,23 @@ function normalizeReplacements(value) {
   for (const raw of Array.isArray(value) ? value : []) {
     const oldValue = text(raw?.old_value);
     const newValue = text(raw?.new_value);
-    if (!oldValue || !newValue) continue;
+    if (!oldValue || !newValue || oldValue === newValue) continue;
     const key = `${oldValue}\n${newValue}`;
     if (seen.has(key)) continue;
     seen.add(key);
     replacements.push({ old_value: oldValue, new_value: newValue });
   }
   return replacements;
+}
+
+function hasConflictingReplacement(replacements) {
+  const newValuesByOldValue = new Map();
+  for (const replacement of Array.isArray(replacements) ? replacements : []) {
+    const previous = newValuesByOldValue.get(replacement.old_value);
+    if (previous && previous !== replacement.new_value) return true;
+    newValuesByOldValue.set(replacement.old_value, replacement.new_value);
+  }
+  return false;
 }
 
 function normalizeEvidence(value) {
@@ -57,7 +67,9 @@ function hasStructuredDifferenceContract(item) {
     || !EVIDENCE_KINDS.has(item.evidence_kind)
     || !CONFIDENCE_LEVELS.has(item.confidence)) return false;
   if (item.target_action === 'replace') {
-    return item.evidence_kind === 'exact-value' && item.replacements.length > 0;
+    return item.evidence_kind === 'exact-value'
+      && item.replacements.length > 0
+      && !hasConflictingReplacement(item.replacements);
   }
   if (item.target_action === 'remove' || item.target_action === 'rewrite-fragment') {
     return item.evidence_kind === 'locked-range'

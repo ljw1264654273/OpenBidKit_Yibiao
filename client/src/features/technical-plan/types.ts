@@ -258,7 +258,7 @@ export interface HistoricalAdaptationDifference {
   old_content_evidence?: string[];
 }
 
-export type HistoricalAdaptationOutlineChangeType = 'renamed' | 'updated' | 'added' | 'moved' | 'deleted';
+export type HistoricalAdaptationOutlineChangeType = 'unchanged' | 'renamed' | 'updated' | 'added' | 'moved' | 'deleted';
 
 export interface HistoricalAdaptationOutlineChange {
   id: string;
