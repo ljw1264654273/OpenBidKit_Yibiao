@@ -395,11 +395,24 @@
 .adaptation-outline-tree { display: grid; align-content: start; gap: 2px; }
 .adaptation-outline-tree .adaptation-outline-tree { margin-left: 17px; padding-left: 8px; border-left: 1px solid #dce5ee; }
 .adaptation-outline-branch { display: grid; gap: 2px; }
-.adaptation-outline-branch > button { display: grid; grid-template-columns: 42px minmax(0, 1fr); min-height: 34px; align-items: center; gap: 6px; width: 100%; padding: 4px 7px; color: #425c75; font: inherit; text-align: left; background: transparent; border: 1px solid transparent; border-radius: 4px; cursor: pointer; }
-.adaptation-outline-branch > button:hover:not(:disabled) { background: #f0f5fa; }
-.adaptation-outline-branch > button.is-selected { color: #174f9f; background: #eaf3ff; border-color: #b8d2ef; }
-.adaptation-outline-branch > button > span { color: #7e8da0; font-size: 10px; }
-.adaptation-outline-branch > button > strong { overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.adaptation-outline-row { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; min-height: 34px; align-items: center; gap: 3px; padding: 2px 4px; border: 1px solid transparent; border-left: 3px solid #6cae8d; border-radius: 4px; }
+.adaptation-outline-row.is-added { border-left-color: #3979c9; background: #f2f7ff; }
+.adaptation-outline-row.is-adjusted { border-left-color: #c58a37; background: #fff9ef; }
+.adaptation-outline-row.is-selected { border-color: #b8d2ef; background: #eaf3ff; }
+.adaptation-outline-disclosure { width: 22px; height: 24px; padding: 0; color: #6b8197; font-size: 16px; line-height: 1; background: transparent; border: 0; cursor: pointer; transform: rotate(0deg); transition: transform 120ms ease; }
+.adaptation-outline-disclosure.is-expanded { transform: rotate(90deg); }
+.adaptation-outline-disclosure.is-leaf { color: #9aabba; cursor: default; }
+.adaptation-outline-node-button { display: grid; grid-template-columns: 42px minmax(0, 1fr) auto; min-width: 0; align-items: center; gap: 6px; padding: 4px 3px; color: #425c75; font: inherit; text-align: left; background: transparent; border: 0; cursor: pointer; }
+.adaptation-outline-node-button:hover:not(:disabled) { color: #174f9f; }
+.adaptation-outline-node-button > span { color: #7e8da0; font-size: 10px; }
+.adaptation-outline-node-button > strong { overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.adaptation-outline-node-button > em { color: #4b8a6d; font-size: 9px; font-style: normal; white-space: nowrap; }
+.is-added .adaptation-outline-node-button > em { color: #216eea; }
+.is-adjusted .adaptation-outline-node-button > em { color: #a56c1e; }
+.adaptation-outline-row-action { width: 22px; height: 22px; padding: 0; color: #7f91a3; font-size: 16px; line-height: 1; background: transparent; border: 0; border-radius: 3px; cursor: pointer; }
+.adaptation-outline-row-actions { display: flex; align-items: center; gap: 1px; }
+.adaptation-outline-row-action:hover:not(:disabled) { color: #a33d31; background: #fff0ed; }
+.adaptation-outline-row-action:disabled { cursor: not-allowed; opacity: 0.45; }
 .adaptation-outline-tree.is-readonly .adaptation-outline-branch > button { cursor: default; opacity: 1; }
 
 .adaptation-outline-editor { display: grid; min-height: 0; align-content: start; gap: 12px; padding: 14px; overflow: auto; }
@@ -407,6 +420,8 @@
 .adaptation-outline-editor input,
 .adaptation-outline-editor textarea { width: 100%; min-width: 0; padding: 8px 9px; color: #2f485f; font: inherit; font-size: 12px; line-height: 1.5; background: #f8fafc; border: 1px solid #d9e2eb; border-radius: 4px; box-sizing: border-box; }
 .adaptation-outline-editor textarea { resize: vertical; }
+.adaptation-outline-reuse-field { padding: 10px; background: #f7fafc; border: 1px solid #dce5ee; border-radius: 4px; }
+.adaptation-outline-reuse-field small { color: #718094; font-size: 10px; font-weight: 400; line-height: 1.5; }
 .adaptation-outline-editor input:focus,
 .adaptation-outline-editor textarea:focus { border-color: #72a6ee; outline: 2px solid rgba(33, 110, 234, 0.12); }
 .adaptation-outline-editor > .primary-action { justify-self: end; }

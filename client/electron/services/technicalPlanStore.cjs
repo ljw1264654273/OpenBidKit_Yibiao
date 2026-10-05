@@ -3550,7 +3550,7 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       differences: readHistoricalAdaptationDifferences(meta.historical_adaptation_differences_json),
       strategies: leaves.map((item) => {
         const plan = byId.get(String(item.id || ''));
-        return { node_id: String(item.id || ''), recommended_mode: plan?.recommended_mode, manual_mode: plan?.manual_mode, manual_instruction: plan?.manual_instruction };
+        return { node_id: String(item.id || ''), reuse_original: plan?.reuse_original, recommended_mode: plan?.recommended_mode, manual_mode: plan?.manual_mode, manual_instruction: plan?.manual_instruction };
       }),
       baseline: loadBidItems(),
       rule_engine_version: 2,

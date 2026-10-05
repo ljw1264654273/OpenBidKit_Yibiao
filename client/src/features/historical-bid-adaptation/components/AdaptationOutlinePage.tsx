@@ -95,22 +95,60 @@ function moveSibling(items: OutlineItem[], nodeId: string, direction: -1 | 1): O
   }));
 }
 
-function OutlineTree({ items, selectedId, onSelect, readonly = false }: {
+function collectBranchIds(items: OutlineItem[], ids: string[] = []) {
+  items.forEach((item) => {
+    if (item.children?.length) {
+      ids.push(item.id);
+      collectBranchIds(item.children, ids);
+    }
+  });
+  return ids;
+}
+
+function changeLabel(change?: HistoricalAdaptationOutlineChange) {
+  if (change?.change_type === 'added') return '新增目录';
+  if (change && ['renamed', 'updated', 'moved'].includes(change.change_type)) return '目录调整';
+  return '沿用目录';
+}
+
+function changeClass(change?: HistoricalAdaptationOutlineChange) {
+  if (change?.change_type === 'added') return 'is-added';
+  if (change && ['renamed', 'updated', 'moved'].includes(change.change_type)) return 'is-adjusted';
+  return 'is-reused';
+}
+
+function OutlineTree({ items, selectedId, onSelect, readonly = false, expandedIds, onToggle, changesByNode, onDelete, onEdit, locked }: {
   items: OutlineItem[];
   selectedId?: string;
   onSelect?: (id: string) => void;
   readonly?: boolean;
+  expandedIds?: Set<string>;
+  onToggle?: (id: string) => void;
+  changesByNode?: Map<string, HistoricalAdaptationOutlineChange>;
+  onDelete?: (id: string) => void;
+  onEdit?: (id: string) => void;
+  locked?: boolean;
 }) {
   return (
     <div className={`adaptation-outline-tree${readonly ? ' is-readonly' : ''}`}>
-      {items.map((item) => (
+      {items.map((item) => {
+        const hasChildren = Boolean(item.children?.length);
+        const expanded = expandedIds?.has(item.id) ?? true;
+        const change = changesByNode?.get(item.id);
+        const status = changeLabel(change);
+        return (
         <div className="adaptation-outline-branch" key={item.id}>
-          <button type="button" className={selectedId === item.id ? 'is-selected' : ''} onClick={() => onSelect?.(item.id)} disabled={readonly}>
-            <span>{item.id}</span><strong title={item.title}>{item.title}</strong>
-          </button>
-          {item.children?.length ? <OutlineTree items={item.children} selectedId={selectedId} onSelect={onSelect} readonly={readonly} /> : null}
+          <div className={`adaptation-outline-row ${changeClass(change)}${selectedId === item.id ? ' is-selected' : ''}`}>
+            <button type="button" className={`adaptation-outline-disclosure${hasChildren ? '' : ' is-leaf'}${expanded ? ' is-expanded' : ''}`} onClick={() => hasChildren && onToggle?.(item.id)} disabled={!hasChildren} aria-label={hasChildren ? (expanded ? '折叠目录' : '展开目录') : '目录项'} title={hasChildren ? (expanded ? '折叠目录' : '展开目录') : '目录项'}>{hasChildren ? '›' : '•'}</button>
+            <button type="button" className="adaptation-outline-node-button" onClick={() => onSelect?.(item.id)} disabled={readonly} aria-label={`${item.id} ${item.title}，${status}`}>
+              <span>{item.id}</span><strong title={item.title}>{item.title}</strong><em>{status}</em>
+            </button>
+            {!readonly && onEdit && onDelete ? <span className="adaptation-outline-row-actions"><button type="button" className="adaptation-outline-row-action" onClick={() => onEdit(item.id)} disabled={locked} aria-label={`编辑${item.title}`} title="编辑目录">✎</button><button type="button" className="adaptation-outline-row-action is-delete" onClick={() => onDelete(item.id)} disabled={locked} aria-label={`删除${item.title}`} title="删除目录">×</button></span> : null}
+          </div>
+          {hasChildren && expanded ? <OutlineTree items={item.children || []} selectedId={selectedId} onSelect={onSelect} readonly={readonly} expandedIds={expandedIds} onToggle={onToggle} changesByNode={changesByNode} onDelete={onDelete} onEdit={onEdit} locked={locked} /> : null}
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -120,6 +158,7 @@ function AdaptationOutlinePage({ projectId, project, state, onStateChange, onBac
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [saving, setSaving] = useState(false);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const { showToast } = useToast();
   const task = state.historicalAdaptationOutlineTask;
   const running = task?.status === 'queued' || task?.status === 'running' || task?.status === 'pausing' || task?.status === 'paused';
@@ -149,6 +188,17 @@ function AdaptationOutlinePage({ projectId, project, state, onStateChange, onBac
   const deletedChanges = useMemo(() => state.historicalAdaptationOutlineChanges.filter(
     (change) => change.change_type === 'deleted',
   ), [state.historicalAdaptationOutlineChanges]);
+  const changesByNode = useMemo(() => {
+    const priority = (change: HistoricalAdaptationOutlineChange) => change.change_type === 'added' ? 3 : ['renamed', 'updated', 'moved'].includes(change.change_type) ? 2 : 1;
+    return state.historicalAdaptationOutlineChanges.filter((change) => change.target_node_id).reduce((map, change) => {
+      const previous = map.get(change.target_node_id);
+      if (!previous || priority(change) >= priority(previous)) map.set(change.target_node_id, change);
+      return map;
+    }, new Map<string, HistoricalAdaptationOutlineChange>());
+  }, [state.historicalAdaptationOutlineChanges]);
+  const selectedChange = selected ? changesByNode.get(selected.id) : undefined;
+  const selectedHasHistoricalSource = Boolean(selectedChange?.original_path && selectedChange.change_type !== 'added');
+  const selectedReuseOriginal = selectedChange?.reuse_original ?? selectedHasHistoricalSource;
   const differenceTitles = useMemo(() => new Map(
     state.historicalAdaptationDifferences.map((difference) => [difference.id, difference.title]),
   ), [state.historicalAdaptationDifferences]);
@@ -156,6 +206,11 @@ function AdaptationOutlinePage({ projectId, project, state, onStateChange, onBac
   useEffect(() => {
     if (!selected && outlineData?.outline?.[0]) setSelectedId(outlineData.outline[0].id);
   }, [outlineData, selected]);
+
+  useEffect(() => {
+    const ids = collectBranchIds(outlineData?.outline || []);
+    setExpandedIds((previous) => new Set(ids.filter((id) => previous.size === 0 || previous.has(id))));
+  }, [outlineData]);
 
   useEffect(() => {
     setTitle(selected?.title || '');
@@ -216,7 +271,7 @@ function AdaptationOutlinePage({ projectId, project, state, onStateChange, onBac
         target_node_id: selected.id,
         target_title: title.trim(),
         reason: '人工调整目录标题或编制说明',
-        difference_ids: [],
+        difference_ids: [], reuse_original: selectedHasHistoricalSource,
       }];
     await persist(nextItems, 'edit', changes, [selected.id]);
   };
@@ -226,7 +281,7 @@ function AdaptationOutlinePage({ projectId, project, state, onStateChange, onBac
     const item: OutlineItem = { id: tempId, title: '新建一级目录', description: '请填写本节编制范围。', content_mode: 'ai-generate' };
     await persist([...(outlineData?.outline || []), item], 'add-root', [...state.historicalAdaptationOutlineChanges, {
       id: `manual-add-${Date.now()}`, change_type: 'added', original_path: '', target_node_id: tempId,
-      target_title: item.title, reason: '人工增加一级目录', difference_ids: [],
+      target_title: item.title, reason: '人工增加一级目录', difference_ids: [], reuse_original: false,
     }], [tempId]);
   };
 
@@ -239,21 +294,42 @@ function AdaptationOutlinePage({ projectId, project, state, onStateChange, onBac
     }));
     await persist(nextItems, 'add-child', [...state.historicalAdaptationOutlineChanges, {
       id: `manual-add-${Date.now()}`, change_type: 'added', original_path: '', target_node_id: tempId,
-      target_title: child.title, reason: `人工在“${selected.title}”下增加子目录`, difference_ids: [],
+      target_title: child.title, reason: `人工在“${selected.title}”下增加子目录`, difference_ids: [], reuse_original: false,
     }], [selected.id, tempId]);
   };
 
-  const deleteSelected = async () => {
-    if (!selected) return;
-    const originalPath = findPath(state.historicalAdaptationOriginalOutline?.outline || [], selected.id).join(' / ')
-      || findPath(outlineData?.outline || [], selected.id).join(' / ');
+  const deleteNode = async (nodeId: string) => {
+    const node = findNode(outlineData?.outline || [], nodeId);
+    if (!node) return;
+    const originalPath = findPath(state.historicalAdaptationOriginalOutline?.outline || [], nodeId).join(' / ')
+      || findPath(outlineData?.outline || [], nodeId).join(' / ');
     const changes = state.historicalAdaptationOutlineChanges
-      .filter((change) => change.target_node_id !== selected.id)
+      .filter((change) => change.target_node_id !== nodeId)
       .concat({
         id: `manual-delete-${Date.now()}`, change_type: 'deleted', original_path: originalPath,
         target_node_id: '', target_title: '', reason: '人工删除不适用目录', difference_ids: [],
       });
-    await persist(removeNode(outlineData?.outline || [], selected.id), 'delete', changes, [selected.id]);
+    await persist(removeNode(outlineData?.outline || [], nodeId), 'delete', changes, [nodeId]);
+  };
+
+  const deleteSelected = async () => {
+    if (selected) await deleteNode(selected.id);
+  };
+
+  const setReuseOriginal = async (reuseOriginal: boolean) => {
+    if (!selected || !outlineData?.outline || !selectedHasHistoricalSource) return;
+    const existing = selectedChange;
+    const changes = existing
+      ? state.historicalAdaptationOutlineChanges.map((change) => change.id === existing.id
+        ? { ...change, reuse_original: reuseOriginal, reason: reuseOriginal ? '人工确认沿用历史原文' : '人工关闭历史原文复用' }
+        : change)
+      : [...state.historicalAdaptationOutlineChanges, {
+        id: `manual-reuse-${Date.now()}`, change_type: 'unchanged' as const,
+        original_path: findPath(state.historicalAdaptationOriginalOutline?.outline || [], selected.id).join(' / '),
+        target_node_id: selected.id, target_title: selected.title,
+        reason: reuseOriginal ? '人工确认沿用历史原文' : '人工关闭历史原文复用', difference_ids: [], reuse_original: reuseOriginal,
+      }];
+    await persist(outlineData.outline, 'edit', changes, [selected.id]);
   };
 
   const move = async (direction: -1 | 1) => {
@@ -306,18 +382,21 @@ function AdaptationOutlinePage({ projectId, project, state, onStateChange, onBac
                   <button type="button" onClick={() => { void addChild(); }} disabled={!selected || running || saving}>增加子目录</button>
                   <button type="button" title="上移同级目录" onClick={() => { void move(-1); }} disabled={!selected || running || saving}>上移</button>
                   <button type="button" title="下移同级目录" onClick={() => { void move(1); }} disabled={!selected || running || saving}>下移</button>
+                  <button type="button" onClick={() => setExpandedIds(new Set(collectBranchIds(outlineData.outline)))} disabled={running || saving}>全部展开</button>
+                  <button type="button" onClick={() => setExpandedIds(new Set())} disabled={running || saving}>全部折叠</button>
                   <button type="button" className="is-danger" onClick={() => { void deleteSelected(); }} disabled={!selected || running || saving}>删除</button>
                 </div>
               </div>
               <span>{outlineData.outline.length} 个一级目录</span>
             </header>
-            <div className="adaptation-outline-scroll"><OutlineTree items={outlineData.outline} selectedId={selectedId} onSelect={setSelectedId} /></div>
+            <div className="adaptation-outline-scroll"><OutlineTree items={outlineData.outline} selectedId={selectedId} onSelect={setSelectedId} expandedIds={expandedIds} onToggle={(id) => setExpandedIds((previous) => { const next = new Set(previous); if (next.has(id)) next.delete(id); else next.add(id); return next; })} changesByNode={changesByNode} onEdit={setSelectedId} onDelete={(id) => { void deleteNode(id); }} locked={running || saving} /></div>
           </section>
           <section className="adaptation-outline-column is-detail">
             <header><strong>变更依据</strong><span>{selectedChanges.length} 项记录</span></header>
             {selected ? <div className="adaptation-outline-editor">
               <label>目录标题<input value={title} onChange={(event) => setTitle(event.target.value)} disabled={running || saving} /></label>
               <label>编制说明<textarea value={description} onChange={(event) => setDescription(event.target.value)} disabled={running || saving} rows={5} /></label>
+              <label className="adaptation-outline-reuse-field"><span>正文处理方式</span><select value={selectedReuseOriginal ? 'reuse' : 'adapt'} onChange={(event) => { void setReuseOriginal(event.target.value === 'reuse'); }} disabled={running || saving || !selectedHasHistoricalSource}><option value="reuse">沿用历史原文</option><option value="adapt">按适配规则处理</option></select><small>{selectedHasHistoricalSource ? (selectedReuseOriginal ? '后续正文默认直接沿用历史标书原文。' : '后续正文不会直接复制历史原文。') : '本节没有可靠的历史原文，后续需要补写或人工处理。'}</small></label>
               <button type="button" className="primary-action" onClick={() => { void saveEdit(); }} disabled={!title.trim() || running || saving}>保存编辑</button>
               <div className="adaptation-outline-change-list">
                 {selectedChanges.map((change) => <article key={change.id}><span>{change.change_type === 'renamed' ? '标题调整' : change.change_type === 'added' ? '新增目录' : change.change_type === 'moved' ? '位置调整' : '内容调整'}</span><strong>{change.reason}</strong>{change.original_path ? <small>原路径：{change.original_path}</small> : null}{change.difference_ids.length ? <em>关联差异：{change.difference_ids.map((id) => differenceTitles.get(id) || id).join('；')}</em> : null}</article>)}
