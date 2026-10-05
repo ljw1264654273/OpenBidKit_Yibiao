@@ -184,10 +184,10 @@ test('正文迁移页面支持迁移方案、人工策略、恢复默认和阶�
   const componentPath = join(__dirname, 'components/AdaptationContentPage.tsx');
   assert.equal(existsSync(componentPath), true, '应提供独立正文迁移组件');
   const component = readFileSync(componentPath, 'utf8');
-  for (const label of ['适配目录', '历史原文 / 迁移依据', '迁移后正文', '直接迁移', '局部改写', '定向改写', '保存人工修改', '按此方式迁移本章', '选择尚未应用', '建立/更新迁移方案', '恢复默认处理方式', '运行一致性检查', '确认本阶段']) {
+  for (const label of ['适配目录', '历史原文 / 迁移依据', '迁移后正文', '直接迁移', '局部改写', '定向改写', '保存人工修改', '按此方式迁移本章', '选择尚未应用', '建立/更新迁移', '恢复默认处理方式', '运行一致性检查', '确认本阶段']) {
     assert.match(component, new RegExp(label));
   }
-  assert.match(component, /prepareHistoricalAdaptationContentPlan/);
+  assert.match(component, /onPreparePlan/);
   assert.match(component, /saveHistoricalAdaptationContentStrategy/);
   assert.match(component, /resetHistoricalAdaptationContentStrategies/);
   assert.doesNotMatch(component, /批量设为直接迁移/);
@@ -213,12 +213,22 @@ test('正文迁移保护人工正文，明确确认后才允许覆盖', () => {
 test('建立方案由 Main 自动启动，Renderer 不重复启动且提供未完成章节重试', () => {
   const component = readFileSync(join(__dirname, 'components/AdaptationContentPage.tsx'), 'utf8');
   const prepare = component.slice(component.indexOf('const preparePlan ='), component.indexOf('const resetStrategies ='));
-  assert.match(prepare, /prepareHistoricalAdaptationContentPlan/);
+  assert.match(prepare, /onPreparePlan/);
+  assert.match(prepare, /saveHistoricalAdaptationContentStrategy/);
+  assert.match(prepare, /includeNodeId/);
+  assert.doesNotMatch(prepare, /当前选择尚未应用，请先点击/);
+  assert.match(prepare, /content_origin === 'manual'/);
   assert.doesNotMatch(prepare, /startHistoricalAdaptationContent/);
   assert.match(component, /retryHistoricalAdaptationContent/);
   assert.match(component, /重试未完成章节/);
   assert.doesNotMatch(component, /执行待处理迁移|一键迁移待处理章节/);
   assert.equal((component.match(/tasks\.startHistoricalAdaptationContent\(/g) || []).length, 1);
+});
+
+test('方案响应重放等待期间的迁移事件，不让旧快照覆盖新正文', () => {
+  const page = readFileSync(pagePath, 'utf8');
+  assert.match(page, /pendingContentPlanEvents\.current\?\.push\(event\)/);
+  assert.match(page, /replayHistoricalAdaptationContentEvents\(nextState, events\)/);
 });
 
 test('人工覆盖确认在任何策略写入前，恢复默认不启动覆盖迁移', () => {

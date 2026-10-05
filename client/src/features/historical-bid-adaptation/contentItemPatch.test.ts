@@ -3,7 +3,7 @@ import test from 'node:test';
 import { performance } from 'node:perf_hooks';
 import type { TechnicalPlanState } from '../technical-plan/types';
 // @ts-expect-error Node type stripping requires an explicit extension.
-import { applyHistoricalAdaptationContentPatch } from './contentItemPatch.ts';
+import { applyHistoricalAdaptationContentPatch, replayHistoricalAdaptationContentEvents } from './contentItemPatch.ts';
 
 const fixture = () => ({
   outlineData: { outline: [{ id: '1', title: '父章', children: [{ id: '1.1', title: '正文', content: '人工正文' }] }, { id: '2', title: '未变正文', content: '保留' }] },
@@ -43,6 +43,20 @@ test('局部新章节加入，并保留 snapshot 内有意出现的空值', () =
   assert.equal(next.historicalAdaptationContentItems[2].node_id, '3');
   assert.equal(Object.hasOwn(next, 'historicalAdaptationContentTask'), true);
   assert.equal(next.historicalAdaptationContentTask, undefined);
+});
+
+test('方案旧快照响应晚于逐章事件时重放结果并保留方案元数据', () => {
+  const snapshot = { ...fixture(), historicalAdaptationContentItems: [{ node_id: '1.1', plan_id: 'new-plan', status: 'idle' }] } as TechnicalPlanState;
+  const next = replayHistoricalAdaptationContentEvents(snapshot, [{
+    task: { task_id: 'new-task', status: 'success' },
+    contentItemPatch: { node_id: '1.1', status: 'success' },
+    outlineContentPatch: { nodeId: '1.1', content: '迁移后正文' },
+    technicalPlanPatch: { historicalAdaptationContentConfirmedAt: undefined },
+  }]);
+  assert.equal(next.historicalAdaptationContentItems[0].plan_id, 'new-plan');
+  assert.equal(next.historicalAdaptationContentItems[0].status, 'success');
+  assert.equal(next.outlineData!.outline[0].children![0].content, '迁移后正文');
+  assert.equal(next.historicalAdaptationContentTask?.status, 'success');
 });
 
 test('100章每章120k字符连续100次局部 patch，P95 不超过16ms', () => {

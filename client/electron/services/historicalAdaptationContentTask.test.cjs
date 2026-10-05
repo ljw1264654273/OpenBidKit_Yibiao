@@ -668,6 +668,23 @@ test('定向改写统一执行有来源改写与无来源补充，两者都需�
   assert.match(aiCalls[1].messages[0].content, /补充横泾服务保障机制/);
 });
 
+test('一键建立只纳入当前刚应用的 stale 定向改写，不自动覆盖其他待手工章节', async () => {
+  const state = baseState();
+  const originalPlan = '# 项目概况\n原项目概况。\n\n# 服务保障\n原保障内容。';
+  state.historicalAdaptationContentItems = buildHistoricalContentItems({ state, originalPlan })
+    .map(({ source_content: _sourceContent, ...item }) => ({ ...item, manual_mode: 'rewrite', manual_instruction: '按当前招标要求改写', status: 'stale' }));
+  const completed = [];
+  await runHistoricalAdaptationContentTask({
+    aiService: { requestJson: async () => ({ content: '已按要求改写。' }) },
+    workspaceStore: { loadTechnicalPlan: () => state, readOriginalPlanMarkdown: () => originalPlan },
+    payload: { includeNodeId: '1' }, updateTask() {},
+    checkpointTask(_task, patch) {
+      if (patch?.historicalAdaptationContentItem?.status === 'success') completed.push(patch.historicalAdaptationContentItem.node_id);
+    },
+  });
+  assert.deepEqual(completed, ['1']);
+});
+
 test('旧人工补写有要求时合并为定向改写，无要求时等待人工选择', () => {
   const normalized = normalizeHistoricalAdaptationContentItems([
     { node_id: '1', recommended_mode: 'review', manual_mode: 'supplement', manual_instruction: '补充响应流程', status: 'success' },

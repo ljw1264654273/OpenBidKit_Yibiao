@@ -208,7 +208,7 @@ with sync_playwright() as playwright:
                 const path = [...parents, item.title];
                 if (item.children?.length) return { ...item, children: applyContent(item.children, path) };
                 const previous = previousById.get(item.id);
-                if (previous?.content_origin === 'manual' || previous?.status === 'success') {
+                if (previous?.content_origin === 'manual' || previous?.status === 'success' || (previous && !previous.manual_mode && !previous.recommended_mode)) {
                   leaves.push({ item, path, content: item.content || '', preserved: true });
                   return item;
                 }
@@ -335,8 +335,8 @@ with sync_playwright() as playwright:
                 workspaceState = { ...workspaceState, historicalAdaptationOutlineConfirmedAt: '2026-10-01T11:00:00.000Z' };
                 return workspaceState;
               },
-              prepareHistoricalAdaptationContentPlan: async () => {
-                window.__historicalMock.calls.push({ action: 'prepare' });
+              prepareHistoricalAdaptationContentPlan: async ({ includeNodeId } = {}) => {
+                window.__historicalMock.calls.push({ action: 'prepare', includeNodeId });
                 if (window.__historicalMock.failPrepareOnce) {
                   window.__historicalMock.failPrepareOnce = false;
                   throw new Error('模拟方案失败');
@@ -360,13 +360,16 @@ with sync_playwright() as playwright:
                   })),
                   historicalAdaptationContentCheck: { status: 'stale', findings: [], checked_content_hash: '', checked_inputs_hash: '' }
                 };
+                const snapshot = { ...workspaceState, historicalAdaptationContentTask: { task_id: includeNodeId ? 'single-content' : 'content-complete', type: 'historical-adaptation-content', status: 'running', progress: 0 } };
                 if (window.__historicalMock.failStartOnce) {
                   window.__historicalMock.failStartOnce = false;
                   setTimeout(() => emitTask({ task_id: 'prepare-content-error', type: 'historical-adaptation-content', status: 'error', progress: 0, error: '模拟迁移失败', project_id: project.projectId }, {}), 20);
+                } else if (includeNodeId) {
+                  window.__historicalMock.showContent(includeNodeId);
                 } else {
-                  setTimeout(() => window.__historicalMock.showContent(), 20);
+                  setTimeout(() => window.__historicalMock.showContent(includeNodeId), 20);
                 }
-                return workspaceState;
+                return snapshot;
               },
               getHistoricalAdaptationSourceSection: async ({ nodeId }) => {
                 const item = workspaceState.historicalAdaptationContentItems.find((entry) => entry.node_id === nodeId);
@@ -470,6 +473,7 @@ with sync_playwright() as playwright:
     page.screenshot(path=OUTPUT_DIR / "historical-adaptation-differences.png", full_page=True)
 
     first_item = page.locator(".historical-adaptation-difference-item").first
+    first_item.locator(".historical-adaptation-difference-advanced summary").click()
     first_item.get_by_label("处理要求").fill("删除相关章节，并清理全文交叉引用和对应进度节点。")
     first_item.get_by_label("确认备注").fill("已核对横泾街道招标范围")
     first_item.get_by_role("button", name="保存修改").click()
@@ -520,11 +524,11 @@ with sync_playwright() as playwright:
 
     page.set_viewport_size({"width": 1440, "height": 1000})
     page.get_by_role("button", name="正文迁移 可开始").click()
-    plan = page.get_by_role("button", name="建立/更新迁移方案", exact=True)
+    plan = page.get_by_role("button", name="建立/更新迁移", exact=True)
     assert page.get_by_role("button", name="一键迁移待处理章节", exact=True).count() == 0
     page.evaluate("window.__historicalMock.failPrepareOnce = true")
     plan.click()
-    page.get_by_text("建立正文迁移方案失败：模拟方案失败", exact=True).wait_for()
+    page.get_by_text("建立/更新迁移失败：模拟方案失败", exact=True).wait_for()
     assert page.evaluate("window.__historicalMock.calls.slice(-1)[0].action") == "prepare"
     page.evaluate("window.__historicalMock.failStartOnce = true")
     plan.click()
@@ -610,16 +614,22 @@ with sync_playwright() as playwright:
     assert migrate.is_disabled()
     page.get_by_label("定向改写要求").fill("突出横泾服务响应流程")
     assert editor.input_value() == original_content
-    assert page.get_by_text("选择尚未应用，点击下方按钮后才会迁移正文。", exact=True).is_visible()
+    assert page.get_by_text("选择尚未应用，可迁移本章或点击上方按钮建立并执行迁移。", exact=True).is_visible()
     calls_before = page.evaluate("window.__historicalMock.calls.length")
-    plan.click()
-    assert page.evaluate("window.__historicalMock.calls.length") == calls_before
     page.evaluate("window.__historicalMock.failStrategyOnce = true")
-    migrate.click()
-    page.get_by_text("迁移方式未应用：模拟保存失败", exact=True).wait_for()
+    plan.click()
+    page.get_by_text("建立/更新迁移失败：模拟保存失败", exact=True).wait_for()
     assert page.evaluate("window.__historicalMock.calls.slice(-1)[0].action") == "save"
     assert page.evaluate("window.__historicalMock.calls.length") == calls_before + 1
     assert editor.input_value() == original_content
+    plan.click()
+    page.get_by_text("按人工要求迁移：突出横泾服务响应流程。", exact=True).wait_for()
+    assert [item["action"] for item in page.evaluate("window.__historicalMock.calls.slice(-2)")] == ["save", "prepare"]
+    assert page.evaluate("window.__historicalMock.calls.slice(-1)[0].includeNodeId") is not None
+    page.get_by_role("button", name="编辑", exact=True).click()
+    assert "突出横泾服务响应流程" in editor.input_value()
+    original_content = editor.input_value()
+    dismiss_toasts(page)
     page.evaluate("window.__historicalMock.failStartOnce = true")
     migrate.click()
     page.get_by_text("方式已应用，迁移启动失败：模拟启动失败。请重试迁移。", exact=True).wait_for()
@@ -666,7 +676,7 @@ with sync_playwright() as playwright:
     assert page.locator(".adaptation-content-outline-list button").first.get_by_text("已完成", exact=True).is_visible()
     dismiss_toasts(page)
     plan.click()
-    page.get_by_text('方案已更新，待处理章节已按推荐或已应用的人工方式开始迁移', exact=True).wait_for()
+    page.get_by_text('迁移已启动；待处理章节将按推荐或当前选择的方式执行，人工正文保留', exact=True).wait_for()
     page.wait_for_function("() => !document.querySelector('.adaptation-content-outline-list button small')?.textContent.includes('待重新迁移')")
     page.get_by_role("button", name="编辑", exact=True).click()
     assert editor.input_value() == manual_content
@@ -705,10 +715,15 @@ with sync_playwright() as playwright:
     assert migrate.is_disabled()
     assert mode.locator('option[value="direct"]').is_disabled()
     assert mode.locator('option[value="local-rewrite"]').is_disabled()
+    calls_before = page.evaluate("window.__historicalMock.calls.length")
+    plan.click()
+    page.get_by_text("可迁移章节已启动；当前章节仍需选择迁移方式", exact=True).wait_for()
+    assert page.evaluate("window.__historicalMock.calls.length") == calls_before + 1
+    assert mode.input_value() == ""
     mode.select_option("rewrite")
     page.get_by_label("定向改写要求").fill("补充横泾应急响应内容")
     migrate.click()
-    page.wait_for_function("() => document.querySelector('.adaptation-content-markdown-editor .markdown-editor-textarea').value.includes('补充横泾应急响应内容')")
+    page.get_by_text("按人工要求迁移：补充横泾应急响应内容。", exact=True).wait_for()
     page.get_by_role("button", name="运行一致性检查").click()
     page.get_by_text("检查通过", exact=True).wait_for()
     page.get_by_role("button", name="确认本阶段").click()

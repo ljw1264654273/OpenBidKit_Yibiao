@@ -440,7 +440,7 @@ async function runHistoricalAdaptationContentTask({ aiService, workspaceStore, u
       : leaves.filter((leaf) => {
         const item = items.find((candidate) => candidate.node_id === leaf.nodeId);
         return (!item || item.status !== 'success') && item?.content_origin !== 'manual'
-          && !(item?.manual_mode === 'rewrite' && item.status === 'stale');
+          && !(item?.manual_mode === 'rewrite' && item.status === 'stale' && leaf.nodeId !== payload.includeNodeId);
       });
   const differenceById = new Map((state.historicalAdaptationDifferences || []).map((item) => [text(item.id), item]));
   for (const item of items) {

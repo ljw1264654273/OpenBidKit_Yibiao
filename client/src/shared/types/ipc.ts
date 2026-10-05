@@ -766,7 +766,7 @@ export interface YibiaoBridge {
     saveHistoricalAdaptationDifferences: (payload: { projectId?: string; differences: HistoricalAdaptationDifference[] }) => Promise<TechnicalPlanState>;
     saveHistoricalAdaptationOutline: (payload: SaveHistoricalAdaptationOutlineRequest & { projectId?: string }) => Promise<TechnicalPlanState>;
     confirmHistoricalAdaptationOutline: (payload: { projectId?: string }) => Promise<TechnicalPlanState>;
-    prepareHistoricalAdaptationContentPlan: (payload: { projectId?: string }) => Promise<TechnicalPlanState>;
+    prepareHistoricalAdaptationContentPlan: (payload: { projectId?: string; includeNodeId?: string }) => Promise<TechnicalPlanState>;
     saveHistoricalAdaptationContentStrategy: (payload: { projectId?: string; nodeId: string; mode: HistoricalAdaptationContentMode; instruction?: string }) => Promise<TechnicalPlanState>;
     resetHistoricalAdaptationContentStrategies: (payload: { projectId?: string }) => Promise<TechnicalPlanState>;
     getHistoricalAdaptationContentReadiness: (payload: { projectId?: string }) => Promise<HistoricalAdaptationContentReadiness>;

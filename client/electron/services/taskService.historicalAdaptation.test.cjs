@@ -381,6 +381,13 @@ test('建立正文迁移方案检查项目类型并自动启动正文任务', as
   );
 });
 
+test('一键建立方案透传当前新选择的章节以便本次执行', async () => {
+  const harness = makeHarness();
+  await harness.service.prepareHistoricalAdaptationContentPlan({ projectId: 'historical-project', includeNodeId: '1' });
+  await waitUntil(() => harness.runnerCalls.content.length === 1);
+  assert.equal(harness.runnerCalls.content[0].includeNodeId, '1');
+});
+
 for (const taskType of ['content', 'contentCheck']) {
   test(`重新建立正文方案等待旧 ${taskType} runner 结束后才准备并启动正文`, async () => {
     const harness = makeHarness({

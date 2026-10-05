@@ -1,15 +1,16 @@
-import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } from 'react';
+import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import ExpansionProjectCreatePage from '../../bid-project/pages/ExpansionProjectCreatePage';
 import type { BidProject } from '../../bid-project/types';
 import BidAnalysisPage from '../../technical-plan/pages/BidAnalysisPage';
 import { bidAnalysisTasks, isMissingBidAnalysisResult } from '../../technical-plan/services/bidAnalysisWorkflow';
 import type { BackgroundTaskState, TechnicalPlanState } from '../../technical-plan/types';
+import type { TaskEvent } from '../../../shared/types/ipc';
 import { AppDialog, InlineSpinner } from '../../../shared/ui';
 import AdaptationDifferencePage from '../components/AdaptationDifferencePage';
 import AdaptationOutlinePage from '../components/AdaptationOutlinePage';
 import AdaptationContentPage from '../components/AdaptationContentPage';
 import AdaptationReviewExportPage from '../components/AdaptationReviewExportPage';
-import { applyHistoricalAdaptationContentPatch } from '../contentItemPatch';
+import { applyHistoricalAdaptationContentPatch, replayHistoricalAdaptationContentEvents } from '../contentItemPatch';
 
 interface HistoricalBidAdaptationPageProps {
   projectId?: string;
@@ -69,6 +70,20 @@ function AdaptationProjectWorkspace({
   const [loading, setLoading] = useState(true);
   const [contentDirty, setContentDirty] = useState(false);
   const [pendingStage, setPendingStage] = useState<number | null>(null);
+  const pendingContentPlanEvents = useRef<TaskEvent<TechnicalPlanState>[] | null>(null);
+
+  const prepareContentPlan = async (payload: { projectId: string; includeNodeId?: string }) => {
+    pendingContentPlanEvents.current = [];
+    try {
+      const nextState = await window.yibiao.technicalPlan.prepareHistoricalAdaptationContentPlan(payload);
+      const events = (pendingContentPlanEvents.current || []).filter((event) =>
+        event.task.task_id === nextState.historicalAdaptationContentTask?.task_id);
+      setState(replayHistoricalAdaptationContentEvents(nextState, events));
+      return nextState;
+    } finally {
+      pendingContentPlanEvents.current = null;
+    }
+  };
 
   const loadWorkspace = useCallback(async (showLoading = true) => {
     if (showLoading) setLoading(true);
@@ -122,6 +137,7 @@ function AdaptationProjectWorkspace({
         && taskType !== 'historical-adaptation-outline'
         && taskType !== 'historical-adaptation-content'
         && taskType !== 'historical-adaptation-content-check') return;
+      if (taskType === 'historical-adaptation-content') pendingContentPlanEvents.current?.push(event);
       const technicalPlan = event.technicalPlanPatch || event.technicalPlan || {};
       const owns = (key: keyof TechnicalPlanState) => Object.prototype.hasOwnProperty.call(technicalPlan, key);
 
@@ -244,6 +260,7 @@ function AdaptationProjectWorkspace({
             project={project}
             onStateChange={setState}
             onDirtyChange={setContentDirty}
+            onPreparePlan={prepareContentPlan}
             onBack={onBack}
           />
         ) : activeStage === 5 ? (

@@ -14,6 +14,7 @@ interface AdaptationContentPageProps {
   project: BidProject | null;
   state: TechnicalPlanState;
   onStateChange: Dispatch<SetStateAction<TechnicalPlanState | null>>;
+  onPreparePlan: (payload: { projectId: string; includeNodeId?: string }) => Promise<TechnicalPlanState>;
   onDirtyChange: (dirty: boolean) => void;
   onBack: () => void;
 }
@@ -55,7 +56,7 @@ function effectiveMode(item?: TechnicalPlanState['historicalAdaptationContentIte
   return item?.manual_mode || item?.recommended_mode || '';
 }
 
-function AdaptationContentPage({ projectId, project, state, onStateChange, onDirtyChange, onBack }: AdaptationContentPageProps) {
+function AdaptationContentPage({ projectId, project, state, onStateChange, onPreparePlan, onDirtyChange, onBack }: AdaptationContentPageProps) {
   const leaves = useMemo(() => flattenLeaves(state.outlineData?.outline || []), [state.outlineData]);
   const itemByNode = useMemo(() => new Map(
     state.historicalAdaptationContentItems.map((item) => [item.node_id, item]),
@@ -182,19 +183,31 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onDir
       showToast('当前章节有未保存修改，请先保存后再迁移', 'info');
       return;
     }
-    if (strategyChanged) {
-      showToast('当前选择尚未应用，请先点击“按此方式迁移本章”或恢复默认处理方式', 'info');
+    if (strategyChanged && selectedItem?.content_origin === 'manual') {
+      showToast('当前章节是人工正文，请点击“按此方式迁移本章”并确认覆盖；批量迁移会保留人工正文', 'info');
       return;
     }
     setPreparing(true);
     try {
-      const nextState = await window.yibiao.technicalPlan.prepareHistoricalAdaptationContentPlan({ projectId });
-      onStateChange(nextState);
+      if (strategyChanged && selectedItem && strategyMode) {
+        if (strategyMode === 'rewrite' && !strategyInstruction.trim()) {
+          showToast('定向改写必须填写具体要求', 'info');
+          return;
+        }
+        const nextState = await window.yibiao.technicalPlan.saveHistoricalAdaptationContentStrategy({
+          projectId, nodeId: selectedItem.node_id, mode: strategyMode,
+          instruction: strategyMode === 'rewrite' ? strategyInstruction.trim() : undefined,
+        });
+        onStateChange(nextState);
+      }
+      await onPreparePlan({ projectId, ...(strategyChanged && selectedItem ? { includeNodeId: selectedItem.node_id } : {}) });
       setView('preview');
-      showToast('方案已更新，待处理章节已按推荐或已应用的人工方式开始迁移', 'success');
+      showToast(selectedItem && !strategyMode
+        ? '可迁移章节已启动；当前章节仍需选择迁移方式'
+        : '迁移已启动；待处理章节将按推荐或当前选择的方式执行，人工正文保留', 'success');
     } catch (error) {
       const message = error instanceof Error ? error.message : '操作失败';
-      showToast(`建立正文迁移方案失败：${message}`, 'error');
+      showToast(`建立/更新迁移失败：${message}`, 'error');
     } finally {
       setPreparing(false);
     }
@@ -225,7 +238,7 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onDir
       onStateChange(nextState);
       setStrategyMode(effectiveMode(nextState.historicalAdaptationContentItems.find((item) => item.node_id === selectedLeaf?.item.id)));
       setStrategyInstruction('');
-      showToast('已恢复默认处理方式；点击“建立/更新迁移方案”更新正文，已保存的人工正文保留', 'success');
+      showToast('已恢复默认处理方式；点击“建立/更新迁移”更新正文，已保存的人工正文保留', 'success');
     } catch (error) {
       showToast(error instanceof Error ? error.message : '恢复默认处理方式失败', 'error');
     } finally {
@@ -414,7 +427,7 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onDir
         </div>
         <div className="historical-adaptation-content-actions">
           <button type="button" className="secondary-action" onClick={() => requestNavigation({ type: 'back' })}>返回我的标书</button>
-          <button type="button" className="primary-action" disabled={running || saving || dirty} title={dirty ? '请先保存人工修改' : '建立推荐方案并迁移待处理章节；保留人工正文'} onClick={() => { void preparePlan(); }}>{preparing ? '准备迁移方案中...' : '建立/更新迁移方案'}</button>
+          <button type="button" className="primary-action" disabled={running || saving || dirty} title={dirty ? '请先保存人工修改' : '应用当前选择，建立方案并迁移待处理章节；保留人工正文'} onClick={() => { void preparePlan(); }}>{preparing ? '建立迁移中...' : '建立/更新迁移'}</button>
           <button type="button" className="secondary-action" disabled={running || saving || dirty || !retryCount} onClick={() => { void retryIncomplete(); }}>{retrying ? '重试启动中...' : '重试未完成章节'}</button>
           <button type="button" className="secondary-action" disabled={running || saving || dirty || !state.historicalAdaptationContentItems.length} title={dirty ? '请先保存人工修改' : '清除全部人工选择和改写要求，恢复默认规则；正文在执行迁移后更新，已保存的人工正文保留'} onClick={() => { void resetStrategies(); }}>恢复默认处理方式</button>
         </div>
@@ -425,7 +438,7 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onDir
         <div><span>迁移完成</span><strong className="is-success">{successCount}</strong></div>
         <div><span>待人工处理 / 失败</span><strong className={reviewCount ? 'is-warning' : ''}>{reviewCount}</strong></div>
         <div className="historical-adaptation-content-progress">
-          <span>{preparing ? '准备迁移方案中' : migrationRunning ? '后台迁移中' : checkRunning ? '一致性检查中' : migrationTask?.status === 'error' ? '迁移任务异常' : stageConfirmed ? '本阶段已确认' : '等待迁移或审阅'}</span>
+          <span>{preparing ? '正在建立并启动迁移' : migrationRunning ? '后台迁移中' : checkRunning ? '一致性检查中' : migrationTask?.status === 'error' ? '迁移任务异常' : stageConfirmed ? '本阶段已确认' : '等待迁移或审阅'}</span>
           <ProgressBar value={migrationTask?.progress || (stageConfirmed ? 100 : leaves.length ? Math.round((successCount / leaves.length) * 100) : 0)} />
         </div>
       </section>
@@ -466,7 +479,7 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onDir
                   </select>
                   {strategyMode === 'rewrite' ? <label>定向改写要求<textarea value={strategyInstruction} disabled={running} onChange={(event) => setStrategyInstruction(event.target.value)} placeholder="说明需要改写或补充的重点、边界和表达要求" /></label> : null}
                   <small>{strategyMode === 'direct' ? '完整复制历史正文，不调用 AI。' : strategyMode === 'local-rewrite' ? '仅调整地点与实施对象、工作量、工期进度，保留其余正文。' : strategyMode === 'rewrite' ? hasHistoricalSource ? '按填写的要求改写本章历史正文。' : '本章无可靠历史正文，将按招标基线和填写的要求补充生成。' : '本章无可靠历史正文，可选择定向改写补充生成，或直接编辑正文。'}</small>
-                  <small role="status">{strategyChanged ? '选择尚未应用，点击下方按钮后才会迁移正文。' : '选择方式不会改变正文，点击下方按钮才执行迁移。'}</small>
+                  <small role="status">{strategyChanged ? '选择尚未应用，可迁移本章或点击上方按钮建立并执行迁移。' : '选择方式不会改变正文，点击迁移按钮才执行。'}</small>
                   <button type="button" className="primary-action" disabled={running || saving || dirty || !strategyMode || (strategyMode === 'rewrite' && !strategyInstruction.trim())} title={dirty ? '请先保存人工修改' : undefined} onClick={() => { void migrateChapter(); }}>{strategySaving ? '启动迁移中...' : '按此方式迁移本章'}</button>
                   <small>系统推荐：{selectedItem.recommended_mode ? modeLabels[selectedItem.recommended_mode] : '待人工选择'}{selectedItem.manual_mode ? ' · 已人工调整' : ''}</small>
                 </section>
@@ -483,7 +496,7 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onDir
                   {selectedDifferences.length ? selectedDifferences.map((difference) => difference ? <article key={difference.id}><span>{difference.category}</span><strong>{difference.title}</strong><p>{difference.action}</p></article> : null) : <p className="adaptation-content-no-difference">无直接关联差异</p>}
                 </section>
               </>
-            ) : <div className="adaptation-content-empty">点击“建立/更新迁移方案”，自动按推荐方式迁移正文。</div>}
+            ) : <div className="adaptation-content-empty">点击“建立/更新迁移”，自动按推荐方式迁移正文。</div>}
           </div>
         </div>
 

@@ -1,7 +1,8 @@
 import type { OutlineItem } from '../../shared/types';
-import type { HistoricalAdaptationContentItem, TechnicalPlanState } from '../technical-plan/types';
+import type { BackgroundTaskState, HistoricalAdaptationContentItem, TechnicalPlanState } from '../technical-plan/types';
 
 interface ContentPatchEvent {
+  task?: { task_id: string; status: string };
   technicalPlan?: TechnicalPlanState;
   technicalPlanPatch?: Partial<TechnicalPlanState>;
   contentItemPatch?: Partial<HistoricalAdaptationContentItem>;
@@ -43,4 +44,11 @@ export function applyHistoricalAdaptationContentPatch(previous: TechnicalPlanSta
     if (outline !== next.outlineData.outline) next.outlineData = { ...next.outlineData, outline };
   }
   return next;
+}
+
+export function replayHistoricalAdaptationContentEvents(snapshot: TechnicalPlanState, events: ContentPatchEvent[]): TechnicalPlanState {
+  return events.reduce((previous, event) => ({
+    ...applyHistoricalAdaptationContentPatch(previous, event),
+    ...(event.task ? { historicalAdaptationContentTask: event.task as BackgroundTaskState } : {}),
+  }), snapshot);
 }
