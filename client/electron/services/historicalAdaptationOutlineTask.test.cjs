@@ -71,8 +71,30 @@ test('未变化的子节点仍保存历史来源路径供正文迁移', () => {
   assert.deepEqual(result.changes.find((item) => item.target_node_id === '1.1'), {
     id: result.changes.find((item) => item.target_node_id === '1.1').id,
     change_type: 'unchanged', original_path: '五峰村目标 / 保障群众合法权益',
-    target_node_id: '1.1', target_title: '保障群众合法权益', reason: '沿用历史章节', difference_ids: [],
+    target_node_id: '1.1', target_title: '保障群众合法权益', reason: '沿用历史章节', difference_ids: [], reuse_original: true,
   });
+});
+
+test('目录变更默认历史节点复用、新增节点不复用并保留显式选择', () => {
+  const result = normalizeAdaptedOutlineResult({ outline: [
+    { title: '沿用', source_paths: ['原沿用'], change_type: 'unchanged' },
+    { title: '调整', source_paths: ['原调整'], change_type: 'renamed' },
+    { title: '新增', change_type: 'added', change_reason: '招标基线新增' },
+    { title: '明确关闭', source_paths: ['原关闭'], change_type: 'updated', reuse_original: false },
+  ] });
+  assert.equal(result.changes.find((item) => item.target_title === '沿用').reuse_original, true);
+  assert.equal(result.changes.find((item) => item.target_title === '调整').reuse_original, true);
+  assert.equal(result.changes.find((item) => item.target_title === '新增').reuse_original, false);
+  assert.equal(result.changes.find((item) => item.target_title === '明确关闭').reuse_original, false);
+});
+
+test('目录变更兼容归一化会推断缺失的复用字段', () => {
+  const changes = require('./historicalAdaptationOutlineTask.cjs').normalizeHistoricalAdaptationOutlineChanges([
+    { id: 'legacy', change_type: 'moved', original_path: '原', target_node_id: '1', target_title: '现', reason: '移动', difference_ids: [] },
+    { id: 'added', change_type: 'added', original_path: '', target_node_id: '2', target_title: '新增', reason: '新增', difference_ids: [] },
+  ]);
+  assert.equal(changes[0].reuse_original, true);
+  assert.equal(changes[1].reuse_original, false);
 });
 
 test('后台任务读取完整基线和已确认差异并原子保存目录结果', async () => {

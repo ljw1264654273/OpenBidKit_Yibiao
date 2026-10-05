@@ -21,6 +21,13 @@ function hashText(value) {
 }
 
 function getEffectiveMode(item) {
+  const hasReliableSource = Boolean(text(item?.source_path) && (text(item?.source_content_hash) || text(item?.source_excerpt)));
+  if (item?.reuse_original === true) return hasReliableSource ? 'direct' : null;
+  if (item?.reuse_original === false) {
+    return CONTENT_MODES.has(text(item?.manual_mode)) && text(item.manual_mode) !== 'direct' ? text(item.manual_mode)
+      : CONTENT_MODES.has(text(item?.recommended_mode)) && text(item.recommended_mode) !== 'direct' ? text(item.recommended_mode)
+        : hasReliableSource ? 'local-rewrite' : null;
+  }
   return CONTENT_MODES.has(text(item?.manual_mode)) ? text(item.manual_mode)
     : CONTENT_MODES.has(text(item?.recommended_mode)) ? text(item.recommended_mode) : null;
 }
@@ -115,6 +122,7 @@ function normalizeHistoricalAdaptationContentItems(value) {
     return {
       node_id: nodeId,
       source_path: text(raw?.source_path),
+      reuse_original: typeof raw?.reuse_original === 'boolean' ? raw.reuse_original : undefined,
       recommended_mode: recommendedMode,
       manual_mode: manualMode,
       manual_instruction: manualMode === 'rewrite' ? text(raw?.manual_instruction) : '',
@@ -161,6 +169,7 @@ function buildHistoricalContentItems({ state, originalPlan, sourceIndex: supplie
     const change = changesByNode.get(leaf.nodeId);
     const lineageChanges = [...leaf.ancestorIds, leaf.nodeId].map((nodeId) => changesByNode.get(nodeId)).filter(Boolean);
     const addedChange = lineageChanges.find((item) => item?.change_type === 'added');
+    const reuseOriginal = typeof change?.reuse_original === 'boolean' ? change.reuse_original : undefined;
     const sourcePaths = sourcePathsForLeaf(leaf, changesByNode);
     const sourcePath = sourcePaths.length === 1 ? sourcePaths[0] : sourcePaths.join('；');
     const located = addedChange || sourcePaths.length !== 1
@@ -191,8 +200,8 @@ function buildHistoricalContentItems({ state, originalPlan, sourceIndex: supplie
       recommendedMode = 'local-rewrite';
       reason = '章节命中地点/实施对象、工作量或工期进度差异，仅局部改造相关内容';
     } else if (located.reliable && !needsReview) {
-      recommendedMode = 'direct';
-      reason = '历史正文定位可靠，默认直接迁移';
+      recommendedMode = reuseOriginal === false ? 'local-rewrite' : 'direct';
+      reason = reuseOriginal === false ? '已关闭沿用历史原文，按适配规则处理' : '历史正文定位可靠，默认直接迁移';
     }
     const sourceHash = hashText(located.content);
     const fingerprintInput = {
@@ -203,6 +212,7 @@ function buildHistoricalContentItems({ state, originalPlan, sourceIndex: supplie
       description: leaf.description,
       source_path: sourcePath,
       source_hash: sourceHash,
+      ...(typeof reuseOriginal === 'boolean' ? { reuse_original: reuseOriginal } : {}),
       differences: differences.map((difference) => ({
         id: text(difference.id),
         decision: text(difference.decision),
@@ -223,13 +233,15 @@ function buildHistoricalContentItems({ state, originalPlan, sourceIndex: supplie
       && (!previous.source_locator || previous.source_locator === sourcePath);
     const currentInputCompatible = sourceCompatible && previous.input_fingerprint === inputFingerprint
       && (previous.recommended_mode === recommendedMode || Boolean(previous.manual_mode));
-    const preserveManualSelection = Boolean(previous?.manual_mode);
+    const preserveManualSelection = Boolean(previous?.manual_mode)
+      && !(reuseOriginal === false && previous.manual_mode === 'direct');
     const preserveCompletedResult = currentInputCompatible
-      || (sourceCompatible && previous.manual_mode === 'direct');
+      || (reuseOriginal !== false && sourceCompatible && previous.manual_mode === 'direct');
     const preserveManualContent = previous?.content_origin === 'manual';
     const preserveManualSource = preserveManualContent && !overwriteManualNodes.has(leaf.nodeId);
     return {
       node_id: leaf.nodeId,
+      ...(typeof reuseOriginal === 'boolean' ? { reuse_original: reuseOriginal } : {}),
       source_path: preserveManualSource ? previous.source_path : located.sourceTitle ? sourcePath : '',
       source_locator: preserveManualSource ? previous.source_locator : located.sourceTitle ? sourcePath : '',
       source_hash: preserveManualSource ? previous.source_hash : sourceHash,

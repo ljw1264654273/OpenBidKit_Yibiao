@@ -32,6 +32,52 @@ test('重建人工正文方案保留实际迁移来源，而显式覆盖切换�
   assert.equal(overwritten.source_content, '五峰村新来源。');
 });
 
+test('目录复用决定优先于推荐局部改写，关闭复用不会直接迁移', () => {
+  const state = baseState();
+  const originalPlan = '# 项目概况\n五峰村正文。\n# 服务保障\n保障正文。';
+  state.historicalAdaptationOutlineChanges[0].reuse_original = true;
+  const reused = buildHistoricalContentItems({ state, originalPlan })[0];
+  assert.equal(reused.recommended_mode, 'local-rewrite');
+  assert.equal(reused.reuse_original, true);
+  assert.equal(getEffectiveMode(reused), 'direct');
+
+  state.historicalAdaptationOutlineChanges[0].reuse_original = false;
+  const optedOut = buildHistoricalContentItems({ state, originalPlan })[0];
+  assert.equal(optedOut.reuse_original, false);
+  assert.notEqual(getEffectiveMode(optedOut), 'direct');
+  assert.equal(getEffectiveMode(optedOut), 'local-rewrite');
+});
+
+test('缺少复用决定时保留历史推荐模式，不推断复用字段', () => {
+  const state = baseState();
+  state.historicalAdaptationDifferences = [];
+  const [item] = buildHistoricalContentItems({ state, originalPlan: '# 项目概况\n五峰村正文。' });
+  assert.equal(item.recommended_mode, 'direct');
+  assert.equal(item.reuse_original, undefined);
+  assert.equal(getEffectiveMode(item), 'direct');
+});
+
+test('复用决定要求可靠来源，新增节点不得伪造 direct', () => {
+  const state = baseState();
+  state.historicalAdaptationOutlineChanges = [{ ...state.historicalAdaptationOutlineChanges[0], change_type: 'added', original_path: '', reuse_original: false }];
+  const [item] = buildHistoricalContentItems({ state, originalPlan: '# 项目概况\n五峰村正文。' });
+  assert.equal(item.reuse_original, false);
+  assert.equal(item.source_content_hash, '');
+  assert.equal(item.recommended_mode, null);
+  assert.equal(getEffectiveMode(item), null);
+});
+
+test('关闭复用会清除历史 direct 人工选择', () => {
+  const state = baseState();
+  const originalPlan = '# 项目概况\n五峰村正文。';
+  const previous = buildHistoricalContentItems({ state, originalPlan })[0];
+  state.historicalAdaptationContentItems = [{ ...previous, manual_mode: 'direct', status: 'success' }];
+  state.historicalAdaptationOutlineChanges[0].reuse_original = false;
+  const [rebuilt] = buildHistoricalContentItems({ state, originalPlan });
+  assert.equal(rebuilt.manual_mode, undefined);
+  assert.notEqual(getEffectiveMode(rebuilt), 'direct');
+});
+
 test('单章确认覆盖人工正文使用当前来源正文与同一版本 provenance', async () => {
   const state = baseState();
   const oldSource = '# 项目概况\n五峰村旧来源。\n# 服务保障\n旧保障。';

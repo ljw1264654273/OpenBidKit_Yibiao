@@ -268,6 +268,7 @@ export interface HistoricalAdaptationOutlineChange {
   target_title: string;
   reason: string;
   difference_ids: string[];
+  reuse_original?: boolean;
 }
 
 export type HistoricalAdaptationContentMode = 'direct' | 'local-rewrite' | 'rewrite';

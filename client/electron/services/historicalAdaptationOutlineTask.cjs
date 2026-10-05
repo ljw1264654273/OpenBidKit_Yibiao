@@ -75,6 +75,7 @@ function normalizeAdaptedOutlineResult(value, projectName) {
     const children = normalizeNodes(raw.children, id);
     const sourcePaths = uniqueStrings(raw.source_paths || raw.original_paths);
     const changeType = CHANGE_TYPES.has(text(raw.change_type)) ? text(raw.change_type) : 'unchanged';
+    const reuseOriginal = typeof raw?.reuse_original === 'boolean' ? raw.reuse_original : changeType !== 'added';
     const differenceIds = uniqueStrings(raw.difference_ids);
     if (changeType !== 'unchanged' || sourcePaths.length) {
       changes.push({
@@ -85,6 +86,7 @@ function normalizeAdaptedOutlineResult(value, projectName) {
         target_title: title,
         reason: text(raw.change_reason) || (changeType === 'unchanged' ? '沿用历史章节' : '依据招标基线调整目录'),
         difference_ids: differenceIds,
+        reuse_original: reuseOriginal,
       });
     }
     return {
@@ -146,6 +148,7 @@ function normalizeHistoricalAdaptationOutlineChanges(value) {
       target_title: targetTitle,
       reason,
       difference_ids: uniqueStrings(raw?.difference_ids),
+      reuse_original: typeof raw?.reuse_original === 'boolean' ? raw.reuse_original : changeType !== 'added',
     };
   }).filter(Boolean);
 }

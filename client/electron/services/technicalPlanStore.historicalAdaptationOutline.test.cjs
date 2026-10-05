@@ -29,7 +29,7 @@ function runAssertions() {
     };
     const changes = [{
       id: 'rename-1', change_type: 'renamed', original_path: '原项目概况',
-      target_node_id: '1', target_title: '横泾街道项目概况', reason: '地点替换', difference_ids: ['replace-location'],
+      target_node_id: '1', target_title: '横泾街道项目概况', reason: '地点替换', difference_ids: ['replace-location'], reuse_original: false,
     }];
 
     store.updateTechnicalPlan({
@@ -46,6 +46,14 @@ function runAssertions() {
     let state = store.loadTechnicalPlan();
     assert.deepEqual(state.historicalAdaptationOriginalOutline, originalOutline);
     assert.deepEqual(state.historicalAdaptationOutlineChanges, changes);
+
+    state = store.saveHistoricalAdaptationOutline({
+      outlineData: { outline: [{ ...outlineData.outline[0], id: '1.1' }] },
+      reason: 'sort', idMap: { '1': '1.1' },
+      changes: [{ ...changes[0], target_node_id: '1.1' }],
+    });
+    assert.equal(state.historicalAdaptationOutlineChanges[0].target_node_id, '1.1');
+    assert.equal(state.historicalAdaptationOutlineChanges[0].reuse_original, false);
 
     state = store.saveHistoricalAdaptationOutline({
       outlineData: {
