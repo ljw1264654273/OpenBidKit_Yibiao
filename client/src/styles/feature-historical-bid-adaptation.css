@@ -459,6 +459,15 @@
 .adaptation-content-column > header strong { overflow: hidden; color: #294761; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .adaptation-content-column > header span { color: #718094; font-size: 9px; }
 
+.adaptation-content-column.is-outline { grid-template-rows: auto minmax(0, 1fr); }
+.adaptation-content-column.is-outline > header { flex-direction: column; align-items: stretch; gap: 8px; padding: 10px 12px; }
+.adaptation-content-outline-heading { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 8px; }
+.adaptation-content-outline-heading > span { flex: 0 0 auto; }
+.adaptation-content-outline-filters { display: flex; gap: 2px; padding: 2px; background: #e9eef4; border-radius: 4px; }
+.adaptation-content-outline-filters button { flex: 1; min-width: 0; min-height: 28px; padding: 0 5px; color: #617287; font: inherit; font-size: 10px; white-space: nowrap; background: transparent; border: 0; border-radius: 3px; cursor: pointer; }
+.adaptation-content-outline-filters button:hover { color: #174f9f; }
+.adaptation-content-outline-filters button.is-active { color: #174f9f; background: #fff; }
+
 .adaptation-content-outline-list { min-height: 0; overflow: auto; padding: 7px; }
 .adaptation-content-outline-list > button { display: grid; grid-template-columns: 38px minmax(0, 1fr); width: 100%; min-height: 44px; align-items: center; gap: 6px; margin-bottom: 3px; padding: 5px 7px; color: #425c75; font: inherit; text-align: left; background: transparent; border: 1px solid transparent; border-radius: 4px; cursor: pointer; }
 .adaptation-content-outline-list > button:hover { background: #f0f5fa; }

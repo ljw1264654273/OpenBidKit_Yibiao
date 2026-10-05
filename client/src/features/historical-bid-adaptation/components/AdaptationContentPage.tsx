@@ -27,6 +27,13 @@ interface LeafEntry {
 
 type PendingNavigation = { type: 'chapter'; nodeId: string } | { type: 'back' };
 type ChapterMigration = { nodeId: string; mode: HistoricalAdaptationContentMode; instruction?: string };
+type ChapterFilter = 'all' | 'incomplete' | 'complete';
+
+const chapterFilterLabels: Record<ChapterFilter, string> = {
+  all: '全部',
+  incomplete: '未完成',
+  complete: '已完成',
+};
 
 const modeLabels: Record<HistoricalAdaptationContentMode, string> = {
   direct: '直接迁移',
@@ -62,6 +69,12 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onPre
     state.historicalAdaptationContentItems.map((item) => [item.node_id, item]),
   ), [state.historicalAdaptationContentItems]);
   const [selectedId, setSelectedId] = useState(leaves[0]?.item.id || '');
+  const [chapterFilter, setChapterFilter] = useState<ChapterFilter>('all');
+  const visibleLeaves = useMemo(() => leaves.filter((entry) => {
+    if (chapterFilter === 'all') return true;
+    const complete = itemByNode.get(entry.item.id)?.status === 'success';
+    return chapterFilter === 'complete' ? complete : !complete;
+  }), [chapterFilter, itemByNode, leaves]);
   const [draft, setDraft] = useState('');
   const [view, setView] = useState<'edit' | 'preview'>('preview');
   const [saving, setSaving] = useState(false);
@@ -452,9 +465,17 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onPre
 
       <section className="historical-adaptation-content-workbench">
         <div className="adaptation-content-column is-outline">
-          <header><strong>适配目录</strong><span>{leaves.length} 章</span></header>
+          <header>
+            <div className="adaptation-content-outline-heading"><strong>适配目录</strong><span>{chapterFilter === 'all' ? `${leaves.length} 章` : `${visibleLeaves.length} / ${leaves.length} 章`}</span></div>
+            <div className="adaptation-content-outline-filters" role="group" aria-label="章节完成状态筛选">
+              {(Object.keys(chapterFilterLabels) as ChapterFilter[]).map((filter) => (
+                <button type="button" key={filter} className={chapterFilter === filter ? 'is-active' : ''} aria-pressed={chapterFilter === filter} onClick={() => setChapterFilter(filter)}>{chapterFilterLabels[filter]}</button>
+              ))}
+            </div>
+          </header>
           <div className="adaptation-content-outline-list">
-            {leaves.map((entry) => {
+            {!visibleLeaves.length ? <div className="adaptation-content-empty">{chapterFilter === 'incomplete' ? '没有未完成章节' : chapterFilter === 'complete' ? '暂无已完成章节' : '暂无正文章节'}</div> : null}
+            {visibleLeaves.map((entry) => {
               const migration = itemByNode.get(entry.item.id);
               return (
                 <button type="button" key={entry.item.id} className={`${entry.item.id === selectedLeaf?.item.id ? 'is-selected' : ''}${migration?.status === 'success' ? ' is-confirmed' : ''}`} onClick={() => requestNavigation({ type: 'chapter', nodeId: entry.item.id })}>
