@@ -22,6 +22,14 @@ test('同名标题按完整路径定位并保留来源偏移与哈希', () => {
   assert.equal(locateHistoricalSection(index, '项目概况').reliable, false);
 });
 
+test('唯一来源路径允许去掉虚拟历史标书根节点并返回真实路径', () => {
+  const index = buildHistoricalSourceIndex('# 总体项目理解\n## 项目概况\n历史正文。');
+  const section = locateHistoricalSection(index, '历史标书 / 总体项目理解 / 项目概况');
+  assert.equal(section.reliable, true);
+  assert.deepEqual(section.path, ['总体项目理解', '项目概况']);
+  assert.equal(section.content, '历史正文。');
+});
+
 test('完整旧值在同章出现多次时枚举全部独立 occurrence', () => {
   const index = buildHistoricalSourceIndex(source);
   const section = locateHistoricalSection(index, '实施方案 / 项目概况');

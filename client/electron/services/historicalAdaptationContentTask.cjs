@@ -177,11 +177,14 @@ function buildHistoricalContentItems({ state, originalPlan, sourceIndex: supplie
     const lineageChanges = [...leaf.ancestorIds, leaf.nodeId].map((nodeId) => changesByNode.get(nodeId)).filter(Boolean);
     const addedChange = lineageChanges.find((item) => item?.change_type === 'added');
     const reuseOriginal = addedChange ? false : typeof change?.reuse_original === 'boolean' ? change.reuse_original : undefined;
-    const sourcePaths = sourcePathsForLeaf(leaf, changesByNode);
-    const sourcePath = sourcePaths.length === 1 ? sourcePaths[0] : sourcePaths.join('；');
-    const located = addedChange || sourcePaths.length !== 1
+    const sourcePathHint = sourcePathsForLeaf(leaf, changesByNode);
+    const sourcePathCandidate = sourcePathHint.length === 1 ? sourcePathHint[0] : sourcePathHint.join('；');
+    const located = addedChange || sourcePathHint.length !== 1
       ? { content: '', reliable: false }
-      : locateHistoricalSection(sourceIndex, sourcePath);
+      : locateHistoricalSection(sourceIndex, sourcePathCandidate);
+    const sourcePath = located.reliable && Array.isArray(located.path)
+      ? located.path.join(' / ')
+      : sourcePathCandidate;
     const attachedDifferenceIds = uniqueStrings(lineageChanges.flatMap((item) => item?.difference_ids || []))
       .filter((id) => differencesById.get(id)?.decision === 'confirmed');
     const boundRules = bindRulesToSourceRanges(sourceIndex, sourcePath, rules);

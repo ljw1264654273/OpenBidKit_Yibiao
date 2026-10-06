@@ -48,6 +48,24 @@ test('沿用历史原文以历史正文为底稿并保留推荐局部改写，�
   assert.equal(getEffectiveMode(optedOut), 'local-rewrite');
 });
 
+test('来源路径带虚拟历史标书根节点时仍定位历史正文并执行复用迁移', () => {
+  const state = baseState();
+  state.historicalAdaptationDifferences = [];
+  state.historicalAdaptationOutlineChanges[0] = {
+    ...state.historicalAdaptationOutlineChanges[0],
+    original_path: '历史标书 / 项目概况',
+    reuse_original: true,
+  };
+  const [item] = buildHistoricalContentItems({
+    state,
+    originalPlan: '# 项目概况\n历史正文。',
+  });
+  assert.equal(item.source_path, '项目概况');
+  assert.equal(item.source_content, '历史正文。');
+  assert.equal(item.recommended_mode, 'direct');
+  assert.equal(getEffectiveMode(item), 'direct');
+});
+
 test('默认沿用历史原文时仍自动应用已确认的内容调整', async () => {
   const state = baseState();
   state.historicalAdaptationOutlineChanges[0].reuse_original = true;

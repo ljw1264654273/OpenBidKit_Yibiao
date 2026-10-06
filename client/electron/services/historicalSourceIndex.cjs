@@ -70,9 +70,19 @@ function buildHistoricalSourceIndex(markdown) {
 
 function locateHistoricalSection(index, sourcePath) {
   const path = normalizePath(sourcePath);
-  const matches = index?.byPath?.get(path.join('/')) || [];
-  if (matches.length !== 1 || !matches[0].content) return { reliable: false, content: '' };
-  return { ...matches[0], reliable: true, sourceTitle: matches[0].heading };
+  const exactMatches = index?.byPath?.get(path.join('/')) || [];
+  if (exactMatches.length === 1 && exactMatches[0].content) {
+    return { ...exactMatches[0], reliable: true, sourceTitle: exactMatches[0].heading };
+  }
+  // 目录适配模型有时会给历史来源补上“历史标书/原目录”等虚拟根节点。
+  // 仅在去掉前缀后得到唯一正文候选时接受，避免重复标题被错误绑定。
+  for (let start = 1; start < path.length; start += 1) {
+    const suffixMatches = index?.byPath?.get(path.slice(start).join('/')) || [];
+    if (suffixMatches.length === 1 && suffixMatches[0].content) {
+      return { ...suffixMatches[0], reliable: true, sourceTitle: suffixMatches[0].heading };
+    }
+  }
+  return { reliable: false, content: '' };
 }
 
 function findAllValueRanges(section, value) {
