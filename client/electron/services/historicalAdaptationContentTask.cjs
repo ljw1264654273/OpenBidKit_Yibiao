@@ -22,7 +22,13 @@ function hashText(value) {
 
 function getEffectiveMode(item) {
   const hasReliableSource = Boolean(text(item?.source_path) && (text(item?.source_content_hash) || text(item?.source_excerpt)));
-  if (item?.reuse_original === true) return hasReliableSource ? 'direct' : null;
+  if (item?.reuse_original === true) {
+    if (!hasReliableSource) return null;
+    // 历史原文是迁移底稿；默认仍执行规划阶段识别出的局部内容调整。
+    // 第五步已经明确选择的方式继续优先，允许用户显式改成直接迁移或定向改写。
+    if (CONTENT_MODES.has(text(item?.manual_mode))) return text(item.manual_mode);
+    return text(item?.recommended_mode) === 'local-rewrite' ? 'local-rewrite' : 'direct';
+  }
   if (item?.reuse_original === false) {
     return CONTENT_MODES.has(text(item?.manual_mode)) && text(item.manual_mode) !== 'direct' ? text(item.manual_mode)
       : CONTENT_MODES.has(text(item?.recommended_mode)) && text(item.recommended_mode) !== 'direct' ? text(item.recommended_mode)
@@ -124,6 +130,7 @@ function normalizeHistoricalAdaptationContentItems(value) {
       source_path: text(raw?.source_path),
       reuse_original: typeof raw?.reuse_original === 'boolean' ? raw.reuse_original : undefined,
       recommended_mode: recommendedMode,
+      recommended_instruction: text(raw?.recommended_instruction),
       manual_mode: manualMode,
       manual_instruction: manualMode === 'rewrite' ? text(raw?.manual_instruction) : '',
       status: legacyUnsafe ? 'stale' : legacyManualSupplement && !manualMode ? 'review'
@@ -169,7 +176,7 @@ function buildHistoricalContentItems({ state, originalPlan, sourceIndex: supplie
     const change = changesByNode.get(leaf.nodeId);
     const lineageChanges = [...leaf.ancestorIds, leaf.nodeId].map((nodeId) => changesByNode.get(nodeId)).filter(Boolean);
     const addedChange = lineageChanges.find((item) => item?.change_type === 'added');
-    const reuseOriginal = typeof change?.reuse_original === 'boolean' ? change.reuse_original : undefined;
+    const reuseOriginal = addedChange ? false : typeof change?.reuse_original === 'boolean' ? change.reuse_original : undefined;
     const sourcePaths = sourcePathsForLeaf(leaf, changesByNode);
     const sourcePath = sourcePaths.length === 1 ? sourcePaths[0] : sourcePaths.join('；');
     const located = addedChange || sourcePaths.length !== 1
@@ -195,7 +202,8 @@ function buildHistoricalContentItems({ state, originalPlan, sourceIndex: supplie
     let recommendedMode = null;
     let reason = '历史正文未能可靠定位，请选择定向改写并填写补充要求，或直接编辑正文';
     if (addedChange) {
-      reason = change?.reason || addedChange.reason || '适配目录新增章节，需要人工决定是否补写';
+      recommendedMode = 'rewrite';
+      reason = change?.reason || addedChange.reason || '适配目录新增章节，默认定向改写，请校核推荐提纲后生成正文';
     } else if (located.reliable && actionableRules.length && !hasUnstructuredDifference) {
       recommendedMode = 'local-rewrite';
       reason = '章节命中地点/实施对象、工作量或工期进度差异，仅局部改造相关内容';
@@ -254,12 +262,15 @@ function buildHistoricalContentItems({ state, originalPlan, sourceIndex: supplie
       authorized_ranges: actionableRules.flatMap((rule) => rule.authorizedRanges.map((range) => ({ ...range, differenceId: rule.differenceId, targetAction: rule.targetAction }))),
       input_fingerprint: inputFingerprint,
       recommended_mode: recommendedMode,
+      recommended_instruction: currentInputCompatible ? previous.recommended_instruction : '',
       manual_mode: preserveManualSelection ? previous.manual_mode : undefined,
       manual_instruction: preserveManualSelection ? previous.manual_instruction : '',
       status: preserveManualContent && !currentInputCompatible
         ? 'review'
         : currentInputCompatible ? previous.status
-          : preserveCompletedResult && previous.status === 'success' ? 'success' : previous && recommendedMode ? 'stale' : recommendedMode ? 'idle' : 'review',
+          : preserveCompletedResult && previous.status === 'success' ? 'success'
+            : recommendedMode === 'rewrite' && !preserveManualSelection ? 'review'
+              : previous && recommendedMode ? 'stale' : recommendedMode ? 'idle' : 'review',
       content_origin: preserveManualContent ? 'manual' : preserveCompletedResult || preserveManualSelection ? previous.content_origin : undefined,
       migration_output_hash: preserveCompletedResult && !currentInputCompatible && previous.migration_output_hash
         ? hashText(JSON.stringify([sourceHash, inputFingerprint, previous.manual_mode, previous.manual_instruction, leaf.content]))
@@ -335,6 +346,28 @@ function buildRewritePrompt({ leaf, item, differences, baseline, sourceContent }
 
 历史正文来源：
 ${sourceContent || '未可靠定位历史正文'}
+
+本章相关已确认差异：
+${JSON.stringify(differences)}
+
+完整招标基线：
+${baseline}`;
+}
+
+function buildRecommendedInstructionPrompt({ leaf, item, differences, baseline }) {
+  return `请为新增投标技术方案章节推荐写作提纲，供用户在“定向改写要求”中校核后用于生成正文。
+
+目标章节：${leaf.path.join(' / ')}
+章节编制说明：${leaf.description || '无'}
+新增原因：${item.reason || '招标要求新增章节'}
+
+要求：
+1. 只推荐本章节应写的内容，输出 3—6 条有编号的写作要点，每条说明具体编写范围和要回应的要求；不要输出正文或重复章节标题。
+2. 以招标基线为准，只执行本章相关已确认差异；不延续已删除服务，不扩展招标范围。
+3. 不虚构人员、证书、业绩、数量、金额、日期或设备型号。资料不足的事实注明需核实，不替用户承诺。
+4. 使用清晰简洁的中文，提纲可直接作为后续定向改写要求。
+
+返回 JSON：{"instruction":"1. 写作要点\\n2. 写作要点"}
 
 本章相关已确认差异：
 ${JSON.stringify(differences)}
@@ -435,7 +468,12 @@ async function runHistoricalAdaptationContentTask({ aiService, workspaceStore, u
       throw new Error('当前章节包含人工正文，请确认覆盖后再重新迁移');
     }
   }
-  const targetLeaves = selectedNodeId
+  const targetLeaves = payload.recommendationsOnly === true
+    ? leaves.filter((leaf) => {
+      const item = items.find((candidate) => candidate.node_id === leaf.nodeId);
+      return item?.recommended_mode === 'rewrite' && !item.manual_mode && item.content_origin !== 'manual';
+    })
+    : selectedNodeId
     ? leaves.filter((leaf) => leaf.nodeId === selectedNodeId)
     : payload.retry === true
       ? leaves.filter((leaf) => {
@@ -461,7 +499,8 @@ async function runHistoricalAdaptationContentTask({ aiService, workspaceStore, u
       checkpointTask({ status: 'running', progress: 1 }, { historicalAdaptationContentItem: itemForCheckpoint(item) });
     }
   }
-  checkpointTask({ status: 'running', progress: 2, logs: [`开始迁移 ${targetLeaves.length} 个正文章节。`] }, {
+  checkpointTask({ status: 'running', progress: 2, logs: [payload.recommendationsOnly === true
+    ? `开始准备 ${targetLeaves.length} 个新增章节的推荐提纲。` : `开始迁移 ${targetLeaves.length} 个正文章节。`] }, {
     historicalAdaptationContentConfirmedAt: null,
   });
 
@@ -474,6 +513,31 @@ async function runHistoricalAdaptationContentTask({ aiService, workspaceStore, u
       const reviewItem = { ...current, status: 'review', error: undefined, updated_at: new Date().toISOString() };
       items = items.map((item, candidateIndex) => candidateIndex === itemIndex ? reviewItem : item);
       checkpointTask({ status: 'running', progress: Math.round(4 + ((index + 1) / targetLeaves.length) * 90), logs: [`${leaf.path.join(' / ')}等待人工选择处理方式。`] }, {
+        historicalAdaptationContentItem: itemForCheckpoint(reviewItem),
+      });
+      continue;
+    }
+    if (effectiveMode === 'rewrite' && !current.manual_mode) {
+      const reviewItem = { ...current, status: 'review', error_code: undefined };
+      if (!current.recommended_instruction) {
+        updateTask({ progress: Math.round(4 + (index / targetLeaves.length) * 90), logs: [`正在生成 ${leaf.path.join(' / ')}的推荐提纲。`] });
+        try {
+          const differences = current.difference_ids.map((id) => differenceById.get(id)).filter(Boolean);
+          const response = await requestJson(aiService, {
+            messages: [{ role: 'user', content: buildRecommendedInstructionPrompt({ leaf, item: current, differences, baseline }) }],
+            response_format: { type: 'json_object' },
+            logTitle: `历史标书适配-新增章节推荐提纲-${leaf.nodeId}`,
+          });
+          reviewItem.recommended_instruction = stripGeneratedWrapper(response?.instruction);
+          if (!reviewItem.recommended_instruction) throw new Error('模型未返回推荐提纲');
+        } catch (error) {
+          reviewItem.error = `推荐提纲生成失败：${error?.message || String(error)}。可点击“建立/更新迁移”重试，或直接填写定向改写要求。`;
+          reviewItem.error_code = 'recommendation-failed';
+        }
+      }
+      items = items.map((item, candidateIndex) => candidateIndex === itemIndex ? reviewItem : item);
+      checkpointTask({ status: 'running', progress: Math.round(4 + ((index + 1) / targetLeaves.length) * 90),
+        logs: [reviewItem.error || `${leaf.path.join(' / ')}推荐提纲已准备，请校核后迁移本章。`] }, {
         historicalAdaptationContentItem: itemForCheckpoint(reviewItem),
       });
       continue;
@@ -643,7 +707,8 @@ async function runHistoricalAdaptationContentTask({ aiService, workspaceStore, u
     status: 'success',
     progress: 100,
     error: undefined,
-    logs: [`正文迁移完成；失败 ${failedCount} 章，待复核 ${reviewCount} 章。`],
+    logs: [payload.recommendationsOnly === true ? `推荐提纲准备完成；待校核 ${reviewCount} 章。`
+      : `正文迁移完成；失败 ${failedCount} 章，待复核 ${reviewCount} 章。`],
   }, {
     historicalAdaptationContentConfirmedAt: null,
   });

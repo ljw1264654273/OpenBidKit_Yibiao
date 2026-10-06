@@ -4,7 +4,7 @@
 
 **Goal:** Add collapsible, status-marked historical adaptation outline controls and persist each chapter's decision to reuse or reprocess historical content, with that decision honored by the content migration task.
 
-**Architecture:** Extend the existing historical outline change record with an optional `reuse_original` flag and preserve it through normalization, ID remapping, and outline saves. Keep the UI state local to `AdaptationOutlinePage`, but persist user decisions through the existing `saveHistoricalAdaptationOutline` IPC. During content-plan construction, derive a deterministic effective mode from the explicit reuse choice before falling back to current recommendations, so existing chapters default to direct migration while added chapters and opt-outs cannot silently direct-copy.
+**Architecture:** Extend the existing historical outline change record with an optional `reuse_original` flag and preserve it through normalization, ID remapping, and outline saves. Keep the UI state local to `AdaptationOutlinePage`, but persist user decisions through the existing `saveHistoricalAdaptationOutline` IPC. During content-plan construction, derive a deterministic effective mode from the explicit reuse choice before falling back to current recommendations, so existing chapters use historical正文 as the default底稿 while confirmed content adjustments still run; added chapters and opt-outs cannot silently direct-copy.
 
 **Tech Stack:** React + TypeScript renderer, Electron CommonJS services, SQLite JSON metadata, existing Toast and CSS systems, Node built-in test runner.
 
@@ -35,7 +35,7 @@ Add cases asserting that `normalizeAdaptedOutlineResult` emits `reuse_original: 
 
 - [ ] **Step 2: Add effective-mode precedence tests**
 
-Test a node with `reuse_original: true`, a reliable source, and `recommended_mode: local-rewrite` resolves to `direct`; a node with `reuse_original: true` but no reliable source resolves to `null`/review rather than direct; a node with `reuse_original: false` and `recommended_mode: direct` resolves to a non-direct mode; an added node without source resolves to `null`/review rather than direct. Keep existing `manual_mode` precedence tests passing.
+Test a node with `reuse_original: true`, a reliable source, and `recommended_mode: local-rewrite` resolves to `local-rewrite`; a node with `reuse_original: true` but no reliable source resolves to `null`/review rather than direct; a node with `reuse_original: false` and `recommended_mode: direct` resolves to a non-direct mode; an added node without source resolves to `null`/review rather than direct. Keep existing `manual_mode` precedence tests passing.
 
 - [ ] **Step 3: Run the focused tests and confirm the new assertions fail**
 

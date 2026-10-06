@@ -284,6 +284,7 @@ export interface HistoricalAdaptationContentItem {
   error_code?: string;
   source_path: string;
   recommended_mode: HistoricalAdaptationContentMode | null;
+  recommended_instruction?: string;
   manual_mode?: HistoricalAdaptationContentMode;
   manual_instruction: string;
   status: HistoricalAdaptationContentStatus;

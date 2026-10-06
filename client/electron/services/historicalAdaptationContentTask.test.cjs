@@ -32,20 +32,34 @@ test('重建人工正文方案保留实际迁移来源，而显式覆盖切换�
   assert.equal(overwritten.source_content, '五峰村新来源。');
 });
 
-test('目录复用决定优先于推荐局部改写，关闭复用不会直接迁移', () => {
+test('沿用历史原文以历史正文为底稿并保留推荐局部改写，关闭复用不会直接迁移', () => {
   const state = baseState();
   const originalPlan = '# 项目概况\n五峰村正文。\n# 服务保障\n保障正文。';
   state.historicalAdaptationOutlineChanges[0].reuse_original = true;
   const reused = buildHistoricalContentItems({ state, originalPlan })[0];
   assert.equal(reused.recommended_mode, 'local-rewrite');
   assert.equal(reused.reuse_original, true);
-  assert.equal(getEffectiveMode(reused), 'direct');
+  assert.equal(getEffectiveMode(reused), 'local-rewrite');
 
   state.historicalAdaptationOutlineChanges[0].reuse_original = false;
   const optedOut = buildHistoricalContentItems({ state, originalPlan })[0];
   assert.equal(optedOut.reuse_original, false);
   assert.notEqual(getEffectiveMode(optedOut), 'direct');
   assert.equal(getEffectiveMode(optedOut), 'local-rewrite');
+});
+
+test('默认沿用历史原文时仍自动应用已确认的内容调整', async () => {
+  const state = baseState();
+  state.historicalAdaptationOutlineChanges[0].reuse_original = true;
+  const originalPlan = '# 项目概况\n五峰村原项目概况。\n\n# 服务保障\n原保障内容。';
+  const patches = [];
+  await runHistoricalAdaptationContentTask({
+    aiService: { requestJson: async () => ({ edits: [{ old_text: '五峰村', new_text: '横泾街道' }] }) },
+    workspaceStore: { loadTechnicalPlan: () => state, readOriginalPlanMarkdown: () => originalPlan },
+    payload: {}, updateTask: () => {}, checkpointTask: (_task, patch) => { if (patch) patches.push(patch); },
+  });
+  const rewritten = patches.find((patch) => patch.contentGenerationItem?.nodeId === '1')?.contentGenerationItem.section.content;
+  assert.equal(rewritten, '横泾街道原项目概况。');
 });
 
 test('缺少复用决定时保留历史推荐模式，不推断复用字段', () => {
@@ -63,8 +77,8 @@ test('复用决定要求可靠来源，新增节点不得伪造 direct', () => {
   const [item] = buildHistoricalContentItems({ state, originalPlan: '# 项目概况\n五峰村正文。' });
   assert.equal(item.reuse_original, false);
   assert.equal(item.source_content_hash, '');
-  assert.equal(item.recommended_mode, null);
-  assert.equal(getEffectiveMode(item), null);
+  assert.equal(item.recommended_mode, 'rewrite');
+  assert.equal(getEffectiveMode(item), 'rewrite');
 });
 
 test('关闭复用会清除历史 direct 人工选择', () => {
@@ -557,7 +571,7 @@ test('旧日期和旧工作量会在所有历史正文中全局阻断', () => {
   assert.deepEqual(items[0].blocked_terms, ['2026年6月', '1500户']);
 });
 
-test('新增父目录下的同名叶子章节默认待核实而不自动补写', () => {
+test('新增父目录下的同名叶子章节默认定向改写而不复用历史正文', () => {
   const state = baseState();
   state.historicalAdaptationDifferences = [];
   state.historicalAdaptationOutlineChanges = [{
@@ -576,7 +590,7 @@ test('新增父目录下的同名叶子章节默认待核实而不自动补写',
     originalPlan: '# 保障措施\n这是其他历史分支中的旧正文。',
   });
 
-  assert.equal(item.recommended_mode, null);
+  assert.equal(item.recommended_mode, 'rewrite');
   assert.equal(item.status, 'review');
   assert.equal(item.source_path, '');
   assert.equal(item.source_excerpt, '');
@@ -743,22 +757,103 @@ test('旧人工补写有要求时合并为定向改写，无要求时等待人�
   assert.equal(normalized[1].status, 'review');
 });
 
-test('未选择方式的新增章节批量跳过，定向改写缺少要求时拒绝执行', async () => {
+test('新增章节自动推荐提纲但不生成正文，人工定向改写缺少要求时拒绝执行', async () => {
   const state = baseState();
   state.historicalAdaptationOutlineChanges.push({ target_node_id: '2', change_type: 'added' });
   const originalPlan = '# 项目概况\n原项目概况。\n\n# 服务保障\n原保障内容。';
   let planned = buildHistoricalContentItems({ state, originalPlan });
   const aiCalls = [];
   const options = {
-    aiService: { requestJson: async (request) => { aiCalls.push(request); return { content: '新正文' }; } },
+    aiService: { requestJson: async (request) => { aiCalls.push(request); return { instruction: '1. 服务流程\n2. 保障措施' }; } },
     workspaceStore: { loadTechnicalPlan: () => ({ ...state, historicalAdaptationContentItems: planned }), readOriginalPlanMarkdown: () => originalPlan },
     payload: { nodeId: '2' }, updateTask: () => {}, checkpointTask: () => {},
   };
   await runHistoricalAdaptationContentTask(options);
-  assert.equal(aiCalls.length, 0);
+  assert.equal(aiCalls.length, 1);
   planned = planned.map((item) => item.node_id === '2' ? { ...item, manual_mode: 'rewrite', manual_instruction: '' } : item);
   await assert.rejects(runHistoricalAdaptationContentTask(options), /缺少人工定向改写要求/);
-  assert.equal(aiCalls.length, 0);
+  assert.equal(aiCalls.length, 1);
+});
+
+test('仅推荐模式使用章节说明、基线和已确认差异生成提纲并 checkpoint 保存，不迁移任何正文', async () => {
+  const state = baseState();
+  state.historicalAdaptationOutlineChanges.push({ target_node_id: '2', change_type: 'added', reason: '新增保障内容', difference_ids: ['location'] });
+  state.outlineData.outline[1].description = '明确响应流程和质量保障';
+  const patches = [];
+  const aiCalls = [];
+  await runHistoricalAdaptationContentTask({
+    aiService: { requestJson: async (request) => { aiCalls.push(request); return { instruction: '1. 服务响应流程\n2. 质量保障措施' }; } },
+    workspaceStore: { loadTechnicalPlan: () => state, readOriginalPlanMarkdown: () => '# 项目概况\n旧正文。' },
+    payload: { recommendationsOnly: true }, updateTask() {}, checkpointTask(_task, patch) { if (patch) patches.push(patch); },
+  });
+  assert.equal(aiCalls.length, 1);
+  assert.match(aiCalls[0].messages[0].content, /服务保障/);
+  assert.match(aiCalls[0].messages[0].content, /明确响应流程和质量保障/);
+  assert.match(aiCalls[0].messages[0].content, /横泾街道/);
+  assert.match(aiCalls[0].messages[0].content, /projectOverview|项目概况/);
+  const saved = patches.find((patch) => patch.historicalAdaptationContentItem?.recommended_instruction)?.historicalAdaptationContentItem;
+  assert.equal(saved.recommended_instruction, '1. 服务响应流程\n2. 质量保障措施');
+  assert.equal(saved.recommended_mode, 'rewrite');
+  assert.equal(saved.manual_mode, undefined);
+  assert.equal(saved.manual_instruction, '');
+  assert.equal(saved.status, 'review');
+  assert.ok(patches.every((patch) => !patch.contentGenerationItem));
+});
+
+test('重建保留推荐提纲且人工要求优先，再次批量建立不重新推荐或覆盖人工正文', async () => {
+  const state = baseState();
+  state.historicalAdaptationOutlineChanges.push({ target_node_id: '2', change_type: 'added' });
+  const originalPlan = '# 项目概况\n原正文。';
+  state.historicalAdaptationContentItems = buildHistoricalContentItems({ state, originalPlan }).map((item) => ({
+    ...item, recommended_instruction: item.node_id === '2' ? '1. 推荐保障提纲' : '',
+  }));
+  const [_, added] = buildHistoricalContentItems({ state, originalPlan });
+  assert.equal(added.recommended_instruction, '1. 推荐保障提纲');
+  assert.equal(normalizeHistoricalAdaptationContentItems([added])[0].recommended_instruction, added.recommended_instruction);
+  const patches = [];
+  await runHistoricalAdaptationContentTask({ aiService: { requestJson: async () => { assert.fail('已有提纲不应重复调用模型'); } },
+    workspaceStore: { loadTechnicalPlan: () => state, readOriginalPlanMarkdown: () => originalPlan },
+    payload: { recommendationsOnly: true }, updateTask() {}, checkpointTask(_task, patch) { if (patch) patches.push(patch); },
+  });
+  assert.ok(patches.every((patch) => !patch.contentGenerationItem));
+  state.historicalAdaptationContentItems[1] = { ...added, manual_mode: 'rewrite', manual_instruction: '校核后仅写响应机制', status: 'success', content_origin: 'manual' };
+  state.outlineData.outline[1].description = '目录说明调整';
+  const rebuilt = buildHistoricalContentItems({ state, originalPlan })[1];
+  assert.equal(rebuilt.manual_instruction, '校核后仅写响应机制');
+  assert.equal(rebuilt.content_origin, 'manual');
+});
+
+test('推荐失败保留待处理状态且后续建立可重试，忽略差异不进入推荐依据', async () => {
+  const state = baseState();
+  state.historicalAdaptationDifferences.push({ id: 'ignored', decision: 'ignored', action: '不得进入推荐的差异' });
+  state.historicalAdaptationOutlineChanges.push({ target_node_id: '2', change_type: 'added', difference_ids: ['location', 'ignored'] });
+  let fail = true;
+  const options = {
+    aiService: { requestJson: async (request) => {
+      assert.doesNotMatch(request.messages[0].content, /不得进入推荐的差异/);
+      if (fail) throw new Error('模型暂时不可用');
+      return { instruction: '1. 保障机制' };
+    } },
+    workspaceStore: { loadTechnicalPlan: () => state, readOriginalPlanMarkdown: () => '# 项目概况\n旧正文。' },
+    payload: { recommendationsOnly: true }, updateTask() {},
+    checkpointTask(_task, patch) {
+      if (patch?.historicalAdaptationContentItem) {
+        const item = patch.historicalAdaptationContentItem;
+        state.historicalAdaptationContentItems = [...(state.historicalAdaptationContentItems || []).filter((entry) => entry.node_id !== item.node_id), item];
+      }
+      assert.ok(!patch?.contentGenerationItem);
+    },
+  };
+  await runHistoricalAdaptationContentTask(options);
+  let added = state.historicalAdaptationContentItems.find((item) => item.node_id === '2');
+  assert.equal(added.status, 'review');
+  assert.match(added.error, /提纲.*模型暂时不可用/);
+  fail = false;
+  await runHistoricalAdaptationContentTask(options);
+  added = state.historicalAdaptationContentItems.find((item) => item.node_id === '2');
+  assert.equal(added.recommended_instruction, '1. 保障机制');
+  assert.equal(added.error, undefined);
+  assert.equal(added.error_code, undefined);
 });
 
 test('局部改写任一替换不唯一时不应用任何编辑并进入待复核', async () => {

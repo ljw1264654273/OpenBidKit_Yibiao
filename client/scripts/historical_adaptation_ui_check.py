@@ -155,6 +155,13 @@ with sync_playwright() as playwright:
           };
           window.__historicalMock = {
             calls: [],
+            getState: () => structuredClone(workspaceState),
+            resetContentTest() {
+              emitTask({ task_id: 'content-reset', type: 'historical-adaptation-content', status: 'success', progress: 100, project_id: project.projectId }, {
+                outlineData: adaptedOutline, historicalAdaptationOutlineChanges: outlineChanges,
+                historicalAdaptationContentItems: [], historicalAdaptationContentTask: undefined,
+              });
+            },
             failStrategyOnce: false,
             failStartOnce: false,
             failPrepareOnce: false,
@@ -208,7 +215,7 @@ with sync_playwright() as playwright:
                 const path = [...parents, item.title];
                 if (item.children?.length) return { ...item, children: applyContent(item.children, path) };
                 const previous = previousById.get(item.id);
-                if (previous?.content_origin === 'manual' || previous?.status === 'success' || (previous && !previous.manual_mode && !previous.recommended_mode)) {
+                if (previous?.content_origin === 'manual' || previous?.status === 'success' || (previous && !previous.manual_mode && (!previous.recommended_mode || previous.recommended_mode === 'rewrite'))) {
                   leaves.push({ item, path, content: item.content || '', preserved: true });
                   return item;
                 }
@@ -327,41 +334,50 @@ with sync_playwright() as playwright:
                 };
                 return workspaceState;
               },
-              saveHistoricalAdaptationOutline: async ({ outlineData, changes }) => {
-                workspaceState = { ...workspaceState, outlineData, historicalAdaptationOutlineChanges: changes, historicalAdaptationOutlineConfirmedAt: undefined };
+              saveHistoricalAdaptationOutline: async ({ outlineData, changes, idMap }) => {
+                const mappedChanges = changes.map(change => ({ ...change, target_node_id: idMap?.[change.target_node_id] || change.target_node_id }));
+                workspaceState = { ...workspaceState, outlineData, historicalAdaptationOutlineChanges: mappedChanges, historicalAdaptationOutlineConfirmedAt: undefined };
                 return workspaceState;
               },
               confirmHistoricalAdaptationOutline: async () => {
                 workspaceState = { ...workspaceState, historicalAdaptationOutlineConfirmedAt: '2026-10-01T11:00:00.000Z' };
                 return workspaceState;
               },
-              prepareHistoricalAdaptationContentPlan: async ({ includeNodeId } = {}) => {
-                window.__historicalMock.calls.push({ action: 'prepare', includeNodeId });
+              prepareHistoricalAdaptationContentPlan: async ({ includeNodeId, recommendationsOnly } = {}) => {
+                window.__historicalMock.calls.push({ action: 'prepare', includeNodeId, recommendationsOnly });
                 if (window.__historicalMock.failPrepareOnce) {
                   window.__historicalMock.failPrepareOnce = false;
                   throw new Error('模拟方案失败');
                 }
                 const previousById = new Map(workspaceState.historicalAdaptationContentItems.map((item) => [item.node_id, item]));
+                const addedIds = new Set(workspaceState.historicalAdaptationOutlineChanges.filter((change) => change.change_type === 'added').map((change) => change.target_node_id));
                 const leaves = [];
-                const collect = (items, parents = []) => items.forEach((item, index) => {
+                const collect = (items, parents = [], ancestorAdded = false) => items.forEach((item, index) => {
                   const path = [...parents, item.title];
-                  if (item.children?.length) collect(item.children, path);
-                  else leaves.push({ item, path, index });
+                  const added = ancestorAdded || addedIds.has(item.id);
+                  if (item.children?.length) collect(item.children, path, added);
+                  else leaves.push({ item, path, index, added });
                 });
                 collect(workspaceState.outlineData.outline);
                 workspaceState = {
                   ...workspaceState,
-                  historicalAdaptationContentItems: leaves.map(({ item, path }, index) => previousById.get(item.id) || ({
-                    node_id: item.id, source_path: path.join(' / '), recommended_mode: index === 0 ? 'local-rewrite' : 'direct',
-                    manual_instruction: '', status: 'idle', reason: index === 0 ? '地点和实施对象需局部改写' : '可靠历史正文默认直接迁移',
+                  historicalAdaptationContentItems: leaves.map(({ item, path, added }, index) => previousById.get(item.id) || ({
+                    node_id: item.id, source_path: added ? '' : path.join(' / '), recommended_mode: added ? 'rewrite' : index === 0 ? 'local-rewrite' : 'direct',
+                    manual_instruction: '', status: added ? 'review' : 'idle', reason: added ? '新增章节，请校核推荐提纲' : index === 0 ? '地点和实施对象需局部改写' : '可靠历史正文默认直接迁移',
                     difference_ids: index === 0 ? ['replace-location'] : [], source_excerpt: `历史章节：${item.title}`,
                     blocked_terms: index === 0 ? ['五峰村'] : [], residuals: [], source_locator: path.join(' / '),
                     source_hash: `source-${index}`, input_fingerprint: `input-${index}`
                   })),
                   historicalAdaptationContentCheck: { status: 'stale', findings: [], checked_content_hash: '', checked_inputs_hash: '' }
                 };
-                const snapshot = { ...workspaceState, historicalAdaptationContentTask: { task_id: includeNodeId ? 'single-content' : 'content-complete', type: 'historical-adaptation-content', status: 'running', progress: 0 } };
-                if (window.__historicalMock.failStartOnce) {
+                const snapshot = { ...workspaceState, historicalAdaptationContentTask: { task_id: recommendationsOnly ? 'recommendations' : includeNodeId ? 'single-content' : 'content-complete', type: 'historical-adaptation-content', status: 'running', progress: 0 } };
+                if (recommendationsOnly) {
+                  setTimeout(() => {
+                    const items = workspaceState.historicalAdaptationContentItems.map((item) => item.recommended_mode === 'rewrite' && !item.manual_mode
+                      ? { ...item, recommended_instruction: item.recommended_instruction || '1. 明确服务响应流程\\n2. 编制质量保障与验收措施', status: 'review' } : item);
+                    emitTask({ task_id: 'recommendations', type: 'historical-adaptation-content', status: 'success', progress: 100, project_id: project.projectId }, { historicalAdaptationContentItems: items });
+                  }, 300);
+                } else if (window.__historicalMock.failStartOnce) {
                   window.__historicalMock.failStartOnce = false;
                   setTimeout(() => emitTask({ task_id: 'prepare-content-error', type: 'historical-adaptation-content', status: 'error', progress: 0, error: '模拟迁移失败', project_id: project.projectId }, {}), 20);
                 } else if (includeNodeId) {
@@ -391,7 +407,7 @@ with sync_playwright() as playwright:
                   ...workspaceState,
                   historicalAdaptationContentItems: workspaceState.historicalAdaptationContentItems.map((item) => ({
                     ...item, manual_mode: undefined, manual_instruction: '',
-                    status: item.content_origin === 'manual' ? item.status : !item.recommended_mode ? 'review' : item.status === 'idle' ? 'idle' : 'stale'
+                    status: item.content_origin === 'manual' ? item.status : !item.recommended_mode || item.recommended_mode === 'rewrite' ? 'review' : item.status === 'idle' ? 'idle' : 'stale'
                   })),
                   historicalAdaptationContentConfirmedAt: undefined,
                   historicalAdaptationContentCheck: { status: 'stale', findings: [], checked_content_hash: '', checked_inputs_hash: '' }
@@ -510,7 +526,6 @@ with sync_playwright() as playwright:
     page.get_by_label("目录标题").fill("横泾街道项目总体概况")
     page.get_by_role("button", name="保存编辑").click()
     page.get_by_role("button", name="增加子目录").click()
-    page.get_by_role("button", name="上移").click()
     page.wait_for_timeout(4000)
     page.screenshot(path=OUTPUT_DIR / "historical-adaptation-outline.png", full_page=True)
     page.get_by_role("button", name="确认目录").click()
@@ -525,6 +540,48 @@ with sync_playwright() as playwright:
     page.set_viewport_size({"width": 1440, "height": 1000})
     page.get_by_role("button", name="正文迁移 可开始").click()
     plan = page.get_by_role("button", name="建立/更新迁移", exact=True)
+    page.wait_for_function("() => window.__historicalMock.getState().historicalAdaptationContentItems.some(item => item.recommended_instruction)")
+    page.wait_for_function("() => ![...document.querySelectorAll('button')].find(button => button.textContent === '建立/更新迁移')?.disabled")
+    assert page.evaluate("window.__historicalMock.calls.slice(-1)[0].recommendationsOnly") is True
+    assert not page.evaluate("window.__historicalMock.calls.some(call => ['save', 'start'].includes(call.action))")
+    assert page.locator(".adaptation-content-preview").inner_text() == "当前章节正文为空。"
+    added_chapter = page.locator(".adaptation-content-outline-list button").filter(has_text="新建子目录")
+    added_chapter.click()
+    mode = page.get_by_label("迁移方式", exact=True)
+    requirements = page.get_by_label("定向改写要求")
+    assert mode.input_value() == "rewrite"
+    recommendation = requirements.input_value()
+    assert "服务响应流程" in recommendation
+    assert page.get_by_text("请校核或调整推荐提纲，再点击“按此方式迁移本章”生成正文。", exact=True).is_visible()
+    page.screenshot(path=OUTPUT_DIR / "historical-adaptation-added-chapter-recommendation.png", full_page=True)
+    # 默认提纲不会被批量迁移当作人工确认。
+    plan.click()
+    page.wait_for_function("() => ![...document.querySelectorAll('button')].find(button => button.textContent === '建立/更新迁移')?.disabled")
+    assert requirements.input_value() == recommendation
+    assert page.locator(".adaptation-content-preview").inner_text() == "当前章节正文为空。"
+    assert not page.evaluate("window.__historicalMock.calls.some(call => call.action === 'save')")
+    requirements.fill("校核后仅编制质量保障与验收措施")
+    page.locator(".adaptation-content-outline-list button").first.click()
+    page.get_by_role("heading", name="当前章节有未保存修改", exact=True).wait_for()
+    page.get_by_role("button", name="继续编辑").click()
+    assert requirements.input_value() == "校核后仅编制质量保障与验收措施"
+    page.get_by_role("button", name="按此方式迁移本章", exact=True).click()
+    page.get_by_text("按人工要求迁移：校核后仅编制质量保障与验收措施。", exact=True).wait_for()
+    page.locator(".adaptation-content-outline-list button").first.click()
+    added_chapter.click()
+    assert requirements.input_value() == "校核后仅编制质量保障与验收措施"
+    calls_before_revisit = page.evaluate("window.__historicalMock.calls.length")
+    page.get_by_role("button", name="目录适配 待验收").click()
+    page.get_by_role("button", name="正文迁移 可开始").click()
+    added_chapter.click()
+    assert requirements.input_value() == "校核后仅编制质量保障与验收措施"
+    assert page.evaluate("window.__historicalMock.calls.length") == calls_before_revisit
+    page.get_by_role("button", name="恢复默认处理方式", exact=True).click()
+    assert requirements.input_value() == recommendation
+    assert mode.input_value() == "rewrite"
+    dismiss_toasts(page)
+    # 换回原来的两章 fixture，继续既有迁移回归场景。
+    page.evaluate("window.__historicalMock.resetContentTest()")
     assert page.get_by_role("button", name="一键迁移待处理章节", exact=True).count() == 0
     page.evaluate("window.__historicalMock.failPrepareOnce = true")
     plan.click()
@@ -738,5 +795,5 @@ with sync_playwright() as playwright:
     page.get_by_text("历史原文 / 迁移依据", exact=True).scroll_into_view_if_needed()
     page.wait_for_timeout(1000)
     page.screenshot(path=OUTPUT_DIR / "historical-adaptation-content-narrow.png", full_page=True)
-    print("历史标书适配 UI 验证通过：建立方案后自动迁移、方案/启动失败重试、两侧精确高亮、直接迁移无高亮、表格及合并单元格、三种方式、单章迁移、恢复默认、草稿/人工正文保护、无来源补充、扩缩写、一致性检查、阶段确认和窄屏布局。")
+    print("历史标书适配 UI 验证通过：新增章节自动推荐提纲、批量跳过未校核章节、校核应用后生成正文、切换后保留人工要求、恢复默认回填提纲，以及既有迁移、失败重试、对比、表格、人工正文保护和窄屏布局。")
     browser.close()

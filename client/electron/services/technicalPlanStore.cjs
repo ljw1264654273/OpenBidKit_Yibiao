@@ -3623,7 +3623,7 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
           manual_mode: undefined,
           manual_instruction: '',
           status: previous?.content_origin === 'manual' ? previous.status
-            : !item.recommended_mode ? 'review'
+            : !item.recommended_mode || item.recommended_mode === 'rewrite' ? 'review'
               : previous && previous.status !== 'idle' ? 'stale' : 'idle',
           content_origin: previous?.content_origin,
           residuals: previous?.residuals || [],

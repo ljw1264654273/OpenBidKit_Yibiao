@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 将历史标书适配第四步的目录操作按钮移动到目录树下方，并在窄容器中自动换行，保持现有行为不变。
+**Goal:** 将历史标书适配第四步的目录操作按钮移动到标题下方、目录树上方，并在窄容器中自动换行，保持现有行为不变。
 
-**Architecture:** 仅调整 `AdaptationOutlinePage` 的 DOM 分组和 `feature-historical-bid-adaptation.css` 的布局规则。适配目录栏采用“标题 / 滚动目录树 / 独立操作条”三行结构，操作条位于滚动容器外。
+**Architecture:** 仅调整 `AdaptationOutlinePage` 的 DOM 分组和 `feature-historical-bid-adaptation.css` 的布局规则。适配目录栏采用“标题 / 独立操作条 / 滚动目录树”三行结构，操作条位于滚动容器外。
 
 **Tech Stack:** React + TypeScript、全局 CSS、Vite。
 
@@ -17,7 +17,7 @@
 
 - [ ] **Step 1: 保留现有按钮行为并拆出操作条**
 
-将 `适配后目录` 标题行中的七个按钮移到 `.adaptation-outline-scroll` 之后的独立 `.adaptation-outline-toolbar` 容器；保留按钮文案、事件处理和禁用条件不变。
+将 `适配后目录` 标题行中的七个按钮移到标题之后、`.adaptation-outline-scroll` 之前的独立 `.adaptation-outline-toolbar` 容器；保留按钮文案、事件处理和禁用条件不变。
 
 - [ ] **Step 2: 检查结构边界**
 
@@ -30,7 +30,7 @@
 
 - [ ] **Step 1: 将适配目录栏改为三行网格**
 
-把 `.adaptation-outline-column.is-adapted` 设置为标题、滚动区、操作条三行结构，并保持 `min-height: 0`，使目录树继续占用可伸缩空间。
+把 `.adaptation-outline-column.is-adapted` 设置为标题、操作条、滚动区三行结构，并保持 `min-height: 0`，使目录树继续占用可伸缩空间。
 
 - [ ] **Step 2: 让操作条在自身区域换行**
 
@@ -55,4 +55,4 @@ Expected: 无空白错误；确认差异仅包含本次组件、样式和计划�
 
 - [ ] **Step 3: 目视检查第四步布局**
 
-在桌面宽度和窄容器下打开历史标书适配第四步，确认标题行无操作按钮，目录树滚动不会带走操作条，操作条只在自身区域换行且按钮仍可聚焦和点击。
+在桌面宽度和窄容器下打开历史标书适配第四步，确认标题行无操作按钮，操作条位于标题下方且目录树滚动不会带走操作条，操作条只在自身区域换行且按钮仍可聚焦和点击。

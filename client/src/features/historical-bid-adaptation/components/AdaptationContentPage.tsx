@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
+import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import type { OutlineItem } from '../../../shared/types';
 import { AppDialog, MarkdownEditor, MarkdownRenderer, ProgressBar, useToast, type MarkdownEditorSelection, type MarkdownEditorSelectionRequest } from '../../../shared/ui';
 import type { BidProject } from '../../bid-project/types';
@@ -14,7 +14,7 @@ interface AdaptationContentPageProps {
   project: BidProject | null;
   state: TechnicalPlanState;
   onStateChange: Dispatch<SetStateAction<TechnicalPlanState | null>>;
-  onPreparePlan: (payload: { projectId: string; includeNodeId?: string }) => Promise<TechnicalPlanState>;
+  onPreparePlan: (payload: { projectId: string; includeNodeId?: string; recommendationsOnly?: boolean }) => Promise<TechnicalPlanState>;
   onDirtyChange: (dirty: boolean) => void;
   onBack: () => void;
 }
@@ -22,6 +22,7 @@ interface AdaptationContentPageProps {
 interface LeafEntry {
   item: OutlineItem;
   path: string[];
+  ancestorIds: string[];
   level: number;
 }
 
@@ -50,17 +51,21 @@ const statusLabels = {
   error: '失败',
 } as const;
 
-function flattenLeaves(items: OutlineItem[], parents: string[] = [], level = 0, result: LeafEntry[] = []) {
+function flattenLeaves(items: OutlineItem[], parents: string[] = [], level = 0, result: LeafEntry[] = [], ancestorIds: string[] = []) {
   for (const item of items) {
     const path = [...parents, item.title];
-    if (item.children?.length) flattenLeaves(item.children, path, level + 1, result);
-    else result.push({ item, path, level });
+    if (item.children?.length) flattenLeaves(item.children, path, level + 1, result, [...ancestorIds, item.id]);
+    else result.push({ item, path, level, ancestorIds });
   }
   return result;
 }
 
-function effectiveMode(item?: TechnicalPlanState['historicalAdaptationContentItems'][number]) {
+function effectiveMode(item?: TechnicalPlanState['historicalAdaptationContentItems'][number]): HistoricalAdaptationContentMode | '' {
   return item?.manual_mode || item?.recommended_mode || '';
+}
+
+function effectiveInstruction(item?: TechnicalPlanState['historicalAdaptationContentItems'][number]) {
+  return item?.manual_mode ? item.manual_instruction : item?.recommended_instruction || '';
 }
 
 function AdaptationContentPage({ projectId, project, state, onStateChange, onPreparePlan, onDirtyChange, onBack }: AdaptationContentPageProps) {
@@ -96,6 +101,8 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onPre
   const [aiEditError, setAiEditError] = useState('');
   const [pendingNavigation, setPendingNavigation] = useState<PendingNavigation | null>(null);
   const [pendingManualOverwrite, setPendingManualOverwrite] = useState<ChapterMigration | null>(null);
+  const strategyDefaults = useRef<{ nodeId?: string; mode: HistoricalAdaptationContentMode | ''; instruction: string }>({ mode: '', instruction: '' });
+  const recommendationRequest = useRef('');
   const { showToast } = useToast();
   const migrationTask = state.historicalAdaptationContentTask;
   const checkTask = state.historicalAdaptationContentCheckTask;
@@ -106,7 +113,12 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onPre
   const selectedItem = selectedLeaf ? itemByNode.get(selectedLeaf.item.id) : undefined;
   const dirty = Boolean(selectedLeaf && draft !== (selectedLeaf.item.content || ''));
   const strategyChanged = Boolean(selectedItem && (strategyMode !== effectiveMode(selectedItem)
-    || (strategyMode === 'rewrite' && strategyInstruction.trim() !== selectedItem.manual_instruction)));
+    || (strategyMode === 'rewrite' && strategyInstruction.trim() !== effectiveInstruction(selectedItem).trim())));
+  const unsaved = dirty || strategyChanged;
+  const addedLeaves = useMemo(() => {
+    const addedIds = new Set(state.historicalAdaptationOutlineChanges.filter((change) => change.change_type === 'added').map((change) => change.target_node_id));
+    return leaves.filter((leaf) => [...leaf.ancestorIds, leaf.item.id].some((id) => addedIds.has(id)));
+  }, [leaves, state.historicalAdaptationOutlineChanges]);
   const hasHistoricalSource = Boolean(sourceNodeId === selectedItem?.node_id && sourceSection?.available);
   const retryCount = state.historicalAdaptationContentItems.filter((item) => ['idle', 'stale', 'error', 'running'].includes(item.status) && item.content_origin !== 'manual').length;
   const successCount = state.historicalAdaptationContentItems.filter((item) => item.status === 'success').length;
@@ -165,13 +177,33 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onPre
   }, [selectedLeaf?.item.content, selectedLeaf?.item.id]);
 
   useEffect(() => {
-    setStrategyMode(effectiveMode(selectedItem));
-    setStrategyInstruction(selectedItem?.manual_instruction || '');
-  }, [selectedItem?.manual_instruction, selectedItem?.manual_mode, selectedItem?.node_id, selectedItem?.recommended_mode]);
+    const previous = strategyDefaults.current;
+    const next = { nodeId: selectedLeaf?.item.id, mode: effectiveMode(selectedItem), instruction: effectiveInstruction(selectedItem) };
+    const chapterChanged = previous.nodeId !== next.nodeId;
+    setStrategyMode((value) => chapterChanged || value === previous.mode ? next.mode : value);
+    setStrategyInstruction((value) => chapterChanged || value === previous.instruction ? next.instruction : value);
+    strategyDefaults.current = next;
+  }, [selectedLeaf?.item.id, selectedItem?.manual_instruction, selectedItem?.manual_mode, selectedItem?.recommended_instruction, selectedItem?.recommended_mode]);
 
   useEffect(() => {
-    onDirtyChange(dirty);
-  }, [dirty, onDirtyChange]);
+    onDirtyChange(unsaved);
+  }, [unsaved, onDirtyChange]);
+
+  useEffect(() => {
+    if (!state.historicalAdaptationOutlineConfirmedAt || running || saving || unsaved) return;
+    const missing = addedLeaves.filter((leaf) => {
+      const item = itemByNode.get(leaf.item.id);
+      return !item || (!item.manual_mode && item.content_origin !== 'manual' && !item.recommended_instruction && item.error_code !== 'recommendation-failed');
+    });
+    if (!missing.length) return;
+    const key = JSON.stringify([projectId, state.historicalAdaptationOutlineConfirmedAt, missing.map((leaf) => [leaf.item.id, leaf.path, leaf.item.description])]);
+    if (recommendationRequest.current === key) return;
+    recommendationRequest.current = key;
+    setPreparing(true);
+    void onPreparePlan({ projectId, recommendationsOnly: true })
+      .catch((error) => showToast(error instanceof Error ? error.message : '推荐提纲准备失败，可点击“建立/更新迁移”重试', 'error'))
+      .finally(() => setPreparing(false));
+  }, [projectId, state.historicalAdaptationOutlineConfirmedAt, addedLeaves, itemByNode, running, saving, unsaved, onPreparePlan, showToast]);
 
   useEffect(() => () => onDirtyChange(false), [onDirtyChange]);
 
@@ -183,7 +215,7 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onPre
 
   const requestNavigation = (navigation: PendingNavigation) => {
     if (navigation.type === 'chapter' && navigation.nodeId === selectedLeaf?.item.id) return;
-    if (dirty) {
+    if (unsaved) {
       setPendingNavigation(navigation);
       return;
     }
@@ -198,6 +230,10 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onPre
     }
     if (strategyChanged && selectedItem?.content_origin === 'manual') {
       showToast('当前章节是人工正文，请点击“按此方式迁移本章”并确认覆盖；批量迁移会保留人工正文', 'info');
+      return;
+    }
+    if (strategyChanged && selectedItem?.recommended_mode === 'rewrite' && !selectedItem.manual_mode) {
+      showToast('请校核定向改写要求后点击“按此方式迁移本章”，再进行批量迁移', 'info');
       return;
     }
     setPreparing(true);
@@ -250,7 +286,7 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onPre
       const nextState = await window.yibiao.technicalPlan.resetHistoricalAdaptationContentStrategies({ projectId });
       onStateChange(nextState);
       setStrategyMode(effectiveMode(nextState.historicalAdaptationContentItems.find((item) => item.node_id === selectedLeaf?.item.id)));
-      setStrategyInstruction('');
+      setStrategyInstruction(effectiveInstruction(nextState.historicalAdaptationContentItems.find((item) => item.node_id === selectedLeaf?.item.id)));
       showToast('已恢复默认处理方式；点击“建立/更新迁移”更新正文，已保存的人工正文保留', 'success');
     } catch (error) {
       showToast(error instanceof Error ? error.message : '恢复默认处理方式失败', 'error');
@@ -500,7 +536,9 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onPre
                   </select>
                   {strategyMode === 'rewrite' ? <label>定向改写要求<textarea value={strategyInstruction} disabled={running} onChange={(event) => setStrategyInstruction(event.target.value)} placeholder="说明需要改写或补充的重点、边界和表达要求" /></label> : null}
                   <small>{strategyMode === 'direct' ? '完整复制历史正文，不调用 AI。' : strategyMode === 'local-rewrite' ? '仅调整地点与实施对象、工作量、工期进度，保留其余正文。' : strategyMode === 'rewrite' ? hasHistoricalSource ? '按填写的要求改写本章历史正文。' : '本章无可靠历史正文，将按招标基线和填写的要求补充生成。' : '本章无可靠历史正文，可选择定向改写补充生成，或直接编辑正文。'}</small>
-                  <small role="status">{strategyChanged ? '选择尚未应用，可迁移本章或点击上方按钮建立并执行迁移。' : '选择方式不会改变正文，点击迁移按钮才执行。'}</small>
+                  <small role="status">{selectedItem.recommended_mode === 'rewrite' && !selectedItem.manual_mode
+                    ? migrationRunning || preparing ? '正在准备新增章节的推荐提纲...' : '请校核或调整推荐提纲，再点击“按此方式迁移本章”生成正文。'
+                    : strategyChanged ? '选择尚未应用，可迁移本章或点击上方按钮建立并执行迁移。' : '选择方式不会改变正文，点击迁移按钮才执行。'}</small>
                   <button type="button" className="primary-action" disabled={running || saving || dirty || !strategyMode || (strategyMode === 'rewrite' && !strategyInstruction.trim())} title={dirty ? '请先保存人工修改' : undefined} onClick={() => { void migrateChapter(); }}>{strategySaving ? '启动迁移中...' : '按此方式迁移本章'}</button>
                   <small>系统推荐：{selectedItem.recommended_mode ? modeLabels[selectedItem.recommended_mode] : '待人工选择'}{selectedItem.manual_mode ? ' · 已人工调整' : ''}</small>
                 </section>
@@ -517,7 +555,7 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onPre
                   {selectedDifferences.length ? selectedDifferences.map((difference) => difference ? <article key={difference.id}><span>{difference.category}</span><strong>{difference.title}</strong><p>{difference.action}</p></article> : null) : <p className="adaptation-content-no-difference">无直接关联差异</p>}
                 </section>
               </>
-            ) : <div className="adaptation-content-empty">点击“建立/更新迁移”，自动按推荐方式迁移正文。</div>}
+            ) : <div className="adaptation-content-empty">{preparing ? '正在准备新增章节的推荐提纲...' : '点击“建立/更新迁移”，自动按推荐方式迁移正文。'}</div>}
           </div>
         </div>
 

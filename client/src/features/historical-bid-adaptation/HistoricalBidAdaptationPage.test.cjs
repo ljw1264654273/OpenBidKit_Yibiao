@@ -279,7 +279,8 @@ test('正文迁移页面离开未保存草稿前明确确认且禁止直接确�
   assert.match(component, /title="当前章节有未保存修改"/);
   assert.match(component, /放弃修改并继续/);
   assert.match(component, /selectedItem\.error/);
-  assert.match(component, /onDirtyChange\(dirty\)/);
+  assert.match(component, /const unsaved = dirty \|\| strategyChanged/);
+  assert.match(component, /onDirtyChange\(unsaved\)/);
   assert.match(page, /const \[contentDirty, setContentDirty\]/);
   assert.match(page, /const \[pendingStage, setPendingStage\]/);
   assert.match(page, /onStageChange=\{requestStageChange\}/);

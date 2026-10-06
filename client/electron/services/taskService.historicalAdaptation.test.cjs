@@ -388,6 +388,13 @@ test('一键建立方案透传当前新选择的章节以便本次执行', async
   assert.equal(harness.runnerCalls.content[0].includeNodeId, '1');
 });
 
+test('准备新增章节提纲透传仅推荐模式到后台任务', async () => {
+  const harness = makeHarness();
+  await harness.service.prepareHistoricalAdaptationContentPlan({ projectId: 'historical-project', recommendationsOnly: true });
+  await waitUntil(() => harness.runnerCalls.content.length === 1);
+  assert.equal(harness.runnerCalls.content[0].recommendationsOnly, true);
+});
+
 for (const taskType of ['content', 'contentCheck']) {
   test(`重新建立正文方案等待旧 ${taskType} runner 结束后才准备并启动正文`, async () => {
     const harness = makeHarness({

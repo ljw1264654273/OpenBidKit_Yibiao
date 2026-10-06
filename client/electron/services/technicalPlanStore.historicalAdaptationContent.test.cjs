@@ -180,6 +180,7 @@ function runAssertions() {
     const archiveRow = database.db.prepare('SELECT relative_path FROM technical_plan_historical_source_versions WHERE source_hash = ?').get(sourceItem.source_version_hash);
     const archivePath = path.join(userDataPath, 'workspace', archiveRow.relative_path);
     const originalRead = fs.readFileSync;
+    const originalArchive = originalRead(archivePath, 'utf8');
     let archiveReads = 0;
     fs.readFileSync = function(file, ...args) {
       if (file === archivePath) archiveReads += 1;
@@ -193,8 +194,27 @@ function runAssertions() {
         'changed archives must be revalidated, not silently served from memory');
     } finally {
       fs.readFileSync = originalRead;
+      fs.writeFileSync(archivePath, originalArchive, 'utf8');
     }
     state = store.loadTechnicalPlan();
+    store.updateTechnicalPlan({ historicalAdaptationOutlineChanges: [...state.historicalAdaptationOutlineChanges, {
+      id: 'added-4', target_node_id: '4', target_title: '新增章节', change_type: 'added', original_path: '', reason: '新增保障', difference_ids: [], reuse_original: false,
+    }] });
+    state = store.prepareHistoricalAdaptationContentPlan();
+    const added = state.historicalAdaptationContentItems.find((item) => item.node_id === '4');
+    store.updateTechnicalPlan({ historicalAdaptationContentItem: { ...added, recommended_instruction: '1. 服务响应\n2. 质量保障' } });
+    state = store.prepareHistoricalAdaptationContentPlan();
+    assert.equal(state.historicalAdaptationContentItems.find((item) => item.node_id === '4').recommended_instruction, '1. 服务响应\n2. 质量保障');
+    store.saveHistoricalAdaptationContentStrategy({ nodeId: '4', mode: 'rewrite', instruction: '校核后仅写质量保障' });
+    state = store.prepareHistoricalAdaptationContentPlan();
+    assert.equal(state.historicalAdaptationContentItems.find((item) => item.node_id === '4').manual_instruction, '校核后仅写质量保障');
+    state = store.resetHistoricalAdaptationContentStrategies();
+    const resetAdded = state.historicalAdaptationContentItems.find((item) => item.node_id === '4');
+    assert.equal(resetAdded.recommended_mode, 'rewrite');
+    assert.equal(resetAdded.recommended_instruction, '1. 服务响应\n2. 质量保障');
+    assert.equal(resetAdded.manual_instruction, '');
+    assert.equal(resetAdded.status, 'review');
+    state = store.saveHistoricalAdaptationContentStrategy({ nodeId: '4', mode: 'rewrite', instruction: '校核后仅写质量保障' });
     store.updateTechnicalPlan({ historicalAdaptationContentTask: { task_id: 'reset-running', type: 'historical-adaptation-content', status: 'running', progress: 0, logs: [] } });
     assert.throws(() => store.resetHistoricalAdaptationContentStrategies(), /正文任务正在运行/);
     store.updateTechnicalPlan({ historicalAdaptationContentTask: undefined });
