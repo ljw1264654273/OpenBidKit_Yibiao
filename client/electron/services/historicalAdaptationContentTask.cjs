@@ -474,7 +474,12 @@ async function runHistoricalAdaptationContentTask({ aiService, workspaceStore, u
   const targetLeaves = payload.recommendationsOnly === true
     ? leaves.filter((leaf) => {
       const item = items.find((candidate) => candidate.node_id === leaf.nodeId);
-      return item?.recommended_mode === 'rewrite' && !item.manual_mode && item.content_origin !== 'manual';
+      const effectiveMode = getEffectiveMode(item);
+      const isNewChapterRecommendation = item?.recommended_mode === 'rewrite'
+        && !item.manual_mode;
+      const isAutomaticMigration = ['direct', 'local-rewrite'].includes(effectiveMode)
+        && item?.status !== 'success';
+      return item?.content_origin !== 'manual' && (isNewChapterRecommendation || isAutomaticMigration);
     })
     : selectedNodeId
     ? leaves.filter((leaf) => leaf.nodeId === selectedNodeId)
@@ -503,7 +508,7 @@ async function runHistoricalAdaptationContentTask({ aiService, workspaceStore, u
     }
   }
   checkpointTask({ status: 'running', progress: 2, logs: [payload.recommendationsOnly === true
-    ? `开始准备 ${targetLeaves.length} 个新增章节的推荐提纲。` : `开始迁移 ${targetLeaves.length} 个正文章节。`] }, {
+    ? `开始准备新增章节推荐提纲，并迁移 ${targetLeaves.length} 个可自动处理章节。` : `开始迁移 ${targetLeaves.length} 个正文章节。`] }, {
     historicalAdaptationContentConfirmedAt: null,
   });
 
@@ -710,7 +715,7 @@ async function runHistoricalAdaptationContentTask({ aiService, workspaceStore, u
     status: 'success',
     progress: 100,
     error: undefined,
-    logs: [payload.recommendationsOnly === true ? `推荐提纲准备完成；待校核 ${reviewCount} 章。`
+    logs: [payload.recommendationsOnly === true ? `推荐提纲准备完成；可自动处理正文已迁移；待校核 ${reviewCount} 章。`
       : `正文迁移完成；失败 ${failedCount} 章，待复核 ${reviewCount} 章。`],
   }, {
     historicalAdaptationContentConfirmedAt: null,

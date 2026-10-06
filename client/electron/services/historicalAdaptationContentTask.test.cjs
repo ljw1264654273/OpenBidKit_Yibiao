@@ -793,7 +793,7 @@ test('新增章节自动推荐提纲但不生成正文，人工定向改写缺�
   assert.equal(aiCalls.length, 1);
 });
 
-test('仅推荐模式使用章节说明、基线和已确认差异生成提纲并 checkpoint 保存，不迁移任何正文', async () => {
+test('推荐模式使用章节说明、基线和已确认差异生成提纲，并同步迁移可自动处理正文', async () => {
   const state = baseState();
   state.historicalAdaptationOutlineChanges.push({ target_node_id: '2', change_type: 'added', reason: '新增保障内容', difference_ids: ['location'] });
   state.outlineData.outline[1].description = '明确响应流程和质量保障';
@@ -804,7 +804,7 @@ test('仅推荐模式使用章节说明、基线和已确认差异生成提纲�
     workspaceStore: { loadTechnicalPlan: () => state, readOriginalPlanMarkdown: () => '# 项目概况\n旧正文。' },
     payload: { recommendationsOnly: true }, updateTask() {}, checkpointTask(_task, patch) { if (patch) patches.push(patch); },
   });
-  assert.equal(aiCalls.length, 1);
+  assert.ok(aiCalls.length >= 1);
   assert.match(aiCalls[0].messages[0].content, /服务保障/);
   assert.match(aiCalls[0].messages[0].content, /明确响应流程和质量保障/);
   assert.match(aiCalls[0].messages[0].content, /横泾街道/);
@@ -815,7 +815,36 @@ test('仅推荐模式使用章节说明、基线和已确认差异生成提纲�
   assert.equal(saved.manual_mode, undefined);
   assert.equal(saved.manual_instruction, '');
   assert.equal(saved.status, 'review');
-  assert.ok(patches.every((patch) => !patch.contentGenerationItem));
+  assert.ok(patches.some((patch) => patch.contentGenerationItem?.nodeId === '1'));
+  assert.equal(patches.some((patch) => patch.contentGenerationItem?.nodeId === '2'), false);
+});
+
+test('自动准备新增章节提纲时同时迁移可直接迁移的既有章节', async () => {
+  const state = baseState();
+  state.historicalAdaptationDifferences = [];
+  state.historicalAdaptationOutlineChanges.push({ target_node_id: '2', change_type: 'added', reason: '新增保障内容' });
+  const originalPlan = '# 项目概况\n历史项目概况。';
+  const patches = [];
+  await runHistoricalAdaptationContentTask({
+    aiService: { requestJson: async () => ({ instruction: '1. 服务响应流程' }) },
+    workspaceStore: { loadTechnicalPlan: () => state, readOriginalPlanMarkdown: () => originalPlan },
+    payload: { recommendationsOnly: true }, updateTask() {}, checkpointTask(_task, patch) { if (patch) patches.push(patch); },
+  });
+  assert.equal(patches.find((patch) => patch.contentGenerationItem?.nodeId === '1')?.contentGenerationItem.section.content, '历史项目概况。');
+  assert.equal(patches.some((patch) => patch.contentGenerationItem?.nodeId === '2'), false);
+});
+
+test('自动准备新增章节提纲时同时执行既有章节局部改写', async () => {
+  const state = baseState();
+  state.historicalAdaptationOutlineChanges.push({ target_node_id: '2', change_type: 'added', reason: '新增保障内容' });
+  const patches = [];
+  await runHistoricalAdaptationContentTask({
+    aiService: { requestJson: async () => ({ instruction: '1. 服务响应流程' }) },
+    workspaceStore: { loadTechnicalPlan: () => state, readOriginalPlanMarkdown: () => '# 项目概况\n五峰村历史项目概况。' },
+    payload: { recommendationsOnly: true }, updateTask() {}, checkpointTask(_task, patch) { if (patch) patches.push(patch); },
+  });
+  assert.equal(patches.find((patch) => patch.contentGenerationItem?.nodeId === '1')?.contentGenerationItem.section.content, '横泾街道历史项目概况。');
+  assert.equal(patches.some((patch) => patch.contentGenerationItem?.nodeId === '2'), false);
 });
 
 test('重建保留推荐提纲且人工要求优先，再次批量建立不重新推荐或覆盖人工正文', async () => {
@@ -823,7 +852,8 @@ test('重建保留推荐提纲且人工要求优先，再次批量建立不重�
   state.historicalAdaptationOutlineChanges.push({ target_node_id: '2', change_type: 'added' });
   const originalPlan = '# 项目概况\n原正文。';
   state.historicalAdaptationContentItems = buildHistoricalContentItems({ state, originalPlan }).map((item) => ({
-    ...item, recommended_instruction: item.node_id === '2' ? '1. 推荐保障提纲' : '',
+    ...item, status: item.node_id === '1' ? 'success' : item.status,
+    recommended_instruction: item.node_id === '2' ? '1. 推荐保障提纲' : '',
   }));
   const [_, added] = buildHistoricalContentItems({ state, originalPlan });
   assert.equal(added.recommended_instruction, '1. 推荐保障提纲');
