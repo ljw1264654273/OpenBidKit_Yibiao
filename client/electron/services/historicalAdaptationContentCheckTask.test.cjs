@@ -33,10 +33,35 @@ test('来源失效或空正文等结构性阻断不调用任何 AI 阶段', asyn
 
 const {
   buildSemanticCheckPrompt,
+  buildSemanticBatches,
+  normalizeCandidateFactsResponse,
+  validateFactResolutions,
   collectDeterministicFindings,
   normalizeHistoricalAdaptationContentFindings,
   runHistoricalAdaptationContentCheckTask,
 } = require('./historicalAdaptationContentCheckTask.cjs');
+
+test('候选事实协议接受数组和代码围栏并按固定 fact_key 合并', () => {
+  const result = normalizeCandidateFactsResponse('```json\n[{"kind":"schedule","slot":"contract_duration","qualifier":"服务期限","value":"三年","evidence":"正文三年"}]\n```', { nodeIds: ['1'], currentNodeIds: ['1'] });
+  assert.equal(result.facts.length, 1);
+  assert.equal(result.facts[0].fact_key, 'schedule:contract_duration:服务期限');
+  assert.equal(result.facts[0].normalized_value, '3年');
+});
+
+test('动态批次按 context_length_limit 预算切分且不携带完整基线', () => {
+  const outline = [{ id: '1', title: '章节', content: '甲'.repeat(500) }];
+  const batches = buildSemanticBatches(outline, { contextLengthLimit: 100 });
+  assert.ok(batches.length > 1);
+  assert.ok(batches.every((batch) => batch.reduce((sum, item) => sum + item.content.length, 0) <= 160));
+});
+
+test('事实冲突 resolution 只接受基线或全局事实精确归一值', () => {
+  const facts = [{ fact_key: 'schedule:contract_duration:服务期限', fact_id: 'f1', kind: 'schedule', slot: 'contract_duration', normalized_value: '2年', canonical_value: '2年', conflict: true, evidence: ['正文2年'], chapter_node_ids: ['1'] }];
+  const accepted = validateFactResolutions(facts, [{ fact_key: facts[0].fact_key, canonical_value: '三年', basis: 'baseline-exact-match' }], { baseline: '服务期限为三年', globalFacts: [] });
+  assert.equal(accepted.facts[0].conflict, false);
+  const rejected = validateFactResolutions(facts, [{ fact_key: facts[0].fact_key, canonical_value: '1年', basis: 'baseline-exact-match' }], { baseline: '服务期限为三年', globalFacts: [] });
+  assert.equal(rejected.facts[0].conflict, true);
+});
 
 test('真实来源不可用时阻断人工正文，无历史来源的人工补写不阻断', () => {
   const context = {
