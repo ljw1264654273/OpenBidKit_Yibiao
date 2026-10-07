@@ -22,8 +22,10 @@ function asFacts(context) { return Array.isArray(context?.facts) ? context.facts
 function validFact(fact) {
   return Boolean(fact && typeof fact.fact_id === 'string' && fact.fact_id && FACT_KINDS.has(fact.kind)
     && typeof fact.canonical_value === 'string' && fact.canonical_value.trim()
-    && Array.isArray(fact.evidence) && fact.evidence.length > 0
+    && Array.isArray(fact.evidence) && fact.evidence.length > 0 && fact.evidence.every((item) => typeof item === 'string' && item.trim())
     && Array.isArray(fact.chapter_node_ids) && fact.chapter_node_ids.length > 0
+    && fact.chapter_node_ids.every((item) => typeof item === 'string' && item.trim())
+    && new Set(fact.chapter_node_ids).size === fact.chapter_node_ids.length
     && typeof fact.conflict === 'boolean');
 }
 
@@ -107,7 +109,6 @@ function applyRepairGroup(group, context = {}) {
   if (!validation.ok) return validation;
   const { fact, chapters: byId } = validation;
   const output = [];
-  const rangesByChapter = new Map();
   for (const edit of group.chapters) {
     const chapter = byId.get(String(edit.node_id));
     const content = String(chapter.content ?? '');
@@ -116,10 +117,6 @@ function applyRepairGroup(group, context = {}) {
     if (edit.old_text === content) return { ok: false, reason: 'whole-chapter-replacement' };
     const first = content.indexOf(edit.old_text);
     if (first < 0 || content.indexOf(edit.old_text, first + edit.old_text.length) >= 0) return { ok: false, reason: 'old-text-ambiguous' };
-    const ranges = rangesByChapter.get(String(edit.node_id)) || [];
-    if (ranges.some(([start, end]) => first < end && first + edit.old_text.length > start)) return { ok: false, reason: 'overlapping-edit' };
-    ranges.push([first, first + edit.old_text.length]);
-    rangesByChapter.set(String(edit.node_id), ranges);
     if (intersectsProtected(content, first, first + edit.old_text.length) || /```/.test(edit.old_text) || /```/.test(edit.new_text)) return { ok: false, reason: 'markdown-protected' };
     const allowed = allowedTokens(fact, context);
     if (!/remove/i.test(edit.new_text) && !edit.new_text.includes(fact.canonical_value)) return { ok: false, reason: 'fact-token-not-allowed' };
