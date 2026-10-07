@@ -36,6 +36,7 @@ const { normalizeHistoricalAdaptationOutlineChanges } = require('./historicalAda
 const {
   assertContentPrerequisites,
   buildHistoricalContentItems,
+  getEffectiveMode,
   normalizeHistoricalAdaptationContentItems,
   scanHistoricalResiduals,
 } = require('./historicalAdaptationContentTask.cjs');
@@ -54,6 +55,9 @@ const bidTemplateSourceRelativePath = path.join('technical-plan', 'bid-template-
 const bidTemplateFieldsRelativePath = path.join('technical-plan', 'bid-template-fields.json').replace(/\\/g, '/');
 const originalPlanMarkdownRelativePath = path.join('technical-plan', 'original-plan.md').replace(/\\/g, '/');
 const originalOutlineRuntimeFileName = 'original-outline-runtime.json';
+const HISTORICAL_ADAPTATION_RULE_ENGINE_VERSION = 4;
+const HISTORICAL_ADAPTATION_FACT_SCHEMA_VERSION = 1;
+const HISTORICAL_ADAPTATION_REPAIR_PROTOCOL_VERSION = 1;
 const defaultOutlineWordControlOptions = Object.freeze({
   enabled: false,
   minimumWords: 550000,
@@ -209,12 +213,22 @@ function stableHash(content) {
 function normalizeHistoricalAdaptationContentCheck(value) {
   const source = value && typeof value === 'object' ? value : {};
   const status = ['idle', 'running', 'success', 'stale', 'error'].includes(source.status) ? source.status : 'idle';
+  const stages = ['precheck', 'facts', 'semantic', 'repair', 'recheck'];
+  const numberOrZero = (field) => Number.isFinite(Number(source[field])) && Number(source[field]) >= 0 ? Number(source[field]) : 0;
   return {
     status,
+    stage: stages.includes(source.stage) ? source.stage : undefined,
     findings: Array.isArray(source.findings) ? source.findings : [],
     checked_content_hash: String(source.checked_content_hash || ''),
     checked_inputs_hash: String(source.checked_inputs_hash || ''),
+    checked_facts_hash: String(source.checked_facts_hash || ''),
+    checked_protocol_inputs_hash: String(source.checked_protocol_inputs_hash || ''),
     rule_engine_version: Number(source.rule_engine_version) || 0,
+    fact_schema_version: Number(source.fact_schema_version) || 0,
+    repair_protocol_version: Number(source.repair_protocol_version) || 0,
+    auto_repaired_count: numberOrZero('auto_repaired_count'),
+    manual_count: numberOrZero('manual_count'),
+    repair_round: numberOrZero('repair_round'),
     checked_at: source.checked_at ? String(source.checked_at) : undefined,
     error: source.error ? String(source.error) : undefined,
   };
@@ -3554,8 +3568,11 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
         return { node_id: String(item.id || ''), reuse_original: plan?.reuse_original, recommended_mode: plan?.recommended_mode, manual_mode: plan?.manual_mode, manual_instruction: plan?.manual_instruction };
       }),
       baseline: loadBidItems(),
-      rule_engine_version: 2,
+      // 正文一致性检查协议参与输入指纹。自动修复协议升级后，旧缓存必须失效。
+      rule_engine_version: HISTORICAL_ADAPTATION_RULE_ENGINE_VERSION,
       semantic_check_version: 2,
+      fact_schema_version: HISTORICAL_ADAPTATION_FACT_SCHEMA_VERSION,
+      repair_protocol_version: HISTORICAL_ADAPTATION_REPAIR_PROTOCOL_VERSION,
       plans: items.map((item) => ({ node_id: item.node_id, input_fingerprint: item.input_fingerprint,
         source_version_hash: item.source_version_hash, source_content_hash: item.source_content_hash,
         rule_engine_version: item.rule_engine_version, content_plan_version: item.content_plan_version })),
@@ -3574,6 +3591,7 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     return {
       contentHash: stableHash(JSON.stringify(contentSnapshot)),
       inputsHash: stableHash(JSON.stringify(inputSnapshot)),
+      factsHash: normalizeHistoricalAdaptationContentCheck(safeJsonParse(meta.historical_adaptation_content_check_json, null)).checked_facts_hash,
       outlineData,
       items,
       expectedItems,
@@ -3674,6 +3692,150 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     return loadTechnicalPlan();
   }
 
+  function applyHistoricalAdaptationConsistencyRepairs({
+    expectedContentHash,
+    expectedInputsHash,
+    expectedFactsHash,
+    repairs,
+  } = {}) {
+    const requestedContentHash = String(expectedContentHash || '');
+    const requestedInputsHash = String(expectedInputsHash || '');
+    const requestedFactsHash = String(expectedFactsHash || '');
+    if (!requestedContentHash || !requestedInputsHash || !requestedFactsHash || !Array.isArray(repairs) || !repairs.length) {
+      throw new Error('repair request schema invalid');
+    }
+
+    const changedNodeIds = [];
+    const transaction = db.transaction(() => {
+      const meta = readMetaRow();
+      const outlineData = loadOutlineData(meta);
+      const leaves = collectLeafItems(outlineData?.outline || []);
+      const contentSnapshot = leaves.map((item) => ({
+        node_id: String(item.id || ''),
+        content: String(item.content || ''),
+      }));
+      const currentContentHash = stableHash(JSON.stringify(contentSnapshot));
+      if (currentContentHash !== requestedContentHash) throw new Error('content hash mismatch');
+
+      const context = getHistoricalAdaptationContentCheckContext();
+      if (context.inputsHash !== requestedInputsHash) throw new Error('input hash mismatch');
+      const currentCheck = normalizeHistoricalAdaptationContentCheck(
+        safeJsonParse(meta.historical_adaptation_content_check_json, null),
+      );
+      const expectedProtocolInputsHash = stableHash(JSON.stringify({
+        inputsHash: requestedInputsHash,
+        rule_engine_version: HISTORICAL_ADAPTATION_RULE_ENGINE_VERSION,
+        fact_schema_version: HISTORICAL_ADAPTATION_FACT_SCHEMA_VERSION,
+        repair_protocol_version: HISTORICAL_ADAPTATION_REPAIR_PROTOCOL_VERSION,
+      }));
+      if (currentCheck.checked_content_hash !== requestedContentHash) throw new Error('check content hash mismatch');
+      if (currentCheck.checked_inputs_hash !== requestedInputsHash) throw new Error('check input hash mismatch');
+      if (currentCheck.checked_protocol_inputs_hash !== expectedProtocolInputsHash) throw new Error('check protocol inputs hash mismatch');
+      if (currentCheck.rule_engine_version !== HISTORICAL_ADAPTATION_RULE_ENGINE_VERSION) throw new Error('check rule engine version mismatch');
+      if (currentCheck.fact_schema_version !== HISTORICAL_ADAPTATION_FACT_SCHEMA_VERSION) throw new Error('check fact schema version mismatch');
+      if (currentCheck.repair_protocol_version !== HISTORICAL_ADAPTATION_REPAIR_PROTOCOL_VERSION) throw new Error('check repair protocol version mismatch');
+      // 事实表只在一致性检查任务的持久快照中存在。将该快照哈希作为事务 CAS，
+      // 防止模型提取事实后正文或检查状态被其他写入替换。
+      if (currentCheck.checked_facts_hash !== requestedFactsHash) throw new Error('facts hash mismatch');
+
+      const leafById = new Map(leaves.map((item) => [String(item.id || ''), item]));
+      const itemById = new Map(normalizeHistoricalAdaptationContentItems(readHistoricalContentItems())
+        .map((item) => [String(item.node_id), item]));
+      const editsByNode = new Map();
+      const nextContents = new Map();
+      const nextItems = new Map();
+
+      for (const group of repairs) {
+        if (!group || typeof group !== 'object' || !String(group.group_id || '').trim()
+          || !String(group.fact_id || '').trim() || group.confidence !== 'high'
+          || !String(group.rationale || '').trim() || !Array.isArray(group.chapters) || !group.chapters.length) {
+          throw new Error('repair group schema invalid');
+        }
+        if (group.expected_content_hash !== requestedContentHash) throw new Error('content hash mismatch');
+        if (group.expected_inputs_hash !== requestedInputsHash) throw new Error('input hash mismatch');
+        if (group.expected_facts_hash !== requestedFactsHash) throw new Error('facts hash mismatch');
+        const newValues = new Set();
+        for (const edit of group.chapters) {
+          const nodeId = String(edit?.node_id || '').trim();
+          if (!nodeId) throw new Error('invalid node');
+          const leaf = leafById.get(nodeId);
+          if (!leaf) throw new Error('invalid node');
+          const item = itemById.get(nodeId);
+          if (!item) throw new Error('historical content item not found');
+          if (item.content_origin === 'manual') throw new Error('manual source cannot be auto repaired');
+          const currentContent = String(leaf.content || '');
+          const expectedItemFingerprint = item.item_fingerprint || item.input_fingerprint
+            || stableHash(JSON.stringify({ node_id: nodeId, content: currentContent }));
+          if (String(edit.expected_item_fingerprint || '') !== expectedItemFingerprint) throw new Error('item fingerprint mismatch');
+          if (String(edit.expected_node_content_hash || '') !== stableHash(currentContent)) throw new Error('node content hash mismatch');
+          const oldText = String(edit.old_text || '');
+          const newText = String(edit.new_text || '');
+          if (!oldText || !newText) throw new Error('empty edit');
+          if (oldText === newText) throw new Error('no-op edit');
+          if (oldText === currentContent) throw new Error('whole-chapter replacement');
+          const first = currentContent.indexOf(oldText);
+          if (first < 0) throw new Error('old text not found');
+          if (currentContent.indexOf(oldText, first + oldText.length) >= 0) throw new Error('old text ambiguous');
+          const fenceCountBefore = (currentContent.slice(0, first).match(/```/g) || []).length;
+          const fenceCountThrough = (currentContent.slice(0, first + oldText.length).match(/```/g) || []).length;
+          if (fenceCountBefore % 2 === 1 || fenceCountThrough % 2 === 1
+            || /```/.test(oldText) || /```/.test(newText)) throw new Error('markdown protected range');
+          const nodeEdits = editsByNode.get(nodeId) || [];
+          if (nodeEdits.some((candidate) => first < candidate.end && first + oldText.length > candidate.start)) {
+            throw new Error('overlapping edit range');
+          }
+          if (newValues.size && !newValues.has(newText)) throw new Error('fact coverage value mismatch');
+          newValues.add(newText);
+          nodeEdits.push({ start: first, end: first + oldText.length, oldText, newText, item, originalContent: currentContent });
+          editsByNode.set(nodeId, nodeEdits);
+        }
+      }
+      for (const [nodeId, edits] of editsByNode) {
+        let content = edits[0].originalContent;
+        for (const edit of [...edits].sort((left, right) => right.start - left.start)) {
+          content = `${content.slice(0, edit.start)}${edit.newText}${content.slice(edit.end)}`;
+        }
+        nextContents.set(nodeId, content);
+        nextItems.set(nodeId, { item: edits[0].item, content });
+      }
+      if (!nextContents.size) throw new Error('no repair chapters');
+
+      const timestamp = now();
+      const updateNode = db.prepare('UPDATE technical_plan_outline_nodes SET content = ?, updated_at = ? WHERE node_id = ?');
+      const updateSection = db.prepare('UPDATE technical_plan_content_sections SET status = ?, error = NULL, updated_at = ? WHERE node_id = ?');
+      for (const [nodeId, content] of nextContents) {
+        updateNode.run(content, timestamp, nodeId);
+        updateSection.run('success', timestamp, nodeId);
+        const { item } = nextItems.get(nodeId);
+        const effectiveMode = getEffectiveMode(item);
+        writeHistoricalContentItem({
+          ...item,
+          status: 'success',
+          content_origin: 'ai-repair',
+          migration_output_hash: stableHash(JSON.stringify([
+            item.source_hash, item.input_fingerprint, effectiveMode, item.manual_instruction, content,
+          ])),
+          residuals: [],
+          confirmed_at: undefined,
+          error: undefined,
+          error_code: undefined,
+          updated_at: timestamp,
+        });
+        changedNodeIds.push(nodeId);
+      }
+      updateMeta({
+        historical_adaptation_content_confirmed_at: null,
+        historical_adaptation_review_findings_json: null,
+        historical_adaptation_review_confirmed_at: null,
+        historical_adaptation_content_check_json: null,
+      });
+      clearContentIllustrationPlan();
+    });
+    transaction();
+    if (typeof onContentChanged === 'function') onContentChanged({ origin: 'ai-repair', nodeIds: changedNodeIds });
+    return { appliedCount: changedNodeIds.length, nodeIds: changedNodeIds };
+  }
+
   function confirmHistoricalAdaptationContentItem({ nodeId } = {}) {
     const targetNodeId = String(nodeId || '').trim();
     const transaction = db.transaction(() => {
@@ -3744,7 +3906,16 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     const checkCurrent = check.status === 'success'
       && check.checked_content_hash === context.contentHash
       && check.checked_inputs_hash === context.inputsHash
-      && check.rule_engine_version === 3;
+      && check.checked_facts_hash
+      && check.checked_protocol_inputs_hash === stableHash(JSON.stringify({
+        inputsHash: context.inputsHash,
+        rule_engine_version: HISTORICAL_ADAPTATION_RULE_ENGINE_VERSION,
+        fact_schema_version: HISTORICAL_ADAPTATION_FACT_SCHEMA_VERSION,
+        repair_protocol_version: HISTORICAL_ADAPTATION_REPAIR_PROTOCOL_VERSION,
+      }))
+      && check.rule_engine_version === HISTORICAL_ADAPTATION_RULE_ENGINE_VERSION
+      && check.fact_schema_version === HISTORICAL_ADAPTATION_FACT_SCHEMA_VERSION
+      && check.repair_protocol_version === HISTORICAL_ADAPTATION_REPAIR_PROTOCOL_VERSION;
     if (!checkCurrent) findings.push({ id: 'check-stale', code: 'check-stale', category: 'task', severity: 'P0', blocking: true, node_ids: [], message: '请先运行最新的一致性检查', evidence: check.error || check.status });
     if (checkCurrent) findings.push(...check.findings.filter((finding) => {
       if (!finding?.blocking) return false;
@@ -4436,6 +4607,7 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     saveHistoricalAdaptationOutline,
     confirmHistoricalAdaptationOutline,
     saveHistoricalAdaptationChapterContent,
+    applyHistoricalAdaptationConsistencyRepairs,
     prepareHistoricalAdaptationContentPlan,
     getHistoricalAdaptationSourceSection,
     getHistoricalAdaptationSourceIndex,

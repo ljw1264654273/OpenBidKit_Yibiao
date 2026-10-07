@@ -400,6 +400,7 @@ async function runHistoricalAdaptationContentCheckTask({ aiService, workspaceSto
     }
     const cached = context.check;
     if (cached?.status === 'success' && cached.checked_content_hash === context.contentHash && cached.checked_inputs_hash === context.inputsHash
+      && Boolean(cached.checked_facts_hash)
       && cached.checked_protocol_inputs_hash === protocolInputsHash(context.inputsHash)
       && cached.rule_engine_version === RULE_ENGINE_VERSION && cached.fact_schema_version === FACT_SCHEMA_VERSION && cached.repair_protocol_version === REPAIR_PROTOCOL_VERSION) {
       checkpointTask({ status: 'success', progress: 100, logs: ['正文、输入和协议版本未变化，复用一致性检查结果。'] }, { historicalAdaptationContentCheck: cached });

@@ -4,6 +4,26 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
+const crypto = require('node:crypto');
+
+function protocolInputsHash(inputsHash) {
+  return crypto.createHash('sha256').update(JSON.stringify({
+    inputsHash,
+    rule_engine_version: 4,
+    fact_schema_version: 1,
+    repair_protocol_version: 1,
+  }), 'utf8').digest('hex');
+}
+
+function currentCheck(context, factsHash = 'facts-v1') {
+  return {
+    status: 'success', stage: 'semantic', findings: [],
+    checked_content_hash: context.contentHash, checked_inputs_hash: context.inputsHash,
+    checked_facts_hash: factsHash, checked_protocol_inputs_hash: protocolInputsHash(context.inputsHash),
+    rule_engine_version: 4, fact_schema_version: 1, repair_protocol_version: 1,
+    auto_repaired_count: 0, manual_count: 0, repair_round: 0,
+  };
+}
 
 function runAssertions() {
   const { createSqliteDatabase } = require('./sqliteDatabase.cjs');
@@ -40,17 +60,18 @@ function runAssertions() {
         checked_content_hash: checkContext.contentHash,
         checked_inputs_hash: checkContext.inputsHash,
         checked_at: '2026-10-01T00:05:00.000Z',
+        checked_facts_hash: 'facts-v1',
+        checked_protocol_inputs_hash: protocolInputsHash(checkContext.inputsHash),
         rule_engine_version: 3,
+        fact_schema_version: 1,
+        repair_protocol_version: 1,
       },
     });
 
     assert.throws(() => store.runHistoricalAdaptationReview(), /阻断/, 'a forged successful check cannot bypass deterministic blockers');
     store.saveHistoricalAdaptationChapterContent({ nodeId: '1', content: '本项目实施方案已明确。' });
     const validContext = store.getHistoricalAdaptationContentCheckContext();
-    store.updateTechnicalPlan({ historicalAdaptationContentCheck: {
-      status: 'success', findings: [], rule_engine_version: 3,
-      checked_content_hash: validContext.contentHash, checked_inputs_hash: validContext.inputsHash,
-    } });
+    store.updateTechnicalPlan({ historicalAdaptationContentCheck: currentCheck(validContext) });
     store.confirmHistoricalAdaptationContent();
     store.updateTechnicalPlan({ historicalAdaptationReviewFindings: [
       { id: 'non-waivable', severity: 'P0', resolution: 'open' },

@@ -6,7 +6,7 @@ const { applyAuthorizedLocalEdits } = require('./historicalAdaptationLocalEdit.c
 
 const CONTENT_MODES = new Set(['direct', 'local-rewrite', 'rewrite']);
 const CONTENT_STATUSES = new Set(['idle', 'running', 'success', 'review', 'stale', 'error']);
-const CONTENT_ORIGINS = new Set(['migrated', 'local-rewrite', 'ai-rewrite', 'supplement', 'manual']);
+const CONTENT_ORIGINS = new Set(['migrated', 'local-rewrite', 'ai-rewrite', 'ai-repair', 'supplement', 'manual']);
 
 function text(value) {
   return String(value || '').trim();
@@ -153,6 +153,7 @@ function normalizeHistoricalAdaptationContentItems(value) {
       migration_output_hash: text(raw?.migration_output_hash),
       error_code: text(raw?.error_code) || undefined,
       input_fingerprint: text(raw?.input_fingerprint),
+      item_fingerprint: text(raw?.item_fingerprint),
       confirmed_at: text(raw?.confirmed_at) || undefined,
       updated_at: text(raw?.updated_at) || undefined,
       error: text(raw?.error) || undefined,

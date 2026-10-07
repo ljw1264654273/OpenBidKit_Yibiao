@@ -4,6 +4,26 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
+const crypto = require('node:crypto');
+
+function protocolInputsHash(inputsHash) {
+  return crypto.createHash('sha256').update(JSON.stringify({
+    inputsHash,
+    rule_engine_version: 4,
+    fact_schema_version: 1,
+    repair_protocol_version: 1,
+  }), 'utf8').digest('hex');
+}
+
+function currentCheck(context, factsHash = 'facts-v1') {
+  return {
+    status: 'success', stage: 'semantic', findings: [],
+    checked_content_hash: context.contentHash, checked_inputs_hash: context.inputsHash,
+    checked_facts_hash: factsHash, checked_protocol_inputs_hash: protocolInputsHash(context.inputsHash),
+    rule_engine_version: 4, fact_schema_version: 1, repair_protocol_version: 1,
+    auto_repaired_count: 0, manual_count: 0, repair_round: 0,
+  };
+}
 
 function runAssertions() {
   const { createSqliteDatabase } = require('./sqliteDatabase.cjs');
@@ -68,12 +88,15 @@ function runAssertions() {
 
     store.saveHistoricalAdaptationChapterContent({ nodeId: '1', content: '服务地点为横泾街道。' });
     const context = store.getHistoricalAdaptationContentCheckContext();
+    store.updateTechnicalPlan({ historicalAdaptationContentCheck: {
+      status: 'success', findings: [], checked_content_hash: context.contentHash,
+      checked_inputs_hash: context.inputsHash, checked_facts_hash: 'facts-v1',
+      checked_protocol_inputs_hash: protocolInputsHash(context.inputsHash),
+      rule_engine_version: 3, fact_schema_version: 1, repair_protocol_version: 1,
+    } });
+    assert.equal(store.getHistoricalAdaptationContentReadiness().ready, false, 'v3 cache must be stale');
     store.updateTechnicalPlan({
-      historicalAdaptationContentCheck: {
-        status: 'success', findings: [], checked_content_hash: context.contentHash,
-        checked_inputs_hash: context.inputsHash, checked_at: '2026-10-01T10:00:00.000Z',
-        rule_engine_version: 3,
-      },
+      historicalAdaptationContentCheck: { ...currentCheck(context), checked_at: '2026-10-01T10:00:00.000Z' },
     });
     const readiness = store.getHistoricalAdaptationContentReadiness();
     assert.equal(readiness.ready, true);
@@ -160,10 +183,7 @@ function runAssertions() {
     assert.equal(store.loadTechnicalPlan().historicalAdaptationContentItems[0].source_excerpt, '');
     const prepared = store.loadTechnicalPlan();
     const preparedContext = store.getHistoricalAdaptationContentCheckContext();
-    store.updateTechnicalPlan({ historicalAdaptationContentCheck: {
-      status: 'success', findings: [], checked_content_hash: preparedContext.contentHash,
-      checked_inputs_hash: preparedContext.inputsHash, rule_engine_version: 3,
-    } });
+    store.updateTechnicalPlan({ historicalAdaptationContentCheck: currentCheck(preparedContext) });
     const rebuilt = store.prepareHistoricalAdaptationContentPlan();
     const cachedIndex = store.getHistoricalAdaptationSourceIndex(fs.readFileSync(path.join(originalPlanDir, 'original-plan.md'), 'utf8'));
     assert.equal(cachedIndex, store.getHistoricalAdaptationSourceIndex(fs.readFileSync(path.join(originalPlanDir, 'original-plan.md'), 'utf8')),
@@ -171,7 +191,7 @@ function runAssertions() {
     assert.equal(rebuilt.historicalAdaptationContentItems[0].plan_id, prepared.historicalAdaptationContentItems[0].plan_id,
       'same inputs must preserve the plan identity');
     assert.equal(rebuilt.historicalAdaptationContentCheck.status, 'success', 'unchanged plan must preserve check cache');
-    assert.equal(rebuilt.historicalAdaptationContentCheck.rule_engine_version, 3);
+    assert.equal(rebuilt.historicalAdaptationContentCheck.rule_engine_version, 4);
     const sourceItem = rebuilt.historicalAdaptationContentItems[0];
     store.updateTechnicalPlan({ historicalAdaptationContentItem: { ...sourceItem, source_locator: 'display path changed' } });
     assert.equal(store.getHistoricalAdaptationSourceSection({ nodeId: '1' }).content, '五峰村原项目概况。',

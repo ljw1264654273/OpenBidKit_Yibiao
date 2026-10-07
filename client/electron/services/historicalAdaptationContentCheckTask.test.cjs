@@ -95,7 +95,7 @@ test('长正文分批检查并从各批事实证据保留跨章节冲突检查',
 test('相同正文、输入和规则版本复用语义检查缓存', async () => {
   const repair = require('./historicalAdaptationConsistencyRepair.cjs');
   let calls = 0;
-  const cached = { status: 'success', findings: [], checked_content_hash: 'content', checked_inputs_hash: 'inputs', checked_protocol_inputs_hash: repair.stableHash({ inputsHash: 'inputs', rule_engine_version: 4, fact_schema_version: 1, repair_protocol_version: 1 }), rule_engine_version: 4, fact_schema_version: 1, repair_protocol_version: 1 };
+  const cached = { status: 'success', findings: [], checked_content_hash: 'content', checked_inputs_hash: 'inputs', checked_facts_hash: 'facts-v1', checked_protocol_inputs_hash: repair.stableHash({ inputsHash: 'inputs', rule_engine_version: 4, fact_schema_version: 1, repair_protocol_version: 1 }), rule_engine_version: 4, fact_schema_version: 1, repair_protocol_version: 1 };
   const patches = [];
   await runHistoricalAdaptationContentCheckTask({
     aiService: { requestJson: async (request) => { calls++; return request.response_format?.json_schema?.name === 'historical_adaptation_facts' ? { facts: [{ fact_id: 'generic', kind: 'service', canonical_value: '正文', evidence: ['正文'], chapter_node_ids: ['1'], conflict: false }] } : { findings: [] }; } },
@@ -106,6 +106,19 @@ test('相同正文、输入和规则版本复用语义检查缓存', async () =>
   });
   assert.equal(calls, 0);
   assert.equal(patches.at(-1).historicalAdaptationContentCheck.rule_engine_version, 4);
+});
+
+test('缺少事实哈希的 v4 成功缓存不得复用', async () => {
+  let calls = 0;
+  await runHistoricalAdaptationContentCheckTask({
+    aiService: { requestJson: async (request) => { calls += 1; return request.response_format?.json_schema?.name === 'historical_adaptation_facts' ? { facts: [{ fact_id: 'generic', kind: 'service', canonical_value: '正文', evidence: ['正文'], chapter_node_ids: ['1'], conflict: false }] } : { findings: [] }; } },
+    workspaceStore: { getHistoricalAdaptationContentCheckContext: () => ({
+      contentHash: 'content', inputsHash: 'inputs',
+      check: { status: 'success', findings: [], checked_content_hash: 'content', checked_inputs_hash: 'inputs', checked_facts_hash: '', checked_protocol_inputs_hash: require('./historicalAdaptationConsistencyRepair.cjs').stableHash({ inputsHash: 'inputs', rule_engine_version: 4, fact_schema_version: 1, repair_protocol_version: 1 }), rule_engine_version: 4, fact_schema_version: 1, repair_protocol_version: 1 },
+      outlineData: { outline: [{ id: '1', title: '章节', content: '正文' }] }, items: [{ node_id: '1', status: 'success' }],
+    }) }, checkpointTask() {},
+  });
+  assert.ok(calls > 0);
 });
 
 test('旧规则版本的检查缓存不得复用', async () => {
