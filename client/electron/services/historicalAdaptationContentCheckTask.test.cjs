@@ -116,6 +116,25 @@ test('多章节候选缺 node_id 时按单章节重试并安全归属', async ()
   assert.equal(checkpoints.at(-1).historicalAdaptationContentCheck.status, 'success');
 });
 
+test('facts 数组返回候选事实时不应误判为无效全文事实表', async () => {
+  const checkpoints = [];
+  await runHistoricalAdaptationContentCheckTask({
+    aiService: { requestJson: async (request) => {
+      if (request.response_format?.json_schema?.name === 'historical_adaptation_facts') {
+        return { facts: [{ kind: 'service', slot: 'service_scope', qualifier: '服务范围', value: '服务内容', evidence: '正文服务内容' }] };
+      }
+      return { findings: [] };
+    } },
+    workspaceStore: { getHistoricalAdaptationContentCheckContext: () => ({
+      contentHash: 'facts-candidate-content', inputsHash: 'facts-candidate-input',
+      outlineData: { outline: [{ id: '1', title: '服务章节', content: '服务内容' }] },
+      items: [{ node_id: '1', status: 'success' }],
+    }) },
+    checkpointTask: (_task, patch) => checkpoints.push(patch),
+  });
+  assert.equal(checkpoints.at(-1).historicalAdaptationContentCheck.status, 'success');
+});
+
 test('真实来源不可用时阻断人工正文，无历史来源的人工补写不阻断', () => {
   const context = {
     outlineData: { outline: [{ id: '1', title: '章节', content: '人工正文' }] },

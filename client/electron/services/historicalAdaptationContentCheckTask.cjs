@@ -585,7 +585,7 @@ async function extractFacts(aiService, context, checkpointTask, workspaceStore) 
           const parsed = parseJsonPayload(value);
           if (Array.isArray(parsed) && parsed.every((item) => item && typeof item === 'object' && item.fact_id)) return { facts: normalizeFactsResponse({ facts: parsed }), invalidCandidates: [] };
           if (parsed && Array.isArray(parsed.facts) && parsed.facts.every((item) => item && typeof item === 'object' && item.fact_id)) return { facts: normalizeFactsResponse(parsed), invalidCandidates: [] };
-          if (Array.isArray(parsed) || Array.isArray(parsed?.candidates) || parsed?.candidates) return normalizeCandidateFactsResponse(parsed, { nodeIds: batchChapters.map((chapter) => chapter.node_id), currentNodeIds: batchChapters.map((chapter) => chapter.node_id) });
+          if (Array.isArray(parsed) || Array.isArray(parsed?.candidates) || parsed?.candidates || Array.isArray(parsed?.facts)) return normalizeCandidateFactsResponse(parsed, { nodeIds: batchChapters.map((chapter) => chapter.node_id), currentNodeIds: batchChapters.map((chapter) => chapter.node_id) });
           return { facts: normalizeFactsResponse(parsed), invalidCandidates: [] };
         };
         response = await requestStructured(aiService, { messages: [{ role: 'user', content: buildFactsPrompt(context, chapters) }], response_format: FACT_CANDIDATE_RESPONSE_FORMAT, logTitle: `历史标书适配-全文事实提取-${index + 1}` }, (value) => validateBatch(value), '模型未返回有效的全文事实表');
