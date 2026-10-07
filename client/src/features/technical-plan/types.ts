@@ -325,10 +325,18 @@ export interface HistoricalAdaptationContentCheckFinding {
 
 export interface HistoricalAdaptationContentCheckState {
   status: HistoricalAdaptationContentCheckStatus;
+  stage?: 'precheck' | 'facts' | 'semantic' | 'repair' | 'recheck';
   findings: HistoricalAdaptationContentCheckFinding[];
   checked_content_hash: string;
   checked_inputs_hash: string;
+  checked_facts_hash?: string;
+  checked_protocol_inputs_hash?: string;
   checked_at?: string;
+  fact_schema_version?: number;
+  repair_protocol_version?: number;
+  auto_repaired_count?: number;
+  manual_count?: number;
+  repair_round?: number;
   error?: string;
 }
 

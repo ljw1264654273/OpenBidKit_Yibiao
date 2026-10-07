@@ -202,6 +202,21 @@ test('正文迁移页面支持迁移方案、人工策略、恢复默认和阶�
   assert.match(component, /allowRawHtml=\{false\}/);
 });
 
+test('正文一致性检查展示稳定阶段、自动修复结果和任务失败', () => {
+  const componentPath = join(__dirname, 'components/AdaptationContentPage.tsx');
+  const component = readFileSync(componentPath, 'utf8');
+
+  for (const label of ['预检中', '提取全文事实', '检查跨章节口径', '自动修复第', '复查全文', '自动修复成功', '仍有阻断', '人工处理']) {
+    assert.match(component, new RegExp(label));
+  }
+  assert.match(component, /historicalAdaptationContentCheck\.stage/);
+  assert.match(component, /auto_repaired_count/);
+  assert.match(component, /manual_count/);
+  assert.match(component, /checkTask\?\.status === 'error'/);
+  assert.match(component, /checkTask\?\.error/);
+  assert.doesNotMatch(component, /checkTask\?\.message/);
+});
+
 test('正文迁移发现待核实或待补充时提示导出后人工处理并要求显式确认', () => {
   const componentPath = join(__dirname, 'components/AdaptationContentPage.tsx');
   const component = readFileSync(componentPath, 'utf8');

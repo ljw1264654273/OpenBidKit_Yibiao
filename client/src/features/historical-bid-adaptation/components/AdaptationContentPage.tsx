@@ -51,6 +51,14 @@ const statusLabels = {
   error: '失败',
 } as const;
 
+const checkStageLabels: Record<NonNullable<TechnicalPlanState['historicalAdaptationContentCheck']['stage']>, string> = {
+  precheck: '预检中',
+  facts: '提取全文事实',
+  semantic: '检查跨章节口径',
+  repair: '自动修复',
+  recheck: '复查全文',
+};
+
 function flattenLeaves(items: OutlineItem[], parents: string[] = [], level = 0, result: LeafEntry[] = [], ancestorIds: string[] = []) {
   for (const item of items) {
     const path = [...parents, item.title];
@@ -151,7 +159,11 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onPre
   const reviewCount = state.historicalAdaptationContentItems.filter((item) => ['review', 'stale', 'error'].includes(item.status)).length;
   const stageConfirmed = Boolean(state.historicalAdaptationContentConfirmedAt);
   const check = state.historicalAdaptationContentCheck;
+  const checkStage = state.historicalAdaptationContentCheck.stage;
   const checkBlockingCount = check.findings.filter((finding) => finding.blocking).length;
+  const checkStageLabel = checkStage ? (checkStage === 'repair' ? `自动修复第 ${check.repair_round || 1} 轮` : checkStageLabels[checkStage]) : '';
+  const autoRepairedCount = check.auto_repaired_count || 0;
+  const manualCount = check.manual_count || 0;
   const placeholderFindings = check.findings.filter((finding) => finding.category === 'placeholder' || finding.code === 'unresolved-placeholder');
   const detectedPlaceholderCount = useMemo(() => leaves.reduce((count, leaf) => count + ((leaf.item.content || '').match(/【(?:待核实|待补充)】/gu) || []).length, 0), [leaves]);
   const placeholderCount = Math.max(detectedPlaceholderCount, placeholderFindings.reduce((count, finding) => count + (finding.evidence.match(/【(?:待核实|待补充)】/gu) || []).length, 0));
@@ -536,8 +548,10 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onPre
     void confirmStage();
   };
 
-  const checkStatusLabel = checkRunning
-    ? '检查中'
+  const checkStatusLabel = checkTask?.status === 'error'
+    ? '检查失败'
+    : checkRunning
+    ? checkStageLabel || '检查中'
     : check.status === 'success'
       ? checkBlockingCount ? `${checkBlockingCount} 个阻断问题` : '检查通过'
       : check.status === 'stale' ? '结果已失效' : check.status === 'error' ? '检查失败' : '尚未检查';
@@ -656,10 +670,15 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onPre
 
       <section className={`historical-adaptation-content-check${check.status === 'success' && !checkBlockingCount ? ' is-complete' : ''}`}>
         <header>
-          <div><span className="section-kicker">一致性检查</span><strong>{checkStatusLabel}</strong><p>检查工作量、工期进度、跨章节冲突、历史残留与待核实占位符。</p></div>
+          <div><span className="section-kicker">一致性检查</span><strong>{checkStatusLabel}</strong>{checkStageLabel && !checkRunning ? <span className="historical-adaptation-content-check-stage">{checkStageLabel}</span> : null}<p>检查工作量、工期进度、跨章节冲突、历史残留与待核实占位符。</p></div>
           <button type="button" className="secondary-action" disabled={running || !state.historicalAdaptationContentItems.length} onClick={() => { void runConsistencyCheck(); }}>运行一致性检查</button>
         </header>
-        {check.error ? <div className="historical-adaptation-content-error">{check.error}</div> : null}
+        {checkTask?.status === 'error' ? <div className="historical-adaptation-content-error">{checkTask?.error || check.error || '一致性检查任务失败，请重试。'}</div> : check.error ? <div className="historical-adaptation-content-error">{check.error}</div> : null}
+        <div className="historical-adaptation-content-check-stats" aria-label="一致性检查结果统计">
+          <span>自动修复成功 <strong>{autoRepairedCount}</strong></span>
+          <span>仍有阻断 <strong>{checkBlockingCount}</strong></span>
+          <span>人工处理 <strong>{manualCount}</strong></span>
+        </div>
         {check.findings.length ? <div className="adaptation-content-check-findings">{check.findings.map((finding) => <button type="button" key={finding.id} onClick={() => finding.node_ids[0] && requestNavigation({ type: 'chapter', nodeId: finding.node_ids[0] })}><span>{finding.severity}{finding.blocking ? ' · 阻断' : ''}</span><strong>{finding.message}</strong>{finding.evidence ? <small>{finding.evidence}</small> : null}</button>)}</div> : null}
       </section>
 
