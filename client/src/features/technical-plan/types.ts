@@ -332,6 +332,7 @@ export interface HistoricalAdaptationContentCheckState {
   checked_facts_hash?: string;
   checked_protocol_inputs_hash?: string;
   checked_at?: string;
+  rule_engine_version?: number;
   fact_schema_version?: number;
   repair_protocol_version?: number;
   auto_repaired_count?: number;

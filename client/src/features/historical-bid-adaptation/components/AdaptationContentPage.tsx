@@ -670,7 +670,7 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onPre
 
       <section className={`historical-adaptation-content-check${check.status === 'success' && !checkBlockingCount ? ' is-complete' : ''}`}>
         <header>
-          <div><span className="section-kicker">一致性检查</span><strong>{checkStatusLabel}</strong>{checkStageLabel && !checkRunning ? <span className="historical-adaptation-content-check-stage">{checkStageLabel}</span> : null}<p>检查工作量、工期进度、跨章节冲突、历史残留与待核实占位符。</p></div>
+          <div><span className="section-kicker">一致性检查</span><strong>{checkStatusLabel}</strong>{checkStageLabel && !checkRunning ? <span>{checkStageLabel}</span> : null}<p>检查工作量、工期进度、跨章节冲突、历史残留与待核实占位符。</p></div>
           <button type="button" className="secondary-action" disabled={running || !state.historicalAdaptationContentItems.length} onClick={() => { void runConsistencyCheck(); }}>运行一致性检查</button>
         </header>
         {checkTask?.status === 'error' ? <div className="historical-adaptation-content-error">{checkTask?.error || check.error || '一致性检查任务失败，请重试。'}</div> : check.error ? <div className="historical-adaptation-content-error">{check.error}</div> : null}
