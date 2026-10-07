@@ -718,6 +718,19 @@ function parseJsonContent(content) {
   throw lastError || new Error('AI 返回内容为空，无法解析 JSON');
 }
 
+function normalizeStructuredPayload(payload) {
+  if (payload !== null && typeof payload === 'object') {
+    return payload;
+  }
+
+  const parsed = parseJsonContent(payload);
+  if (parsed === null || typeof parsed !== 'object') {
+    throw new Error('结构化 AI 返回必须是 JSON 对象或数组');
+  }
+
+  return parsed;
+}
+
 function formatJsonIssues(error) {
   if (error instanceof SyntaxError) {
     return [`JSON 语法错误：${error.message}`];
@@ -2897,4 +2910,5 @@ function createAiService({ app, configStore }) {
 
 module.exports = {
   createAiService,
+  normalizeStructuredPayload,
 };

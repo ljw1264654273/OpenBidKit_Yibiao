@@ -1,7 +1,26 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 
-const { createAiService } = require('./aiService.cjs');
+const { createAiService, normalizeStructuredPayload } = require('./aiService.cjs');
+
+test('normalizes structured payload objects and arrays without changing their shape', () => {
+  const objectPayload = { facts: [{ key: 'project_name', value: '示例项目' }] };
+  const arrayPayload = [{ key: 'project_name', value: '示例项目' }];
+
+  assert.strictEqual(normalizeStructuredPayload(objectPayload), objectPayload);
+  assert.strictEqual(normalizeStructuredPayload(arrayPayload), arrayPayload);
+});
+
+test('parses JSON object and array payloads wrapped in a json code fence', () => {
+  assert.deepEqual(
+    normalizeStructuredPayload('```json\n{"facts":[{"key":"project_name"}]}\n```'),
+    { facts: [{ key: 'project_name' }] },
+  );
+  assert.deepEqual(
+    normalizeStructuredPayload('```json\n[{"key":"project_name"}]\n```'),
+    [{ key: 'project_name' }],
+  );
+});
 
 function createJsonResponse(data, options = {}) {
   const rawText = JSON.stringify(data);
