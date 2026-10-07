@@ -65,7 +65,8 @@ function validateRepairGroup(group, context = {}) {
   const factsHash = context.expectedFactsHash ?? context.factsHash ?? context.expected_facts_hash;
   if (typeof contentHash !== 'string' || !contentHash || group.expected_content_hash !== contentHash) return { ok: false, reason: 'content-hash-mismatch' };
   if (typeof inputsHash !== 'string' || !inputsHash || group.expected_inputs_hash !== inputsHash) return { ok: false, reason: 'inputs-hash-mismatch' };
-  if (typeof factsHash !== 'string' || !factsHash || group.expected_facts_hash !== factsHash) return { ok: false, reason: 'facts-hash-mismatch' };
+  const acceptedFactsHashes = [factsHash, context.expectedLegacyFactsHash].filter(Boolean);
+  if (!acceptedFactsHashes.includes(group.expected_facts_hash)) return { ok: false, reason: 'facts-hash-mismatch' };
   const chapters = asChapters(context);
   const byId = new Map(chapters.map((chapter) => [String(chapter.node_id), chapter]));
   for (const edit of group.chapters) {

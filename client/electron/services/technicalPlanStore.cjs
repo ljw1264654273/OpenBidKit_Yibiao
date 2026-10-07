@@ -3680,7 +3680,7 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     return getHistoricalAdaptationContentCheckBatch({ checkRunId, batchId });
   }
 
-  function saveHistoricalAdaptationContentCheckBatchResult({ checkRunId, batchId, status = 'success', result, errorCode, errorMessage, requestSummary, attemptCount, snapshot } = {}) {
+  function saveHistoricalAdaptationContentCheckBatchResult({ checkRunId, batchId, status = 'success', result, errorCode, errorMessage, requestSummary, attemptCount, inputHash, factsHash, protocolHash, snapshot } = {}) {
     const normalizedRunId = String(checkRunId || '').trim();
     const normalizedBatchId = String(batchId || '').trim();
     const nextStatus = normalizeHistoricalAdaptationContentCheckBatchStatus(status, 'success');
@@ -3688,8 +3688,9 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       const current = db.prepare('SELECT * FROM historical_adaptation_content_check_batches WHERE project_id = ? AND check_run_id = ? AND batch_id = ?')
         .get(contentCheckBatchProjectId, normalizedRunId, normalizedBatchId);
       if (!current) throw new Error('未找到一致性检查批次');
-      db.prepare(`UPDATE historical_adaptation_content_check_batches SET status = ?, error_code = ?, error_message = ?, attempt_count = ?, request_summary_json = ?, result_json = ?, updated_at = ? WHERE project_id = ? AND check_run_id = ? AND batch_id = ?`)
-        .run(nextStatus, String(errorCode || '').trim() || null, String(errorMessage || '').trim() || null,
+      db.prepare(`UPDATE historical_adaptation_content_check_batches SET input_hash = COALESCE(?, input_hash), facts_hash = COALESCE(?, facts_hash), protocol_hash = COALESCE(?, protocol_hash), status = ?, error_code = ?, error_message = ?, attempt_count = ?, request_summary_json = ?, result_json = ?, updated_at = ? WHERE project_id = ? AND check_run_id = ? AND batch_id = ?`)
+        .run(String(inputHash || '').trim() || null, String(factsHash || '').trim() || null, String(protocolHash || '').trim() || null,
+          nextStatus, String(errorCode || '').trim() || null, String(errorMessage || '').trim() || null,
           attemptCount === undefined ? Number(current.attempt_count || 0) + 1 : Math.max(0, Math.floor(Number(attemptCount) || 0)),
           requestSummary === undefined ? current.request_summary_json : jsonOrNull(requestSummary), result === undefined ? current.result_json : jsonOrNull(result), now(),
           contentCheckBatchProjectId, normalizedRunId, normalizedBatchId);

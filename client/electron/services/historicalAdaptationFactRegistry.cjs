@@ -90,22 +90,24 @@ function normalizeCandidate(candidate, nodeId) {
   };
 }
 
-function mergeFacts(candidates) {
+function mergeFacts(candidates, { inputHash = '' } = {}) {
   const byKey = new Map();
   for (const input of Array.isArray(candidates) ? candidates : []) {
     const candidate = normalizeCandidate(input, input.node_id || input.nodeId);
     const current = byKey.get(candidate.fact_key);
     if (!current) {
+      candidate.normalized_values = [candidate.normalized_value];
       byKey.set(candidate.fact_key, candidate);
       continue;
     }
+    current.normalized_values = [...new Set([...(current.normalized_values || [current.normalized_value]), candidate.normalized_value])];
     current.conflict = current.conflict || current.normalized_value !== candidate.normalized_value;
     current.evidence = [...new Set([...current.evidence, ...candidate.evidence])];
     current.chapter_node_ids = [...new Set([...current.chapter_node_ids, ...candidate.chapter_node_ids])];
   }
   return [...byKey.values()].map((fact) => ({
     ...fact,
-    fact_id: stableHash(fact.fact_key).slice(0, 24),
+    fact_id: stableHash({ fact_key: fact.fact_key, input_hash: String(inputHash || '') }).slice(0, 24),
   }));
 }
 
@@ -116,7 +118,7 @@ function factsHash(facts) {
     normalized_value: fact.normalized_value,
     chapter_node_ids: [...(fact.chapter_node_ids || [])].sort(),
     conflict: Boolean(fact.conflict),
-  })).sort((left, right) => left.fact_key.localeCompare(right.fact_key)));
+  })).sort((left, right) => String(left.fact_key || left.fact_id || '').localeCompare(String(right.fact_key || right.fact_id || ''))));
 }
 
 module.exports = {
