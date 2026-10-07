@@ -34,6 +34,8 @@ test('来源失效或空正文等结构性阻断不调用任何 AI 阶段', asyn
 const {
   buildSemanticCheckPrompt,
   buildSemanticBatches,
+  buildFactsPrompt,
+  getBatchBudgetChars,
   normalizeCandidateFactsResponse,
   validateFactResolutions,
   collectDeterministicFindings,
@@ -61,6 +63,57 @@ test('事实冲突 resolution 只接受基线或全局事实精确归一值', ()
   assert.equal(accepted.facts[0].conflict, false);
   const rejected = validateFactResolutions(facts, [{ fact_key: facts[0].fact_key, canonical_value: '1年', basis: 'baseline-exact-match' }], { baseline: '服务期限为三年', globalFacts: [] });
   assert.equal(rejected.facts[0].conflict, true);
+});
+
+test('deterministic-normalization 不能裁掉真实冲突且旧 facts 不得伪装为确定归一', () => {
+  const conflicted = [{ fact_key: 'schedule:contract_duration:服务期限', fact_id: 'f1', kind: 'schedule', normalized_value: '2年', normalized_values: ['2年', '3年'], canonical_value: '2年', conflict: true, evidence: ['正文2年', '正文三年'], chapter_node_ids: ['1', '2'] }];
+  const rejected = validateFactResolutions(conflicted, [{ fact_key: conflicted[0].fact_key, canonical_value: '2年', basis: 'deterministic-normalization' }], {});
+  assert.equal(rejected.accepted.length, 0);
+  assert.equal(rejected.facts[0].conflict, true);
+  const legacy = [{ fact_key: 'schedule:contract_duration:服务期限', fact_id: 'legacy', kind: 'schedule', normalized_value: '2年', canonical_value: '2年', conflict: true, evidence: ['正文2年'], chapter_node_ids: ['1'] }];
+  const legacyResult = validateFactResolutions(legacy, [{ fact_key: legacy[0].fact_key, canonical_value: '2年', basis: 'deterministic-normalization' }], {});
+  assert.equal(legacyResult.accepted.length, 0);
+  assert.equal(legacyResult.facts[0].conflict, true);
+});
+
+test('低 context 的批次预算包含 prompt 与输出 reserve，不被 Math.max(128) 撑大', () => {
+  const budget = getBatchBudgetChars({ config: { context_length_limit: 100 } }, { baseline: '基线'.repeat(100) });
+  assert.ok(budget >= 32);
+  assert.ok(budget < 128);
+});
+
+test('事实与语义 prompt 只携带本地解析字段，不重复发送完整 baseline', () => {
+  const context = { baseline: '完整基线项目名称甲项目，合同金额100万元，实施地点新地点。' };
+  const factsPrompt = buildFactsPrompt(context, [{ node_id: '1', path: '章节', content: '正文' }]);
+  const semanticPrompt = buildSemanticCheckPrompt(context, { chapters: [{ node_id: '1', path: '章节', content: '正文' }] });
+  assert.doesNotMatch(factsPrompt, /完整基线项目名称甲项目/);
+  assert.doesNotMatch(semanticPrompt, /完整基线项目名称甲项目/);
+  assert.ok(factsPrompt.length < 5000);
+  assert.match(factsPrompt, /project_name|项目名称/);
+});
+
+test('多章节候选缺 node_id 时按单章节重试并安全归属', async () => {
+  const calls = [];
+  const checkpoints = [];
+  await runHistoricalAdaptationContentCheckTask({
+    aiService: { requestJson: async (request) => {
+      calls.push(request);
+      if (request.response_format?.json_schema?.name === 'historical_adaptation_facts') {
+        return { candidates: [{ kind: 'service', slot: 'service_scope', qualifier: '服务范围', value: '服务内容', evidence: '服务内容' }] };
+      }
+      return { findings: [] };
+    } },
+    workspaceStore: { getHistoricalAdaptationContentCheckContext: () => ({
+      contentHash: 'c', inputsHash: 'i', outlineData: { outline: [
+        { id: '1', title: '章一', content: '服务内容甲' },
+        { id: '2', title: '章二', content: '服务内容乙' },
+      ] }, items: [{ node_id: '1', status: 'success' }, { node_id: '2', status: 'success' }],
+    }) },
+    checkpointTask: (_task, patch) => checkpoints.push(patch),
+  });
+  const factCalls = calls.filter((request) => request.response_format?.json_schema?.name === 'historical_adaptation_facts');
+  assert.ok(factCalls.length >= 3, '缺少 node_id 的多章节批次应触发逐章节重试');
+  assert.equal(checkpoints.at(-1).historicalAdaptationContentCheck.status, 'success');
 });
 
 test('真实来源不可用时阻断人工正文，无历史来源的人工补写不阻断', () => {

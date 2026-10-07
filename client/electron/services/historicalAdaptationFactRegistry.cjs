@@ -116,6 +116,7 @@ function factsHash(facts) {
     fact_id: fact.fact_id,
     fact_key: fact.fact_key,
     normalized_value: fact.normalized_value,
+    normalized_values: [...(Array.isArray(fact.normalized_values) ? fact.normalized_values : [fact.normalized_value])].sort(),
     chapter_node_ids: [...(fact.chapter_node_ids || [])].sort(),
     conflict: Boolean(fact.conflict),
   })).sort((left, right) => String(left.fact_key || left.fact_id || '').localeCompare(String(right.fact_key || right.fact_id || ''))));

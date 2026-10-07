@@ -19,6 +19,12 @@ test('merges same facts across chapters and marks conflicting values', () => {
   assert.equal(facts[0].conflict, true);
   assert.deepEqual(facts[0].chapter_node_ids.sort(), ['1', '2', '3']);
   assert.equal(registry.factsHash(facts), registry.factsHash(structuredClone(facts)));
+  assert.deepEqual(facts[0].normalized_values.sort(), ['2年', '3年']);
+  const differentConflict = registry.mergeFacts([
+    { kind: 'schedule', slot: 'contract_duration', qualifier: '服务期限', value: '3年', evidence: '基线3年', node_id: '1' },
+    { kind: 'schedule', slot: 'contract_duration', qualifier: '服务期限', value: '4年', evidence: '正文4年', node_id: '2' },
+  ]);
+  assert.notEqual(registry.factsHash(facts), registry.factsHash(differentConflict));
 });
 
 test('rejects unknown fact slots and empty evidence', () => {
