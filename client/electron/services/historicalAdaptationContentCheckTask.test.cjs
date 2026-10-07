@@ -76,7 +76,7 @@ test('长正文分批检查并从各批事实证据保留跨章节冲突检查',
 
 test('相同正文、输入和规则版本复用语义检查缓存', async () => {
   let calls = 0;
-  const cached = { status: 'success', findings: [], checked_content_hash: 'content', checked_inputs_hash: 'inputs', rule_engine_version: 2 };
+  const cached = { status: 'success', findings: [], checked_content_hash: 'content', checked_inputs_hash: 'inputs', rule_engine_version: 3 };
   const patches = [];
   await runHistoricalAdaptationContentCheckTask({
     aiService: { requestJson: async () => { calls++; return { findings: [] }; } },
@@ -86,7 +86,7 @@ test('相同正文、输入和规则版本复用语义检查缓存', async () =>
     }) }, checkpointTask: (_task, patch) => patches.push(patch),
   });
   assert.equal(calls, 0);
-  assert.equal(patches.at(-1).historicalAdaptationContentCheck.rule_engine_version, 2);
+  assert.equal(patches.at(-1).historicalAdaptationContentCheck.rule_engine_version, 3);
 });
 
 test('旧规则版本的检查缓存不得复用', async () => {
@@ -116,7 +116,43 @@ test('确定性检查识别空正文、待复核状态、占位符和历史残�
   assert.equal(findings.some((item) => item.category === 'residual' && item.node_ids[0] === '1'), true);
   assert.equal(findings.some((item) => item.category === 'placeholder' && item.node_ids[0] === '1'), true);
   assert.equal(findings.some((item) => item.category === 'empty' && item.node_ids[0] === '2'), true);
-  assert.equal(findings.every((item) => item.blocking), true);
+  assert.equal(findings.some((item) => item.category === 'placeholder' && !item.blocking && item.severity === 'P1'), true);
+  assert.equal(findings.filter((item) => item.category !== 'placeholder').every((item) => item.blocking), true);
+});
+
+test('待核实和待补充占位符不阻断正文迁移阶段确认', () => {
+  const findings = collectDeterministicFindings({
+    outlineData: { outline: [{ id: '1', title: '实施范围', content: '服务地点为【待核实】，联系人为【待补充】。', children: [] }] },
+    items: [{ node_id: '1', status: 'success', residuals: [], blocked_terms: [], content_origin: 'manual' }],
+    differences: [],
+  });
+
+  assert.deepEqual(findings.map(({ code, blocking, severity }) => [code, blocking, severity]), [
+    ['unresolved-placeholder', false, 'P1'],
+  ]);
+});
+
+test('已有 review 状态但正文仅含占位符时不再生成章节阻断项', () => {
+  const findings = collectDeterministicFindings({
+    outlineData: { outline: [{ id: '1', title: '实施范围', content: '服务地点为【待核实】。', children: [] }] },
+    items: [{ node_id: '1', status: 'review', residuals: [], blocked_terms: [] }],
+    differences: [],
+  });
+
+  assert.deepEqual(findings.map(({ code, blocking }) => [code, blocking]), [['unresolved-placeholder', false]]);
+});
+
+test('人工确认的章节允许为空或保留历史残留，不再生成章节阻断项', () => {
+  const findings = collectDeterministicFindings({
+    outlineData: { outline: [{ id: '1', title: '实施范围', content: '' }, { id: '2', title: '服务地点', content: '仍为五峰村。' }] },
+    items: [
+      { node_id: '1', status: 'success', confirmed_at: '2026-10-07T00:00:00.000Z', residuals: [], blocked_terms: [] },
+      { node_id: '2', status: 'success', confirmed_at: '2026-10-07T00:00:00.000Z', residuals: ['五峰村'], blocked_terms: ['五峰村'] },
+    ],
+    differences: [],
+  });
+
+  assert.deepEqual(findings, []);
 });
 
 test('语义问题归一化为受控 finding schema', () => {

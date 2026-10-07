@@ -26,7 +26,7 @@ function runAssertions() {
       outlineData: { outline: [{ id: '1', title: '项目实施', content: '本项目仍有【待核实】事项。', content_mode: 'ai-generate' }] },
       historicalAdaptationDifferences: [],
       historicalAdaptationContentItems: [{
-        node_id: '1', status: 'success', confirmed_at: '2026-10-01T00:00:00.000Z', blocked_terms: [], residuals: [], difference_ids: [],
+        node_id: '1', status: 'success', blocked_terms: [], residuals: [], difference_ids: [],
       }],
       historicalAdaptationContentConfirmedAt: '2026-10-01T00:00:00.000Z',
     });
@@ -40,7 +40,7 @@ function runAssertions() {
         checked_content_hash: checkContext.contentHash,
         checked_inputs_hash: checkContext.inputsHash,
         checked_at: '2026-10-01T00:05:00.000Z',
-        rule_engine_version: 2,
+        rule_engine_version: 3,
       },
     });
 
@@ -48,7 +48,7 @@ function runAssertions() {
     store.saveHistoricalAdaptationChapterContent({ nodeId: '1', content: '本项目实施方案已明确。' });
     const validContext = store.getHistoricalAdaptationContentCheckContext();
     store.updateTechnicalPlan({ historicalAdaptationContentCheck: {
-      status: 'success', findings: [], rule_engine_version: 2,
+      status: 'success', findings: [], rule_engine_version: 3,
       checked_content_hash: validContext.contentHash, checked_inputs_hash: validContext.inputsHash,
     } });
     store.confirmHistoricalAdaptationContent();

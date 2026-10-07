@@ -37,6 +37,7 @@ function AdaptationReviewExportPage({ projectId, project, state, onStateChange, 
   };
   const openP0 = findings.filter((finding) => finding.severity === 'P0' && finding.resolution !== 'resolved').length;
   const reviewConfirmed = Boolean(state.historicalAdaptationReviewConfirmedAt);
+  const placeholderFindings = findings.filter((finding) => finding.code === 'placeholder' || /【(?:待核实|待补充)】/u.test(finding.evidence));
   const contentCheck = state.historicalAdaptationContentCheck;
   const contentCheckBlocking = contentCheck.findings.filter((finding) => finding.blocking).length;
 
@@ -190,7 +191,7 @@ function AdaptationReviewExportPage({ projectId, project, state, onStateChange, 
 
       <section className={`historical-adaptation-review-acceptance${reviewConfirmed ? ' is-complete' : ''}`}>
         <div><strong>{reviewConfirmed ? '终审验收已确认' : openP0 ? 'P0 阻断问题未清零' : findings.length ? '请完成人工终审验收' : '运行终审后进入验收'}</strong>
-          <span>{reviewConfirmed ? '内容变更会使本次验收失效。' : openP0 ? `还有 ${openP0} 项 P0 未标记为已整改。` : '自动检查仅提供风险线索，需由投标负责人完成人工验收。'}</span></div>
+          <span>{reviewConfirmed ? placeholderFindings.length ? '已确认。仍有待核实/待补充内容，请在导出的 Word 中人工处理。' : '内容变更会使本次验收失效。' : openP0 ? `还有 ${openP0} 项 P0 未标记为已整改。` : placeholderFindings.length ? `检测到 ${placeholderFindings.length} 项待核实/待补充内容，允许导出 Word，导出后请人工处理。` : '自动检查仅提供风险线索，需由投标负责人完成人工验收。'}</span></div>
         <div>
           <button type="button" className="secondary-action" disabled={!findings.length || openP0 > 0 || saving || reviewConfirmed} onClick={() => setPendingAcceptance(true)}>确认终审</button>
           <button type="button" className="primary-action" disabled={!reviewConfirmed || openP0 > 0} onClick={() => setExportOpen(true)}>导出 Word</button>
@@ -202,7 +203,7 @@ function AdaptationReviewExportPage({ projectId, project, state, onStateChange, 
         onOpenChange={(open) => !open && setPendingAcceptance(false)}
         kicker="人工验收"
         title="确认已完成终审？"
-        description="自动审核只检查可确定的规则项。确认后将允许导出当前适配技术方案；任何正文、目录或差异变更都会使验收失效。"
+        description={placeholderFindings.length ? '自动审核只检查可确定的规则项。当前存在待核实/待补充内容，确认后允许导出 Word，请在导出文件中人工处理；任何正文、目录或差异变更都会使验收失效。' : '自动审核只检查可确定的规则项。确认后将允许导出当前适配技术方案；任何正文、目录或差异变更都会使验收失效。'}
         actions={(
           <>
             <button type="button" className="secondary-action" onClick={() => setPendingAcceptance(false)}>继续检查</button>

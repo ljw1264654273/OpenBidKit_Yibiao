@@ -36,7 +36,7 @@ function withStore(outline, originalPlan, assertions) {
 function saveCurrentCheck(store) {
   const context = store.getHistoricalAdaptationContentCheckContext();
   store.updateTechnicalPlan({ historicalAdaptationContentCheck: { status: 'success', findings: [],
-    checked_content_hash: context.contentHash, checked_inputs_hash: context.inputsHash, rule_engine_version: 2 } });
+    checked_content_hash: context.contentHash, checked_inputs_hash: context.inputsHash, rule_engine_version: 3 } });
 }
 
 function runAssertions() {

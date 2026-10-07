@@ -686,14 +686,13 @@ async function runHistoricalAdaptationContentTask({ aiService, workspaceStore, u
       }
       if (!content) throw new Error('迁移结果为空');
       const residuals = scanHistoricalResiduals(content, current);
-      const placeholders = scanUnresolvedPlaceholders(content);
       const completed = {
         ...current,
-        status: residuals.length || placeholders.length ? 'review' : 'success',
+        status: residuals.length ? 'review' : 'success',
         content_origin: contentOrigin,
         migration_output_hash: hashText(JSON.stringify([current.source_hash, current.input_fingerprint, effectiveMode, current.manual_instruction, content])),
         residuals,
-        error: placeholders.length ? `正文包含未处理占位符：${placeholders.join('、')}` : undefined,
+        error: undefined,
         error_code: residuals.length ? 'residual-old-value' : undefined,
         updated_at: new Date().toISOString(),
       };

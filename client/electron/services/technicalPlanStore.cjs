@@ -38,7 +38,6 @@ const {
   buildHistoricalContentItems,
   normalizeHistoricalAdaptationContentItems,
   scanHistoricalResiduals,
-  scanUnresolvedPlaceholders,
 } = require('./historicalAdaptationContentTask.cjs');
 const {
   reconcileIllustrationItems,
@@ -3651,15 +3650,14 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       if (!item) throw new Error('当前章节尚未建立正文迁移记录');
       const timestamp = now();
       const residuals = scanHistoricalResiduals(nextContent, item);
-      const placeholders = scanUnresolvedPlaceholders(nextContent);
       const nextItem = {
         ...item,
-        status: nextContent.trim() && !residuals.length && !placeholders.length ? 'success' : 'review',
+        status: nextContent.trim() && !residuals.length ? 'success' : 'review',
         content_origin: 'manual',
         residuals,
         confirmed_at: undefined,
         updated_at: timestamp,
-        error: placeholders.length ? `正文包含未处理占位符：${placeholders.join('、')}` : undefined,
+        error: undefined,
       };
       db.prepare('UPDATE technical_plan_outline_nodes SET content = ?, updated_at = ? WHERE node_id = ?').run(nextContent, timestamp, targetNodeId);
       db.prepare(`
@@ -3681,18 +3679,17 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     const transaction = db.transaction(() => {
       assertContentEditingAllowed();
       const node = db.prepare('SELECT content FROM technical_plan_outline_nodes WHERE node_id = ?').get(targetNodeId);
-      if (!node || !String(node.content || '').trim()) throw new Error('当前章节正文为空，不能确认');
+      if (!node) throw new Error('当前目录中未找到该章节');
       const item = readHistoricalContentItem(targetNodeId);
       if (!item) throw new Error('当前章节尚未建立正文迁移记录');
-      const residuals = scanHistoricalResiduals(node.content, item);
-      if (residuals.length) throw new Error(`正文仍包含历史残留：${residuals.join('、')}`);
-      const placeholders = scanUnresolvedPlaceholders(node.content);
-      if (placeholders.length) throw new Error(`正文仍包含未处理占位符：${placeholders.join('、')}`);
+      // 人工确认只记录“接受当前结果”的决定，不改写正文，也不阻断空正文、历史残留或占位符。
+      // 保留已有 residuals，并把当前正文扫描到的证据合并进去，便于导出后人工追溯处理。
+      const residuals = [...new Set([...(item.residuals || []), ...scanHistoricalResiduals(node.content, item)])];
       const timestamp = now();
       writeHistoricalContentItem({
         ...item,
         status: 'success',
-        residuals: [],
+        residuals,
         confirmed_at: timestamp,
         updated_at: timestamp,
         error: undefined,
@@ -3718,12 +3715,17 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     const context = getHistoricalAdaptationContentCheckContext();
     const leaves = collectLeafItems(context.outlineData?.outline || []);
     const byId = new Map(context.items.map((item) => [item.node_id, item]));
+    const manuallyConfirmedNodeIds = new Set(context.items.filter((item) => item?.confirmed_at).map((item) => item.node_id));
     const findings = [];
     findings.push(...require('./historicalAdaptationContentCheckTask.cjs').collectDeterministicFindings(context));
     for (const leaf of leaves) {
       const nodeId = String(leaf.id || '');
       const item = byId.get(nodeId);
-      if (!item || item.status !== 'success' || !String(leaf.content || '').trim() || item.residuals.length) {
+      if (item?.confirmed_at) continue;
+      const hasAllowedPlaceholderReview = item?.status === 'review'
+        && /【(?:待核实|待补充)】/u.test(String(leaf.content || ''))
+        && !(item.residuals || []).length;
+      if (!item || (item.status !== 'success' && !hasAllowedPlaceholderReview) || !String(leaf.content || '').trim() || item.residuals.length) {
         findings.push({
           id: `chapter-${nodeId}`,
           code: 'chapter-not-ready',
@@ -3742,9 +3744,15 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     const checkCurrent = check.status === 'success'
       && check.checked_content_hash === context.contentHash
       && check.checked_inputs_hash === context.inputsHash
-      && check.rule_engine_version === 2;
+      && check.rule_engine_version === 3;
     if (!checkCurrent) findings.push({ id: 'check-stale', code: 'check-stale', category: 'task', severity: 'P0', blocking: true, node_ids: [], message: '请先运行最新的一致性检查', evidence: check.error || check.status });
-    if (checkCurrent) findings.push(...check.findings.filter((finding) => finding?.blocking));
+    if (checkCurrent) findings.push(...check.findings.filter((finding) => {
+      if (!finding?.blocking) return false;
+      const nodeIds = Array.isArray(finding.node_ids) ? finding.node_ids.filter(Boolean) : [];
+      // 旧检查快照可能是在章节确认前生成的；只要 finding 关联的所有章节都已人工确认，
+      // 就不再阻断阶段确认。没有章节归属的全局问题仍然保留。
+      return !(nodeIds.length && nodeIds.every((nodeId) => manuallyConfirmedNodeIds.has(nodeId)));
+    }));
     const blocking = findings.filter((finding) => finding.blocking);
     const leafOrder = new Map(leaves.map((leaf, index) => [String(leaf.id || ''), index]));
     const firstNodeId = blocking.flatMap((finding) => finding.node_ids || [])

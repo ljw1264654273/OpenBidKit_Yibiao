@@ -1177,7 +1177,7 @@ test('批量执行待处理迁移不会覆盖需要复核的人工正文', async
   assert.equal(patches.some((patch) => patch.contentGenerationItem?.nodeId === '2'), true);
 });
 
-test('迁移正文含待核实占位符时立即进入待人工处理', async () => {
+test('迁移正文含待核实占位符时保留正文并允许进入确认提示', async () => {
   const state = baseState();
   state.historicalAdaptationDifferences = [];
   state.historicalAdaptationOutlineChanges = [];
@@ -1192,6 +1192,6 @@ test('迁移正文含待核实占位符时立即进入待人工处理', async ()
   });
 
   const completed = patches.findLast((patch) => patch.historicalAdaptationContentItem)?.historicalAdaptationContentItem;
-  assert.equal(completed.status, 'review');
-  assert.match(completed.error, /待核实|待补充/);
+  assert.equal(completed.status, 'success');
+  assert.equal(completed.error, undefined);
 });

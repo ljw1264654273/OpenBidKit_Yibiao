@@ -196,10 +196,21 @@ test('正文迁移页面支持迁移方案、人工策略、恢复默认和阶�
   assert.match(component, /startHistoricalAdaptationContent/);
   assert.match(component, /saveHistoricalAdaptationChapterContent/);
   assert.match(component, /confirmHistoricalAdaptationContent/);
-  assert.doesNotMatch(component, /确认当前章节/);
-  assert.doesNotMatch(component, /confirmHistoricalAdaptationContentItem/);
+  assert.match(component, /确认本章已处理/);
+  assert.match(component, /confirmHistoricalAdaptationContentItem/);
   assert.doesNotMatch(component, /allConfirmed/);
   assert.match(component, /allowRawHtml=\{false\}/);
+});
+
+test('正文迁移发现待核实或待补充时提示导出后人工处理并要求显式确认', () => {
+  const componentPath = join(__dirname, 'components/AdaptationContentPage.tsx');
+  const component = readFileSync(componentPath, 'utf8');
+
+  assert.match(component, /待核实|待补充/);
+  assert.match(component, /导出 Word 后.*人工处理/);
+  assert.match(component, /确认保留.*继续/);
+  assert.match(component, /pendingPlaceholderConfirmation/);
+  assert.match(component, /待处理占位符/);
 });
 
 test('空历史正文选择定向改写时按指定章节生成推荐提纲', () => {

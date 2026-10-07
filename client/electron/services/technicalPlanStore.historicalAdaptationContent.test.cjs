@@ -38,11 +38,20 @@ function runAssertions() {
     let state = store.saveHistoricalAdaptationChapterContent({ nodeId: '1', content: '仍写五峰村。' });
     assert.equal(state.historicalAdaptationContentItems[0].status, 'review');
     assert.deepEqual(state.historicalAdaptationContentItems[0].residuals, ['五峰村']);
-    assert.throws(() => store.confirmHistoricalAdaptationContentItem({ nodeId: '1' }), /历史残留/);
+    state = store.confirmHistoricalAdaptationContentItem({ nodeId: '1' });
+    assert.equal(state.historicalAdaptationContentItems[0].status, 'success');
+    assert.ok(state.historicalAdaptationContentItems[0].confirmed_at);
+
+    state = store.saveHistoricalAdaptationChapterContent({ nodeId: '1', content: '' });
+    assert.equal(state.historicalAdaptationContentItems[0].status, 'review');
+    state = store.confirmHistoricalAdaptationContentItem({ nodeId: '1' });
+    assert.equal(state.historicalAdaptationContentItems[0].status, 'success');
 
     state = store.saveHistoricalAdaptationChapterContent({ nodeId: '1', content: '服务对象为【待补充】。' });
-    assert.equal(state.historicalAdaptationContentItems[0].status, 'review');
-    assert.match(state.historicalAdaptationContentItems[0].error, /待核实|待补充/);
+    assert.equal(state.historicalAdaptationContentItems[0].status, 'success');
+    assert.equal(state.historicalAdaptationContentItems[0].error, undefined);
+    state = store.confirmHistoricalAdaptationContentItem({ nodeId: '1' });
+    assert.equal(state.historicalAdaptationContentItems[0].status, 'success');
 
     state = store.saveHistoricalAdaptationChapterContent({ nodeId: '1', content: '服务地点为横泾街道。' });
     assert.equal(state.historicalAdaptationContentItems[0].status, 'success');
@@ -63,7 +72,7 @@ function runAssertions() {
       historicalAdaptationContentCheck: {
         status: 'success', findings: [], checked_content_hash: context.contentHash,
         checked_inputs_hash: context.inputsHash, checked_at: '2026-10-01T10:00:00.000Z',
-        rule_engine_version: 2,
+        rule_engine_version: 3,
       },
     });
     const readiness = store.getHistoricalAdaptationContentReadiness();
@@ -153,7 +162,7 @@ function runAssertions() {
     const preparedContext = store.getHistoricalAdaptationContentCheckContext();
     store.updateTechnicalPlan({ historicalAdaptationContentCheck: {
       status: 'success', findings: [], checked_content_hash: preparedContext.contentHash,
-      checked_inputs_hash: preparedContext.inputsHash, rule_engine_version: 2,
+      checked_inputs_hash: preparedContext.inputsHash, rule_engine_version: 3,
     } });
     const rebuilt = store.prepareHistoricalAdaptationContentPlan();
     const cachedIndex = store.getHistoricalAdaptationSourceIndex(fs.readFileSync(path.join(originalPlanDir, 'original-plan.md'), 'utf8'));
@@ -162,7 +171,7 @@ function runAssertions() {
     assert.equal(rebuilt.historicalAdaptationContentItems[0].plan_id, prepared.historicalAdaptationContentItems[0].plan_id,
       'same inputs must preserve the plan identity');
     assert.equal(rebuilt.historicalAdaptationContentCheck.status, 'success', 'unchanged plan must preserve check cache');
-    assert.equal(rebuilt.historicalAdaptationContentCheck.rule_engine_version, 2);
+    assert.equal(rebuilt.historicalAdaptationContentCheck.rule_engine_version, 3);
     const sourceItem = rebuilt.historicalAdaptationContentItems[0];
     store.updateTechnicalPlan({ historicalAdaptationContentItem: { ...sourceItem, source_locator: 'display path changed' } });
     assert.equal(store.getHistoricalAdaptationSourceSection({ nodeId: '1' }).content, '五峰村原项目概况。',

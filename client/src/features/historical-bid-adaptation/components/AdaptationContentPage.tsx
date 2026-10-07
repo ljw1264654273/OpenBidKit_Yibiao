@@ -98,6 +98,7 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onPre
   const [draft, setDraft] = useState('');
   const [view, setView] = useState<'edit' | 'preview'>('preview');
   const [saving, setSaving] = useState(false);
+  const [chapterConfirming, setChapterConfirming] = useState(false);
   const [strategySaving, setStrategySaving] = useState(false);
   const [preparing, setPreparing] = useState(false);
   const [retrying, setRetrying] = useState(false);
@@ -116,6 +117,7 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onPre
   const [aiEditError, setAiEditError] = useState('');
   const [pendingNavigation, setPendingNavigation] = useState<PendingNavigation | null>(null);
   const [pendingManualOverwrite, setPendingManualOverwrite] = useState<ChapterMigration | null>(null);
+  const [pendingPlaceholderConfirmation, setPendingPlaceholderConfirmation] = useState(false);
   const strategyDefaults = useRef<{ nodeId?: string; mode: HistoricalAdaptationContentMode | ''; instruction: string }>({ mode: '', instruction: '' });
   const recommendationRequest = useRef('');
   const { showToast } = useToast();
@@ -127,6 +129,12 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onPre
   const selectedLeaf = leaves.find((entry) => entry.item.id === selectedId) || leaves[0];
   const selectedItem = selectedLeaf ? itemByNode.get(selectedLeaf.item.id) : undefined;
   const dirty = Boolean(selectedLeaf && draft !== (selectedLeaf.item.content || ''));
+  const selectedNeedsManualConfirmation = Boolean(selectedItem && !selectedItem.confirmed_at && (
+    selectedItem.status !== 'success'
+    || selectedItem.residuals.length > 0
+    || !draft.trim()
+    || /【(?:待核实|待补充)】/u.test(draft)
+  ));
   const strategyChanged = Boolean(selectedItem && (strategyMode !== effectiveMode(selectedItem)
     || (strategyMode === 'rewrite' && strategyInstruction.trim() !== effectiveInstruction(selectedItem).trim())));
   const unsaved = dirty || strategyChanged;
@@ -144,6 +152,10 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onPre
   const stageConfirmed = Boolean(state.historicalAdaptationContentConfirmedAt);
   const check = state.historicalAdaptationContentCheck;
   const checkBlockingCount = check.findings.filter((finding) => finding.blocking).length;
+  const placeholderFindings = check.findings.filter((finding) => finding.category === 'placeholder' || finding.code === 'unresolved-placeholder');
+  const detectedPlaceholderCount = useMemo(() => leaves.reduce((count, leaf) => count + ((leaf.item.content || '').match(/【(?:待核实|待补充)】/gu) || []).length, 0), [leaves]);
+  const placeholderCount = Math.max(detectedPlaceholderCount, placeholderFindings.reduce((count, finding) => count + (finding.evidence.match(/【(?:待核实|待补充)】/gu) || []).length, 0));
+  const hasPlaceholders = placeholderCount > 0;
   const selectedDifferences = selectedItem?.difference_ids
     .map((id) => state.historicalAdaptationDifferences.find((difference) => difference.id === id))
     .filter(Boolean) || [];
@@ -401,6 +413,27 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onPre
     }
   };
 
+  const confirmChapter = async () => {
+    if (!selectedItem || running || chapterConfirming) return;
+    if (dirty) {
+      showToast('当前章节有未保存修改，请先保存人工修改后再确认', 'info');
+      return;
+    }
+    setChapterConfirming(true);
+    try {
+      const nextState = await window.yibiao.technicalPlan.confirmHistoricalAdaptationContentItem({
+        projectId,
+        nodeId: selectedItem.node_id,
+      });
+      onStateChange(nextState);
+      showToast('当前章节已确认完成，保留现有人工处理内容；导出 Word 后可继续人工处理', 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '确认当前章节失败', 'error');
+    } finally {
+      setChapterConfirming(false);
+    }
+  };
+
   const openLengthEdit = (mode: ContentAiRewriteMode) => {
     if (mode !== 'expand' && mode !== 'shrink') return;
     if (!selectedLeaf || running) return;
@@ -495,6 +528,14 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onPre
     }
   };
 
+  const requestStageConfirmation = () => {
+    if (hasPlaceholders) {
+      setPendingPlaceholderConfirmation(true);
+      return;
+    }
+    void confirmStage();
+  };
+
   const checkStatusLabel = checkRunning
     ? '检查中'
     : check.status === 'success'
@@ -576,6 +617,7 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onPre
                     ? migrationRunning || preparing ? '正在准备新增章节的推荐提纲...' : '请校核或调整推荐提纲，再点击“按此方式迁移本章”生成正文。'
                     : strategyChanged ? '选择尚未应用，可迁移本章或点击上方按钮建立并执行迁移。' : '选择方式不会改变正文，点击迁移按钮才执行。'}</small>
                   <button type="button" className="primary-action" disabled={running || saving || dirty || !strategyMode || (strategyMode === 'rewrite' && !strategyInstruction.trim())} title={dirty ? '请先保存人工修改' : undefined} onClick={() => { void migrateChapter(); }}>{strategySaving ? '启动迁移中...' : '按此方式迁移本章'}</button>
+                  {selectedNeedsManualConfirmation ? <button type="button" className="secondary-action" disabled={running || saving || chapterConfirming || dirty} title={dirty ? '请先保存人工修改' : '允许确认空正文、历史残留或待核实/待补充占位符；确认后正文不会被修改'} onClick={() => { void confirmChapter(); }}>{chapterConfirming ? '确认中...' : '确认本章已处理'}</button> : null}
                   <small>系统推荐：{selectedItem.recommended_mode ? modeLabels[selectedItem.recommended_mode] : '待人工选择'}{selectedItem.manual_mode ? ' · 已人工调整' : ''}</small>
                 </section>
                 <dl>
@@ -622,12 +664,13 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onPre
       </section>
 
       <section className={`historical-adaptation-content-acceptance${stageConfirmed ? ' is-complete' : ''}`}>
-        <div><strong>{stageConfirmed ? '正文迁移已按阶段确认' : '完成一致性检查后统一确认'}</strong><span>{stageConfirmed ? '审核导出已开放。' : '无需逐章点击确认；系统会一次校验全部章节、检查快照和阻断问题。'}</span></div>
-        {stageConfirmed ? <span>已确认</span> : <button type="button" className="primary-action" disabled={running || dirty || !state.historicalAdaptationContentItems.length} title={dirty ? '请先保存当前章节' : undefined} onClick={() => { void confirmStage(); }}>确认本阶段</button>}
+        <div><strong>{stageConfirmed ? '正文迁移已按阶段确认' : hasPlaceholders ? '存在待核实或待补充内容' : '完成一致性检查后统一确认'}</strong><span>{stageConfirmed ? '审核导出已开放。' : hasPlaceholders ? `已发现 ${placeholderCount} 处待核实/待补充内容，允许导出 Word；导出 Word 后请人工处理。` : '无需逐章点击确认；系统会一次校验全部章节、检查快照和阻断问题。'}</span></div>
+        {stageConfirmed ? <span>已确认</span> : <button type="button" className="primary-action" disabled={running || dirty || !state.historicalAdaptationContentItems.length} title={dirty ? '请先保存当前章节' : undefined} onClick={requestStageConfirmation}>{hasPlaceholders ? '确认保留并继续' : '确认本阶段'}</button>}
       </section>
 
       <AppDialog open={Boolean(pendingNavigation)} onOpenChange={(open) => !open && setPendingNavigation(null)} kicker="未保存修改" title="当前章节有未保存修改" description="继续操作会放弃当前章节尚未保存的内容。" actions={<><button type="button" className="secondary-action" onClick={() => setPendingNavigation(null)}>继续编辑</button><button type="button" className="danger-action" onClick={() => pendingNavigation && continueNavigation(pendingNavigation)}>放弃修改并继续</button></>} />
       <AppDialog open={Boolean(pendingManualOverwrite)} onOpenChange={(open) => !open && setPendingManualOverwrite(null)} kicker="人工正文保护" title="覆盖人工正文" description="按所选方式迁移会覆盖当前章节已人工保存的正文。此操作仅影响当前章节。" actions={<><button type="button" className="secondary-action" onClick={() => setPendingManualOverwrite(null)}>取消</button><button type="button" className="danger-action" onClick={() => pendingManualOverwrite && void migrateChapter(pendingManualOverwrite, true)}>确认覆盖并迁移</button></>} />
+      <AppDialog open={pendingPlaceholderConfirmation} onOpenChange={(open) => !open && setPendingPlaceholderConfirmation(false)} kicker="待人工处理" title="确认保留待处理占位符？" description={`当前正文包含 ${placeholderCount} 处【待核实】或【待补充】。系统允许先导出 Word，请在导出文件中完成人工核实和补充。`} actions={<><button type="button" className="secondary-action" onClick={() => setPendingPlaceholderConfirmation(false)}>继续检查</button><button type="button" className="primary-action" disabled={running || dirty} onClick={() => { setPendingPlaceholderConfirmation(false); void confirmStage(); }}>确认保留并继续</button></>} />
       <ContentAiRewriteDrawer open={Boolean(aiEditMode && aiEditSnapshot)} mode={aiEditMode} chapterTitle={selectedLeaf ? `${selectedLeaf.item.id} ${selectedLeaf.item.title}` : ''} snapshot={aiEditSnapshot} candidate={aiCandidate} busy={aiCandidateBusy} error={aiEditError} imageModelAvailable={false} onGenerateText={(instruction) => { void generateLengthCandidate(instruction); }} onGenerateImage={() => undefined} onImportFile={() => undefined} onImportDataUrl={() => undefined} onApply={applyLengthCandidate} onDiscard={closeLengthEdit} />
     </div>
   );

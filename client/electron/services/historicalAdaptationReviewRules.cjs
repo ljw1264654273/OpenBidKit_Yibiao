@@ -50,13 +50,17 @@ function reviewHistoricalAdaptationContent({ outline, contentItems, differences 
     const nodeId = String(node.item.id || '');
     const content = String(node.item.content || '');
     const item = itemsById.get(nodeId);
+    // 章节级人工确认允许保留当前正文，终审不应再次把该章节标成阻断问题。
+    if (item?.confirmed_at) continue;
+    const hasPlaceholder = placeholders.some((placeholder) => content.includes(placeholder));
+    const placeholderOnlyReview = item?.status === 'review' && hasPlaceholder && !(item.residuals || []).length;
     if (!item) {
       addFinding(findings, 'chapter-record-missing', 'P0', node, node.path.join(' / '), '缺少迁移记录', '该章节没有正文迁移来源与确认记录。');
     }
     if (!content.trim()) {
       addFinding(findings, 'chapter-empty', 'P0', node, node.path.join(' / '), '章节正文为空', '该章节没有可导出的正文。');
     }
-    if (item && item.status !== 'success') {
+    if (item && item.status !== 'success' && !placeholderOnlyReview) {
       addFinding(findings, 'chapter-not-ready', 'P0', node, item.error || item.status, '章节迁移未完成', '环节五的章节迁移状态不是 success。');
     }
 
@@ -69,7 +73,7 @@ function reviewHistoricalAdaptationContent({ outline, contentItems, differences 
 
     for (const placeholder of placeholders) {
       if (content.includes(placeholder)) {
-        addFinding(findings, 'placeholder', 'P0', node, placeholder, '存在待补材料占位', `正文仍包含${placeholder}，需补齐真实信息后再验收。`);
+        addFinding(findings, 'placeholder', 'P1', node, placeholder, '存在待处理占位符', `正文仍包含${placeholder}，允许先导出 Word，导出后请人工核实或补充。`);
       }
     }
 

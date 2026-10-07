@@ -109,6 +109,11 @@ function collectDeterministicFindings({ outlineData, items, differences = [], ex
     .filter((rule) => rule.policy === 'must-replace').flatMap((rule) => rule.oldValues);
   for (const leaf of leaves) {
     const item = byId.get(leaf.nodeId);
+    // 章节级人工确认代表用户接受当前正文（包括空正文、历史残留和占位符）。
+    // 保留跨章节语义检查的原始证据，但不再为该章节生成确定性阻断项。
+    if (item?.confirmed_at) continue;
+    const placeholders = leaf.content.match(/【(?:待核实|待补充)】/gu) || [];
+    const placeholderOnlyReview = item?.status === 'review' && placeholders.length > 0 && !(item.residuals || []).length;
     const hasHistoricalSource = Boolean(item?.source_content_hash || item?.source_section_id || item?.source_locator || item?.source_path || item?.source_excerpt);
     const source = sourcesById?.get(leaf.nodeId);
     if (sourcesById && hasHistoricalSource && !source?.available) {
@@ -131,16 +136,17 @@ function collectDeterministicFindings({ outlineData, items, differences = [], ex
     if (!leaf.content.trim()) {
       findings.push(makeBlockingFinding({ code: 'empty-content', category: 'empty', nodeId: leaf.nodeId, message: '章节正文为空', evidence: leaf.path.join(' / ') }));
     }
-    if (!item || item.status !== 'success') {
+    if (!item || (item.status !== 'success' && !placeholderOnlyReview)) {
       findings.push(makeBlockingFinding({ code: 'chapter-not-ready', category: 'task', nodeId: leaf.nodeId, message: '章节迁移尚未成功完成', evidence: item?.error || item?.status || '缺少迁移记录' }));
     }
     const residuals = [...new Set([...(item?.blocked_terms || []), ...globalTerms])].filter((term) => term && leaf.content.includes(term));
     if (residuals.length || item?.residuals?.length) {
       findings.push(makeBlockingFinding({ code: 'historical-residual', category: 'residual', nodeId: leaf.nodeId, message: '正文仍包含历史残留', evidence: [...new Set([...residuals, ...(item?.residuals || [])])].join('、') }));
     }
-    const placeholders = leaf.content.match(/【(?:待核实|待补充)】/gu) || [];
     if (placeholders.length) {
-      findings.push(makeBlockingFinding({ code: 'unresolved-placeholder', category: 'placeholder', nodeId: leaf.nodeId, message: '正文包含未处理的待核实或待补充内容', evidence: placeholders.join('、') }));
+      const finding = { code: 'unresolved-placeholder', category: 'placeholder', severity: 'P1', blocking: false,
+        node_ids: [leaf.nodeId], message: '正文包含待核实或待补充内容', evidence: placeholders.join('、') };
+      findings.push({ ...finding, id: findingId(finding) });
     }
   }
   return normalizeHistoricalAdaptationContentFindings(findings);
@@ -248,13 +254,13 @@ async function runHistoricalAdaptationContentCheckTask({ aiService, workspaceSto
     if (deterministic.some((finding) => finding.blocking)) {
       checkpointTask({ status: 'success', progress: 100, logs: [`确定性预检发现 ${deterministic.length} 项阻断，未调用语义模型。`] }, {
         historicalAdaptationContentCheck: { status: 'success', findings: deterministic,
-          checked_content_hash: context.contentHash, checked_inputs_hash: context.inputsHash, rule_engine_version: 2, checked_at: new Date().toISOString() },
+          checked_content_hash: context.contentHash, checked_inputs_hash: context.inputsHash, rule_engine_version: 3, checked_at: new Date().toISOString() },
       });
       return;
     }
     const cached = context.check;
     if (cached?.status === 'success' && cached.checked_content_hash === context.contentHash
-      && cached.checked_inputs_hash === context.inputsHash && cached.rule_engine_version === 2) {
+      && cached.checked_inputs_hash === context.inputsHash && cached.rule_engine_version === 3) {
       checkpointTask({ status: 'success', progress: 100, logs: ['正文与输入未变化，复用一致性检查结果。'] }, {
         historicalAdaptationContentCheck: cached,
       });
@@ -269,7 +275,7 @@ async function runHistoricalAdaptationContentCheckTask({ aiService, workspaceSto
         findings,
         checked_content_hash: context.contentHash,
         checked_inputs_hash: context.inputsHash,
-        rule_engine_version: 2,
+        rule_engine_version: 3,
         checked_at: checkedAt,
       },
     });

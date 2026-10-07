@@ -8,7 +8,6 @@ function fixture() {
     contentItems: [{
       node_id: '1',
       status: 'success',
-      confirmed_at: '2026-10-01T00:00:00.000Z',
       blocked_terms: ['五峰村'],
       residuals: [],
       difference_ids: ['location'],
@@ -17,7 +16,7 @@ function fixture() {
   };
 }
 
-test('blocks sections that are not successful and unresolved placeholders without requiring per-chapter confirmation', () => {
+test('allows a chapter whose only pending issue is a placeholder', () => {
   const input = fixture();
   input.outline[0].content = '服务地点为【待核实】。';
   input.contentItems[0].status = 'review';
@@ -26,10 +25,27 @@ test('blocks sections that are not successful and unresolved placeholders withou
   const findings = reviewHistoricalAdaptationContent(input);
 
   assert.deepEqual(findings.map(({ code, severity }) => [code, severity]), [
-    ['chapter-not-ready', 'P0'],
-    ['placeholder', 'P0'],
+    ['placeholder', 'P1'],
   ]);
   assert.equal(findings.every((finding) => finding.node_id === '1' && finding.evidence), true);
+});
+
+test('still blocks a review chapter that has no allowed placeholder output', () => {
+  const input = fixture();
+  input.outline[0].content = '服务地点待处理。';
+  input.contentItems[0].status = 'review';
+
+  const findings = reviewHistoricalAdaptationContent(input);
+
+  assert.equal(findings.some((finding) => finding.code === 'chapter-not-ready' && finding.severity === 'P0'), true);
+});
+
+test('人工确认的章节不再重复产生正文阻断问题', () => {
+  const input = fixture();
+  input.outline[0].content = '服务地点仍为五峰村。';
+  input.contentItems[0] = { ...input.contentItems[0], status: 'success', confirmed_at: '2026-10-07T00:00:00.000Z', residuals: ['五峰村'] };
+
+  assert.deepEqual(reviewHistoricalAdaptationContent(input), []);
 });
 
 test('does not require legacy per-chapter confirmed_at when content is successful', () => {
