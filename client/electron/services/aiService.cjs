@@ -29,6 +29,13 @@ const AI_REQUEST_TIMEOUT_MS = 600000;
 const MULTIMODAL_IMAGE_MAX_EDGE = 2048;
 const MULTIMODAL_IMAGE_JPEG_QUALITY = 85;
 
+const AI_ERROR_CODES = Object.freeze({
+  CONTEXT_LENGTH_EXCEEDED: 'context_length_exceeded',
+  RESPONSE_FORMAT_UNSUPPORTED: 'response_format_unsupported',
+  INVALID_JSON: 'invalid_json',
+  TIMEOUT: 'timeout',
+});
+
 // 金龙中转站废弃模型映射：使用这些模型时自动切换到替代模型
 const JINLONG_DEPRECATED_MODEL_MAP = {
   'codex-auto-review': 'gpt-5.6-terra',
@@ -89,6 +96,47 @@ function isResponseFormatUnsupported(message) {
     'invalid parameter',
     'must be',
   ].some((marker) => normalized.includes(marker));
+}
+
+function isContextLengthExceeded(error) {
+  const status = Number(error?.status || error?.statusCode || error?.aiHttpError?.status || 0);
+  if (status === 413) {
+    return true;
+  }
+
+  const text = [
+    error?.message,
+    error?.aiHttpErrorDetail,
+    error?.raw_response_body,
+  ].filter(Boolean).join(' ').toLowerCase();
+  return /(context\s*(length|window)|maximum\s*(context|token)|token\s*limit|too\s*many\s*tokens|payload\s*too\s*large|input\s*too\s*long)/i.test(text);
+}
+
+function isTimeoutError(error) {
+  if (!error) return false;
+  if (error.name === 'AbortError' || error.name === 'TimeoutError') return true;
+  return String(error.code || '').toUpperCase() === 'ETIMEDOUT';
+}
+
+function getAiErrorCode(error, fallbackCode = '') {
+  if (error?.error_code) return error.error_code;
+  if (error?.responseFormatUnsupported) return AI_ERROR_CODES.RESPONSE_FORMAT_UNSUPPORTED;
+  if (isContextLengthExceeded(error)) return AI_ERROR_CODES.CONTEXT_LENGTH_EXCEEDED;
+  if (isTimeoutError(error)) return AI_ERROR_CODES.TIMEOUT;
+  return fallbackCode;
+}
+
+function createStructuredResponseError(message, errorCode, cause) {
+  const error = new Error(message);
+  if (errorCode) {
+    error.error_code = errorCode;
+  }
+  if (cause) {
+    error.cause = cause;
+    copyAiRequestErrorMeta(cause, error);
+    copyAiHttpError(cause, error);
+  }
+  return error;
 }
 
 function createModuleDeveloperLogger(app, config, moduleName, request = {}) {
@@ -819,8 +867,9 @@ async function parseOrRepairJsonResponseWithConfig(app, config, request, content
         request.signal,
       );
       return normalizeJsonPayload(request, parseJsonContent(repairedContent));
-    } catch {
-      throw new Error(failureMessage);
+    } catch (repairError) {
+      const repairCode = getAiErrorCode(repairError, AI_ERROR_CODES.INVALID_JSON);
+      throw createStructuredResponseError(failureMessage, repairCode, repairError);
     }
   }
 }
@@ -872,7 +921,8 @@ async function collectJsonResponseWithConfig(app, config, request) {
 
         if (attempt === maxRetries) {
           await emitProgress(request.progressCallback, `${progressLabel}连续 ${totalAttempts} 次校验失败。`);
-          throw new Error(failureMessage);
+          const errorCode = getAiErrorCode(repairError, AI_ERROR_CODES.INVALID_JSON);
+          throw createStructuredResponseError(failureMessage, errorCode, repairError);
         }
 
         await emitProgress(request.progressCallback, `${progressLabel}第 ${attempt + 1}/${totalAttempts} 次校验失败，正在重试。`);
@@ -907,6 +957,29 @@ function createChatRequestBody(config, request, options = {}) {
   }
 
   return body;
+}
+
+function getResponseFormatFallback(responseFormat, error) {
+  if (!responseFormat || typeof responseFormat !== 'object') {
+    return null;
+  }
+
+  // 部分上游明确表示整个 response_format 参数不可用，此时直接走纯 JSON，
+  // 避免再发送一次必然失败的 json_object 请求。
+  const detail = String(error?.aiHttpErrorDetail || error?.message || '').toLowerCase();
+  if (detail.includes('type is unavailable') || detail.includes('response_format type unavailable')) {
+    return null;
+  }
+
+  if (responseFormat.type === 'json_schema') {
+    return { type: 'json_object' };
+  }
+
+  if (responseFormat.type === 'json_object') {
+    return null;
+  }
+
+  return null;
 }
 
 // 保留 Pi 工具调用协议字段，并统一应用当前文本模型配置。
@@ -1487,6 +1560,7 @@ async function chatWithConfig(app, config, request) {
   let errorMessage = '';
   let analyticsTracked = false;
   const timeoutMs = normalizeRequestTimeoutMs(request);
+  let responseFormatFallback = preparedRequest.response_format;
 
   try {
     writeAiLog(app, config, {
@@ -1501,15 +1575,20 @@ async function chatWithConfig(app, config, request) {
     });
     let result = null;
     result = await runWithAiRetry(() => runWithOperationTimeout(async (signal) => {
-      try {
-        return await requestTextAi(app, config, requestBody, { signal, requestMode });
-      } catch (error) {
-        if (!preparedRequest.response_format || !error.responseFormatUnsupported) {
-          throw error;
-        }
+      while (true) {
+        try {
+          return await requestTextAi(app, config, requestBody, { signal, requestMode });
+        } catch (error) {
+          if (!preparedRequest.response_format || !error.responseFormatUnsupported || !Object.hasOwn(requestBody, 'response_format')) {
+            throw error;
+          }
 
-        requestBody = createChatRequestBody(config, preparedRequest, { omitResponseFormat: true, stream: requestMode === 'stream' });
-        return requestTextAi(app, config, requestBody, { signal, requestMode });
+          const nextResponseFormat = getResponseFormatFallback(responseFormatFallback, error);
+          responseFormatFallback = nextResponseFormat;
+          requestBody = nextResponseFormat
+            ? createChatRequestBody(config, { ...preparedRequest, response_format: nextResponseFormat }, { stream: requestMode === 'stream' })
+            : createChatRequestBody(config, preparedRequest, { omitResponseFormat: true, stream: requestMode === 'stream' });
+        }
       }
     }, timeoutMs, request.signal));
 
@@ -1550,7 +1629,11 @@ async function chatWithConfig(app, config, request) {
       error: getAiErrorLogError(error, errorMessage),
       created_at: new Date().toISOString(),
     });
+    const errorCode = getAiErrorCode(error);
     const wrappedError = new Error(errorMessage || 'AI 请求失败');
+    if (errorCode) {
+      wrappedError.error_code = errorCode;
+    }
     if (error.status || error.statusCode) {
       wrappedError.status = error.status || error.statusCode;
       wrappedError.statusCode = error.status || error.statusCode;

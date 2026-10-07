@@ -142,6 +142,81 @@ test('retries JSON requests without response_format when the provider reports th
   assert.equal(Object.hasOwn(requestBodies[1], 'response_format'), false);
 });
 
+test('falls back from json_schema to json_object and then plain JSON', async (t) => {
+  const originalFetch = global.fetch;
+  const requestBodies = [];
+  let callCount = 0;
+
+  global.fetch = async (_url, options) => {
+    requestBodies.push(JSON.parse(options.body));
+    callCount += 1;
+    if (callCount < 3) {
+      return createJsonResponse({ error: { message: 'response_format is not supported' } }, {
+        ok: false,
+        status: 400,
+        statusText: 'Bad Request',
+      });
+    }
+    return createJsonResponse({ choices: [{ message: { content: '[{"fact_key":"project_name"}]' } }] });
+  };
+  t.after(() => { global.fetch = originalFetch; });
+
+  const service = createAiService({
+    app: null,
+    configStore: { load: () => ({ api_key: 'test-key', model_name: 'test-model', base_url: 'https://example.test/v1', request_mode: 'normal' }) },
+  });
+  const result = await service.requestJson({
+    messages: [{ role: 'user', content: '提取事实' }],
+    response_format: { type: 'json_schema', json_schema: { name: 'facts', schema: { type: 'array' } } },
+    max_retries: 0,
+  });
+
+  assert.deepEqual(result, [{ fact_key: 'project_name' }]);
+  assert.equal(requestBodies[0].response_format.type, 'json_schema');
+  assert.equal(requestBodies[1].response_format.type, 'json_object');
+  assert.equal(Object.hasOwn(requestBodies[2], 'response_format'), false);
+});
+
+test('classifies HTTP 413 as context_length_exceeded and propagates error_code', async (t) => {
+  const originalFetch = global.fetch;
+  global.fetch = async () => createJsonResponse({ error: { message: 'context length exceeded' } }, {
+    ok: false,
+    status: 413,
+    statusText: 'Payload Too Large',
+  });
+  t.after(() => { global.fetch = originalFetch; });
+
+  const service = createAiService({
+    app: null,
+    configStore: { load: () => ({ api_key: 'test-key', model_name: 'test-model', base_url: 'https://example.test/v1', request_mode: 'normal' }) },
+  });
+
+  await assert.rejects(
+    service.requestJson({ messages: [{ role: 'user', content: '过长正文' }], max_retries: 0 }),
+    (error) => error.error_code === 'context_length_exceeded',
+  );
+});
+
+test('classifies unrecoverable structured output as invalid_json', async (t) => {
+  const originalFetch = global.fetch;
+  let callCount = 0;
+  global.fetch = async () => {
+    callCount += 1;
+    return createJsonResponse({ choices: [{ message: { content: 'not-json' } }] });
+  };
+  t.after(() => { global.fetch = originalFetch; });
+
+  const service = createAiService({
+    app: null,
+    configStore: { load: () => ({ api_key: 'test-key', model_name: 'test-model', base_url: 'https://example.test/v1', request_mode: 'normal' }) },
+  });
+
+  await assert.rejects(
+    service.requestJson({ messages: [{ role: 'user', content: '返回 JSON' }], max_retries: 0 }),
+    (error) => error.error_code === 'invalid_json' && callCount === 2,
+  );
+});
+
 test('parses nested image data from a custom streaming image response', async (t) => {
   const originalFetch = global.fetch;
   const imageBase64 = Buffer.from('fake-png').toString('base64');
