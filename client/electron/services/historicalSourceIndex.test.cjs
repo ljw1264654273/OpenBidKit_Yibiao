@@ -30,6 +30,14 @@ test('唯一来源路径允许去掉虚拟历史标书根节点并返回真实�
   assert.equal(section.content, '历史正文。');
 });
 
+test('历史目录标题存在但正文为空时仍返回唯一来源定位', () => {
+  const index = buildHistoricalSourceIndex('# 实施方案\n## 作业流程\n### 整体作业流程\n### 调查作业流程\n调查正文。');
+  const section = locateHistoricalSection(index, '原目录 / 实施方案 / 作业流程 / 整体作业流程');
+  assert.equal(section.reliable, true);
+  assert.equal(section.content, '');
+  assert.equal(section.path.join(' / '), '实施方案 / 作业流程 / 整体作业流程');
+});
+
 test('完整旧值在同章出现多次时枚举全部独立 occurrence', () => {
   const index = buildHistoricalSourceIndex(source);
   const section = locateHistoricalSection(index, '实施方案 / 项目概况');

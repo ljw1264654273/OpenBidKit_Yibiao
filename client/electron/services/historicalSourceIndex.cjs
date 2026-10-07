@@ -71,14 +71,16 @@ function buildHistoricalSourceIndex(markdown) {
 function locateHistoricalSection(index, sourcePath) {
   const path = normalizePath(sourcePath);
   const exactMatches = index?.byPath?.get(path.join('/')) || [];
-  if (exactMatches.length === 1 && exactMatches[0].content) {
+  // 标题存在但正文为空也要保留定位结果；调用方据此展示“历史原文为空”，
+  // 不能把目录存在误报成路径/哈希不匹配。
+  if (exactMatches.length === 1) {
     return { ...exactMatches[0], reliable: true, sourceTitle: exactMatches[0].heading };
   }
   // 目录适配模型有时会给历史来源补上“历史标书/原目录”等虚拟根节点。
   // 仅在去掉前缀后得到唯一正文候选时接受，避免重复标题被错误绑定。
   for (let start = 1; start < path.length; start += 1) {
     const suffixMatches = index?.byPath?.get(path.slice(start).join('/')) || [];
-    if (suffixMatches.length === 1 && suffixMatches[0].content) {
+    if (suffixMatches.length === 1) {
       return { ...suffixMatches[0], reliable: true, sourceTitle: suffixMatches[0].heading };
     }
   }

@@ -1014,8 +1014,10 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       const { markdown, byId, byLocator } = historicalSourceArchiveCache;
       const matches = (item.source_section_id ? byId.get(item.source_section_id) : byLocator.get(item.source_locator)) || [];
       const section = matches.length === 1 ? matches[0] : null;
+      if (!section) throw new Error('章节历史来源定位不存在或不唯一，请重新建立方案');
       const content = section ? markdown.slice(section.startOffset, section.endOffset) : '';
-      if (!content || sourceHash(content) !== item.source_content_hash) throw new Error('章节来源哈希不匹配');
+      if (!content) throw new Error('章节历史原文为空，请选择定向改写或人工补写');
+      if (sourceHash(content) !== item.source_content_hash) throw new Error('章节来源哈希不匹配');
       return { content, available: true, sourceVersionHash: item.source_version_hash };
     } catch (error) {
       return { content: '', available: false, error: error.message };

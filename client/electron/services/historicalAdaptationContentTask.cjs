@@ -210,7 +210,7 @@ function buildHistoricalContentItems({ state, originalPlan, sourceIndex: supplie
     } else if (located.reliable && actionableRules.length && !hasUnstructuredDifference) {
       recommendedMode = 'local-rewrite';
       reason = '章节命中地点/实施对象、工作量或工期进度差异，仅局部改造相关内容';
-    } else if (located.reliable && !needsReview) {
+    } else if (located.reliable && located.content && !needsReview) {
       recommendedMode = reuseOriginal === false ? 'local-rewrite' : 'direct';
       reason = reuseOriginal === false ? '已关闭沿用历史原文，按适配规则处理' : '历史正文定位可靠，默认直接迁移';
     }
@@ -257,7 +257,7 @@ function buildHistoricalContentItems({ state, originalPlan, sourceIndex: supplie
       source_locator: preserveManualSource ? previous.source_locator : located.sourceTitle ? sourcePath : '',
       source_hash: preserveManualSource ? previous.source_hash : sourceHash,
       source_version_hash: preserveManualSource ? previous.source_version_hash : sourceIndex.sourceVersionHash,
-      source_content_hash: preserveManualSource ? previous.source_content_hash : located.contentHash || '',
+      source_content_hash: preserveManualSource ? previous.source_content_hash : located.content ? located.contentHash : '',
       source_section_id: preserveManualSource ? previous.source_section_id : located.id || '',
       rule_engine_version: 2,
       content_plan_version: 2,
