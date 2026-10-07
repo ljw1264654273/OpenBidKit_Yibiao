@@ -197,6 +197,34 @@ test('classifies HTTP 413 as context_length_exceeded and propagates error_code',
   );
 });
 
+test('classifies a nested Undici timeout error as timeout', async (t) => {
+  const originalFetch = global.fetch;
+  const originalSetTimeout = global.setTimeout;
+  const undiciTimeout = new Error('Headers timeout');
+  undiciTimeout.code = 'UND_ERR_HEADERS_TIMEOUT';
+  const fetchError = new TypeError('fetch failed');
+  fetchError.cause = undiciTimeout;
+
+  global.fetch = async () => {
+    throw fetchError;
+  };
+  global.setTimeout = (callback, delay, ...args) => originalSetTimeout(callback, delay <= 5000 ? 0 : delay, ...args);
+  t.after(() => {
+    global.fetch = originalFetch;
+    global.setTimeout = originalSetTimeout;
+  });
+
+  const service = createAiService({
+    app: null,
+    configStore: { load: () => ({ api_key: 'test-key', model_name: 'test-model', base_url: 'https://example.test/v1', request_mode: 'normal' }) },
+  });
+
+  await assert.rejects(
+    service.chat({ messages: [{ role: 'user', content: '测试超时' }] }),
+    (error) => error.error_code === 'timeout',
+  );
+});
+
 test('classifies unrecoverable structured output as invalid_json', async (t) => {
   const originalFetch = global.fetch;
   let callCount = 0;

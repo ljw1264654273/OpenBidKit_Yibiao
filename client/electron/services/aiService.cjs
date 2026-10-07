@@ -113,9 +113,41 @@ function isContextLengthExceeded(error) {
 }
 
 function isTimeoutError(error) {
-  if (!error) return false;
-  if (error.name === 'AbortError' || error.name === 'TimeoutError') return true;
-  return String(error.code || '').toUpperCase() === 'ETIMEDOUT';
+  const timeoutErrorCodes = new Set([
+    'ETIMEDOUT',
+    'UND_ERR_ABORTED',
+    'UND_ERR_BODY_TIMEOUT',
+    'UND_ERR_CONNECT_TIMEOUT',
+    'UND_ERR_HEADERS_TIMEOUT',
+    'UND_ERR_TIMEOUT',
+  ]);
+  const visited = new Set();
+
+  function visit(candidate) {
+    if (!candidate || (typeof candidate !== 'object' && typeof candidate !== 'function') || visited.has(candidate)) {
+      return false;
+    }
+    visited.add(candidate);
+
+    if (candidate.name === 'AbortError' || candidate.name === 'TimeoutError') {
+      return true;
+    }
+    if (timeoutErrorCodes.has(String(candidate.code || '').toUpperCase())) {
+      return true;
+    }
+
+    if (Array.isArray(candidate.errors)) {
+      for (const child of candidate.errors) {
+        if (visit(child)) {
+          return true;
+        }
+      }
+    }
+
+    return visit(candidate.cause);
+  }
+
+  return visit(error);
 }
 
 function getAiErrorCode(error, fallbackCode = '') {
