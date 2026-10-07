@@ -94,6 +94,16 @@ type FactRecord = {
 };
 ```
 
+章节级候选不允许由模型自由生成 `fact_id`。候选必须包含受控的 `slot`，由本地生成稳定键：
+
+```text
+fact_key = kind + ':' + slot + ':' + normalizeQualifier(qualifier)
+```
+
+`slot` 使用固定枚举：`project_name`、`project_number`、`client_name`、`provider_name`、`project_location`、`service_location`、`client_address`、`service_object`、`deliverable`、`coordinate_system`、`service_quantity`、`staffing`、`threshold`、`budget`、`fee`、`bid_amount`、`unit_price`、`contract_duration`、`completion_deadline`、`milestone`、`payment_schedule`、`service_scope`、`deliverable_scope`、`method`。无法映射到枚举的候选不进入自动归一，直接生成人工提示。
+
+`normalizeQualifier()` 只做大小写、空白、全角标点、中文数字和单位归一；不从自然语言推测新的槽位。`fact_id` 由 `fact_key` 和任务输入哈希生成，跨批次稳定，禁止使用模型生成的随机编号作为主键。
+
 金额、日期、年限、数量、人员配置、项目编号、项目名称、地点和服务期限优先使用本地规则与已有结构化字段。数字、单位、中文数字、全角标点和常见同义表达在本地归一；归一失败的候选保留原文，不猜测。
 
 招标基线只在此阶段读取一次。后续 AI 请求只传递与当前章节相关的压缩事实摘要，不再传递完整基线。
@@ -125,6 +135,8 @@ input_budget   = request_budget - system_reserve - output_reserve
   "candidates": [
     {
       "kind": "schedule",
+      "slot": "contract_duration",
+      "qualifier": "项目服务期限",
       "value": "合同签订生效之日起3年",
       "evidence": "服务期限为合同签订生效之日起3年",
       "confidence": "high"
@@ -153,6 +165,26 @@ input_budget   = request_budget - system_reserve - output_reserve
 - 事实哈希由归一后的事实注册表计算，参与缓存和 CAS。
 
 没有冲突的事实不再交给 AI 复核。只有存在冲突或需要语义判断的事实，才进入下一阶段。
+
+### 4.1 冲突事实的解除规则
+
+语义检查响应除 `findings` 外允许返回 `resolutions`，但不能直接把任意模型建议变成事实：
+
+```json
+{
+  "resolutions": [
+    {
+      "fact_key": "schedule:contract_duration:",
+      "canonical_value": "合同签订生效之日起3年",
+      "confidence": "high",
+      "basis": "baseline-exact-match",
+      "evidence": ["招标基线：服务期限为合同签订生效之日起3年"]
+    }
+  ]
+}
+```
+
+本地只接受以下三类 `basis`：`baseline-exact-match`、`global-fact-exact-match`、`deterministic-normalization`。`canonical_value` 必须与对应来源事实的归一值完全一致；模型自行推测、择多数或改写招标基线均不能解除冲突。通过校验后，本地将事实标记为 `conflict: false`，重新计算 `facts_hash`，再允许进入现有修复契约。无法满足条件的事实继续保留冲突并转人工，因此不会绕过 `validateRepairGroup()` 对冲突事实的安全拒绝。
 
 ### 5. 局部语义检查
 
@@ -192,6 +224,14 @@ AI 请求层新增标准错误分类：
 
 任务快照按批次保存 `batch_id`、输入哈希、事实哈希、协议版本和状态。重试时只重跑失败批次；正文或基线变化后使相关批次失效。
 
+#### 批次持久化与重启恢复
+
+新增 SQLite 表 `historical_adaptation_content_check_batches`，并同步 `sql/workspace_schema.sql`。每条记录至少包含：`project_id`、`check_run_id`、`batch_id`、`batch_index`、`node_ids_json`、`input_hash`、`facts_hash`、`protocol_hash`、`status`、`error_code`、`error_message`、`attempt_count`、`request_summary_json`、`result_json`、`updated_at`。Store 提供创建检查批次、读取可复用批次、原子写入批次结果和失效项目批次的方法。
+
+批次状态为 `pending`、`running`、`success`、`failed-retryable`、`failed-manual`、`stale`。任务重启时只复用同时满足正文哈希、招标基线哈希、全局事实哈希、规则版本和协议版本的 `success` 批次；`failed-retryable` 批次自动重试一次，仍失败则保留为可人工重试的 `failed-retryable`，不把整次检查伪装成成功。正文、基线或全局事实任一变化时，相关批次全部标记 `stale`。
+
+现有 `recoverInterruptedHistoricalAdaptationContentCheckTask` 不再直接把整个检查结果标记为 stale；它应读取批次表，恢复未完成的 `pending/running` 批次为 `failed-retryable`，然后由同一检查任务继续处理。检查完成后再以事务写入汇总快照，汇总快照的 `inputs_hash` 必须同时覆盖正文、招标基线和全局事实。
+
 ## UI 变化
 
 保留“运行一致性检查”按钮和现有阶段确认流程。阶段文案增加：
@@ -211,13 +251,16 @@ AI 请求层新增标准错误分类：
 
 - 新增 `historicalAdaptationFactRegistry.cjs`：本地事实提取、归一、哈希和冲突分组。
 - 扩展 `historicalAdaptationContentCheckTask.cjs`：动态分批、Map-Reduce、批次缓存、局部语义检查和复查编排。
-- 扩展 `aiService.cjs`：结构化输出能力降级、错误分类、token/上下文预算和当前批次重试。
+- 扩展 `aiService.cjs`：结构化输出能力降级、错误分类、token/上下文预算和当前批次重试；保留 `error_code`、HTTP 状态和供应商能力信息。
+- 扩展 `technicalPlanStore.cjs` 和 `sqliteDatabase.cjs`：批次表、批次快照事务、全局事实加载及哈希输入。
+- 扩展 `taskService.cjs`：中断任务按批次恢复，不再整次检查直接 stale。
 - 复用 `historicalAdaptationConsistencyRepair.cjs`、`technicalPlanStore.cjs` 的现有原子修复协议。
 
 ### Renderer
 
 - 扩展历史适配任务类型，展示批次进度、错误类型和人工处理原因。
-- 不新增 IPC 通道，不在 Renderer 复制事实归一或修复安全规则。
+- 现有检查按钮继续启动全量检查；当某批次为 `failed-retryable` 时，按钮请求中携带可选 `retry_batch_id`，只重试该批次。新增字段通过现有一致性检查 IPC/类型透传，不新增独立任务类型。
+- Renderer 只展示 `error_code` 的中文映射，不复制事实归一或修复安全规则。
 
 ### Analytics
 
@@ -228,16 +271,21 @@ AI 请求层新增标准错误分类：
 ### 单元测试
 
 - 事实注册表能从中文数字、阿拉伯数字、金额、日期、年限和地点中提取并归一。
+- 固定 `slot` 和 `fact_key` 在不同批次、不同模型随机编号下仍稳定；未知槽位必须转人工。
 - 同一事实同值合并、异值冲突；未知章节 ID 拒绝。
 - 超过上下文预算时按段落边界拆分；单批失败只影响当前批次。
 - 对象/数组/代码围栏 JSON 均能归一；不支持结构化输出时能正确降级。
+- `resolutions` 只有精确匹配招标基线、全局事实或确定性归一时才能解除冲突；任意猜测不得进入修复。
 - 413、超时、格式错误、冲突和 CAS 失败分别归类。
+- 批次成功结果在重启后可复用；正文、基线、全局事实或协议版本变化后必须失效。
 
 ### 集成测试
 
 - 完整招标基线不在每个批次重复发送。
+- `getHistoricalAdaptationContentCheckContext()` 纳入已确认 global facts，并将其哈希纳入 `inputs_hash`。
 - 长正文在小上下文配置下仍能完成事实提取和局部检查。
 - 结构化输出不兼容的模拟模型仍能通过兼容模式完成检查。
+- 中断任务只恢复失败或未完成批次，不重新提交已成功批次。
 - 人工正文不被修复；修复失败整组回滚；复查发现新冲突不报告成功。
 - 批次缓存可在失败后断点续跑，正文或事实哈希变化会失效。
 
