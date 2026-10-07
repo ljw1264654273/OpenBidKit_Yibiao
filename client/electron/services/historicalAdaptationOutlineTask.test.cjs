@@ -3,6 +3,7 @@ const test = require('node:test');
 
 const {
   buildHistoricalOutlineTree,
+  reconcileExtractedOutlineItems,
   normalizeAdaptedOutlineResult,
   runHistoricalAdaptationOutlineTask,
 } = require('./historicalAdaptationOutlineTask.cjs');
@@ -25,6 +26,43 @@ test('历史目录路径归一化为稳定编号的树结构', () => {
     ['2.2', '进度安排'],
   ]);
   assert.equal(result.outline[1].children[0].content_mode, 'ai-generate');
+});
+
+test('按原始 Markdown 的编号层级校正 AI 误嵌套的同级目录', () => {
+  const markdown = [
+    '# 3.1.3.3 登记领证流程',
+    '## 3.1.3.3.1 接收材料',
+    '## 3.1.3.3.2 身份核验',
+    '## 3.1.3.3.3 信息录入阶段',
+    '# 3.1.3.4 缮证跟踪与领取证书',
+    '## 3.1.3.4.1 进度跟踪',
+    '## 3.1.3.4.2 领证通知',
+  ].join('\n');
+  const extracted = [
+    { path: ['登记领证流程', '接收材料'] },
+    { path: ['登记领证流程', '身份核验'] },
+    { path: ['登记领证流程', '信息录入阶段'] },
+    { path: ['登记领证流程', '缮证跟踪与领取证书', '进度跟踪'] },
+    { path: ['登记领证流程', '缮证跟踪与领取证书', '领证通知'] },
+  ];
+
+  const reconciled = reconcileExtractedOutlineItems(extracted, markdown);
+  const tree = buildHistoricalOutlineTree(reconciled);
+  assert.deepEqual(tree.outline.map((item) => item.title), [
+    '登记领证流程',
+    '缮证跟踪与领取证书',
+  ]);
+  assert.deepEqual(tree.outline[1].children.map((item) => item.title), [
+    '进度跟踪',
+    '领证通知',
+  ]);
+});
+
+test('编号标题与无编号 Markdown 子标题混用时仍保留父级', () => {
+  const records = reconcileExtractedOutlineItems([
+    { path: ['登记领证流程', '接收材料'] },
+  ], '# 3.1.3.3 登记领证流程\n## 接收材料');
+  assert.deepEqual(records[0].path, ['登记领证流程', '接收材料']);
 });
 
 test('适配结果生成目录节点和可追溯变更记录', () => {
