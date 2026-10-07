@@ -202,6 +202,16 @@ test('正文迁移页面支持迁移方案、人工策略、恢复默认和阶�
   assert.match(component, /allowRawHtml=\{false\}/);
 });
 
+test('空历史正文选择定向改写时按指定章节生成推荐提纲', () => {
+  const component = readFileSync(join(__dirname, 'components/AdaptationContentPage.tsx'), 'utf8');
+  assert.match(component, /isEmptyHistoricalSource/);
+  assert.match(component, /handleStrategyModeChange/);
+  assert.match(component, /recommendationsOnly:\s*true/);
+  assert.match(component, /includeNodeId:\s*selectedItem\.node_id/);
+  assert.match(component, /历史原文为空/);
+  assert.match(component, /推荐提纲生成失败/);
+});
+
 test('正文迁移保护人工正文，明确确认后才允许覆盖', () => {
   const component = readFileSync(join(__dirname, 'components/AdaptationContentPage.tsx'), 'utf8');
   assert.match(component, /content_origin === 'manual'/);

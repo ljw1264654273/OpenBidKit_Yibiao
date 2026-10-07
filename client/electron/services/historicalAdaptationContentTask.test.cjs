@@ -793,6 +793,26 @@ test('新增章节自动推荐提纲但不生成正文，人工定向改写缺�
   assert.equal(aiCalls.length, 1);
 });
 
+test('指定空历史正文章节只生成定向改写提纲，不处理其他章节或生成正文', async () => {
+  const state = baseState();
+  const originalPlan = '# 项目概况\n\n# 服务保障\n历史保障正文。';
+  const planned = buildHistoricalContentItems({ state, originalPlan });
+  const aiCalls = [];
+  const patches = [];
+  await runHistoricalAdaptationContentTask({
+    aiService: { requestJson: async (request) => { aiCalls.push(request); return { instruction: '1. 补充项目概况响应边界\n2. 说明实施流程与保障机制' }; } },
+    workspaceStore: { loadTechnicalPlan: () => ({ ...state, historicalAdaptationContentItems: planned }), readOriginalPlanMarkdown: () => originalPlan },
+    payload: { recommendationsOnly: true, includeNodeId: '1' }, updateTask() {},
+    checkpointTask(_task, patch) { if (patch) patches.push(patch); },
+  });
+  assert.equal(aiCalls.length, 1);
+  const saved = patches.find((patch) => patch.historicalAdaptationContentItem?.node_id === '1')?.historicalAdaptationContentItem;
+  assert.equal(saved.recommended_instruction, '1. 补充项目概况响应边界\n2. 说明实施流程与保障机制');
+  assert.equal(saved.status, 'review');
+  assert.equal(patches.some((patch) => patch.contentGenerationItem), false);
+  assert.equal(patches.some((patch) => patch.historicalAdaptationContentItem?.node_id === '2'), false);
+});
+
 test('推荐模式使用章节说明、基线和已确认差异生成提纲，并同步迁移可自动处理正文', async () => {
   const state = baseState();
   state.historicalAdaptationOutlineChanges.push({ target_node_id: '2', change_type: 'added', reason: '新增保障内容', difference_ids: ['location'] });

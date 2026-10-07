@@ -471,15 +471,23 @@ async function runHistoricalAdaptationContentTask({ aiService, workspaceStore, u
       throw new Error('当前章节包含人工正文，请确认覆盖后再重新迁移');
     }
   }
+  const recommendationNodeId = payload.recommendationsOnly === true ? text(payload.includeNodeId) : '';
   const targetLeaves = payload.recommendationsOnly === true
     ? leaves.filter((leaf) => {
       const item = items.find((candidate) => candidate.node_id === leaf.nodeId);
+      if (recommendationNodeId && leaf.nodeId !== recommendationNodeId) return false;
       const effectiveMode = getEffectiveMode(item);
+      const isExplicitEmptySourceRecommendation = recommendationNodeId === leaf.nodeId
+        && Boolean(item?.source_section_id && item?.source_path)
+        && !text(item?.source_content_hash)
+        && !text(item?.source_excerpt)
+        && !item.manual_mode;
       const isNewChapterRecommendation = item?.recommended_mode === 'rewrite'
         && !item.manual_mode;
       const isAutomaticMigration = ['direct', 'local-rewrite'].includes(effectiveMode)
         && item?.status !== 'success';
-      return item?.content_origin !== 'manual' && (isNewChapterRecommendation || isAutomaticMigration);
+      return item?.content_origin !== 'manual'
+        && (isExplicitEmptySourceRecommendation || isNewChapterRecommendation || isAutomaticMigration);
     })
     : selectedNodeId
     ? leaves.filter((leaf) => leaf.nodeId === selectedNodeId)
@@ -517,7 +525,12 @@ async function runHistoricalAdaptationContentTask({ aiService, workspaceStore, u
     const itemIndex = items.findIndex((item) => item.node_id === leaf.nodeId);
     const current = { ...items[itemIndex], status: 'running', error: undefined, confirmed_at: undefined, updated_at: new Date().toISOString() };
     const effectiveMode = getEffectiveMode(current);
-    if (!effectiveMode) {
+    const isExplicitEmptySourceRecommendation = recommendationNodeId === leaf.nodeId
+      && Boolean(current.source_section_id && current.source_path)
+      && !text(current.source_content_hash)
+      && !text(current.source_excerpt)
+      && !current.manual_mode;
+    if (!effectiveMode && !isExplicitEmptySourceRecommendation) {
       const reviewItem = { ...current, status: 'review', error: undefined, updated_at: new Date().toISOString() };
       items = items.map((item, candidateIndex) => candidateIndex === itemIndex ? reviewItem : item);
       checkpointTask({ status: 'running', progress: Math.round(4 + ((index + 1) / targetLeaves.length) * 90), logs: [`${leaf.path.join(' / ')}等待人工选择处理方式。`] }, {
@@ -525,7 +538,7 @@ async function runHistoricalAdaptationContentTask({ aiService, workspaceStore, u
       });
       continue;
     }
-    if (effectiveMode === 'rewrite' && !current.manual_mode) {
+    if ((effectiveMode === 'rewrite' || isExplicitEmptySourceRecommendation) && !current.manual_mode) {
       const reviewItem = { ...current, status: 'review', error_code: undefined };
       if (!current.recommended_instruction) {
         updateTask({ progress: Math.round(4 + (index / targetLeaves.length) * 90), logs: [`正在生成 ${leaf.path.join(' / ')}的推荐提纲。`] });

@@ -68,6 +68,21 @@ function effectiveInstruction(item?: TechnicalPlanState['historicalAdaptationCon
   return item?.manual_mode ? item.manual_instruction : item?.recommended_instruction || '';
 }
 
+function isEmptyHistoricalSource(
+  item: TechnicalPlanState['historicalAdaptationContentItems'][number] | undefined,
+  sourceSection: HistoricalAdaptationSourceSection | null,
+  sourceNodeId: string,
+) {
+  return Boolean(item
+    && sourceNodeId === item.node_id
+    && item.source_path
+    && item.source_section_id
+    && !item.source_content_hash
+    && !item.source_excerpt
+    && sourceSection?.available === false
+    && /历史原文为空/u.test(sourceSection.error || ''));
+}
+
 function AdaptationContentPage({ projectId, project, state, onStateChange, onPreparePlan, onDirtyChange, onBack }: AdaptationContentPageProps) {
   const leaves = useMemo(() => flattenLeaves(state.outlineData?.outline || []), [state.outlineData]);
   const itemByNode = useMemo(() => new Map(
@@ -120,6 +135,9 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onPre
     return leaves.filter((leaf) => [...leaf.ancestorIds, leaf.item.id].some((id) => addedIds.has(id)));
   }, [leaves, state.historicalAdaptationOutlineChanges]);
   const hasHistoricalSource = Boolean(sourceNodeId === selectedItem?.node_id && sourceSection?.available);
+  const emptySourceRewritePending = strategyMode === 'rewrite'
+    && !strategyInstruction.trim()
+    && isEmptyHistoricalSource(selectedItem, sourceSection, sourceNodeId);
   const retryCount = state.historicalAdaptationContentItems.filter((item) => ['idle', 'stale', 'error', 'running'].includes(item.status) && item.content_origin !== 'manual').length;
   const successCount = state.historicalAdaptationContentItems.filter((item) => item.status === 'success').length;
   const reviewCount = state.historicalAdaptationContentItems.filter((item) => ['review', 'stale', 'error'].includes(item.status)).length;
@@ -162,6 +180,18 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onPre
       .finally(() => { if (active) setSourceLoading(false); });
     return () => { active = false; };
   }, [projectId, selectedItem?.node_id, selectedItem?.source_section_id, selectedItem?.source_version_hash, sourceRetry]);
+
+  useEffect(() => {
+    if (!selectedItem || strategyMode !== 'rewrite' || strategyInstruction.trim() || running || saving || unsaved && selectedItem.manual_mode
+      || !isEmptyHistoricalSource(selectedItem, sourceSection, sourceNodeId)) return;
+    const key = JSON.stringify(['empty-source-rewrite', projectId, selectedItem.node_id, selectedItem.input_fingerprint]);
+    if (recommendationRequest.current === key) return;
+    recommendationRequest.current = key;
+    setPreparing(true);
+    void onPreparePlan({ projectId, includeNodeId: selectedItem.node_id, recommendationsOnly: true })
+      .catch((error) => showToast(error instanceof Error ? `推荐提纲生成失败：${error.message}` : '推荐提纲生成失败，可直接填写定向改写要求', 'error'))
+      .finally(() => setPreparing(false));
+  }, [projectId, selectedItem, sourceSection, sourceNodeId, strategyMode, strategyInstruction, running, saving, unsaved, onPreparePlan, showToast]);
 
   useEffect(() => {
     if (!selectedLeaf && leaves[0]) setSelectedId(leaves[0].item.id);
@@ -260,6 +290,10 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onPre
     } finally {
       setPreparing(false);
     }
+  };
+
+  const handleStrategyModeChange = (mode: HistoricalAdaptationContentMode) => {
+    setStrategyMode(mode);
   };
 
   const retryIncomplete = async () => {
@@ -530,13 +564,15 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onPre
               <>
                 <section className="adaptation-content-strategy">
                   <label htmlFor="adaptation-content-mode">迁移方式</label>
-                  <select id="adaptation-content-mode" value={strategyMode} disabled={running || strategySaving} onChange={(event) => setStrategyMode(event.target.value as HistoricalAdaptationContentMode)}>
+                  <select id="adaptation-content-mode" value={strategyMode} disabled={running || strategySaving} onChange={(event) => handleStrategyModeChange(event.target.value as HistoricalAdaptationContentMode)}>
                     {!strategyMode ? <option value="" disabled>请选择迁移方式</option> : null}
                     {Object.entries(modeLabels).map(([mode, label]) => <option key={mode} value={mode} disabled={mode !== 'rewrite' && !hasHistoricalSource}>{label}</option>)}
                   </select>
                   {strategyMode === 'rewrite' ? <label>定向改写要求<textarea value={strategyInstruction} disabled={running} onChange={(event) => setStrategyInstruction(event.target.value)} placeholder="说明需要改写或补充的重点、边界和表达要求" /></label> : null}
                   <small>{strategyMode === 'direct' ? '完整复制历史正文，不调用 AI。' : strategyMode === 'local-rewrite' ? '仅调整地点与实施对象、工作量、工期进度，保留其余正文。' : strategyMode === 'rewrite' ? hasHistoricalSource ? '按填写的要求改写本章历史正文。' : '本章无可靠历史正文，将按招标基线和填写的要求补充生成。' : '本章无可靠历史正文，可选择定向改写补充生成，或直接编辑正文。'}</small>
-                  <small role="status">{selectedItem.recommended_mode === 'rewrite' && !selectedItem.manual_mode
+                  <small role="status">{emptySourceRewritePending
+                    ? preparing ? '正在生成定向改写推荐提纲...' : selectedItem.error_code === 'recommendation-failed' ? '推荐提纲生成失败，可直接填写定向改写要求。' : '正在准备定向改写推荐提纲...'
+                    : selectedItem.recommended_mode === 'rewrite' && !selectedItem.manual_mode
                     ? migrationRunning || preparing ? '正在准备新增章节的推荐提纲...' : '请校核或调整推荐提纲，再点击“按此方式迁移本章”生成正文。'
                     : strategyChanged ? '选择尚未应用，可迁移本章或点击上方按钮建立并执行迁移。' : '选择方式不会改变正文，点击迁移按钮才执行。'}</small>
                   <button type="button" className="primary-action" disabled={running || saving || dirty || !strategyMode || (strategyMode === 'rewrite' && !strategyInstruction.trim())} title={dirty ? '请先保存人工修改' : undefined} onClick={() => { void migrateChapter(); }}>{strategySaving ? '启动迁移中...' : '按此方式迁移本章'}</button>
