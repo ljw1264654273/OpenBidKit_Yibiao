@@ -234,6 +234,15 @@ function normalizeHistoricalAdaptationContentCheck(value) {
   };
 }
 
+const HISTORICAL_ADAPTATION_CONTENT_CHECK_BATCH_STATUSES = Object.freeze([
+  'pending', 'running', 'success', 'failed-retryable', 'failed-manual', 'stale',
+]);
+
+function normalizeHistoricalAdaptationContentCheckBatchStatus(value, fallback = 'pending') {
+  const status = String(value || '').trim();
+  return HISTORICAL_ADAPTATION_CONTENT_CHECK_BATCH_STATUSES.includes(status) ? status : fallback;
+}
+
 function safeFileNamePart(value) {
   return String(value || 'file').replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 48) || 'file';
 }
@@ -3023,6 +3032,10 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     if (hasOwn(partial, 'techRequirements')) upsertDerivedBidItem('techRequirements', partial.techRequirements, nextBidMode);
     if (hasOwn(partial, 'globalFacts')) {
       replaceGlobalFacts(partial.globalFacts);
+      db.prepare(`UPDATE historical_adaptation_content_check_batches
+        SET status = 'stale', error_code = 'stale-input', error_message = '全局事实已变化', updated_at = ?
+        WHERE project_id = ? AND status <> 'stale'`).run(now(), contentCheckBatchProjectId);
+      updateMeta({ historical_adaptation_content_check_json: jsonOrNull({ status: 'stale', findings: [] }) });
     }
 
     if (invalidatesContentGeneration) clearContentGenerationState();
@@ -3525,12 +3538,209 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
   }
 
   function staleHistoricalAdaptationContentCheck() {
+    // 批次结果与汇总检查快照使用同一输入指纹；正文、基线或全局事实变化时一并失效。
+    db.prepare(`UPDATE historical_adaptation_content_check_batches
+      SET status = 'stale', error_code = 'stale-input', error_message = '一致性检查输入已变化', updated_at = ?
+      WHERE project_id = ? AND status <> 'stale'`).run(now(), contentCheckBatchProjectId);
     updateMeta({
       historical_adaptation_content_confirmed_at: null,
       historical_adaptation_content_check_json: jsonOrNull({ status: 'stale', findings: [] }),
       historical_adaptation_review_findings_json: null,
       historical_adaptation_review_confirmed_at: null,
     });
+  }
+
+  const contentCheckBatchProjectId = String(projectId || '');
+
+  function normalizeContentCheckBatchRow(row) {
+    if (!row) return undefined;
+    const parseJson = (value, fallback) => safeJsonParse(value, fallback);
+    const nodeIds = parseJson(row.node_ids_json, []);
+    const requestSummary = parseJson(row.request_summary_json, undefined);
+    const result = parseJson(row.result_json, undefined);
+    return {
+      ...row,
+      project_id: String(row.project_id || ''),
+      check_run_id: String(row.check_run_id || ''),
+      batch_id: String(row.batch_id || ''),
+      batch_index: Number(row.batch_index || 0),
+      node_ids: Array.isArray(nodeIds) ? nodeIds.map((item) => String(item || '')).filter(Boolean) : [],
+      input_hash: row.input_hash ? String(row.input_hash) : undefined,
+      facts_hash: row.facts_hash ? String(row.facts_hash) : undefined,
+      protocol_hash: row.protocol_hash ? String(row.protocol_hash) : undefined,
+      status: normalizeHistoricalAdaptationContentCheckBatchStatus(row.status),
+      error_code: row.error_code ? String(row.error_code) : undefined,
+      error_message: row.error_message ? String(row.error_message) : undefined,
+      attempt_count: Math.max(0, Number(row.attempt_count || 0)),
+      request_summary: requestSummary,
+      result,
+      // camelCase aliases make Main task call sites less error-prone while the
+      // snake_case fields remain the SQLite-facing contract.
+      checkRunId: String(row.check_run_id || ''),
+      batchId: String(row.batch_id || ''),
+      batchIndex: Number(row.batch_index || 0),
+      nodeIds: Array.isArray(nodeIds) ? nodeIds.map((item) => String(item || '')).filter(Boolean) : [],
+      inputHash: row.input_hash ? String(row.input_hash) : undefined,
+      factsHash: row.facts_hash ? String(row.facts_hash) : undefined,
+      protocolHash: row.protocol_hash ? String(row.protocol_hash) : undefined,
+      errorCode: row.error_code ? String(row.error_code) : undefined,
+      errorMessage: row.error_message ? String(row.error_message) : undefined,
+      attemptCount: Math.max(0, Number(row.attempt_count || 0)),
+      requestSummary,
+    };
+  }
+
+  function normalizeContentCheckBatchInput(raw, index, defaults = {}) {
+    const source = raw && typeof raw === 'object' ? raw : {};
+    const batchId = String(source.batchId || source.batch_id || `batch-${index + 1}`).trim();
+    if (!batchId) throw new Error('一致性检查批次缺少 batch_id');
+    const nodeIds = [...new Set((source.nodeIds || source.node_ids || []).map((item) => String(item || '').trim()).filter(Boolean))];
+    return {
+      project_id: contentCheckBatchProjectId,
+      check_run_id: String(source.checkRunId || source.check_run_id || defaults.checkRunId || '').trim(),
+      batch_id: batchId,
+      batch_index: Number.isFinite(Number(source.batchIndex ?? source.batch_index)) ? Math.max(0, Math.floor(Number(source.batchIndex ?? source.batch_index))) : index,
+      node_ids_json: JSON.stringify(nodeIds),
+      input_hash: String(source.inputHash || source.input_hash || defaults.inputHash || '').trim() || null,
+      facts_hash: String(source.factsHash || source.facts_hash || defaults.factsHash || '').trim() || null,
+      protocol_hash: String(source.protocolHash || source.protocol_hash || defaults.protocolHash || '').trim() || null,
+      status: normalizeHistoricalAdaptationContentCheckBatchStatus(source.status, 'pending'),
+      error_code: String(source.errorCode || source.error_code || '').trim() || null,
+      error_message: String(source.errorMessage || source.error_message || '').trim() || null,
+      attempt_count: Math.max(0, Math.floor(Number(source.attemptCount ?? source.attempt_count ?? 0) || 0)),
+      request_summary_json: source.requestSummary !== undefined || source.request_summary !== undefined
+        ? jsonOrNull(source.requestSummary ?? source.request_summary) : null,
+      result_json: source.result !== undefined || source.result_json !== undefined
+        ? jsonOrNull(source.result !== undefined ? source.result : safeJsonParse(source.result_json, undefined)) : null,
+    };
+  }
+
+  function createHistoricalAdaptationContentCheckBatches({ checkRunId, batches, inputHash, factsHash, protocolHash, replace = false } = {}) {
+    const normalizedRunId = String(checkRunId || '').trim();
+    if (!normalizedRunId) throw new Error('一致性检查批次缺少 check_run_id');
+    const entries = (Array.isArray(batches) ? batches : []).map((item, index) => normalizeContentCheckBatchInput(item, index, { checkRunId: normalizedRunId, inputHash, factsHash, protocolHash }));
+    if (!entries.length) return [];
+    const timestamp = now();
+    const transaction = db.transaction(() => {
+      if (replace) db.prepare('DELETE FROM historical_adaptation_content_check_batches WHERE project_id = ? AND check_run_id = ?').run(contentCheckBatchProjectId, normalizedRunId);
+      const upsert = db.prepare(`
+        INSERT INTO historical_adaptation_content_check_batches
+          (project_id, check_run_id, batch_id, batch_index, node_ids_json, input_hash, facts_hash, protocol_hash,
+           status, error_code, error_message, attempt_count, request_summary_json, result_json, created_at, updated_at)
+        VALUES (@project_id, @check_run_id, @batch_id, @batch_index, @node_ids_json, @input_hash, @facts_hash, @protocol_hash,
+           @status, @error_code, @error_message, @attempt_count, @request_summary_json, @result_json, @created_at, @updated_at)
+        ON CONFLICT(project_id, check_run_id, batch_id) DO UPDATE SET
+          batch_index = excluded.batch_index, node_ids_json = excluded.node_ids_json,
+          input_hash = excluded.input_hash, facts_hash = excluded.facts_hash, protocol_hash = excluded.protocol_hash,
+          status = excluded.status, error_code = excluded.error_code, error_message = excluded.error_message,
+          attempt_count = excluded.attempt_count, request_summary_json = excluded.request_summary_json,
+          result_json = excluded.result_json, updated_at = excluded.updated_at
+      `);
+      for (const entry of entries) {
+        const existing = db.prepare(`SELECT status FROM historical_adaptation_content_check_batches
+          WHERE project_id = ? AND check_run_id = ? AND batch_id = ?`)
+          .get(contentCheckBatchProjectId, normalizedRunId, entry.batch_id);
+        // Re-planning a run must preserve a successful cache entry. Callers that
+        // intentionally restart a run use replace=true, which deletes rows first.
+        if (!replace && existing?.status === 'success') continue;
+        upsert.run({ ...entry, created_at: existing?.created_at || timestamp, updated_at: timestamp });
+      }
+    });
+    transaction();
+    return entries.map((entry) => normalizeContentCheckBatchRow(db.prepare(`SELECT * FROM historical_adaptation_content_check_batches WHERE project_id = ? AND check_run_id = ? AND batch_id = ?`).get(contentCheckBatchProjectId, normalizedRunId, entry.batch_id)));
+  }
+
+  function listHistoricalAdaptationContentCheckBatches({ checkRunId, statuses } = {}) {
+    const params = [contentCheckBatchProjectId];
+    let sql = 'SELECT * FROM historical_adaptation_content_check_batches WHERE project_id = ?';
+    if (String(checkRunId || '').trim()) { sql += ' AND check_run_id = ?'; params.push(String(checkRunId).trim()); }
+    const normalizedStatuses = (Array.isArray(statuses) ? statuses : statuses ? [statuses] : [])
+      .map((status) => normalizeHistoricalAdaptationContentCheckBatchStatus(status, '')).filter(Boolean);
+    if (normalizedStatuses.length) {
+      sql += ` AND status IN (${normalizedStatuses.map(() => '?').join(',')})`;
+      params.push(...normalizedStatuses);
+    }
+    sql += ' ORDER BY check_run_id ASC, batch_index ASC, batch_id ASC';
+    return db.prepare(sql).all(...params).map(normalizeContentCheckBatchRow);
+  }
+
+  function getHistoricalAdaptationContentCheckBatch({ checkRunId, batchId } = {}) {
+    const row = db.prepare(`SELECT * FROM historical_adaptation_content_check_batches WHERE project_id = ? AND check_run_id = ? AND batch_id = ?`)
+      .get(contentCheckBatchProjectId, String(checkRunId || '').trim(), String(batchId || '').trim());
+    return normalizeContentCheckBatchRow(row);
+  }
+
+  function updateHistoricalAdaptationContentCheckBatch({ checkRunId, batchId, ...patch } = {}) {
+    const current = getHistoricalAdaptationContentCheckBatch({ checkRunId, batchId });
+    if (!current) throw new Error('未找到一致性检查批次');
+    const merged = normalizeContentCheckBatchInput({ ...current, ...patch, checkRunId, batchId }, current.batch_index);
+    const timestamp = now();
+    db.prepare(`UPDATE historical_adaptation_content_check_batches SET batch_index = ?, node_ids_json = ?, input_hash = ?, facts_hash = ?, protocol_hash = ?, status = ?, error_code = ?, error_message = ?, attempt_count = ?, request_summary_json = ?, result_json = ?, updated_at = ? WHERE project_id = ? AND check_run_id = ? AND batch_id = ?`)
+      .run(merged.batch_index, merged.node_ids_json, merged.input_hash, merged.facts_hash, merged.protocol_hash, merged.status, merged.error_code, merged.error_message, merged.attempt_count, merged.request_summary_json, merged.result_json, timestamp, contentCheckBatchProjectId, String(checkRunId || '').trim(), String(batchId || '').trim());
+    return getHistoricalAdaptationContentCheckBatch({ checkRunId, batchId });
+  }
+
+  function saveHistoricalAdaptationContentCheckBatchResult({ checkRunId, batchId, status = 'success', result, errorCode, errorMessage, requestSummary, attemptCount, snapshot } = {}) {
+    const normalizedRunId = String(checkRunId || '').trim();
+    const normalizedBatchId = String(batchId || '').trim();
+    const nextStatus = normalizeHistoricalAdaptationContentCheckBatchStatus(status, 'success');
+    const transaction = db.transaction(() => {
+      const current = db.prepare('SELECT * FROM historical_adaptation_content_check_batches WHERE project_id = ? AND check_run_id = ? AND batch_id = ?')
+        .get(contentCheckBatchProjectId, normalizedRunId, normalizedBatchId);
+      if (!current) throw new Error('未找到一致性检查批次');
+      db.prepare(`UPDATE historical_adaptation_content_check_batches SET status = ?, error_code = ?, error_message = ?, attempt_count = ?, request_summary_json = ?, result_json = ?, updated_at = ? WHERE project_id = ? AND check_run_id = ? AND batch_id = ?`)
+        .run(nextStatus, String(errorCode || '').trim() || null, String(errorMessage || '').trim() || null,
+          attemptCount === undefined ? Number(current.attempt_count || 0) + 1 : Math.max(0, Math.floor(Number(attemptCount) || 0)),
+          requestSummary === undefined ? current.request_summary_json : jsonOrNull(requestSummary), result === undefined ? current.result_json : jsonOrNull(result), now(),
+          contentCheckBatchProjectId, normalizedRunId, normalizedBatchId);
+      if (snapshot !== undefined) {
+        if (!snapshot || typeof snapshot !== 'object' || !snapshot.historicalAdaptationContentCheck) throw new Error('snapshot payload invalid');
+        if (snapshot.historicalAdaptationContentCheck.status === 'success') {
+          const unfinished = db.prepare(`SELECT COUNT(*) AS count FROM historical_adaptation_content_check_batches
+            WHERE project_id = ? AND check_run_id = ? AND status <> 'success'`).get(contentCheckBatchProjectId, normalizedRunId);
+          if (Number(unfinished?.count || 0) > 0) throw new Error('batch snapshot incomplete');
+        }
+        updateMeta({ historical_adaptation_content_check_json: jsonOrNull(snapshot.historicalAdaptationContentCheck) });
+      }
+    });
+    transaction();
+    return getHistoricalAdaptationContentCheckBatch({ checkRunId: normalizedRunId, batchId: normalizedBatchId });
+  }
+
+  function getReusableHistoricalAdaptationContentCheckBatches({ checkRunId, inputHash, factsHash, protocolHash } = {}) {
+    if (!String(checkRunId || '').trim() || !String(inputHash || '').trim()
+      || !String(factsHash || '').trim() || !String(protocolHash || '').trim()) return [];
+    const rows = listHistoricalAdaptationContentCheckBatches({ checkRunId, statuses: ['success'] });
+    return rows.filter((row) => (!inputHash || row.input_hash === String(inputHash))
+      && (!factsHash || row.facts_hash === String(factsHash))
+      && (!protocolHash || row.protocol_hash === String(protocolHash)));
+  }
+
+  function invalidateHistoricalAdaptationContentCheckBatches({ checkRunId, inputHash, factsHash, protocolHash, reason } = {}) {
+    const normalizedRunId = String(checkRunId || '').trim();
+    const rows = listHistoricalAdaptationContentCheckBatches({ checkRunId: normalizedRunId || undefined });
+    const stale = rows.filter((row) => {
+      if (normalizedRunId && row.check_run_id !== normalizedRunId) return false;
+      const hasMismatch = (inputHash !== undefined && inputHash !== null && row.input_hash !== String(inputHash))
+        || (factsHash !== undefined && factsHash !== null && row.facts_hash !== String(factsHash))
+        || (protocolHash !== undefined && protocolHash !== null && row.protocol_hash !== String(protocolHash));
+      return inputHash === undefined && factsHash === undefined && protocolHash === undefined ? true : hasMismatch;
+    });
+    if (!stale.length) return [];
+    const timestamp = now();
+    const update = db.prepare(`UPDATE historical_adaptation_content_check_batches SET status = 'stale', error_code = 'stale-input', error_message = ?, updated_at = ? WHERE project_id = ? AND check_run_id = ? AND batch_id = ?`);
+    const transaction = db.transaction(() => stale.forEach((row) => update.run(String(reason || '一致性检查输入已变化'), timestamp, contentCheckBatchProjectId, row.check_run_id, row.batch_id)));
+    transaction();
+    return stale.map((row) => getHistoricalAdaptationContentCheckBatch({ checkRunId: row.check_run_id, batchId: row.batch_id }));
+  }
+
+  function recoverHistoricalAdaptationContentCheckBatches({ checkRunId } = {}) {
+    const rows = listHistoricalAdaptationContentCheckBatches({ checkRunId, statuses: ['pending', 'running'] });
+    const timestamp = now();
+    const transaction = db.transaction(() => db.prepare(`UPDATE historical_adaptation_content_check_batches SET status = 'failed-retryable', error_code = 'interrupted', error_message = '一致性检查任务中断，可重试当前批次', updated_at = ? WHERE project_id = ? AND status IN ('pending', 'running')${String(checkRunId || '').trim() ? ' AND check_run_id = ?' : ''}`)
+      .run(...([timestamp, contentCheckBatchProjectId, ...(String(checkRunId || '').trim() ? [String(checkRunId).trim()] : [])])));
+    if (rows.length) transaction();
+    return listHistoricalAdaptationContentCheckBatches({ checkRunId });
   }
 
   function prepareHistoricalAdaptationContentPlan() {
@@ -3560,6 +3770,8 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     const items = normalizeHistoricalAdaptationContentItems(readHistoricalContentItems());
     const byId = new Map(items.map((item) => [item.node_id, item]));
     const contentSnapshot = leaves.map((item) => ({ node_id: String(item.id || ''), content: String(item.content || '') }));
+    // 全局事实由 Main 侧 SQLite 保存，是一致性检查的确认输入；不得只依赖 Renderer 快照。
+    const globalFacts = loadGlobalFacts();
     const inputSnapshot = {
       outline: leaves.map((item) => ({ node_id: String(item.id || ''), title: String(item.title || '') })),
       differences: readHistoricalAdaptationDifferences(meta.historical_adaptation_differences_json),
@@ -3568,6 +3780,7 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
         return { node_id: String(item.id || ''), reuse_original: plan?.reuse_original, recommended_mode: plan?.recommended_mode, manual_mode: plan?.manual_mode, manual_instruction: plan?.manual_instruction };
       }),
       baseline: loadBidItems(),
+      global_facts: globalFacts,
       // 正文一致性检查协议参与输入指纹。自动修复协议升级后，旧缓存必须失效。
       rule_engine_version: HISTORICAL_ADAPTATION_RULE_ENGINE_VERSION,
       semantic_check_version: 2,
@@ -3597,6 +3810,8 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       expectedItems,
       sourceAvailability,
       baseline: inputSnapshot.baseline,
+      globalFacts,
+      globalFactsHash: stableHash(JSON.stringify(globalFacts)),
       differences: inputSnapshot.differences,
       check: normalizeHistoricalAdaptationContentCheck(safeJsonParse(meta.historical_adaptation_content_check_json, null)),
     };
@@ -4055,6 +4270,9 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     let savedTask;
     const transaction = db.transaction(() => {
       replaceGlobalFacts(normalizedGlobalFacts);
+      db.prepare(`UPDATE historical_adaptation_content_check_batches
+        SET status = 'stale', error_code = 'stale-input', error_message = '全局事实已变化', updated_at = ?
+        WHERE project_id = ? AND status <> 'stale'`).run(now(), contentCheckBatchProjectId);
       clearContentGenerationState();
       const timestamp = now();
       savedTask = {
@@ -4614,6 +4832,21 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     saveHistoricalAdaptationContentStrategy,
     resetHistoricalAdaptationContentStrategies,
     getHistoricalAdaptationContentCheckContext,
+    createHistoricalAdaptationContentCheckBatches,
+    createHistoricalAdaptationContentCheckBatch({ checkRunId, batch, ...defaults } = {}) {
+      return createHistoricalAdaptationContentCheckBatches({ checkRunId, batches: [batch || defaults], ...defaults })[0];
+    },
+    listHistoricalAdaptationContentCheckBatches,
+    readHistoricalAdaptationContentCheckBatches: listHistoricalAdaptationContentCheckBatches,
+    getHistoricalAdaptationContentCheckBatch,
+    updateHistoricalAdaptationContentCheckBatch,
+    saveHistoricalAdaptationContentCheckBatchResult,
+    writeHistoricalAdaptationContentCheckBatchResult: saveHistoricalAdaptationContentCheckBatchResult,
+    getReusableHistoricalAdaptationContentCheckBatches,
+    readReusableHistoricalAdaptationContentCheckBatches: getReusableHistoricalAdaptationContentCheckBatches,
+    invalidateHistoricalAdaptationContentCheckBatches,
+    markHistoricalAdaptationContentCheckBatchesStale: invalidateHistoricalAdaptationContentCheckBatches,
+    recoverHistoricalAdaptationContentCheckBatches,
     getHistoricalAdaptationContentReadiness,
     confirmHistoricalAdaptationContentItem,
     confirmHistoricalAdaptationContent,

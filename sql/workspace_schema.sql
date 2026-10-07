@@ -4,7 +4,7 @@
 -- 1. 本文件用于开源开发者阅读、评审和排查问题，展示 workspace/yibiao.sqlite 的目标完整表结构。
 -- 2. 用户运行客户端时不需要手动执行本文件。
 -- 3. 客户端运行时建表和升级以 Electron Main 侧 migration 代码为准。
--- 4. 当前运行代码已落地 technical_plan_* v1、duplicate_check_* / rejection_check_* v2、knowledge_* v3、technical_plan_global_fact_groups v4、标段兼容 v5/v6、标段选择 v7、旧待选择标段兼容字段 v8、工作流类型和原方案文件状态 v9、招标解析项选择配置 v10、知识库排序 v11、废标项检查多投标文件 v12、已有方案目录配置 v13、多标段优化状态 v14、导出模板库 v15、多招标文件 v16、全文图片编排 v17、目录字数控制 v18、全局事实补全模式 v22、可行性研究报告 v23、目录最低层级 v37、技术方案检查 v38 目标结构。
+-- 4. 当前运行代码已落地 technical_plan_* v1、duplicate_check_* / rejection_check_* v2、knowledge_* v3、technical_plan_global_fact_groups v4、标段兼容 v5/v6、标段选择 v7、旧待选择标段兼容字段 v8、工作流类型和原方案文件状态 v9、招标解析项选择配置 v10、知识库排序 v11、废标项检查多投标文件 v12、已有方案目录配置 v13、多标段优化状态 v14、导出模板库 v15、多招标文件 v16、全文图片编排 v17、目录字数控制 v18、全局事实补全模式 v22、可行性研究报告 v23、目录最低层级 v37、技术方案检查 v38、历史适配状态 v39-v45 目标结构。
 -- 5. 每次表结构调整后，需要同步更新本文件和 runtime migration 版本。
 -- 6. 本文件不保存历史版本，每次更新都写入最新目标完整结构。
 
@@ -96,7 +96,7 @@ CREATE TABLE IF NOT EXISTS bid_project_duplicate_matches (
 -- 招标文件 Markdown 原文不进入 SQLite，原始文件保存到 userData/workspace/technical-plan/tender-original.md，当前投标范围工作副本保存到 userData/workspace/technical-plan/tender.md。
 -- 原方案 Markdown 原文不进入 SQLite，保存到 userData/workspace/technical-plan/original-plan.md。
 -- pending_tender_* 为旧版 Step01 标段待选择兼容清理字段，新流程不再写入。
--- v44 内容项按项目及章节存储，正文仍在 outline_nodes。
+-- v44 内容项按项目及章节存储，正文仍在 outline_nodes；v45 增加一致性检查批次缓存。
 CREATE TABLE IF NOT EXISTS technical_plan_historical_source_versions (
   source_hash TEXT PRIMARY KEY,
   relative_path TEXT NOT NULL,
@@ -116,6 +116,31 @@ CREATE TABLE IF NOT EXISTS technical_plan_historical_content_items (
 );
 CREATE INDEX IF NOT EXISTS idx_historical_content_items_project_order ON technical_plan_historical_content_items(project_id, sort_order);
 CREATE INDEX IF NOT EXISTS idx_historical_content_items_source ON technical_plan_historical_content_items(source_version_hash);
+
+-- 历史标书一致性检查批次缓存（v45）。正文、招标基线或全局事实输入变化后，相关批次标记 stale。
+CREATE TABLE IF NOT EXISTS historical_adaptation_content_check_batches (
+  project_id TEXT NOT NULL DEFAULT '',
+  check_run_id TEXT NOT NULL,
+  batch_id TEXT NOT NULL,
+  batch_index INTEGER NOT NULL DEFAULT 0,
+  node_ids_json TEXT NOT NULL DEFAULT '[]',
+  input_hash TEXT,
+  facts_hash TEXT,
+  protocol_hash TEXT,
+  status TEXT NOT NULL DEFAULT 'pending',
+  error_code TEXT,
+  error_message TEXT,
+  attempt_count INTEGER NOT NULL DEFAULT 0,
+  request_summary_json TEXT,
+  result_json TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (project_id, check_run_id, batch_id)
+);
+CREATE INDEX IF NOT EXISTS idx_historical_adaptation_content_check_batches_run_order
+  ON historical_adaptation_content_check_batches(project_id, check_run_id, batch_index);
+CREATE INDEX IF NOT EXISTS idx_historical_adaptation_content_check_batches_status
+  ON historical_adaptation_content_check_batches(project_id, status);
 
 CREATE TABLE IF NOT EXISTS technical_plan_meta (
   id INTEGER PRIMARY KEY CHECK (id = 1),

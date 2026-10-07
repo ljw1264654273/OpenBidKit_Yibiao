@@ -3,7 +3,7 @@ const path = require('node:path');
 const Database = require('better-sqlite3');
 const { getWorkspaceDatabasePath } = require('../utils/paths.cjs');
 
-const schemaVersion = 44;
+const schemaVersion = 45;
 
 function safeProjectTablePart(projectId) {
   return String(projectId || '')
@@ -684,6 +684,35 @@ function migrateHistoricalAdaptationPlans(db) {
     db.prepare(`UPDATE ${quoteIdentifier(taskTable)} SET status = 'error', error = '数据库升级中断旧迁移任务，请重新建立方案', pause_requested = 0
       WHERE type LIKE 'historical-adaptation-%' AND status IN ('queued', 'running', 'pausing', 'paused')`).run();
   }
+}
+
+// 历史标书适配一致性检查按批次保存输入指纹和结果，支持断点续跑与重启恢复。
+function createHistoricalAdaptationContentCheckBatchesSchema(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS historical_adaptation_content_check_batches (
+      project_id TEXT NOT NULL DEFAULT '',
+      check_run_id TEXT NOT NULL,
+      batch_id TEXT NOT NULL,
+      batch_index INTEGER NOT NULL DEFAULT 0,
+      node_ids_json TEXT NOT NULL DEFAULT '[]',
+      input_hash TEXT,
+      facts_hash TEXT,
+      protocol_hash TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      error_code TEXT,
+      error_message TEXT,
+      attempt_count INTEGER NOT NULL DEFAULT 0,
+      request_summary_json TEXT,
+      result_json TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (project_id, check_run_id, batch_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_historical_adaptation_content_check_batches_run_order
+      ON historical_adaptation_content_check_batches(project_id, check_run_id, batch_index);
+    CREATE INDEX IF NOT EXISTS idx_historical_adaptation_content_check_batches_status
+      ON historical_adaptation_content_check_batches(project_id, status);
+  `);
 }
 
 function addHistoricalAdaptationReviewState(db) {
@@ -1759,6 +1788,11 @@ function createFeasibilityReportSchema(db) {
 
 const schemaHealthTableGroups = [
   {
+    version: 45,
+    tables: ['historical_adaptation_content_check_batches'],
+    repair: createHistoricalAdaptationContentCheckBatchesSchema,
+  },
+  {
     version: 44,
     tables: ['technical_plan_historical_source_versions', 'technical_plan_historical_content_items'],
     repair: createHistoricalAdaptationPlanSchema,
@@ -2452,6 +2486,7 @@ const migrations = [
     up: addHistoricalAdaptationContentCheckState,
   },
   { version: 44, description: '历史标书逐章方案与不可变来源版本', up: migrateHistoricalAdaptationPlans },
+  { version: 45, description: '历史标书一致性检查批次缓存', up: createHistoricalAdaptationContentCheckBatchesSchema },
 ];
 
 function timestampForFileName() {

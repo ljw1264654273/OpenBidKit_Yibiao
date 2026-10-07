@@ -34,7 +34,7 @@ function runAssertions() {
     database.close();
 
     database = createSqliteDatabase(app);
-    assert.equal(schemaVersion, 44);
+    assert.equal(schemaVersion, 45);
     for (const tableName of ['technical_plan_meta', projectMeta]) {
       const columns = new Set(database.db.prepare(`PRAGMA table_info(${quoteIdentifier(tableName)})`).all().map((row) => row.name));
       assert.equal(columns.has('historical_adaptation_content_items_json'), true);
@@ -45,6 +45,12 @@ function runAssertions() {
     const tables = new Set(database.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map((row) => row.name));
     assert.ok(tables.has('technical_plan_historical_content_items'));
     assert.ok(tables.has('technical_plan_historical_source_versions'));
+    // Explicitly exercise the v44 -> v45 batch-table migration path.
+    database.db.exec('DROP TABLE historical_adaptation_content_check_batches');
+    database.db.pragma('user_version = 44');
+    database.close();
+    database = createSqliteDatabase(app);
+    assert.ok(database.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'historical_adaptation_content_check_batches'").get());
     const legacyItems = [{ node_id: 'chapter-1', manual_mode: 'rewrite', manual_instruction: '保留人工要求', content_origin: 'manual', status: 'success' }];
     database.db.prepare(`INSERT OR REPLACE INTO ${quoteIdentifier(projectMeta)} (id, created_at, updated_at, historical_adaptation_content_items_json, content_items_storage_version) VALUES (1, 'before', 'before', ?, 0)`).run(JSON.stringify(legacyItems));
     database.db.pragma('user_version = 43');
