@@ -56,7 +56,7 @@ const bidTemplateFieldsRelativePath = path.join('technical-plan', 'bid-template-
 const originalPlanMarkdownRelativePath = path.join('technical-plan', 'original-plan.md').replace(/\\/g, '/');
 const originalOutlineRuntimeFileName = 'original-outline-runtime.json';
 const HISTORICAL_ADAPTATION_RULE_ENGINE_VERSION = 4;
-const HISTORICAL_ADAPTATION_FACT_SCHEMA_VERSION = 1;
+const HISTORICAL_ADAPTATION_FACT_SCHEMA_VERSION = 2;
 const HISTORICAL_ADAPTATION_REPAIR_PROTOCOL_VERSION = 1;
 const defaultOutlineWordControlOptions = Object.freeze({
   enabled: false,
@@ -216,6 +216,7 @@ function historicalAdaptationProtocolHash(inputsHash) {
     rule_engine_version: HISTORICAL_ADAPTATION_RULE_ENGINE_VERSION,
     fact_schema_version: HISTORICAL_ADAPTATION_FACT_SCHEMA_VERSION,
     repair_protocol_version: HISTORICAL_ADAPTATION_REPAIR_PROTOCOL_VERSION,
+    optimization_version: require('./historicalAdaptationContentCheckOptimization.cjs').OPTIMIZATION_VERSION,
   }));
 }
 
@@ -2658,6 +2659,7 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
   }
 
   function clearDownstreamFromTender() {
+    clearHistoricalAdaptationContentCheckCache();
     deleteOutlineAgentTask();
     deleteGlobalFactsAgentTask();
     db.prepare('DELETE FROM technical_plan_tasks').run();
@@ -2709,6 +2711,7 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
   }
 
   function clearDownstreamFromBidSectionChange() {
+    clearHistoricalAdaptationContentCheckCache();
     clearBidTemplate();
     deleteOutlineAgentTask();
     deleteGlobalFactsAgentTask();
@@ -2789,6 +2792,7 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
   }
 
   function clearDownstreamFromOriginalPlan() {
+    clearHistoricalAdaptationContentCheckCache();
     deleteOutlineAgentTask();
     deleteGlobalFactsAgentTask();
     db.prepare(`DELETE FROM technical_plan_tasks WHERE type IN (${originalPlanDownstreamTaskTypes.map(() => '?').join(', ')})`).run(...originalPlanDownstreamTaskTypes);
@@ -3599,6 +3603,26 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
 
   const contentCheckBatchProjectId = String(projectId || '');
 
+  function getHistoricalAdaptationContentCheckCache({ phase, cacheKey }) {
+    const row = db.prepare(`SELECT result_json FROM historical_adaptation_content_check_cache
+      WHERE project_id = ? AND phase = ? AND cache_key = ?`).get(contentCheckBatchProjectId, phase, cacheKey);
+    return row ? safeJsonParse(row.result_json, undefined) : undefined;
+  }
+
+  function saveHistoricalAdaptationContentCheckCache({ phase, cacheKey, nodeIds, result }) {
+    const timestamp = now();
+    db.prepare(`INSERT INTO historical_adaptation_content_check_cache
+      (project_id, phase, cache_key, node_ids_json, result_json, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(project_id, phase, cache_key) DO UPDATE SET
+        node_ids_json = excluded.node_ids_json, result_json = excluded.result_json, updated_at = excluded.updated_at`)
+      .run(contentCheckBatchProjectId, phase, cacheKey, JSON.stringify(nodeIds), JSON.stringify(result), timestamp, timestamp);
+  }
+
+  function clearHistoricalAdaptationContentCheckCache() {
+    db.prepare('DELETE FROM historical_adaptation_content_check_cache WHERE project_id = ?').run(contentCheckBatchProjectId);
+  }
+
   function normalizeContentCheckBatchRow(row) {
     if (!row) return undefined;
     const parseJson = (value, fallback) => safeJsonParse(value, fallback);
@@ -3958,15 +3982,29 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
           kind: String(raw.kind || '').trim(),
           canonical_value: String(raw.canonical_value || raw.value || '').trim(),
           normalized_value: raw.normalized_value,
+          normalized_values: [],
           conflict: raw.conflict === true,
           chapter_node_ids: [],
           evidence: [],
           values: [],
         };
-        current.chapter_node_ids = [...new Set([...current.chapter_node_ids, ...(Array.isArray(raw.chapter_node_ids) ? raw.chapter_node_ids : []), ...batch.node_ids])];
+        const rawChapterNodeIds = Array.isArray(raw.chapter_node_ids) && raw.chapter_node_ids.length
+          ? raw.chapter_node_ids : batch.node_ids;
+        const rawNormalizedValues = (Array.isArray(raw.normalized_values) ? raw.normalized_values : [raw.normalized_value])
+          .map((value) => String(value || '').trim()).filter(Boolean);
+        const canonicalValue = String(raw.canonical_value || raw.value || '').trim();
+        const canonicalConflict = Boolean(canonicalValue && current.canonical_value && canonicalValue !== current.canonical_value);
+        current.chapter_node_ids = [...new Set([...current.chapter_node_ids, ...rawChapterNodeIds]
+          .map((nodeId) => String(nodeId || '').trim()).filter(Boolean))];
         current.evidence = [...new Set([...current.evidence, ...(Array.isArray(raw.evidence) ? raw.evidence : raw.evidence ? [String(raw.evidence)] : [])])];
-        current.values = [...new Set([...current.values, ...(Array.isArray(raw.values) ? raw.values : []), String(raw.canonical_value || raw.value || '').trim()].filter(Boolean))];
-        current.conflict = current.conflict || raw.conflict === true || current.values.length > 1;
+        current.normalized_values = [...new Set([...current.normalized_values, ...rawNormalizedValues])];
+        current.values = [...new Set([
+          ...current.values,
+          canonicalValue,
+          ...(Array.isArray(raw.values) ? raw.values : []),
+          ...(rawNormalizedValues.length > 1 ? rawNormalizedValues : []),
+        ].map((value) => String(value || '').trim()).filter(Boolean))];
+        current.conflict = current.conflict || raw.conflict === true || canonicalConflict || current.normalized_values.length > 1;
         factsByKey.set(key, current);
       }
     }
@@ -4978,6 +5016,7 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     deleteOutlineAgentTask();
     deleteGlobalFactsAgentTask();
     const transaction = db.transaction(() => {
+      clearHistoricalAdaptationContentCheckCache();
       db.prepare('DELETE FROM technical_plan_tasks').run();
       db.prepare('DELETE FROM technical_plan_bid_items').run();
       db.prepare('DELETE FROM technical_plan_reference_docs').run();
@@ -5039,6 +5078,8 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     getHistoricalAdaptationContentCheckRun,
     getHistoricalAdaptationContentFacts,
     saveHistoricalAdaptationContentFactOverrides,
+    getHistoricalAdaptationContentCheckCache,
+    saveHistoricalAdaptationContentCheckCache,
     createHistoricalAdaptationContentCheckBatches,
     createHistoricalAdaptationContentCheckBatch({ checkRunId, batch, ...defaults } = {}) {
       return createHistoricalAdaptationContentCheckBatches({ checkRunId, batches: [batch || defaults], ...defaults })[0];

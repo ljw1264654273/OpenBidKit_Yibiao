@@ -21,6 +21,7 @@ async function runInElectron() {
       window.$RefreshSig$ = () => (type) => type;
       const { default: React } = await import('/node_modules/.vite/deps/react.js');
       const { default: ReactDOM } = await import('/node_modules/.vite/deps/react-dom_client.js');
+      await import('/src/styles.css');
       const { ToastProvider } = await import('/src/shared/ui/ToastProvider.tsx');
       const { default: ContentPage } = await import('/src/features/historical-bid-adaptation/components/AdaptationContentPage.tsx');
       const errors = [];
@@ -105,7 +106,21 @@ async function runInElectron() {
         clickText('添加事实');
         await settle();
       }
-      return { errors, blockerOpened, persistedValue, saves, starts, savedButStartFailed, stateAfterSave, deleted };
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      const runningState = { ...state,
+        historicalAdaptationContentCheck: { status: 'running', stage: 'facts', findings: [] },
+        historicalAdaptationContentCheckTask: { status: 'running', progress: 27, logs: ['事实提取第 2/3 批，归属补提 1/2 章。'] },
+      };
+      root.render(React.createElement(ToastProvider, null, React.createElement(ContentPage, {
+        projectId: 'runtime', project: null, state: runningState, onStateChange() {}, onPreparePlan: async () => runningState, onDirtyChange() {}, onBack() {},
+      })));
+      await settle();
+      const runningStatus = Array.from(document.querySelectorAll('[role="status"]')).find((element) => element.textContent.includes('归属补提'));
+      if (!runningStatus?.closest('.historical-adaptation-content-progress')) throw new Error('Running batch details must be next to the visible progress bar');
+      const runningDetails = { text: runningStatus?.textContent, live: runningStatus?.getAttribute('aria-live'),
+        stage: document.querySelector('.historical-adaptation-content-check strong')?.textContent,
+        progress: document.querySelector('.yb-progress-track')?.style.getPropertyValue('--progress') };
+      return { errors, blockerOpened, persistedValue, saves, starts, savedButStartFailed, stateAfterSave, deleted, runningDetails };
     })()`);
     assert.deepEqual(result.errors, [], result.errors.join('\n'));
     assert.equal(result.blockerOpened, true, 'Global blocker must open the fact repair dialog');
@@ -117,12 +132,16 @@ async function runInElectron() {
     assert.equal(result.savedButStartFailed, true);
     assert.equal(result.stateAfterSave, '人工确认项目二');
     assert.equal(result.deleted, true, 'Clearing a manual addition must remove it');
+    assert.equal(result.runningDetails.text, '事实提取第 2/3 批，归属补提 1/2 章。');
+    assert.equal(result.runningDetails.live, 'polite');
+    assert.match(result.runningDetails.stage, /事实/);
+    assert.equal(result.runningDetails.progress, '27%');
     if (process.env.YIBIAO_UI_TEST_SCREENSHOT_DIR) {
       fs.mkdirSync(process.env.YIBIAO_UI_TEST_SCREENSHOT_DIR, { recursive: true });
       for (const width of [1000, 420]) {
         window.setSize(width, 850);
         await new Promise((resolve) => setTimeout(resolve, 200));
-        fs.writeFileSync(path.join(process.env.YIBIAO_UI_TEST_SCREENSHOT_DIR, `fact-repair-${width}.png`), (await window.webContents.capturePage()).toPNG());
+        fs.writeFileSync(path.join(process.env.YIBIAO_UI_TEST_SCREENSHOT_DIR, `content-check-progress-${width}.png`), (await window.webContents.capturePage()).toPNG());
       }
     }
   } catch (error) {

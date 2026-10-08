@@ -10,7 +10,7 @@ function protocolInputsHash(inputsHash) {
   return crypto.createHash('sha256').update(JSON.stringify({
     inputsHash,
     rule_engine_version: 4,
-    fact_schema_version: 1,
+    fact_schema_version: 2,
     repair_protocol_version: 1,
   }), 'utf8').digest('hex');
 }
@@ -20,7 +20,7 @@ function currentCheck(context, factsHash = 'facts-v1') {
     status: 'success', stage: 'semantic', findings: [],
     checked_content_hash: context.contentHash, checked_inputs_hash: context.inputsHash,
     checked_facts_hash: factsHash, checked_protocol_inputs_hash: protocolInputsHash(context.inputsHash),
-    rule_engine_version: 4, fact_schema_version: 1, repair_protocol_version: 1,
+    rule_engine_version: 4, fact_schema_version: 2, repair_protocol_version: 1,
     auto_repaired_count: 0, manual_count: 0, repair_round: 0,
   };
 }

@@ -3,13 +3,13 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const Database = require('better-sqlite3');
+const { createSqliteDatabase } = require('./sqliteDatabase.cjs');
 const { createBidProjectStore } = require('./bidProjectStore.cjs');
 
 function createTestStore() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'yibiao-bid-project-'));
-  const app = { getPath: () => root };
-  const db = new Database(':memory:');
+  const app = { getPath: () => root, once() {} };
+  const { db } = createSqliteDatabase(app);
   const store = createBidProjectStore({ app, db });
   return { root, db, store };
 }

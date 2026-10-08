@@ -198,12 +198,16 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onPre
   const successCount = state.historicalAdaptationContentItems.filter((item) => item.status === 'success').length;
   const reviewCount = state.historicalAdaptationContentItems.filter((item) => ['review', 'stale', 'error'].includes(item.status)).length;
   const stageConfirmed = Boolean(state.historicalAdaptationContentConfirmedAt);
+  const progressValue = checkRunning
+    ? Math.min(99, Number(checkTask?.progress ?? 0))
+    : Number(migrationTask?.progress ?? (stageConfirmed ? 100 : leaves.length ? Math.round((successCount / leaves.length) * 100) : 0));
   const check = state.historicalAdaptationContentCheck;
   const checkStage = state.historicalAdaptationContentCheck.stage;
   const checkBlockingCount = check.findings.filter((finding) => finding.blocking).length;
   const blockerNodeIds = new Set(check.findings.filter((finding) => finding.blocking).flatMap((finding) => finding.node_ids));
   const checkAdvisoryCount = check.findings.filter((finding) => !finding.blocking).length;
   const checkStageLabel = checkStage ? (checkStage === 'repair' ? `自动修复第 ${check.repair_round || 1} 轮` : checkStageLabels[checkStage]) : '';
+  const checkRunningDetail = checkRunning ? checkTask?.logs?.filter(Boolean).at(-1) : undefined;
   const autoRepairedCount = check.auto_repaired_count || 0;
   const manualCount = check.manual_count || 0;
   const placeholderFindings = check.findings.filter((finding) => finding.category === 'placeholder' || finding.code === 'unresolved-placeholder');
@@ -735,8 +739,9 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onPre
         <div><span>迁移完成</span><strong className="is-success">{successCount}</strong></div>
         <div><span>待人工处理 / 失败</span><strong className={reviewCount ? 'is-warning' : ''}>{reviewCount}</strong></div>
         <div className="historical-adaptation-content-progress">
-          <span>{preparing ? '正在建立并启动迁移' : migrationRunning ? '后台迁移中' : checkRunning ? '一致性检查中' : migrationTask?.status === 'error' ? '迁移任务异常' : stageConfirmed ? '本阶段已确认' : '等待迁移或审阅'}</span>
-          <ProgressBar value={migrationTask?.progress || (stageConfirmed ? 100 : leaves.length ? Math.round((successCount / leaves.length) * 100) : 0)} />
+          <span>{preparing ? '正在建立并启动迁移' : migrationRunning ? '后台迁移中' : checkRunning ? `一致性检查中 · ${checkStageLabel || '检查中'}` : migrationTask?.status === 'error' ? '迁移任务异常' : stageConfirmed ? '本阶段已确认' : '等待迁移或审阅'} · {progressValue}%</span>
+          <ProgressBar value={progressValue} label={`正文${checkRunning ? '一致性检查' : '迁移'}进度 ${progressValue}%`} active={migrationRunning || checkRunning} />
+          {checkRunningDetail ? <span role="status" aria-live="polite" aria-atomic="true">{checkRunningDetail}</span> : null}
         </div>
       </section>
 

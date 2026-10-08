@@ -13,7 +13,7 @@ function runAssertions() {
   let database;
   try {
     database = createSqliteDatabase(app);
-    assert.equal(database.schemaVersion, 46);
+    assert.equal(database.schemaVersion, 47);
     assert.ok(database.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'historical_adaptation_content_check_batches'").get());
     const store = createTechnicalPlanStore({
       app,
@@ -114,28 +114,41 @@ function runAssertions() {
     store.updateTechnicalPlan({ globalFacts: [{ id: 'location', title: '项目地点', content: '丙地' }] });
     assert.equal(store.getHistoricalAdaptationContentCheckBatch({ checkRunId: 'check-4', batchId: 'batch-f' }).status, 'stale');
 
-    store.updateTechnicalPlan({ historicalAdaptationContentItems: [{ node_id: 'chapter-1', status: 'success', residuals: [] }] });
+    store.updateTechnicalPlan({
+      outlineData: { outline: [
+        { id: 'chapter-1', title: '第一章', content: '项目名称为甲项目。' },
+        { id: 'chapter-2', title: '第二章', content: '普通正文。' },
+      ] },
+      historicalAdaptationContentItems: [
+        { node_id: 'chapter-1', status: 'success', residuals: [] },
+        { node_id: 'chapter-2', status: 'success', residuals: [] },
+      ],
+    });
     const factContext = store.getHistoricalAdaptationContentCheckContext();
     const finalFactsHash = 'merged-facts-hash';
     store.upsertHistoricalAdaptationContentCheckRun({ checkRunId: 'check-facts', contentHash: factContext.contentHash,
       inputHash: factContext.inputsHash, factsHash: 'pre-extraction-hash', protocolHash: factContext.protocolHash,
-      expectedBatchCount: 1, expectedNodeIds: ['chapter-1'] });
+      expectedBatchCount: 1, expectedNodeIds: ['chapter-1', 'chapter-2'] });
     store.createHistoricalAdaptationContentCheckBatches({ checkRunId: 'check-facts', contentHash: factContext.contentHash,
       inputHash: factContext.inputsHash, factsHash: 'pre-extraction-hash', protocolHash: factContext.protocolHash,
-      batches: [{ batchId: 'fact-batch', batchIndex: 0, nodeIds: ['chapter-1'] }] });
+      batches: [{ batchId: 'fact-batch', batchIndex: 0, nodeIds: ['chapter-1', 'chapter-2'] }] });
     store.saveHistoricalAdaptationContentCheckBatchResult({ checkRunId: 'check-facts', batchId: 'fact-batch', status: 'success',
-      result: { facts: [{ fact_key: 'location:project_location:项目地点', kind: 'location', canonical_value: '甲地',
-        chapter_node_ids: ['chapter-1'], evidence: ['地点为甲地。'] }] } });
+      result: { facts: [{ fact_key: 'name:project_name:项目名称', kind: 'name', canonical_value: '甲项目',
+        normalized_value: '甲项目', normalized_values: ['甲项目', '乙项目'], conflict: true,
+        chapter_node_ids: ['chapter-1'], evidence: ['项目名称为甲项目。', '项目名称为乙项目。'] }] } });
     store.upsertHistoricalAdaptationContentCheckRun({ checkRunId: 'check-facts', contentHash: factContext.contentHash,
       inputHash: factContext.inputsHash, factsHash: finalFactsHash, protocolHash: factContext.protocolHash,
-      expectedBatchCount: 1, expectedNodeIds: ['chapter-1'], status: 'success' });
+      expectedBatchCount: 1, expectedNodeIds: ['chapter-1', 'chapter-2'], status: 'success' });
     store.updateTechnicalPlan({ historicalAdaptationContentCheck: { status: 'success', findings: [],
       checked_content_hash: factContext.contentHash, checked_inputs_hash: factContext.inputsHash,
       checked_facts_hash: finalFactsHash, checked_protocol_inputs_hash: factContext.protocolHash,
-      rule_engine_version: 4, fact_schema_version: 1, repair_protocol_version: 1 } });
+      rule_engine_version: 4, fact_schema_version: 2, repair_protocol_version: 1 } });
     const snapshot = store.getHistoricalAdaptationContentFacts();
     assert.equal(snapshot.ok, true, snapshot.message);
-    assert.equal(snapshot.facts[0]?.canonical_value, '甲地');
+    assert.equal(snapshot.facts[0]?.canonical_value, '甲项目');
+    assert.deepEqual(snapshot.facts[0]?.chapter_node_ids, ['chapter-1']);
+    assert.deepEqual(snapshot.facts[0]?.normalized_values, ['甲项目', '乙项目']);
+    assert.deepEqual(snapshot.facts[0]?.values, ['甲项目', '乙项目']);
   } finally {
     database?.close();
     fs.rmSync(userDataPath, { recursive: true, force: true });

@@ -40,6 +40,7 @@ const {
   validateFactResolutions,
   collectDeterministicFindings,
   extractDeterministicAmountFacts,
+  extractDeterministicNameFacts,
   normalizeHistoricalAdaptationContentFindings,
   runHistoricalAdaptationContentCheckTask,
 } = require('./historicalAdaptationContentCheckTask.cjs');
@@ -91,6 +92,8 @@ test('事实与语义 prompt 只携带本地解析字段，不重复发送完整
   assert.doesNotMatch(semanticPrompt, /完整基线项目名称甲项目/);
   assert.ok(factsPrompt.length < 5000);
   assert.match(factsPrompt, /project_name|项目名称/);
+  assert.match(factsPrompt, /service_scope/);
+  assert.match(factsPrompt, /staffing/);
 });
 
 test('多章节候选缺 node_id 时按单章节重试并安全归属', async () => {
@@ -190,10 +193,10 @@ test('长正文分批检查并从各批事实证据保留跨章节冲突检查',
   assert.ok(patches.at(-1).historicalAdaptationContentCheck);
 });
 
-test('相同正文、输入和规则版本复用语义检查缓存', async () => {
+test('相同正文、输入和当前协议版本复用语义检查缓存', async () => {
   const repair = require('./historicalAdaptationConsistencyRepair.cjs');
   let calls = 0;
-  const cached = { status: 'success', findings: [], checked_content_hash: 'content', checked_inputs_hash: 'inputs', checked_facts_hash: 'facts-v1', checked_protocol_inputs_hash: repair.stableHash({ inputsHash: 'inputs', rule_engine_version: 4, fact_schema_version: 1, repair_protocol_version: 1 }), rule_engine_version: 4, fact_schema_version: 1, repair_protocol_version: 1 };
+  const cached = { status: 'success', findings: [], checked_content_hash: 'content', checked_inputs_hash: 'inputs', checked_facts_hash: 'facts-v2', checked_protocol_inputs_hash: repair.stableHash({ inputsHash: 'inputs', rule_engine_version: 4, fact_schema_version: 2, repair_protocol_version: 1, optimization_version: 1 }), rule_engine_version: 4, fact_schema_version: 2, repair_protocol_version: 1 };
   const patches = [];
   await runHistoricalAdaptationContentCheckTask({
     aiService: { requestJson: async (request) => { calls++; return request.response_format?.json_schema?.name === 'historical_adaptation_facts' ? { facts: [{ fact_id: 'generic', kind: 'service', canonical_value: '正文', evidence: ['正文'], chapter_node_ids: ['1'], conflict: false }] } : { findings: [] }; } },
@@ -204,6 +207,7 @@ test('相同正文、输入和规则版本复用语义检查缓存', async () =>
   });
   assert.equal(calls, 0);
   assert.equal(patches.at(-1).historicalAdaptationContentCheck.rule_engine_version, 4);
+  assert.equal(patches.at(-1).historicalAdaptationContentCheck.fact_schema_version, 2);
 });
 
 test('旧成功检查没有可用事实快照时重新提取事实', async () => {
@@ -438,6 +442,110 @@ test('模型未返回金额事实时从正文金额建立确定性事实并继�
   assert.equal(final[1].historicalAdaptationContentCheck.findings.some((finding) => finding.code === 'manual-review-required'), false);
 });
 
+test('模型漏掉显式项目名称时从正文建立名称事实并继续检查', async () => {
+  const checkpoints = [];
+  await runHistoricalAdaptationContentCheckTask({
+    aiService: { requestJson: async (request) => request.response_format?.json_schema?.name === 'historical_adaptation_facts'
+      ? { candidates: [
+        { kind: 'schedule', slot: 'contract_duration', qualifier: '服务期限', value: '合同签订生效之日起3年', evidence: '服务期限为合同签订生效之日起3年。' },
+        { kind: 'service', slot: 'service_scope', qualifier: '服务内容', value: '不动产登记服务', evidence: '横泾街道房地一体农村不动产登记服务' },
+      ] }
+      : { findings: [] } },
+    workspaceStore: { getHistoricalAdaptationContentCheckContext: () => ({
+      contentHash: 'name-content', inputsHash: 'name-inputs',
+      outlineData: { outline: [{ id: '1.2.7', title: '人员配备要求', content: '项目名称：横泾街道房地一体农村不动产登记服务\n服务期限为合同签订生效之日起3年。' }] },
+      items: [{ node_id: '1.2.7', status: 'success' }],
+    }) },
+    checkpointTask: (...args) => checkpoints.push(args),
+  });
+  const final = checkpoints.at(-1);
+  assert.equal(final[0].status, 'success');
+  assert.equal(final[1].historicalAdaptationContentCheck.status, 'success');
+  assert.equal(final[1].historicalAdaptationContentCheck.findings.some((finding) => finding.code === 'manual-review-required'), false);
+});
+
+test('显式名称字段按事实槽位提取并保留章节证据', () => {
+  const facts = extractDeterministicNameFacts([
+    { node_id: '1.2.7', content: '**项目名称**：横泾街道房地一体农村不动产登记服务 **采购人名称**：横泾街道办事处' },
+    { node_id: '1.2.8', content: '| 单位名称 | 乙方测绘公司' },
+  ], 'name-inputs');
+  assert.deepEqual(facts.map((fact) => [fact.kind, fact.slot, fact.canonical_value, fact.chapter_node_ids]), [
+    ['name', 'project_name', '横泾街道房地一体农村不动产登记服务', ['1.2.7']],
+    ['name', 'client_name', '横泾街道办事处', ['1.2.7']],
+    ['name', 'provider_name', '乙方测绘公司', ['1.2.8']],
+  ]);
+});
+
+test('模型已有其他名称事实时仍补齐项目名称并写入批次快照', async () => {
+  const savedResults = [];
+  const context = {
+    contentHash: 'mixed-name-content', inputsHash: 'mixed-name-inputs',
+    outlineData: { outline: [{ id: '1', title: '项目概况', content: '项目名称：甲公司\n采购人名称：甲公司' }] },
+    items: [{ node_id: '1', status: 'success' }],
+  };
+  await runHistoricalAdaptationContentCheckTask({
+    aiService: { requestJson: async (request) => request.response_format?.json_schema?.name === 'historical_adaptation_facts'
+      ? { facts: [{ fact_id: 'legacy-client-name', kind: 'name', canonical_value: '甲公司', evidence: ['采购人名称：甲公司'], chapter_node_ids: ['1'], conflict: false }] }
+      : { findings: [] } },
+    workspaceStore: {
+      getHistoricalAdaptationContentCheckContext: () => context,
+      getReusableHistoricalAdaptationContentCheckBatches: () => [],
+      upsertHistoricalAdaptationContentCheckRun() {},
+      createHistoricalAdaptationContentCheckBatches() {},
+      saveHistoricalAdaptationContentCheckBatchResult: ({ result }) => savedResults.push(result),
+      getHistoricalAdaptationContentCheckRun: () => ({ expected_batch_count: 1, expected_node_ids: ['1'] }),
+    },
+    checkpointTask() {},
+  });
+  const savedFacts = savedResults.flatMap((result) => result?.facts || []);
+  assert.ok(savedFacts.some((fact) => fact.fact_key === 'name:project_name:项目名称' && fact.canonical_value === '甲公司'));
+  assert.ok(savedFacts.some((fact) => fact.fact_key === 'name:client_name:采购人名称' && fact.canonical_value === '甲公司'));
+});
+
+test('模型名称与正文显式名称不一致时保留冲突证据', async () => {
+  let semanticPrompt = '';
+  await runHistoricalAdaptationContentCheckTask({
+    aiService: { requestJson: async (request) => {
+      if (request.response_format?.json_schema?.name === 'historical_adaptation_facts') {
+        return { candidates: [{ kind: 'name', slot: 'project_name', qualifier: '项目名称', value: '模型错误项目', evidence: '项目名称：模型错误项目' }] };
+      }
+      semanticPrompt = request.messages[0].content;
+      return { findings: [] };
+    } },
+    workspaceStore: { getHistoricalAdaptationContentCheckContext: () => ({
+      contentHash: 'name-conflict-content', inputsHash: 'name-conflict-inputs',
+      outlineData: { outline: [{ id: '1', title: '项目概况', content: '项目名称：正文正确项目' }] },
+      items: [{ node_id: '1', status: 'success' }],
+    }) },
+    checkpointTask() {},
+  });
+  assert.match(semanticPrompt, /模型错误项目/);
+  assert.match(semanticPrompt, /正文正确项目/);
+  assert.doesNotMatch(semanticPrompt, /模型错误项目,项目名称：正文正确项目/);
+});
+
+test('旧协议名称与正文显式名称不一致时合并为冲突事实', async () => {
+  let semanticPrompt = '';
+  await runHistoricalAdaptationContentCheckTask({
+    aiService: { requestJson: async (request) => {
+      if (request.response_format?.json_schema?.name === 'historical_adaptation_facts') {
+        return { facts: [{ fact_id: 'legacy-project-name', kind: 'name', canonical_value: '模型错误项目', evidence: ['项目名称：模型错误项目'], chapter_node_ids: ['1'], conflict: false }] };
+      }
+      semanticPrompt = request.messages[0].content;
+      return { findings: [] };
+    } },
+    workspaceStore: { getHistoricalAdaptationContentCheckContext: () => ({
+      contentHash: 'legacy-name-conflict-content', inputsHash: 'legacy-name-conflict-inputs',
+      outlineData: { outline: [{ id: '1', title: '项目概况', content: '项目名称：正文正确项目' }] },
+      items: [{ node_id: '1', status: 'success' }],
+    }) },
+    checkpointTask() {},
+  });
+  assert.match(semanticPrompt, /模型错误项目/);
+  assert.match(semanticPrompt, /正文正确项目/);
+  assert.match(semanticPrompt, /统一事实表的冲突证据包/);
+});
+
 test('同一长章节分片中的不同金额保持独立事实', () => {
   const facts = extractDeterministicAmountFacts([
     { node_id: '1', content: '项目预算为100万元。' },
@@ -560,14 +668,18 @@ test('全文事实、语义、修复和复查按阶段编排并原子应用两�
       context.inputsHash = repair.stableHash(context.items.map(({ node_id, item_fingerprint }) => ({ node_id, item_fingerprint })));
     },
   };
-  const hashes = () => ({ expected_content_hash: context.contentHash, expected_inputs_hash: context.inputsHash, expected_facts_hash: repair.stableHash(facts) });
+  const hashes = (request) => ({
+    expected_content_hash: context.contentHash,
+    expected_inputs_hash: context.inputsHash,
+    expected_facts_hash: /expected_facts_hash=([a-f0-9]+)/u.exec(request.messages[0].content)?.[1],
+  });
   await runHistoricalAdaptationContentCheckTask({
     aiService: { requestJson: async (request) => {
       calls.push(request);
       const name = request.response_format?.json_schema?.name;
       if (name === 'historical_adaptation_facts') return { facts };
       if (name === 'historical_adaptation_repair') return { repair_groups: [{
-        group_id: 'location-fix', fact_id: 'location-1', confidence: 'high', rationale: '统一地点', ...hashes(), chapters: chapters.map((chapter) => ({ node_id: chapter.node_id,
+        group_id: 'location-fix', fact_id: 'location-1', confidence: 'high', rationale: '统一地点', ...hashes(request), chapters: chapters.map((chapter) => ({ node_id: chapter.node_id,
           expected_node_content_hash: repair.hashContent(context.outlineData.outline.find((leaf) => leaf.id === chapter.node_id).content),
           expected_item_fingerprint: context.items.find((item) => item.node_id === chapter.node_id).item_fingerprint,
           old_text: '旧地点', new_text: '新地点', evidence: ['招标文件：新地点'] })) } ] };
@@ -619,6 +731,7 @@ test('复查持续冲突时最多发起两轮修复请求', async () => {
   assert.equal(applies, 2);
   assert.equal(checkpoints.at(-1)[1].historicalAdaptationContentCheck.status, 'error');
   assert.equal(checkpoints.at(-1)[1].historicalAdaptationContentCheck.repair_round, 2);
+  assert.ok(checkpoints.every((entry, index) => !index || entry[0].progress >= checkpoints[index - 1][0].progress), 'three check rounds and two repair rounds must never move progress backwards');
 });
 
 test('过期内容哈希的自动修复候选被拒绝且不写入正文', async () => {

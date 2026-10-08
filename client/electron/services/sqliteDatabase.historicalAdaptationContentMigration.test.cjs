@@ -34,7 +34,16 @@ function runAssertions() {
     database.close();
 
     database = createSqliteDatabase(app);
-    assert.equal(schemaVersion, 46);
+    assert.equal(schemaVersion, 47);
+    database.db.exec('DROP TABLE historical_adaptation_content_check_cache');
+    database.db.pragma('user_version = 46');
+    database.close();
+    database = createSqliteDatabase(app);
+    assert.ok(database.db.prepare("SELECT name FROM sqlite_master WHERE name = 'historical_adaptation_content_check_cache'").get());
+    database.db.exec('DROP TABLE historical_adaptation_content_check_cache');
+    database.close();
+    database = createSqliteDatabase(app);
+    assert.ok(database.db.prepare("SELECT name FROM sqlite_master WHERE name = 'historical_adaptation_content_check_cache'").get(), 'current-version health repair recreates missing cache');
     for (const tableName of ['technical_plan_meta', projectMeta]) {
       const columns = new Set(database.db.prepare(`PRAGMA table_info(${quoteIdentifier(tableName)})`).all().map((row) => row.name));
       assert.equal(columns.has('historical_adaptation_content_items_json'), true);

@@ -241,6 +241,8 @@ test('正文一致性检查展示稳定阶段、自动修复结果和任务失�
   assert.match(component, /checkTask\?\.status === 'error'/);
   assert.match(component, /checkTask\?\.error/);
   assert.doesNotMatch(component, /checkTask\?\.message/);
+  assert.match(component, /checkRunning\s*\?\s*Math\.min\(99,\s*Number\(checkTask\?\.progress/);
+  assert.match(component, /progressValue\}%/);
   assert.match(component, /checkAdvisoryCount = check\.findings\.filter\(\(finding\) => !finding\.blocking\)\.length/);
   assert.match(component, /checkStage === 'precheck'/);
 });

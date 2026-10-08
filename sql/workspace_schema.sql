@@ -143,6 +143,17 @@ CREATE INDEX IF NOT EXISTS idx_historical_adaptation_content_check_batches_run_o
 CREATE INDEX IF NOT EXISTS idx_historical_adaptation_content_check_batches_status
   ON historical_adaptation_content_check_batches(project_id, status);
 
+CREATE TABLE IF NOT EXISTS historical_adaptation_content_check_cache (
+  project_id TEXT NOT NULL DEFAULT '',
+  phase TEXT NOT NULL,
+  cache_key TEXT NOT NULL,
+  node_ids_json TEXT NOT NULL DEFAULT '[]',
+  result_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (project_id, phase, cache_key)
+);
+
 CREATE TABLE IF NOT EXISTS historical_adaptation_content_check_runs (
   project_id TEXT NOT NULL DEFAULT '',
   check_run_id TEXT NOT NULL,

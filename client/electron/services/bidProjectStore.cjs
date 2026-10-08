@@ -474,6 +474,7 @@ function createBidProjectStore({ app, db }) {
         WHERE derived_from_project_id = ?
       `).run(now(), id);
       db.prepare('DELETE FROM bid_projects WHERE project_id = ?').run(id);
+      db.prepare('DELETE FROM historical_adaptation_content_check_cache WHERE project_id = ?').run(id);
     });
     remove();
     forceRemoveSync(getBidProjectDir(app, id), {

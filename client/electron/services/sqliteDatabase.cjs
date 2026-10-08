@@ -3,7 +3,7 @@ const path = require('node:path');
 const Database = require('better-sqlite3');
 const { getWorkspaceDatabasePath } = require('../utils/paths.cjs');
 
-const schemaVersion = 46;
+const schemaVersion = 47;
 
 function safeProjectTablePart(projectId) {
   return String(projectId || '')
@@ -713,6 +713,21 @@ function createHistoricalAdaptationContentCheckBatchesSchema(db) {
       ON historical_adaptation_content_check_batches(project_id, check_run_id, batch_index);
     CREATE INDEX IF NOT EXISTS idx_historical_adaptation_content_check_batches_status
       ON historical_adaptation_content_check_batches(project_id, status);
+  `);
+}
+
+function createHistoricalAdaptationContentCheckCacheSchema(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS historical_adaptation_content_check_cache (
+      project_id TEXT NOT NULL DEFAULT '',
+      phase TEXT NOT NULL,
+      cache_key TEXT NOT NULL,
+      node_ids_json TEXT NOT NULL DEFAULT '[]',
+      result_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (project_id, phase, cache_key)
+    );
   `);
 }
 
@@ -1818,6 +1833,11 @@ function createFeasibilityReportSchema(db) {
 
 const schemaHealthTableGroups = [
   {
+    version: 47,
+    tables: ['historical_adaptation_content_check_cache'],
+    repair: createHistoricalAdaptationContentCheckCacheSchema,
+  },
+  {
     version: 45,
     tables: ['historical_adaptation_content_check_batches'],
     repair: createHistoricalAdaptationContentCheckBatchesSchema,
@@ -2518,6 +2538,7 @@ const migrations = [
   { version: 44, description: '历史标书逐章方案与不可变来源版本', up: migrateHistoricalAdaptationPlans },
   { version: 45, description: '历史标书一致性检查批次缓存', up: createHistoricalAdaptationContentCheckBatchesSchema },
   { version: 46, description: '历史标书全文事实诊断与人工修正', up: addHistoricalAdaptationContentFactRepairState },
+  { version: 47, description: '历史标书一致性检查按真实输入复用', up: createHistoricalAdaptationContentCheckCacheSchema },
 ];
 
 function timestampForFileName() {

@@ -77,14 +77,14 @@ function runAssertions() {
     const checkedProtocolInputsHash = hash({
       inputsHash: context.inputsHash,
       rule_engine_version: 4,
-      fact_schema_version: 1,
+      fact_schema_version: 2,
       repair_protocol_version: 1,
     });
     store.updateTechnicalPlan({ historicalAdaptationContentCheck: {
       status: 'success', stage: 'semantic', findings: [{ id: 'old', blocking: false }],
       checked_content_hash: context.contentHash, checked_inputs_hash: context.inputsHash,
       checked_facts_hash: expectedFactsHash, checked_protocol_inputs_hash: checkedProtocolInputsHash,
-      rule_engine_version: 4, fact_schema_version: 1, repair_protocol_version: 1,
+      rule_engine_version: 4, fact_schema_version: 2, repair_protocol_version: 1,
       auto_repaired_count: 0, manual_count: 0, repair_round: 0,
     } });
     const chapters = Object.entries(oldContents).map(([node_id, content]) => ({
@@ -157,8 +157,8 @@ function runAssertions() {
       store.updateTechnicalPlan({ historicalAdaptationContentCheck: {
         status: 'success', stage: 'semantic', findings: [], checked_content_hash: current.contentHash,
         checked_inputs_hash: current.inputsHash, checked_facts_hash: expectedFactsHash,
-        checked_protocol_inputs_hash: hash({ inputsHash: current.inputsHash, rule_engine_version: 4, fact_schema_version: 1, repair_protocol_version: 1 }),
-        rule_engine_version: 4, fact_schema_version: 1, repair_protocol_version: 1,
+        checked_protocol_inputs_hash: hash({ inputsHash: current.inputsHash, rule_engine_version: 4, fact_schema_version: 2, repair_protocol_version: 1 }),
+        rule_engine_version: 4, fact_schema_version: 2, repair_protocol_version: 1,
       } });
       const request = {
         expectedContentHash: current.contentHash,
@@ -187,15 +187,15 @@ function runAssertions() {
       ['check input hash', 'checked_inputs_hash', 'stale-inputs', /check input hash/i],
       ['check protocol hash', 'checked_protocol_inputs_hash', 'stale-protocol', /check protocol inputs hash/i],
       ['check rule version', 'rule_engine_version', 3, /check rule engine version/i],
-      ['check fact schema version', 'fact_schema_version', 2, /check fact schema version/i],
+      ['check fact schema version', 'fact_schema_version', 1, /check fact schema version/i],
       ['check repair protocol version', 'repair_protocol_version', 2, /check repair protocol version/i],
     ]) {
       const current = store.getHistoricalAdaptationContentCheckContext();
       const validCheck = {
         status: 'success', stage: 'semantic', findings: [], checked_content_hash: current.contentHash,
         checked_inputs_hash: current.inputsHash, checked_facts_hash: expectedFactsHash,
-        checked_protocol_inputs_hash: hash({ inputsHash: current.inputsHash, rule_engine_version: 4, fact_schema_version: 1, repair_protocol_version: 1 }),
-        rule_engine_version: 4, fact_schema_version: 1, repair_protocol_version: 1,
+        checked_protocol_inputs_hash: hash({ inputsHash: current.inputsHash, rule_engine_version: 4, fact_schema_version: 2, repair_protocol_version: 1 }),
+        rule_engine_version: 4, fact_schema_version: 2, repair_protocol_version: 1,
       };
       store.updateTechnicalPlan({ historicalAdaptationContentCheck: { ...validCheck, [field]: value } });
       const request = {
@@ -211,8 +211,8 @@ function runAssertions() {
     store.updateTechnicalPlan({ historicalAdaptationContentCheck: {
       status: 'success', stage: 'semantic', findings: [], checked_content_hash: restoredContext.contentHash,
       checked_inputs_hash: restoredContext.inputsHash, checked_facts_hash: expectedFactsHash,
-      checked_protocol_inputs_hash: hash({ inputsHash: restoredContext.inputsHash, rule_engine_version: 4, fact_schema_version: 1, repair_protocol_version: 1 }),
-      rule_engine_version: 4, fact_schema_version: 1, repair_protocol_version: 1,
+      checked_protocol_inputs_hash: hash({ inputsHash: restoredContext.inputsHash, rule_engine_version: 4, fact_schema_version: 2, repair_protocol_version: 1 }),
+      rule_engine_version: 4, fact_schema_version: 2, repair_protocol_version: 1,
     } });
     const manualState = store.loadTechnicalPlan();
     store.updateTechnicalPlan({ historicalAdaptationContentItem: { ...manualState.historicalAdaptationContentItems[0], content_origin: 'manual' } });
