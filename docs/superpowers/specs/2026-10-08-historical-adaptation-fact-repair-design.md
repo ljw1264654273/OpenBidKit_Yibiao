@@ -42,8 +42,8 @@ P0/P1 阻断卡片同时保留现有点击定位行为，并在可识别事实�
 
 在 `technicalPlanStore` 增加读取当前项目一致性事实快照的查询能力：
 
-- 为 `historical_adaptation_content_check_batches` 增加 `content_hash` 字段（运行时 migration 与 `sql/workspace_schema.sql` 同步），每个批次写入同一检查运行的正文、输入、事实和协议指纹；
-- 只选择单一的最新完整 `check_run_id`：所有该运行的批次必须存在且为 `success`，并且 `content_hash`、`input_hash`、`facts_hash`、`protocol_hash` 与当前上下文完全匹配；部分失败或旧运行不参与汇总；
+- 为 `historical_adaptation_content_check_batches` 增加 `content_hash` 字段，并新增 `historical_adaptation_content_check_runs` 运行清单（`project_id`、`check_run_id`、`content_hash`、`input_hash`、`facts_hash`、`protocol_hash`、`expected_batch_count`、`expected_node_ids_json`、`created_at`、`status`）；运行时 migration 与 `sql/workspace_schema.sql` 同步。创建批次时同一事务写入清单和每个批次的正文/输入/事实/协议指纹；更新、复用、失效查询均必须带上 `content_hash`。
+- 只选择单一的最新完整 `check_run_id`：运行清单状态与当前指纹匹配、批次数量等于 `expected_batch_count`、`batch_index` 从 0 连续、所有批次为 `success`，且批次节点并集与 `expected_node_ids_json` 完全一致；部分失败、缺批次或旧运行不参与汇总；
 - 按 `batch_index` 合并该运行的 `result_json.facts`，以 `fact_id/fact_key` 去重并合并章节 ID、证据和值集合，不跨运行混合事实；
 - 将批次中的事实规范化为稳定的事实条目，并附带来源章节、证据、冲突字段；
 - 若当前检查失败但批次已成功，返回该次提取结果及 `checkStatus/error`；
@@ -51,12 +51,12 @@ P0/P1 阻断卡片同时保留现有点击定位行为，并在可识别事实�
 
 增加项目级人工事实修正的读写能力，采用 `technical_plan_meta.historical_adaptation_content_fact_overrides_json`（运行时 migration 与 `sql/workspace_schema.sql` 同步），数组按 `fact_key` 唯一。每条记录包含 `fact_key`、`canonical_value`、`kind`、`basis`、`note`、`updated_at`，保存同 key 覆盖旧值，空值删除该修正。
 
-修正记录以稳定排序和明确字段做 canonical JSON，纳入一致性检查 `inputSnapshot`，从而同时改变 `inputsHash`、`protocolInputsHash` 和后续 `factsHash`。检查上下文将修正作为可信输入参与事实裁决和自动修复；旧快照无法命中。保存修正时使用 compare-and-write：payload 必须携带当前 `contentHash`、`inputsHash`、`protocolHash`，Main 重新计算上下文并在事务内比对，任一不一致则拒绝写入并返回“内容已变化，请重新读取”。
+修正记录以稳定排序和明确字段做 canonical JSON，加入 `inputSnapshot.manual_fact_overrides`；`inputsHash = stableHash(JSON.stringify(inputSnapshot))`，`protocolHash = stableHash(JSON.stringify({ inputsHash, rule_engine_version, fact_schema_version, repair_protocol_version }))`。任务完成事实提取后先将 overrides 与提取事实合并，再计算 `factsHash = factRegistry.factsHash(effectiveFacts)`，因此 override 会同时改变三类指纹，旧快照无法命中。保存修正时使用 compare-and-write：payload 必须携带当前 `contentHash`、`inputsHash`、`protocolHash`，Main 在一个 `db.transaction()` 内读取正文/输入、规范化修正、计算三类指纹、比对 expected 值并写入；任一不一致则回滚并返回“内容已变化，请重新读取”。
 
-通过现有 `technicalPlanIpc.cjs`、`preload.cjs`、`shared/types/ipc.ts` 暴露以下薄通道；业务逻辑留在 Main service/store，Renderer 不直接访问 SQLite：
+通过现有 `technicalPlanIpc.cjs`、`preload.cjs`、`shared/types/ipc.ts` 暴露以下薄通道；业务逻辑留在 Main service/store，Renderer 不直接访问 SQLite。`shared/types/ipc.ts` 明确定义 `HistoricalAdaptationContentFactsResult` 与 `SaveHistoricalAdaptationFactOverridesResult` 两个 discriminated union：成功分支包含 `ok: true`、指纹、事实条目、来源运行；失败分支包含 `ok: false`、稳定 `code`（`unavailable`/`stale`/`conflict`/`invalid`）、用户可见 `message` 和当前指纹（若可得）：
 
-- `technical-plan:get-historical-adaptation-content-facts`：payload `{ projectId }`，返回当前上下文指纹、事实条目、来源批次、可用状态和原因；
-- `technical-plan:save-historical-adaptation-content-fact-overrides`：payload `{ projectId, expectedContentHash, expectedInputsHash, expectedProtocolHash, overrides }`，返回保存后的项目状态/新指纹；
+- `technical-plan:get-historical-adaptation-content-facts`：payload `{ projectId }`，成功返回当前 `contentHash`/`inputsHash`/`protocolHash`、事实条目、来源运行和 `checkStatus`；
+- `technical-plan:save-historical-adaptation-content-fact-overrides`：payload `{ projectId, expectedContentHash, expectedInputsHash, expectedProtocolHash, overrides }`，成功返回保存后的 `TechnicalPlanState` 局部 patch 与新指纹；
 
 保存成功后 Renderer 显式调用现有 `tasks:start-historical-adaptation-content-check`，不在保存 IPC 内隐式启动任务；任务使用同一项目上下文读取修正记录。
 
@@ -84,7 +84,7 @@ P0/P1 阻断卡片同时保留现有点击定位行为，并在可识别事实�
 ## 验证
 
 - 新增/修改 Main、preload、IPC 后执行对应 `.cjs` 的 `node --check`，并运行 `cd client; npm run build`。
-- 为事实聚合增加跨 run、部分失败批次、contentHash 变化和重复事实合并测试；为人工修正增加 canonical hash、覆盖/删除、过期 compare-and-write 和并发保存测试。
+- 为运行清单/事实聚合增加跨 run、部分失败批次、批次数量/章节覆盖、contentHash 变化和重复事实合并测试；为人工修正增加 canonical hash、覆盖/删除、过期 compare-and-write 和并发保存测试。
 - 为 IPC 增加通道注册、payload 指纹拒绝和返回类型的定向测试。
 - 为 Renderer 增加事实弹窗、定位章节、保存修正和重跑按钮的组件/页面测试（沿用现有测试风格）。
 - 手动验证：事实成功、事实提取失败、跨章节冲突、人工修正后重跑、正文修改后重跑五条链路。
