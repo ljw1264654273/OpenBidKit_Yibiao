@@ -274,7 +274,7 @@ function summarizeBaseline(context, limit = 1600) {
   return summary.length > limit ? `${summary.slice(0, Math.max(0, limit - 12))}…（已压缩）` : summary;
 }
 
-function buildSemanticCheckPrompt(context, { chapters: suppliedChapters, collectFacts = false, factSummaries, baselineSummary } = {}) {
+function buildSemanticCheckPrompt(context, { chapters: suppliedChapters, collectFacts = false, factSummaries, baselineSummary, facts = [] } = {}) {
   const chapters = suppliedChapters || flattenLeaves(context.outlineData?.outline || []).map((leaf) => ({
     node_id: leaf.nodeId,
     path: leaf.path.join(' / '),
@@ -288,7 +288,7 @@ function buildSemanticCheckPrompt(context, { chapters: suppliedChapters, collect
 ${collectFacts ? '另返回不超过8000字的 fact_summary：按章节ID记录工作量、日期、阶段、地点、服务范围、实施对象及其他可能跨章节冲突的事实与原文证据。保留不同口径，不以一般性内容概括代替事实；没有事实也明确标注章节ID。' : ''}
 
 本批相关本地事实字段（基线正文仅在本地解析，不重复发送原文）：
-${baselineSummary || JSON.stringify(buildLocalFactSummary(context, chapters))}
+${baselineSummary || JSON.stringify(buildLocalFactSummary(context, chapters, { facts }))}
 
 ${factSummaries ? `跨批次事实证据（覆盖全部章节，重点核对不同批次对同一事实的冲突，不要求扩写正文）：\n${JSON.stringify(factSummaries)}` : `迁移后正文：\n${JSON.stringify(chapters)}`}`;
 }
@@ -532,8 +532,8 @@ function buildLocalFactRecords(context, chapterIds = []) {
 function buildLocalFactSummary(context, chapters = [], { facts = [], conflictOnly = false } = {}) {
   const chapterIds = new Set((Array.isArray(chapters) ? chapters : []).map((chapter) => String(chapter?.node_id || '')).filter(Boolean));
   const records = [
-    ...buildLocalFactRecords(context, [...chapterIds]),
     ...(Array.isArray(facts) ? facts : []),
+    ...buildLocalFactRecords(context, [...chapterIds]),
   ];
   const seen = new Set();
   const result = [];
@@ -709,11 +709,11 @@ async function extractFacts(aiService, context, checkpointTask, workspaceStore) 
   if (/(?:￥|\$|\d[\d,.]*\s*(?:万元|万|元))/u.test(allText) && !normalized.some((fact) => fact.kind === 'amount')) {
     normalized = [...normalized, ...extractDeterministicAmountFacts(sourceBatches.flat(), context.inputsHash)];
   }
+  normalized = applyFactOverridesToFacts(normalized, context.factOverrides, context.inputsHash);
   if (/(?:￥|\$|\d[\d,.]*\s*(?:万元|万|元))/u.test(allText) && !normalized.some((fact) => fact.kind === 'amount')) throw new Error('全文事实表缺少金额事实');
   if (/(?:项目名称|名称\s*[:：]|公司名称|单位名称)/u.test(allText) && !normalized.some((fact) => fact.kind === 'name')) throw new Error('全文事实表缺少关键名称事实');
   const requiredKinds = [[/地点|位置|地址/u, 'location'], [/对象|用户|人员|受众/u, 'object'], [/工作量|数量|宗|人次|面积/u, 'workload'], [/工期|进度|节点|日期/u, 'schedule'], [/服务|范围|内容/u, 'service']];
   for (const [pattern, kind] of requiredKinds) if (pattern.test(allText) && !normalized.some((fact) => fact.kind === kind)) throw new Error(`全文事实表缺少${kind}事实`);
-  normalized = applyFactOverridesToFacts(normalized, context.factOverrides, context.inputsHash);
   normalized.invalidCandidates = invalidCandidates;
   const finalFactsHash = factRegistry.factsHash(normalized);
   if (typeof workspaceStore?.upsertHistoricalAdaptationContentCheckRun === 'function') workspaceStore.upsertHistoricalAdaptationContentCheckRun({ checkRunId: runId, contentHash: context.contentHash, inputHash: context.inputsHash, factsHash: finalFactsHash, protocolHash, expectedBatchCount: descriptors.length, expectedNodeIds: [...chapterIds], status: 'success' });
@@ -723,14 +723,16 @@ async function extractFacts(aiService, context, checkpointTask, workspaceStore) 
 async function checkSemanticBatches(aiService, context, checkpointTask, facts) {
   const findings = [];
   const resolutions = [];
-  const conflictBudget = getBatchBudgetChars(aiService, context, { summaryChars: JSON.stringify(buildLocalFactSummary(context)).length });
+  const manualFacts = (facts || []).filter((fact) => fact.manually_overridden);
+  const summaryChars = JSON.stringify(buildLocalFactSummary(context, [], { facts: manualFacts })).length;
+  const conflictBudget = getBatchBudgetChars(aiService, context, { summaryChars });
   const conflictFacts = compactConflictFactsForPrompt((facts || []).filter((fact) => fact.conflict), conflictBudget);
-  const semanticBudget = getBatchBudgetChars(aiService, context, { summaryChars: JSON.stringify(buildLocalFactSummary(context)).length, evidenceChars: JSON.stringify(conflictFacts).length });
+  const semanticBudget = getBatchBudgetChars(aiService, context, { summaryChars, evidenceChars: JSON.stringify(conflictFacts).length });
   const batches = buildSemanticBatches(context.outlineData?.outline || [], { inputBudgetChars: semanticBudget, contextLengthLimit: undefined });
   const sourceBatches = batches.length ? batches : [chapterRecords(context).map((chapter) => ({ node_id: chapter.node_id, path: (chapter.path || []).join(' / '), content: chapter.content }))];
   for (const [index, chapters] of sourceBatches.entries()) {
     const response = await requestStructured(aiService, {
-      messages: [{ role: 'user', content: `${buildSemanticCheckPrompt(context, { chapters })}\n统一事实表的冲突证据包（仅包含需裁决的事实）：\n${JSON.stringify(conflictFacts)}` }],
+      messages: [{ role: 'user', content: `${buildSemanticCheckPrompt(context, { chapters, facts: manualFacts })}\n统一事实表的冲突证据包（仅包含需裁决的事实）：\n${JSON.stringify(conflictFacts)}` }],
       response_format: CONTENT_CHECK_RESPONSE_FORMAT, logTitle: `历史标书适配-语义一致性检查-${index + 1}`,
     }, (value) => {
       if (!Array.isArray(value?.findings) || !value.findings.every(isValidSemanticFinding)) throw new Error('模型未返回有效的一致性检查结果');

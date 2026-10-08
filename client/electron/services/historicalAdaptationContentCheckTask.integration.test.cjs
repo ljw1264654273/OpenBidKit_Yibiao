@@ -48,6 +48,25 @@ async function runAssertions() {
     await runHistoricalAdaptationContentCheckTask(task);
     assert.equal(requests, 0, 'complete fact snapshot should allow semantic cache reuse');
     assert.equal(store.getHistoricalAdaptationContentFacts().ok, true);
+
+    store.updateTechnicalPlan({ outlineData: { outline: [{ id: 'chapter-1', title: '概况', content: '项目名称：' }] } });
+    task.aiService.requestJson = async (request) => request.response_format?.json_schema?.name === 'historical_adaptation_facts' ? { facts: [] } : { findings: [] };
+    await assert.rejects(runHistoricalAdaptationContentCheckTask(task), /缺少关键名称事实/);
+    const failedSnapshot = store.getHistoricalAdaptationContentFacts();
+    assert.equal(failedSnapshot.ok, false);
+    const saved = store.saveHistoricalAdaptationContentFactOverrides({
+      expectedContentHash: failedSnapshot.contentHash,
+      expectedInputsHash: failedSnapshot.inputsHash,
+      expectedProtocolHash: failedSnapshot.protocolHash,
+      overrides: [{ fact_key: 'name:project_name:项目名称', kind: 'name', canonical_value: '人工确认项目', basis: 'manual', note: '人工确认' }],
+    });
+    assert.equal(saved.ok, true, saved.message);
+    assert.equal(store.getHistoricalAdaptationContentFacts().overrides[0].canonical_value, '人工确认项目');
+    await runHistoricalAdaptationContentCheckTask(task);
+    const repairedSnapshot = store.getHistoricalAdaptationContentFacts();
+    assert.equal(repairedSnapshot.ok, true, repairedSnapshot.message);
+    assert.equal(repairedSnapshot.facts.find((fact) => fact.fact_key === 'name:project_name:项目名称')?.canonical_value, '人工确认项目');
+    assert.equal(store.loadTechnicalPlan().historicalAdaptationContentCheck.status, 'success');
   } finally {
     database?.close();
     fs.rmSync(userDataPath, { recursive: true, force: true });

@@ -36,6 +36,29 @@ const chapterFilterLabels: Record<ChapterFilter, string> = {
   complete: '已完成',
 };
 
+const factFields = [
+  ['name', 'project_name', '项目名称'], ['name', 'project_number', '项目编号'],
+  ['name', 'client_name', '采购人名称'], ['name', 'provider_name', '投标人名称'],
+  ['location', 'project_location', '项目地点'], ['location', 'service_location', '服务地点'], ['location', 'client_address', '采购人地址'],
+  ['object', 'service_object', '服务对象'], ['object', 'deliverable', '成果对象'], ['object', 'coordinate_system', '坐标系统'],
+  ['workload', 'service_quantity', '工作量'], ['workload', 'staffing', '人员配备'], ['workload', 'threshold', '数量阈值'],
+  ['amount', 'budget', '预算金额'], ['amount', 'fee', '费用'], ['amount', 'bid_amount', '投标金额'], ['amount', 'unit_price', '单价'],
+  ['schedule', 'contract_duration', '合同期限'], ['schedule', 'completion_deadline', '完成期限'], ['schedule', 'milestone', '进度节点'], ['schedule', 'payment_schedule', '付款安排'],
+  ['service', 'service_scope', '服务范围'], ['service', 'deliverable_scope', '成果范围'], ['service', 'method', '实施方法'],
+] as const;
+const factKindLabels: Record<string, string> = { name: '名称', location: '地点', object: '对象', workload: '工作量', amount: '金额', schedule: '工期进度', service: '服务内容' };
+
+function mergeFactEntries(snapshot: HistoricalAdaptationContentFactsSnapshot): HistoricalAdaptationContentFactEntry[] {
+  const entries = new Map(snapshot.facts.map((fact) => [String(fact.fact_key || fact.fact_id || ''), fact]));
+  for (const override of snapshot.overrides) {
+    const fact = entries.get(override.fact_key);
+    entries.set(override.fact_key, fact
+      ? { ...fact, canonical_value: override.canonical_value, manually_overridden: true, conflict: false }
+      : { fact_key: override.fact_key, kind: override.kind, canonical_value: override.canonical_value, manually_overridden: true, chapter_node_ids: [], evidence: [override.note || '人工补录事实'] });
+  }
+  return [...entries.values()];
+}
+
 const modeLabels: Record<HistoricalAdaptationContentMode, string> = {
   direct: '直接迁移',
   'local-rewrite': '局部改写',
@@ -137,6 +160,10 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onPre
   const [factsSaving, setFactsSaving] = useState(false);
   const [factsSnapshot, setFactsSnapshot] = useState<HistoricalAdaptationContentFactsSnapshot | null>(null);
   const [factDrafts, setFactDrafts] = useState<Record<string, string>>({});
+  const [factEntries, setFactEntries] = useState<HistoricalAdaptationContentFactEntry[]>([]);
+  const [newFactSlot, setNewFactSlot] = useState<string>('project_name');
+  const [newFactValue, setNewFactValue] = useState('');
+  const [newFactNote, setNewFactNote] = useState('');
   const strategyDefaults = useRef<{ nodeId?: string; mode: HistoricalAdaptationContentMode | ''; instruction: string }>({ mode: '', instruction: '' });
   const recommendationRequest = useRef('');
   const { showToast } = useToast();
@@ -148,6 +175,7 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onPre
   const selectedLeaf = leaves.find((entry) => entry.item.id === selectedId) || leaves[0];
   const selectedItem = selectedLeaf ? itemByNode.get(selectedLeaf.item.id) : undefined;
   const dirty = Boolean(selectedLeaf && draft !== (selectedLeaf.item.content || ''));
+  const factsEditable = Boolean(factsSnapshot?.contentHash && factsSnapshot.inputsHash && factsSnapshot.protocolHash);
   const selectedNeedsManualConfirmation = Boolean(selectedItem && !selectedItem.confirmed_at && (
     selectedItem.status !== 'success'
     || selectedItem.residuals.length > 0
@@ -453,6 +481,10 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onPre
   const openFactsDialog = async () => {
     setFactsDialogOpen(true);
     setFactsLoading(true);
+    setFactEntries([]);
+    setFactDrafts({});
+    setNewFactValue('');
+    setNewFactNote('');
     if (typeof window.yibiao.technicalPlan.getHistoricalAdaptationContentFacts !== 'function') {
       setFactsSnapshot({ ok: false, code: 'unavailable', message: missingFactsBridgeMessage, contentHash: '', inputsHash: '', protocolHash: '', checkStatus: check.status, facts: [], overrides: [] });
       showToast(missingFactsBridgeMessage, 'error');
@@ -462,8 +494,9 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onPre
     try {
       const snapshot = await window.yibiao.technicalPlan.getHistoricalAdaptationContentFacts({ projectId });
       setFactsSnapshot(snapshot);
-      setFactDrafts(Object.fromEntries((snapshot.facts || []).map((fact) => [String(fact.fact_key || fact.fact_id || ''), fact.canonical_value || '']).filter(([key]) => key)));
-      if (!snapshot.ok) showToast(`${snapshot.message || '当前没有可用的全文事实快照'}${snapshot.code === 'stale' ? ' 请重新运行一致性检查。' : ''}`, 'info');
+      const entries = mergeFactEntries(snapshot);
+      setFactEntries(entries);
+      setFactDrafts(Object.fromEntries(entries.map((fact) => [String(fact.fact_key || fact.fact_id || ''), fact.canonical_value || '']).filter(([key]) => key)));
     } catch (error) {
       setFactsSnapshot({ ok: false, code: 'unavailable', message: error instanceof Error ? error.message : '全文事实读取失败', contentHash: '', inputsHash: '', protocolHash: '', checkStatus: check.status, facts: [], overrides: [] });
       showToast('全文事实读取失败，请先运行一致性检查后重试', 'error');
@@ -472,22 +505,44 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onPre
     }
   };
 
+  const addManualFact = () => {
+    if (!newFactValue.trim()) {
+      showToast('请输入确认后的事实值', 'info');
+      return;
+    }
+    const [kind, slot, label] = factFields.find((field) => field[1] === newFactSlot)!;
+    const key = `${kind}:${slot}:${label}`;
+    setFactEntries((current) => current.some((fact) => (fact.fact_key || fact.fact_id) === key) ? current : [...current, {
+      fact_key: key, kind, canonical_value: '', chapter_node_ids: [], evidence: [newFactNote.trim() || '人工补录事实'],
+    }]);
+    setFactDrafts((current) => ({ ...current, [key]: newFactValue.trim() }));
+    setNewFactValue('');
+    setNewFactNote('');
+  };
+
   const saveFactRepairs = async () => {
-    if (!factsSnapshot?.ok || factsSaving) return;
+    if (!factsSnapshot || !factsEditable || factsSaving) return;
+    if (dirty) {
+      showToast('当前章节有未保存修改，请先保存后再修正事实', 'info');
+      return;
+    }
+    if (newFactValue.trim()) {
+      showToast('补录值尚未添加，请先点击“添加事实”再保存', 'info');
+      return;
+    }
     if (typeof window.yibiao.technicalPlan.saveHistoricalAdaptationContentFactOverrides !== 'function') {
       showToast(missingFactsBridgeMessage, 'error');
       return;
     }
     setFactsSaving(true);
+    let saved = false;
     try {
-      const priorOverrides = new Map(factsSnapshot.overrides.map((item) => [item.fact_key, item]));
-      const overrides = factsSnapshot.facts.map((fact) => {
+      const priorEntries = new Map(mergeFactEntries(factsSnapshot).map((fact) => [String(fact.fact_key || fact.fact_id || ''), fact]));
+      const overrides = factEntries.map((fact) => {
         const key = String(fact.fact_key || fact.fact_id || '').trim();
         const canonicalValue = String(factDrafts[key] || '').trim();
-        const unchanged = canonicalValue === String(fact.canonical_value || '').trim();
-        if (unchanged && !priorOverrides.has(key)) return null;
-        if (unchanged && priorOverrides.has(key)) return null;
-        return { fact_key: key, canonical_value: canonicalValue, kind: fact.kind, basis: 'manual', note: '一致性检查事实弹窗人工修正' };
+        if (canonicalValue === String(priorEntries.get(key)?.canonical_value || '').trim()) return null;
+        return { fact_key: key, canonical_value: canonicalValue, kind: fact.kind, basis: 'manual', note: fact.evidence[0] || '一致性检查事实弹窗人工修正' };
       }).filter((item): item is NonNullable<typeof item> => Boolean(item?.fact_key));
       const result = await window.yibiao.technicalPlan.saveHistoricalAdaptationContentFactOverrides({
         projectId,
@@ -501,13 +556,15 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onPre
         if (result.code === 'conflict') await openFactsDialog();
         return;
       }
+      saved = true;
+      await openFactsDialog();
       const nextState = await window.yibiao.technicalPlan.loadState({ projectId });
       onStateChange(nextState);
-      setFactsSnapshot({ ...factsSnapshot, ok: false, code: 'stale', message: '事实修正已保存，请重新运行一致性检查。', overrides: result.overrides, inputsHash: result.inputsHash });
-      showToast('事实修正已保存，正在重新运行一致性检查', 'success');
       await window.yibiao.tasks.startHistoricalAdaptationContentCheck({ projectId });
+      showToast('事实修正已保存，一致性检查已在后台启动', 'success');
     } catch (error) {
-      showToast(error instanceof Error ? `保存事实修正失败：${error.message}` : '保存事实修正失败，请重试', 'error');
+      const message = error instanceof Error ? error.message : '请重试';
+      showToast(saved ? `事实修正已保存，但重新检查启动失败：${message}。请点击“重新运行一致性检查”。` : `保存事实修正失败：${message}`, 'error');
     } finally {
       setFactsSaving(false);
     }
@@ -786,10 +843,10 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onPre
           <span>仅提示 <strong>{checkAdvisoryCount}</strong></span>
           <span>人工处理 <strong>{manualCount}</strong></span>
         </div>
-        {check.findings.length ? <div className="adaptation-content-check-findings">{check.findings.map((finding) => <button type="button" key={finding.id} onClick={() => finding.node_ids[0] && requestNavigation({ type: 'chapter', nodeId: finding.node_ids[0], reveal: true })}><span>{finding.severity}{finding.blocking ? ' · 阻断' : ' · 提示'}</span><strong>{finding.message}</strong><div><small className="is-chapter-path">{finding.node_ids.length ? `对应章节：${finding.node_ids.map((nodeId) => {
+        {check.findings.length ? <div className="adaptation-content-check-findings">{check.findings.map((finding) => <button type="button" key={finding.id} disabled={!finding.node_ids.length && (running || factsLoading || factsSaving)} onClick={() => finding.node_ids[0] ? requestNavigation({ type: 'chapter', nodeId: finding.node_ids[0], reveal: true }) : void openFactsDialog()}><span>{finding.severity}{finding.blocking ? ' · 阻断' : ' · 提示'}</span><strong>{finding.message}</strong><div><small className="is-chapter-path">{finding.node_ids.length ? `对应章节：${finding.node_ids.map((nodeId) => {
           const entry = leaves.find((leaf) => leaf.item.id === nodeId);
           return entry ? `${nodeId} ${entry.path.join(' / ')}` : nodeId;
-        }).join('；')}` : '全局问题'}</small>{finding.evidence ? <small>{finding.evidence}</small> : null}</div></button>)}</div> : null}
+        }).join('；')}` : '全局问题 · 点击补录事实或重试检查'}</small>{finding.evidence ? <small>{finding.evidence}</small> : null}</div></button>)}</div> : null}
       </section>
 
       <section className={`historical-adaptation-content-acceptance${stageConfirmed ? ' is-complete' : ''}`}>
@@ -802,20 +859,32 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onPre
         onOpenChange={(open) => { if (!factsSaving) setFactsDialogOpen(open); }}
         kicker="一致性检查输入"
         title="全文事实与证据"
-        description="核对提取值、冲突来源和原文证据。修正仅覆盖一致性检查的事实口径，不会修改章节正文或标书生成的全局事实。"
+        description="核对提取值、冲突来源和原文证据。缺少事实时可人工补录，保存后重新检查。修正仅覆盖一致性检查的事实口径，不会修改章节正文或标书生成的全局事实。"
         cardClassName="historical-adaptation-facts-dialog"
         actions={<>
           <button type="button" className="secondary-action" disabled={factsSaving || running} onClick={() => { setFactsDialogOpen(false); void runConsistencyCheck(); }}>重新运行一致性检查</button>
-          <button type="button" className="primary-action" disabled={!factsSnapshot?.ok || factsLoading || factsSaving || running} onClick={() => { void saveFactRepairs(); }}>{factsSaving ? '保存并检查中...' : '保存修正并重新检查'}</button>
+          <button type="button" className="primary-action" disabled={!factsEditable || factsLoading || factsSaving || running} onClick={() => { void saveFactRepairs(); }}>{factsSaving ? '保存并检查中...' : '保存修正并重新检查'}</button>
         </>}
       >
         <div className="historical-adaptation-facts-body">
-          {factsLoading ? <div className="adaptation-content-empty" role="status">正在读取全文事实...</div> : !factsSnapshot?.ok ? <div className="historical-adaptation-content-error">{factsSnapshot?.message || '尚无可用的全文事实快照。请先运行一致性检查，完成事实提取后再查看。'}</div> : !factsSnapshot.facts.length ? <div className="adaptation-content-empty">本次检查未提取到可展示的全文事实。可以重新运行检查以刷新快照。</div> : factsSnapshot.facts.map((fact: HistoricalAdaptationContentFactEntry, index) => {
+          {factsLoading ? <div className="adaptation-content-empty" role="status">正在读取全文事实...</div> : <>
+          {!factsSnapshot?.ok ? <div className="historical-adaptation-content-error" role="status">{factsSnapshot?.checkError || factsSnapshot?.message || '尚无可用的全文事实快照。'}{factsEditable ? ' 可在下方补录或修正事实，再保存并重新检查；若为请求失败，可直接重试检查。' : ''}</div> : null}
+          {factsEditable ? <section className="historical-adaptation-fact historical-adaptation-fact-add">
+            <header><div><strong>人工补录事实</strong><span>选择缺失的事实字段并填写确认值，添加后统一保存。</span></div></header>
+            <label>事实字段<select value={newFactSlot} disabled={factsSaving || running} onChange={(event) => setNewFactSlot(event.target.value)}>{factFields.map((field) => <option key={field[1]} value={field[1]}>{field[2]}</option>)}</select></label>
+            <label>确认后的事实值<input value={newFactValue} disabled={factsSaving || running} onChange={(event) => setNewFactValue(event.target.value)} placeholder="例如：本次招标项目的完整名称" /></label>
+            <label>依据或说明（选填）<input value={newFactNote} disabled={factsSaving || running} onChange={(event) => setNewFactNote(event.target.value)} placeholder="例如：招标文件项目概况第 2 页" /></label>
+            <div><button type="button" className="secondary-action" disabled={factsSaving || running} onClick={addManualFact}>添加事实</button></div>
+          </section> : null}
+          {!factEntries.length ? <div className="adaptation-content-empty">暂无可展示的事实。可补录缺失事实，或重新运行检查。</div> : factEntries.map((fact: HistoricalAdaptationContentFactEntry, index) => {
             const factKey = String(fact.fact_key || fact.fact_id || `fact-${index}`);
-            const overridden = factsSnapshot.overrides.some((item) => item.fact_key === factKey);
-            return <article className="historical-adaptation-fact" key={factKey}>
-              <header><div><strong>{factKey}</strong><span>{fact.kind || '未分类'}{fact.conflict ? ' · 存在冲突' : ''}{overridden ? ' · 已人工修正' : ''}</span></div></header>
-              <label>统一口径<input value={factDrafts[factKey] ?? fact.canonical_value} onChange={(event) => setFactDrafts((current) => ({ ...current, [factKey]: event.target.value }))} placeholder="输入确认后的事实值；清空后将移除人工修正" /></label>
+            const overridden = factsSnapshot?.overrides.some((item) => item.fact_key === factKey);
+            const field = factFields.find((item) => item[1] === factKey.split(':')[1]);
+            const qualifier = factKey.split(':').slice(2).join(':');
+            return <article className="historical-adaptation-fact historical-adaptation-fact-entry" key={factKey}>
+              <header><div><strong>{field?.[2] || factKindLabels[fact.kind] || '全文事实'}{qualifier && qualifier !== field?.[2] ? ` · ${qualifier}` : ''}</strong><span>{factKindLabels[fact.kind] || '未分类'}{fact.conflict ? ' · 存在冲突' : ''}{overridden ? ' · 已人工修正' : !factsSnapshot?.facts.some((item) => (item.fact_key || item.fact_id) === factKey) ? ' · 人工补录' : ''}</span></div></header>
+              <label>统一口径<input value={factDrafts[factKey] ?? fact.canonical_value} disabled={factsSaving || running} onChange={(event) => setFactDrafts((current) => ({ ...current, [factKey]: event.target.value }))} placeholder="输入确认后的事实值；清空后将移除人工修正" /></label>
+              <p className="historical-adaptation-fact-no-evidence">清空并保存将移除人工修正；已有提取事实会恢复提取值。</p>
               {fact.values?.length ? <div className="historical-adaptation-fact-values"><strong>提取到的值</strong><span>{fact.values.join(' / ')}</span></div> : null}
               <div className="historical-adaptation-fact-sources"><strong>来源章节</strong><div>{fact.chapter_node_ids.length ? fact.chapter_node_ids.map((nodeId) => {
                 const leaf = leaves.find((entry) => entry.item.id === nodeId);
@@ -824,6 +893,7 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onPre
               {fact.evidence.length ? <div className="historical-adaptation-fact-evidence"><strong>原文证据</strong>{fact.evidence.map((evidence, evidenceIndex) => <div className="markdown-viewer" key={`${factKey}-evidence-${evidenceIndex}`}><MarkdownRenderer allowRawHtml={false}>{evidence}</MarkdownRenderer></div>)}</div> : <p className="historical-adaptation-fact-no-evidence">当前快照未保存原文证据，可定位章节核对正文。</p>}
             </article>;
           })}
+          </>}
         </div>
       </AppDialog>
 

@@ -390,6 +390,37 @@ test('无事实响应在正文包含关键口径时转人工', async () => {
   }), /缺少.*事实/);
 });
 
+for (const [kind, slot, content, value] of [
+  ['name', 'project_name', '项目名称：', '人工确认项目'],
+  ['location', 'project_location', '地点为甲地。', '甲地'],
+  ['object', 'service_object', '对象为甲方。', '甲方'],
+  ['workload', 'service_quantity', '数量为十份。', '十份'],
+  ['schedule', 'completion_deadline', '日期为明年。', '明年'],
+  ['service', 'service_scope', '范围为测绘。', '测绘'],
+]) {
+  test(`人工补录 ${kind} 在必需事实校验前生效并继续检查`, async () => {
+    const patches = [];
+    const semanticPrompts = [];
+    await runHistoricalAdaptationContentCheckTask({
+      aiService: { requestJson: async (request) => {
+        if (request.response_format?.json_schema?.name === 'historical_adaptation_facts') return { facts: [] };
+        semanticPrompts.push(request.messages[0].content);
+        return { findings: [] };
+      } },
+      workspaceStore: { getHistoricalAdaptationContentCheckContext: () => ({
+        contentHash: 'manual-content', inputsHash: 'manual-inputs',
+        outlineData: { outline: [{ id: '1', title: '概况', content }] },
+        items: [{ node_id: '1', status: 'success', confirmed_at: '2026-10-08T00:00:00.000Z' }],
+        factOverrides: [{ fact_key: `${kind}:${slot}:人工补录`, kind, canonical_value: value, note: '人工确认' }],
+      }) },
+      checkpointTask: (_task, patch) => patches.push(patch),
+    });
+    assert.equal(patches.at(-1).historicalAdaptationContentCheck.status, 'success');
+    assert.deepEqual(patches.at(-1).historicalAdaptationContentCheck.findings, []);
+    assert.ok(semanticPrompts.some((prompt) => prompt.includes(`${kind}:${slot}:人工补录`) && prompt.includes(value)), '人工确认值必须参与实际语义检查');
+  });
+}
+
 test('模型未返回金额事实时从正文金额建立确定性事实并继续检查', async () => {
   const checkpoints = [];
   await runHistoricalAdaptationContentCheckTask({

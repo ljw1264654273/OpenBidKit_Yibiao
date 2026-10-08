@@ -550,7 +550,7 @@
 .historical-adaptation-content-check > header strong { color: #294761; font-size: 13px; }
 .historical-adaptation-content-check > header p { margin: 0; color: #748397; font-size: 10px; }
 .historical-adaptation-content-check-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.historical-adaptation-facts-body { display: grid; gap: 12px; max-height: min(65vh, 680px); overflow: auto; padding: 4px 2px; }
+.historical-adaptation-facts-body { display: grid; gap: 12px; min-height: 0; max-height: min(65vh, 680px); overflow: auto; padding: 4px 2px; }
 .historical-adaptation-facts-dialog { width: min(760px, calc(100vw - 32px)); }
 .historical-adaptation-fact { display: grid; gap: 9px; padding: 12px; border: 1px solid #dce5ed; border-radius: 8px; background: #fbfcfd; }
 .historical-adaptation-fact header { display: flex; justify-content: space-between; gap: 10px; }
@@ -558,7 +558,7 @@
 .historical-adaptation-fact header strong { color: #294761; font-size: 13px; }
 .historical-adaptation-fact header span, .historical-adaptation-fact-values, .historical-adaptation-fact-sources, .historical-adaptation-fact-evidence { color: #65768a; font-size: 11px; }
 .historical-adaptation-fact label { display: grid; gap: 5px; color: #294761; font-size: 11px; font-weight: 600; }
-.historical-adaptation-fact input { width: 100%; border: 1px solid #cbd8e3; border-radius: 5px; padding: 7px 9px; color: #263b50; background: #fff; }
+.historical-adaptation-fact input, .historical-adaptation-fact select { width: 100%; min-width: 0; border: 1px solid #cbd8e3; border-radius: 5px; padding: 7px 9px; color: #263b50; background: #fff; }
 .historical-adaptation-fact-values, .historical-adaptation-fact-sources, .historical-adaptation-fact-evidence { display: grid; gap: 5px; }
 .historical-adaptation-fact-sources > div { display: flex; gap: 8px; flex-wrap: wrap; }
 .historical-adaptation-fact-evidence .markdown-viewer { padding: 7px 9px; border-left: 3px solid #b8c9d8; background: #fff; }

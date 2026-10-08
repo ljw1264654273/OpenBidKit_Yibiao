@@ -3974,6 +3974,11 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       const override = context.factOverrides.find((item) => item.fact_key === fact.fact_key);
       return override ? { ...fact, canonical_value: override.canonical_value, manually_overridden: true, conflict: false } : fact;
     });
+    for (const override of context.factOverrides) {
+      if (factsByKey.has(override.fact_key)) continue;
+      facts.push({ fact_key: override.fact_key, kind: override.kind, canonical_value: override.canonical_value,
+        manually_overridden: true, conflict: false, chapter_node_ids: [], evidence: [override.note || '人工补录事实'] });
+    }
     return { ...base, ok: true, checkRunId: run.check_run_id, facts };
   }
 
