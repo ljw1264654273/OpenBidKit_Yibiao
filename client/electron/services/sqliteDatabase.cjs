@@ -3,7 +3,7 @@ const path = require('node:path');
 const Database = require('better-sqlite3');
 const { getWorkspaceDatabasePath } = require('../utils/paths.cjs');
 
-const schemaVersion = 45;
+const schemaVersion = 46;
 
 function safeProjectTablePart(projectId) {
   return String(projectId || '')
@@ -695,6 +695,7 @@ function createHistoricalAdaptationContentCheckBatchesSchema(db) {
       batch_id TEXT NOT NULL,
       batch_index INTEGER NOT NULL DEFAULT 0,
       node_ids_json TEXT NOT NULL DEFAULT '[]',
+      content_hash TEXT,
       input_hash TEXT,
       facts_hash TEXT,
       protocol_hash TEXT,
@@ -713,6 +714,35 @@ function createHistoricalAdaptationContentCheckBatchesSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_historical_adaptation_content_check_batches_status
       ON historical_adaptation_content_check_batches(project_id, status);
   `);
+}
+
+function addHistoricalAdaptationContentFactRepairState(db) {
+  addColumnIfMissing(db, 'historical_adaptation_content_check_batches', 'content_hash', 'TEXT');
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS historical_adaptation_content_check_runs (
+      project_id TEXT NOT NULL DEFAULT '',
+      check_run_id TEXT NOT NULL,
+      content_hash TEXT,
+      input_hash TEXT,
+      facts_hash TEXT,
+      protocol_hash TEXT,
+      expected_batch_count INTEGER NOT NULL DEFAULT 0,
+      expected_node_ids_json TEXT NOT NULL DEFAULT '[]',
+      status TEXT NOT NULL DEFAULT 'running',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (project_id, check_run_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_historical_adaptation_content_check_runs_latest
+      ON historical_adaptation_content_check_runs(project_id, created_at DESC);
+  `);
+  const tables = db.prepare(`
+    SELECT name FROM sqlite_master
+    WHERE type = 'table' AND (name = 'technical_plan_meta' OR name GLOB 'technical_plan_project_*_meta')
+  `).all();
+  for (const { name } of tables) {
+    addColumnIfMissing(db, name, 'historical_adaptation_content_fact_overrides_json', 'TEXT');
+  }
 }
 
 function addHistoricalAdaptationReviewState(db) {
@@ -2487,6 +2517,7 @@ const migrations = [
   },
   { version: 44, description: '历史标书逐章方案与不可变来源版本', up: migrateHistoricalAdaptationPlans },
   { version: 45, description: '历史标书一致性检查批次缓存', up: createHistoricalAdaptationContentCheckBatchesSchema },
+  { version: 46, description: '历史标书全文事实诊断与人工修正', up: addHistoricalAdaptationContentFactRepairState },
 ];
 
 function timestampForFileName() {

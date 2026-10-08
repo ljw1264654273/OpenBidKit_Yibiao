@@ -341,6 +341,43 @@ export interface HistoricalAdaptationContentCheckState {
   error?: string;
 }
 
+export interface HistoricalAdaptationContentFactOverride {
+  fact_key: string;
+  canonical_value: string;
+  kind: string;
+  basis: string;
+  note: string;
+  updated_at?: string;
+}
+
+export interface HistoricalAdaptationContentFactEntry {
+  fact_key?: string;
+  fact_id?: string;
+  kind: string;
+  canonical_value: string;
+  normalized_value?: string;
+  conflict?: boolean;
+  chapter_node_ids: string[];
+  evidence: string[];
+  values?: string[];
+  manually_overridden?: boolean;
+}
+
+export interface HistoricalAdaptationContentFactsSnapshot {
+  ok: boolean;
+  code?: 'unavailable' | 'stale' | 'conflict' | 'invalid';
+  message?: string;
+  contentHash: string;
+  inputsHash: string;
+  protocolHash: string;
+  factsHash?: string;
+  checkStatus: HistoricalAdaptationContentCheckStatus;
+  checkError?: string;
+  checkRunId?: string;
+  facts: HistoricalAdaptationContentFactEntry[];
+  overrides: HistoricalAdaptationContentFactOverride[];
+}
+
 export interface HistoricalAdaptationContentReadiness {
   ready: boolean;
   blockingCount: number;
@@ -570,6 +607,7 @@ export interface TechnicalPlanState {
   historicalAdaptationContentItems: HistoricalAdaptationContentItem[];
   historicalAdaptationContentConfirmedAt?: string;
   historicalAdaptationContentCheck: HistoricalAdaptationContentCheckState;
+  historicalAdaptationContentFactOverrides: HistoricalAdaptationContentFactOverride[];
   historicalAdaptationReviewFindings: HistoricalAdaptationReviewFinding[];
   historicalAdaptationReviewConfirmedAt?: string;
   bidSectionMode: BidSectionMode;

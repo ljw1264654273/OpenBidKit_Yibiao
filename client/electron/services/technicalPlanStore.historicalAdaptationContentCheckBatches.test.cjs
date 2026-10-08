@@ -13,7 +13,7 @@ function runAssertions() {
   let database;
   try {
     database = createSqliteDatabase(app);
-    assert.equal(database.schemaVersion, 45);
+    assert.equal(database.schemaVersion, 46);
     assert.ok(database.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'historical_adaptation_content_check_batches'").get());
     const store = createTechnicalPlanStore({
       app,
@@ -39,6 +39,7 @@ function runAssertions() {
     const checkRunId = 'check-1';
     const created = store.createHistoricalAdaptationContentCheckBatches({
       checkRunId,
+      contentHash: contextWithChangedFacts.contentHash,
       inputHash: contextWithChangedFacts.inputsHash,
       factsHash: 'facts-1',
       protocolHash: 'protocol-1',
@@ -64,6 +65,7 @@ function runAssertions() {
     assert.deepEqual(saved.result, { candidates: [{ slot: 'project_location', value: '甲地' }] });
     assert.deepEqual(store.getReusableHistoricalAdaptationContentCheckBatches({
       checkRunId,
+      contentHash: contextWithChangedFacts.contentHash,
       inputHash: contextWithChangedFacts.inputsHash,
       factsHash: 'facts-1',
       protocolHash: 'protocol-1',
@@ -111,6 +113,29 @@ function runAssertions() {
     store.saveHistoricalAdaptationContentCheckBatchResult({ checkRunId: 'check-4', batchId: 'batch-f', result: { ok: true } });
     store.updateTechnicalPlan({ globalFacts: [{ id: 'location', title: '项目地点', content: '丙地' }] });
     assert.equal(store.getHistoricalAdaptationContentCheckBatch({ checkRunId: 'check-4', batchId: 'batch-f' }).status, 'stale');
+
+    store.updateTechnicalPlan({ historicalAdaptationContentItems: [{ node_id: 'chapter-1', status: 'success', residuals: [] }] });
+    const factContext = store.getHistoricalAdaptationContentCheckContext();
+    const finalFactsHash = 'merged-facts-hash';
+    store.upsertHistoricalAdaptationContentCheckRun({ checkRunId: 'check-facts', contentHash: factContext.contentHash,
+      inputHash: factContext.inputsHash, factsHash: 'pre-extraction-hash', protocolHash: factContext.protocolHash,
+      expectedBatchCount: 1, expectedNodeIds: ['chapter-1'] });
+    store.createHistoricalAdaptationContentCheckBatches({ checkRunId: 'check-facts', contentHash: factContext.contentHash,
+      inputHash: factContext.inputsHash, factsHash: 'pre-extraction-hash', protocolHash: factContext.protocolHash,
+      batches: [{ batchId: 'fact-batch', batchIndex: 0, nodeIds: ['chapter-1'] }] });
+    store.saveHistoricalAdaptationContentCheckBatchResult({ checkRunId: 'check-facts', batchId: 'fact-batch', status: 'success',
+      result: { facts: [{ fact_key: 'location:project_location:项目地点', kind: 'location', canonical_value: '甲地',
+        chapter_node_ids: ['chapter-1'], evidence: ['地点为甲地。'] }] } });
+    store.upsertHistoricalAdaptationContentCheckRun({ checkRunId: 'check-facts', contentHash: factContext.contentHash,
+      inputHash: factContext.inputsHash, factsHash: finalFactsHash, protocolHash: factContext.protocolHash,
+      expectedBatchCount: 1, expectedNodeIds: ['chapter-1'], status: 'success' });
+    store.updateTechnicalPlan({ historicalAdaptationContentCheck: { status: 'success', findings: [],
+      checked_content_hash: factContext.contentHash, checked_inputs_hash: factContext.inputsHash,
+      checked_facts_hash: finalFactsHash, checked_protocol_inputs_hash: factContext.protocolHash,
+      rule_engine_version: 4, fact_schema_version: 1, repair_protocol_version: 1 } });
+    const snapshot = store.getHistoricalAdaptationContentFacts();
+    assert.equal(snapshot.ok, true, snapshot.message);
+    assert.equal(snapshot.facts[0]?.canonical_value, '甲地');
   } finally {
     database?.close();
     fs.rmSync(userDataPath, { recursive: true, force: true });

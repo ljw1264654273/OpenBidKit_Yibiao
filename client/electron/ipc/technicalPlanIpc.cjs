@@ -61,6 +61,14 @@ function registerTechnicalPlanIpc({ technicalPlanStore, bidProjectManager, taskS
   ipcMain.handle('technical-plan:save-historical-adaptation-content-strategy', (_event, payload) => resolveStore(payload).saveHistoricalAdaptationContentStrategy(payload));
   ipcMain.handle('technical-plan:reset-historical-adaptation-content-strategies', (_event, payload) => resolveStore(payload).resetHistoricalAdaptationContentStrategies());
   ipcMain.handle('technical-plan:get-historical-adaptation-content-readiness', (_event, payload) => resolveStore(payload).getHistoricalAdaptationContentReadiness());
+  ipcMain.handle('technical-plan:get-historical-adaptation-content-facts', (_event, payload) => resolveStore(payload).getHistoricalAdaptationContentFacts());
+  ipcMain.handle('technical-plan:save-historical-adaptation-content-fact-overrides', (_event, payload) => {
+    try {
+      return resolveStore(payload).saveHistoricalAdaptationContentFactOverrides(payload);
+    } catch (error) {
+      return { ok: false, code: error?.code === 'conflict' ? 'conflict' : 'invalid', message: error instanceof Error ? error.message : '保存事实修正失败' };
+    }
+  });
   ipcMain.handle('technical-plan:get-historical-adaptation-source-section', (_event, payload) => resolveStore(payload).getHistoricalAdaptationSourceSection(payload));
   ipcMain.handle('technical-plan:save-historical-adaptation-chapter-content', (_event, payload) => resolveStore(payload).saveHistoricalAdaptationChapterContent(payload));
   ipcMain.handle('technical-plan:confirm-historical-adaptation-content-item', (_event, payload) => resolveStore(payload).confirmHistoricalAdaptationContentItem(payload));

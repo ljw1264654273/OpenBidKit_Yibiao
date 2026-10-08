@@ -210,6 +210,15 @@ function stableHash(content) {
   return crypto.createHash('sha256').update(String(content || ''), 'utf8').digest('hex');
 }
 
+function historicalAdaptationProtocolHash(inputsHash) {
+  return stableHash(JSON.stringify({
+    inputsHash,
+    rule_engine_version: HISTORICAL_ADAPTATION_RULE_ENGINE_VERSION,
+    fact_schema_version: HISTORICAL_ADAPTATION_FACT_SCHEMA_VERSION,
+    repair_protocol_version: HISTORICAL_ADAPTATION_REPAIR_PROTOCOL_VERSION,
+  }));
+}
+
 function normalizeHistoricalAdaptationContentCheck(value) {
   const source = value && typeof value === 'object' ? value : {};
   const status = ['idle', 'running', 'success', 'stale', 'error'].includes(source.status) ? source.status : 'idle';
@@ -232,6 +241,36 @@ function normalizeHistoricalAdaptationContentCheck(value) {
     checked_at: source.checked_at ? String(source.checked_at) : undefined,
     error: source.error ? String(source.error) : undefined,
   };
+}
+
+function normalizeHistoricalAdaptationContentFactOverrides(value) {
+  const seen = new Set();
+  return (Array.isArray(value) ? value : [])
+    .map((item) => ({
+      fact_key: String(item?.fact_key || '').trim(),
+      canonical_value: String(item?.canonical_value ?? item?.value ?? '').trim(),
+      kind: String(item?.kind || '').trim(),
+      basis: String(item?.basis || 'manual').trim() || 'manual',
+      note: String(item?.note || '').trim(),
+      updated_at: item?.updated_at ? String(item.updated_at) : undefined,
+    }))
+    .filter((item) => item.fact_key && item.canonical_value)
+    .filter((item) => {
+      if (seen.has(item.fact_key)) return false;
+      seen.add(item.fact_key);
+      return true;
+    })
+    .sort((a, b) => a.fact_key.localeCompare(b.fact_key));
+}
+
+function canonicalHistoricalAdaptationContentFactOverrides(value) {
+  return normalizeHistoricalAdaptationContentFactOverrides(value).map((item) => ({
+    fact_key: item.fact_key,
+    canonical_value: item.canonical_value,
+    kind: item.kind,
+    basis: item.basis,
+    note: item.note,
+  }));
 }
 
 const HISTORICAL_ADAPTATION_CONTENT_CHECK_BATCH_STATUSES = Object.freeze([
@@ -3010,6 +3049,11 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
         normalizeHistoricalAdaptationContentCheck(partial.historicalAdaptationContentCheck),
       );
     }
+    if (hasOwn(partial, 'historicalAdaptationContentFactOverrides')) {
+      metaUpdates.historical_adaptation_content_fact_overrides_json = jsonOrNull(
+        normalizeHistoricalAdaptationContentFactOverrides(partial.historicalAdaptationContentFactOverrides),
+      );
+    }
     if (hasOwn(partial, 'historicalAdaptationReviewFindings')) {
       metaUpdates.historical_adaptation_review_findings_json = jsonOrNull(partial.historicalAdaptationReviewFindings);
     }
@@ -3130,6 +3174,9 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       historicalAdaptationContentConfirmedAt: meta.historical_adaptation_content_confirmed_at || undefined,
       historicalAdaptationContentCheck: normalizeHistoricalAdaptationContentCheck(
         safeJsonParse(meta.historical_adaptation_content_check_json, null),
+      ),
+      historicalAdaptationContentFactOverrides: normalizeHistoricalAdaptationContentFactOverrides(
+        safeJsonParse(meta.historical_adaptation_content_fact_overrides_json, []),
       ),
       historicalAdaptationReviewFindings: safeJsonParse(meta.historical_adaptation_review_findings_json, []),
       historicalAdaptationReviewConfirmedAt: meta.historical_adaptation_review_confirmed_at || undefined,
@@ -3565,6 +3612,7 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       batch_id: String(row.batch_id || ''),
       batch_index: Number(row.batch_index || 0),
       node_ids: Array.isArray(nodeIds) ? nodeIds.map((item) => String(item || '')).filter(Boolean) : [],
+      content_hash: row.content_hash ? String(row.content_hash) : undefined,
       input_hash: row.input_hash ? String(row.input_hash) : undefined,
       facts_hash: row.facts_hash ? String(row.facts_hash) : undefined,
       protocol_hash: row.protocol_hash ? String(row.protocol_hash) : undefined,
@@ -3580,6 +3628,7 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       batchId: String(row.batch_id || ''),
       batchIndex: Number(row.batch_index || 0),
       nodeIds: Array.isArray(nodeIds) ? nodeIds.map((item) => String(item || '')).filter(Boolean) : [],
+      contentHash: row.content_hash ? String(row.content_hash) : undefined,
       inputHash: row.input_hash ? String(row.input_hash) : undefined,
       factsHash: row.facts_hash ? String(row.facts_hash) : undefined,
       protocolHash: row.protocol_hash ? String(row.protocol_hash) : undefined,
@@ -3601,6 +3650,7 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       batch_id: batchId,
       batch_index: Number.isFinite(Number(source.batchIndex ?? source.batch_index)) ? Math.max(0, Math.floor(Number(source.batchIndex ?? source.batch_index))) : index,
       node_ids_json: JSON.stringify(nodeIds),
+      content_hash: String(source.contentHash || source.content_hash || defaults.contentHash || '').trim() || null,
       input_hash: String(source.inputHash || source.input_hash || defaults.inputHash || '').trim() || null,
       facts_hash: String(source.factsHash || source.facts_hash || defaults.factsHash || '').trim() || null,
       protocol_hash: String(source.protocolHash || source.protocol_hash || defaults.protocolHash || '').trim() || null,
@@ -3615,22 +3665,23 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     };
   }
 
-  function createHistoricalAdaptationContentCheckBatches({ checkRunId, batches, inputHash, factsHash, protocolHash, replace = false } = {}) {
+  function createHistoricalAdaptationContentCheckBatches({ checkRunId, batches, contentHash, inputHash, factsHash, protocolHash, replace = false } = {}) {
     const normalizedRunId = String(checkRunId || '').trim();
     if (!normalizedRunId) throw new Error('一致性检查批次缺少 check_run_id');
-    const entries = (Array.isArray(batches) ? batches : []).map((item, index) => normalizeContentCheckBatchInput(item, index, { checkRunId: normalizedRunId, inputHash, factsHash, protocolHash }));
+    const entries = (Array.isArray(batches) ? batches : []).map((item, index) => normalizeContentCheckBatchInput(item, index, { checkRunId: normalizedRunId, contentHash, inputHash, factsHash, protocolHash }));
     if (!entries.length) return [];
     const timestamp = now();
     const transaction = db.transaction(() => {
       if (replace) db.prepare('DELETE FROM historical_adaptation_content_check_batches WHERE project_id = ? AND check_run_id = ?').run(contentCheckBatchProjectId, normalizedRunId);
       const upsert = db.prepare(`
         INSERT INTO historical_adaptation_content_check_batches
-          (project_id, check_run_id, batch_id, batch_index, node_ids_json, input_hash, facts_hash, protocol_hash,
+          (project_id, check_run_id, batch_id, batch_index, node_ids_json, content_hash, input_hash, facts_hash, protocol_hash,
            status, error_code, error_message, attempt_count, request_summary_json, result_json, created_at, updated_at)
-        VALUES (@project_id, @check_run_id, @batch_id, @batch_index, @node_ids_json, @input_hash, @facts_hash, @protocol_hash,
+        VALUES (@project_id, @check_run_id, @batch_id, @batch_index, @node_ids_json, @content_hash, @input_hash, @facts_hash, @protocol_hash,
            @status, @error_code, @error_message, @attempt_count, @request_summary_json, @result_json, @created_at, @updated_at)
         ON CONFLICT(project_id, check_run_id, batch_id) DO UPDATE SET
           batch_index = excluded.batch_index, node_ids_json = excluded.node_ids_json,
+          content_hash = excluded.content_hash,
           input_hash = excluded.input_hash, facts_hash = excluded.facts_hash, protocol_hash = excluded.protocol_hash,
           status = excluded.status, error_code = excluded.error_code, error_message = excluded.error_message,
           attempt_count = excluded.attempt_count, request_summary_json = excluded.request_summary_json,
@@ -3648,6 +3699,32 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     });
     transaction();
     return entries.map((entry) => normalizeContentCheckBatchRow(db.prepare(`SELECT * FROM historical_adaptation_content_check_batches WHERE project_id = ? AND check_run_id = ? AND batch_id = ?`).get(contentCheckBatchProjectId, normalizedRunId, entry.batch_id)));
+  }
+
+  function upsertHistoricalAdaptationContentCheckRun({ checkRunId, contentHash, inputHash, factsHash, protocolHash, expectedBatchCount, expectedNodeIds, status = 'running' } = {}) {
+    const normalizedRunId = String(checkRunId || '').trim();
+    if (!normalizedRunId) throw new Error('一致性检查运行缺少 check_run_id');
+    const timestamp = now();
+    db.prepare(`
+      INSERT INTO historical_adaptation_content_check_runs
+        (project_id, check_run_id, content_hash, input_hash, facts_hash, protocol_hash, expected_batch_count, expected_node_ids_json, status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(project_id, check_run_id) DO UPDATE SET
+        content_hash = excluded.content_hash, input_hash = excluded.input_hash, facts_hash = excluded.facts_hash,
+        protocol_hash = excluded.protocol_hash, expected_batch_count = excluded.expected_batch_count,
+        expected_node_ids_json = excluded.expected_node_ids_json, status = excluded.status, updated_at = excluded.updated_at
+    `).run(contentCheckBatchProjectId, normalizedRunId, String(contentHash || '').trim() || null, String(inputHash || '').trim() || null,
+      String(factsHash || '').trim() || null, String(protocolHash || '').trim() || null,
+      Math.max(0, Math.floor(Number(expectedBatchCount) || 0)), JSON.stringify([...new Set((expectedNodeIds || []).map((item) => String(item || '').trim()).filter(Boolean))]),
+      String(status || 'running'), timestamp, timestamp);
+    return getHistoricalAdaptationContentCheckRun({ checkRunId: normalizedRunId });
+  }
+
+  function getHistoricalAdaptationContentCheckRun({ checkRunId } = {}) {
+    const row = db.prepare('SELECT * FROM historical_adaptation_content_check_runs WHERE project_id = ? AND check_run_id = ?')
+      .get(contentCheckBatchProjectId, String(checkRunId || '').trim());
+    if (!row) return undefined;
+    return { ...row, expected_node_ids: safeJsonParse(row.expected_node_ids_json, []) };
   }
 
   function listHistoricalAdaptationContentCheckBatches({ checkRunId, statuses } = {}) {
@@ -3675,12 +3752,12 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     if (!current) throw new Error('未找到一致性检查批次');
     const merged = normalizeContentCheckBatchInput({ ...current, ...patch, checkRunId, batchId }, current.batch_index);
     const timestamp = now();
-    db.prepare(`UPDATE historical_adaptation_content_check_batches SET batch_index = ?, node_ids_json = ?, input_hash = ?, facts_hash = ?, protocol_hash = ?, status = ?, error_code = ?, error_message = ?, attempt_count = ?, request_summary_json = ?, result_json = ?, updated_at = ? WHERE project_id = ? AND check_run_id = ? AND batch_id = ?`)
-      .run(merged.batch_index, merged.node_ids_json, merged.input_hash, merged.facts_hash, merged.protocol_hash, merged.status, merged.error_code, merged.error_message, merged.attempt_count, merged.request_summary_json, merged.result_json, timestamp, contentCheckBatchProjectId, String(checkRunId || '').trim(), String(batchId || '').trim());
+    db.prepare(`UPDATE historical_adaptation_content_check_batches SET batch_index = ?, node_ids_json = ?, content_hash = ?, input_hash = ?, facts_hash = ?, protocol_hash = ?, status = ?, error_code = ?, error_message = ?, attempt_count = ?, request_summary_json = ?, result_json = ?, updated_at = ? WHERE project_id = ? AND check_run_id = ? AND batch_id = ?`)
+      .run(merged.batch_index, merged.node_ids_json, merged.content_hash, merged.input_hash, merged.facts_hash, merged.protocol_hash, merged.status, merged.error_code, merged.error_message, merged.attempt_count, merged.request_summary_json, merged.result_json, timestamp, contentCheckBatchProjectId, String(checkRunId || '').trim(), String(batchId || '').trim());
     return getHistoricalAdaptationContentCheckBatch({ checkRunId, batchId });
   }
 
-  function saveHistoricalAdaptationContentCheckBatchResult({ checkRunId, batchId, status = 'success', result, errorCode, errorMessage, requestSummary, attemptCount, inputHash, factsHash, protocolHash, snapshot } = {}) {
+  function saveHistoricalAdaptationContentCheckBatchResult({ checkRunId, batchId, status = 'success', result, errorCode, errorMessage, requestSummary, attemptCount, contentHash, inputHash, factsHash, protocolHash, snapshot } = {}) {
     const normalizedRunId = String(checkRunId || '').trim();
     const normalizedBatchId = String(batchId || '').trim();
     const nextStatus = normalizeHistoricalAdaptationContentCheckBatchStatus(status, 'success');
@@ -3688,8 +3765,8 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       const current = db.prepare('SELECT * FROM historical_adaptation_content_check_batches WHERE project_id = ? AND check_run_id = ? AND batch_id = ?')
         .get(contentCheckBatchProjectId, normalizedRunId, normalizedBatchId);
       if (!current) throw new Error('未找到一致性检查批次');
-      db.prepare(`UPDATE historical_adaptation_content_check_batches SET input_hash = COALESCE(?, input_hash), facts_hash = COALESCE(?, facts_hash), protocol_hash = COALESCE(?, protocol_hash), status = ?, error_code = ?, error_message = ?, attempt_count = ?, request_summary_json = ?, result_json = ?, updated_at = ? WHERE project_id = ? AND check_run_id = ? AND batch_id = ?`)
-        .run(String(inputHash || '').trim() || null, String(factsHash || '').trim() || null, String(protocolHash || '').trim() || null,
+      db.prepare(`UPDATE historical_adaptation_content_check_batches SET content_hash = COALESCE(?, content_hash), input_hash = COALESCE(?, input_hash), facts_hash = COALESCE(?, facts_hash), protocol_hash = COALESCE(?, protocol_hash), status = ?, error_code = ?, error_message = ?, attempt_count = ?, request_summary_json = ?, result_json = ?, updated_at = ? WHERE project_id = ? AND check_run_id = ? AND batch_id = ?`)
+        .run(String(contentHash || '').trim() || null, String(inputHash || '').trim() || null, String(factsHash || '').trim() || null, String(protocolHash || '').trim() || null,
           nextStatus, String(errorCode || '').trim() || null, String(errorMessage || '').trim() || null,
           attemptCount === undefined ? Number(current.attempt_count || 0) + 1 : Math.max(0, Math.floor(Number(attemptCount) || 0)),
           requestSummary === undefined ? current.request_summary_json : jsonOrNull(requestSummary), result === undefined ? current.result_json : jsonOrNull(result), now(),
@@ -3708,11 +3785,12 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     return getHistoricalAdaptationContentCheckBatch({ checkRunId: normalizedRunId, batchId: normalizedBatchId });
   }
 
-  function getReusableHistoricalAdaptationContentCheckBatches({ checkRunId, inputHash, factsHash, protocolHash } = {}) {
+  function getReusableHistoricalAdaptationContentCheckBatches({ checkRunId, contentHash, inputHash, factsHash, protocolHash } = {}) {
     if (!String(checkRunId || '').trim() || !String(inputHash || '').trim()
-      || !String(factsHash || '').trim() || !String(protocolHash || '').trim()) return [];
+      || !String(contentHash || '').trim() || !String(factsHash || '').trim() || !String(protocolHash || '').trim()) return [];
     const rows = listHistoricalAdaptationContentCheckBatches({ checkRunId, statuses: ['success'] });
     return rows.filter((row) => (!inputHash || row.input_hash === String(inputHash))
+      && (!contentHash || row.content_hash === String(contentHash))
       && (!factsHash || row.facts_hash === String(factsHash))
       && (!protocolHash || row.protocol_hash === String(protocolHash)));
   }
@@ -3773,6 +3851,9 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     const contentSnapshot = leaves.map((item) => ({ node_id: String(item.id || ''), content: String(item.content || '') }));
     // 全局事实由 Main 侧 SQLite 保存，是一致性检查的确认输入；不得只依赖 Renderer 快照。
     const globalFacts = loadGlobalFacts();
+    const factOverrides = normalizeHistoricalAdaptationContentFactOverrides(
+      safeJsonParse(meta.historical_adaptation_content_fact_overrides_json, []),
+    );
     const inputSnapshot = {
       outline: leaves.map((item) => ({ node_id: String(item.id || ''), title: String(item.title || '') })),
       differences: readHistoricalAdaptationDifferences(meta.historical_adaptation_differences_json),
@@ -3782,6 +3863,7 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       }),
       baseline: loadBidItems(),
       global_facts: globalFacts,
+      manual_fact_overrides: canonicalHistoricalAdaptationContentFactOverrides(factOverrides),
       // 正文一致性检查协议参与输入指纹。自动修复协议升级后，旧缓存必须失效。
       rule_engine_version: HISTORICAL_ADAPTATION_RULE_ENGINE_VERSION,
       semantic_check_version: 2,
@@ -3802,9 +3884,13 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
         bidAnalysisTasks: inputSnapshot.baseline },
       originalPlan, sourceIndex: getHistoricalAdaptationSourceIndex(originalPlan, { persist: false }),
     }) : [];
+    const contentHash = stableHash(JSON.stringify(contentSnapshot));
+    const inputsHash = stableHash(JSON.stringify(inputSnapshot));
+    const protocolHash = historicalAdaptationProtocolHash(inputsHash);
     return {
-      contentHash: stableHash(JSON.stringify(contentSnapshot)),
-      inputsHash: stableHash(JSON.stringify(inputSnapshot)),
+      contentHash,
+      inputsHash,
+      protocolHash,
       factsHash: normalizeHistoricalAdaptationContentCheck(safeJsonParse(meta.historical_adaptation_content_check_json, null)).checked_facts_hash,
       outlineData,
       items,
@@ -3812,9 +3898,119 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       sourceAvailability,
       baseline: inputSnapshot.baseline,
       globalFacts,
+      factOverrides,
       globalFactsHash: stableHash(JSON.stringify(globalFacts)),
       differences: inputSnapshot.differences,
       check: normalizeHistoricalAdaptationContentCheck(safeJsonParse(meta.historical_adaptation_content_check_json, null)),
+    };
+  }
+
+  function getHistoricalAdaptationContentFacts() {
+    const context = getHistoricalAdaptationContentCheckContext();
+    const base = {
+      contentHash: context.contentHash,
+      inputsHash: context.inputsHash,
+      protocolHash: context.protocolHash,
+      factsHash: context.factsHash || undefined,
+      checkStatus: context.check.status,
+      checkError: context.check.error,
+      facts: [],
+      overrides: context.factOverrides,
+    };
+    const runs = db.prepare('SELECT * FROM historical_adaptation_content_check_runs WHERE project_id = ? ORDER BY created_at DESC').all(contentCheckBatchProjectId);
+    const expectedNodes = new Set(context.items.map((item) => String(item.node_id || '')).filter(Boolean));
+    const run = runs.find((candidate) => candidate.status === 'success'
+      && candidate.content_hash === context.contentHash
+      && candidate.input_hash === context.inputsHash
+      && candidate.facts_hash === context.factsHash
+      && candidate.protocol_hash === context.protocolHash
+      && Number(candidate.expected_batch_count || 0) > 0
+      && (() => {
+        const candidateNodes = new Set(safeJsonParse(candidate.expected_node_ids_json, []).map((nodeId) => String(nodeId || '').trim()).filter(Boolean));
+        return candidateNodes.size === expectedNodes.size && [...candidateNodes].every((nodeId) => expectedNodes.has(nodeId));
+      })());
+    if (!run) return { ...base, ok: false, code: 'unavailable', message: context.check.stage === 'precheck'
+      ? '一致性检查停在预检阶段，尚未提取全文事实。请处理阻断项后重新运行检查。'
+      : '当前正文还没有可匹配的全文事实快照。请重新运行一致性检查。' };
+    const batches = listHistoricalAdaptationContentCheckBatches({ checkRunId: run.check_run_id });
+    const expectedCount = Number(run.expected_batch_count || 0);
+    const batchNodeIds = new Set(batches.flatMap((batch) => batch.node_ids.map((nodeId) => String(nodeId || '').trim()).filter(Boolean)));
+    const batchFactsHash = batches[0]?.facts_hash;
+    const complete = batches.length === expectedCount
+      && batches.every((batch, index) => batch.status === 'success'
+        && batch.batch_index === index
+        && batch.content_hash === context.contentHash
+        && batch.input_hash === context.inputsHash
+        && batchFactsHash && batch.facts_hash === batchFactsHash
+        && batch.protocol_hash === context.protocolHash)
+      && batchNodeIds.size === expectedNodes.size
+      && [...batchNodeIds].every((nodeId) => expectedNodes.has(nodeId));
+    if (!complete) return { ...base, ok: false, code: 'stale', message: '全文事实快照不完整或已过期，请重新运行一致性检查。', checkRunId: run.check_run_id };
+    const factsByKey = new Map();
+    for (const batch of batches) {
+      const facts = Array.isArray(batch.result?.facts) ? batch.result.facts : [];
+      for (const raw of facts) {
+        const key = String(raw?.fact_key || raw?.fact_id || `${raw?.kind || ''}:${raw?.canonical_value || raw?.value || ''}`).trim();
+        if (!key) continue;
+        const current = factsByKey.get(key) || {
+          fact_key: String(raw.fact_key || raw.fact_id || key),
+          fact_id: raw.fact_id,
+          kind: String(raw.kind || '').trim(),
+          canonical_value: String(raw.canonical_value || raw.value || '').trim(),
+          normalized_value: raw.normalized_value,
+          conflict: raw.conflict === true,
+          chapter_node_ids: [],
+          evidence: [],
+          values: [],
+        };
+        current.chapter_node_ids = [...new Set([...current.chapter_node_ids, ...(Array.isArray(raw.chapter_node_ids) ? raw.chapter_node_ids : []), ...batch.node_ids])];
+        current.evidence = [...new Set([...current.evidence, ...(Array.isArray(raw.evidence) ? raw.evidence : raw.evidence ? [String(raw.evidence)] : [])])];
+        current.values = [...new Set([...current.values, ...(Array.isArray(raw.values) ? raw.values : []), String(raw.canonical_value || raw.value || '').trim()].filter(Boolean))];
+        current.conflict = current.conflict || raw.conflict === true || current.values.length > 1;
+        factsByKey.set(key, current);
+      }
+    }
+    const facts = [...factsByKey.values()].map((fact) => {
+      const override = context.factOverrides.find((item) => item.fact_key === fact.fact_key);
+      return override ? { ...fact, canonical_value: override.canonical_value, manually_overridden: true, conflict: false } : fact;
+    });
+    return { ...base, ok: true, checkRunId: run.check_run_id, facts };
+  }
+
+  function saveHistoricalAdaptationContentFactOverrides({ expectedContentHash, expectedInputsHash, expectedProtocolHash, overrides, deleteFactKeys } = {}) {
+    const transaction = db.transaction(() => {
+      const current = getHistoricalAdaptationContentCheckContext();
+      if (current.contentHash !== String(expectedContentHash || '')
+        || current.inputsHash !== String(expectedInputsHash || '')
+        || current.protocolHash !== String(expectedProtocolHash || '')) {
+        const error = new Error('一致性检查输入已变化，请重新读取全文事实后再保存');
+        error.code = 'conflict';
+        throw error;
+      }
+      const currentByKey = new Map(current.factOverrides.map((item) => [item.fact_key, item]));
+      const explicitDeletes = new Set((Array.isArray(deleteFactKeys) ? deleteFactKeys : [])
+        .map((item) => String(item || '').trim()).filter(Boolean));
+      for (const item of Array.isArray(overrides) ? overrides : []) {
+        const factKey = String(item?.fact_key || '').trim();
+        if (!factKey) continue;
+        const value = String(item?.canonical_value ?? item?.value ?? '').trim();
+        if (!value) explicitDeletes.add(factKey);
+        else currentByKey.set(factKey, item);
+      }
+      for (const factKey of explicitDeletes) currentByKey.delete(factKey);
+      const normalized = normalizeHistoricalAdaptationContentFactOverrides([...currentByKey.values()]);
+      updateMeta({ historical_adaptation_content_fact_overrides_json: JSON.stringify(normalized) });
+      staleHistoricalAdaptationContentCheck();
+      return getHistoricalAdaptationContentCheckContext();
+    });
+    const next = transaction();
+    return {
+      ok: true,
+      contentHash: next.contentHash,
+      inputsHash: next.inputsHash,
+      protocolHash: next.protocolHash,
+      overrides: next.factOverrides,
+      technicalPlanPatch: { historicalAdaptationContentCheck: next.check },
     };
   }
 
@@ -4073,6 +4269,7 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
         error: undefined,
       });
       updateMeta({ historical_adaptation_content_confirmed_at: null });
+      staleHistoricalAdaptationContentCheck();
     });
     transaction();
     return loadTechnicalPlan();
@@ -4833,6 +5030,10 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     saveHistoricalAdaptationContentStrategy,
     resetHistoricalAdaptationContentStrategies,
     getHistoricalAdaptationContentCheckContext,
+    upsertHistoricalAdaptationContentCheckRun,
+    getHistoricalAdaptationContentCheckRun,
+    getHistoricalAdaptationContentFacts,
+    saveHistoricalAdaptationContentFactOverrides,
     createHistoricalAdaptationContentCheckBatches,
     createHistoricalAdaptationContentCheckBatch({ checkRunId, batch, ...defaults } = {}) {
       return createHistoricalAdaptationContentCheckBatches({ checkRunId, batches: [batch || defaults], ...defaults })[0];

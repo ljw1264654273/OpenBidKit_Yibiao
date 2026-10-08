@@ -202,6 +202,30 @@ test('正文迁移页面支持迁移方案、人工策略、恢复默认和阶�
   assert.match(component, /allowRawHtml=\{false\}/);
 });
 
+test('来源快照失效的已迁移章节也能进行人工确认', () => {
+  const component = readFileSync(join(__dirname, 'components/AdaptationContentPage.tsx'), 'utf8');
+  const confirmationCondition = component.slice(component.indexOf('const selectedNeedsManualConfirmation ='), component.indexOf('const strategyChanged ='));
+  assert.match(confirmationCondition, /finding\.code === 'source-stale'/);
+  assert.match(confirmationCondition, /finding\.node_ids\.includes\(selectedItem\.node_id\)/);
+  assert.match(component, /selectedNeedsManualConfirmation \? <button/);
+  assert.match(component, /onClick=\{\(\) => \{ void confirmChapter\(\); \}\}>\{chapterConfirming \? '确认中\.\.\.' : '确认本章已处理'\}/);
+});
+
+test('一致性问题显示章节路径并定位目录，阻断章节具有独立背景', () => {
+  const component = readFileSync(join(__dirname, 'components/AdaptationContentPage.tsx'), 'utf8');
+  const css = readFileSync(stylePath, 'utf8');
+  assert.match(component, /finding\.node_ids\.map\(\(nodeId\) =>/);
+  assert.match(component, /entry\.path\.join\(' \/ '\)/);
+  assert.match(component, /requestNavigation\(\{ type: 'chapter', nodeId: finding\.node_ids\[0\], reveal: true \}\)/);
+  assert.match(component, /setChapterFilter\('all'\)/);
+  assert.match(component, /outlineListRef\.current/);
+  assert.match(component, /workbenchRef\.current\?\.scrollIntoView/);
+  assert.match(component, /check\.findings\.filter\(\(finding\) => finding\.blocking\)/);
+  assert.match(component, /has-check-blocker/);
+  assert.match(css, /\.adaptation-content-outline-list > button\.has-check-blocker\s*\{[^}]*background:/);
+  assert.match(css, /\.adaptation-content-outline-list > button\.is-selected\.has-check-blocker\s*\{[^}]*background:/);
+});
+
 test('正文一致性检查展示稳定阶段、自动修复结果和任务失败', () => {
   const componentPath = join(__dirname, 'components/AdaptationContentPage.tsx');
   const component = readFileSync(componentPath, 'utf8');
@@ -217,6 +241,8 @@ test('正文一致性检查展示稳定阶段、自动修复结果和任务失�
   assert.match(component, /checkTask\?\.status === 'error'/);
   assert.match(component, /checkTask\?\.error/);
   assert.doesNotMatch(component, /checkTask\?\.message/);
+  assert.match(component, /checkAdvisoryCount = check\.findings\.filter\(\(finding\) => !finding\.blocking\)\.length/);
+  assert.match(component, /checkStage === 'precheck'/);
 });
 
 test('正文迁移发现待核实或待补充时提示导出后人工处理并要求显式确认', () => {
@@ -336,6 +362,13 @@ test('环节五订阅正文迁移任务，确认后开放环节六', () => {
   assert.match(page, /contentComplete/);
   assert.match(page, /activeStage === 5/);
   assert.match(page, /!contentComplete && index === 5/);
+});
+
+test('事实 bridge 未加载时向用户提供完整重启客户端的修复路径', () => {
+  const component = readFileSync(join(__dirname, 'components/AdaptationContentPage.tsx'), 'utf8');
+  assert.match(component, /typeof window\.yibiao\.technicalPlan\.getHistoricalAdaptationContentFacts !== 'function'/);
+  assert.match(component, /请完全退出并重新打开客户端/);
+  assert.match(component, /typeof window\.yibiao\.technicalPlan\.saveHistoricalAdaptationContentFactOverrides !== 'function'/);
 });
 
 test('环节六支持自动终审、问题处置、人工验收与门禁 Word 导出', () => {

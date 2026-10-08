@@ -102,6 +102,7 @@ const resetState = {
   historicalAdaptationContentItems: [],
   historicalAdaptationContentConfirmedAt: undefined,
   historicalAdaptationContentCheck: { status: 'idle' as const, findings: [], checked_content_hash: '', checked_inputs_hash: '' },
+  historicalAdaptationContentFactOverrides: [],
   historicalAdaptationReviewFindings: [],
   historicalAdaptationReviewConfirmedAt: undefined,
   bidSectionMode: 'single' as const,

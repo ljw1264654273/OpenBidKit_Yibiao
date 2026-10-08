@@ -128,6 +128,8 @@ const workspaceDatabaseChannels = [
   'technical-plan:save-historical-adaptation-content-strategy',
   'technical-plan:reset-historical-adaptation-content-strategies',
   'technical-plan:get-historical-adaptation-content-readiness',
+  'technical-plan:get-historical-adaptation-content-facts',
+  'technical-plan:save-historical-adaptation-content-fact-overrides',
   'technical-plan:get-historical-adaptation-source-section',
   'technical-plan:save-historical-adaptation-chapter-content',
   'technical-plan:confirm-historical-adaptation-content-item',

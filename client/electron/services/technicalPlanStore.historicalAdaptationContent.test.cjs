@@ -101,6 +101,9 @@ function runAssertions() {
     const readiness = store.getHistoricalAdaptationContentReadiness();
     assert.equal(readiness.ready, true);
     const manualItem = store.loadTechnicalPlan().historicalAdaptationContentItems[0];
+    state = store.confirmHistoricalAdaptationContentItem({ nodeId: '1' });
+    assert.equal(state.historicalAdaptationContentCheck.status, 'stale', 'chapter confirmation must invalidate the prior check result');
+    store.updateTechnicalPlan({ historicalAdaptationContentItem: manualItem, historicalAdaptationContentCheck: currentCheck(context) });
     store.updateTechnicalPlan({ historicalAdaptationContentItem: { ...manualItem, content_origin: 'migrated' } });
     assert.equal(store.getHistoricalAdaptationContentReadiness().ready, false,
       'old automatic success without a current source/plan/output fingerprint cannot pass readiness');

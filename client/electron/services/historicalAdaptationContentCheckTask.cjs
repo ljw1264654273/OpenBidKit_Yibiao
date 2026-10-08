@@ -180,6 +180,11 @@ function makeBlockingFinding({ code, category, nodeId, message, evidence }) {
   return { ...finding, id: findingId(finding) };
 }
 
+function makeAdvisoryFinding({ code, category, nodeId, message, evidence }) {
+  const finding = { code, category, severity: 'P2', blocking: false, node_ids: [nodeId], message, evidence: text(evidence) };
+  return { ...finding, id: findingId(finding) };
+}
+
 function collectDeterministicFindings({ outlineData, items, differences = [], expectedItems, sourceAvailability }) {
   const leaves = flattenLeaves(outlineData?.outline || []);
   const byId = new Map((Array.isArray(items) ? items : []).map((item) => [text(item?.node_id), item]));
@@ -190,13 +195,21 @@ function collectDeterministicFindings({ outlineData, items, differences = [], ex
     .filter((rule) => rule.policy === 'must-replace').flatMap((rule) => rule.oldValues);
   for (const leaf of leaves) {
     const item = byId.get(leaf.nodeId);
-    // 章节级人工确认代表用户接受当前正文（包括空正文、历史残留和占位符）。
-    // 保留跨章节语义检查的原始证据，但不再为该章节生成确定性阻断项。
-    if (item?.confirmed_at) continue;
+    const source = sourcesById?.get(leaf.nodeId);
+    if (item?.confirmed_at) {
+      if (source?.error?.includes('章节历史原文为空')) findings.push(makeAdvisoryFinding({
+        code: 'empty-source', category: 'task', nodeId: leaf.nodeId,
+        message: '历史原文为空，已人工确认', evidence: `${leaf.path.join(' / ')}；当前章节已确认，仍建议导出前核对正文。`,
+      }));
+      if (!leaf.content.trim()) findings.push(makeAdvisoryFinding({
+        code: 'empty-content', category: 'empty', nodeId: leaf.nodeId,
+        message: '章节正文为空，已人工确认', evidence: leaf.path.join(' / '),
+      }));
+      continue;
+    }
     const placeholders = leaf.content.match(/【(?:待核实|待补充)】/gu) || [];
     const placeholderOnlyReview = item?.status === 'review' && placeholders.length > 0 && !(item.residuals || []).length;
     const hasHistoricalSource = Boolean(item?.source_content_hash || item?.source_section_id || item?.source_locator || item?.source_path || item?.source_excerpt);
-    const source = sourcesById?.get(leaf.nodeId);
     if (sourcesById && hasHistoricalSource && !source?.available) {
       findings.push(makeBlockingFinding({ code: 'source-stale', category: 'task', nodeId: leaf.nodeId,
         message: '章节历史来源快照不可用，请重新建立迁移方案', evidence: source?.error || '来源快照缺失' }));
@@ -207,11 +220,14 @@ function collectDeterministicFindings({ outlineData, items, differences = [], ex
       const outputHash = crypto.createHash('sha256').update(JSON.stringify([
         item?.source_hash, item?.input_fingerprint, mode, item?.manual_instruction, leaf.content,
       ]), 'utf8').digest('hex');
-      if (!expected || item?.rule_engine_version !== 2 || item?.content_plan_version !== 2
-        || !item?.plan_id || !item?.source_version_hash || item?.input_fingerprint !== expected.input_fingerprint
-        || item?.source_content_hash !== expected.source_content_hash || item?.migration_output_hash !== outputHash) {
+      const reason = !expected || !item?.plan_id ? '迁移方案未建立或已失效'
+        : item?.rule_engine_version !== 2 || item?.content_plan_version !== 2 ? '迁移规则版本已变化'
+          : !item?.source_version_hash || item?.source_content_hash !== expected.source_content_hash ? '历史来源已变化'
+            : item?.input_fingerprint !== expected.input_fingerprint ? '迁移输入已变化'
+              : item?.migration_output_hash !== outputHash ? '迁移后正文与记录不一致' : '';
+      if (reason) {
         findings.push(makeBlockingFinding({ code: 'plan-stale', category: 'task', nodeId: leaf.nodeId,
-          message: '章节来源、方案或结果指纹已失效，请重新建立迁移方案', evidence: item?.input_fingerprint || '缺少当前版本指纹' }));
+          message: `${reason}，需要复核本章`, evidence: '若需更新正文，请重新建立迁移方案并重新迁移；若当前正文已人工核对可保留，请点击“确认本章已处理”，再运行一致性检查。' }));
       }
     }
     if (!leaf.content.trim()) {
@@ -373,7 +389,15 @@ function trustedResolutionValues(context = {}, factKey = '') {
     if (typeof item === 'string') globalValues.push(item);
     else if (!factKey || item.fact_key === factKey || `${item.kind || ''}:${item.slot || ''}:${factRegistry.normalizeQualifier(item.qualifier || item.title || '')}` === factKey) globalValues.push([item?.content, item?.value, item?.canonical_value, item?.normalized_value].filter(Boolean).join('：'));
   }
-  return { baseline: baselineValues.filter(Boolean).map((item) => factRegistry.normalizeQualifier(item)), global: globalValues.filter(Boolean).map((item) => factRegistry.normalizeQualifier(item)) };
+  const manualValues = [];
+  for (const item of Array.isArray(context.factOverrides) ? context.factOverrides : []) {
+    if (!factKey || item.fact_key === factKey) manualValues.push(item.canonical_value);
+  }
+  return {
+    baseline: baselineValues.filter(Boolean).map((item) => factRegistry.normalizeQualifier(item)),
+    global: globalValues.filter(Boolean).map((item) => factRegistry.normalizeQualifier(item)),
+    manual: manualValues.filter(Boolean).map((item) => factRegistry.normalizeQualifier(item)),
+  };
 }
 
 function validateFactResolutions(facts, resolutions, context = {}) {
@@ -388,7 +412,7 @@ function validateFactResolutions(facts, resolutions, context = {}) {
     const normalized = factRegistry.normalizeQualifier(resolution?.canonical_value || resolution?.value);
     const basis = String(resolution?.basis || '').trim();
     const trusted = trustedResolutionValues(context, key);
-    const trustedValues = basis === 'baseline-exact-match' ? trusted.baseline : basis === 'global-fact-exact-match' ? trusted.global : [];
+    const trustedValues = basis === 'baseline-exact-match' ? trusted.baseline : basis === 'global-fact-exact-match' ? trusted.global : basis === 'manual-fact-exact-match' ? trusted.manual : [];
     const normalizedValues = Array.isArray(fact?.normalized_values) ? fact.normalized_values : [];
     const deterministicExact = basis === 'deterministic-normalization' && fact
       // 旧 facts 没有 normalized_values，不能把单个 normalized_value 当作无冲突证据。
@@ -397,7 +421,7 @@ function validateFactResolutions(facts, resolutions, context = {}) {
       && normalizedValues[0] === normalized
       && fact.normalized_value === normalized;
     const exact = Boolean(normalized && trustedValues.some((value) => value === normalized));
-    if (fact && ((exact && ['baseline-exact-match', 'global-fact-exact-match'].includes(basis)) || deterministicExact)) {
+    if (fact && ((exact && ['baseline-exact-match', 'global-fact-exact-match', 'manual-fact-exact-match'].includes(basis)) || deterministicExact)) {
       fact.conflict = false;
       fact.canonical_value = String(resolution.canonical_value || resolution.value).trim();
       fact.normalized_value = normalized;
@@ -564,6 +588,42 @@ function extractDeterministicAmountFacts(chapters = [], inputHash = '') {
   return factRegistry.mergeFacts(candidates, { inputHash });
 }
 
+function applyFactOverridesToFacts(facts, overrides = [], inputHash = '') {
+  const byKey = new Map((Array.isArray(facts) ? facts : []).map((fact) => [String(fact?.fact_key || fact?.fact_id || ''), fact]));
+  for (const override of Array.isArray(overrides) ? overrides : []) {
+    const factKey = String(override?.fact_key || '').trim();
+    const value = String(override?.canonical_value ?? override?.value ?? '').trim();
+    if (!factKey || !value) continue;
+    const current = byKey.get(factKey);
+    const normalized = factRegistry.normalizeQualifier(value);
+    if (current) {
+      current.canonical_value = value;
+      current.normalized_value = normalized;
+      current.normalized_values = [normalized];
+      current.conflict = false;
+      current.manually_overridden = true;
+      continue;
+    }
+    const [, slot = '', qualifier = factKey] = factKey.split(':');
+    byKey.set(factKey, {
+      fact_key: factKey,
+      fact_id: factRegistry.stableHash({ fact_key: factKey, input_hash: String(inputHash || '') }).slice(0, 24),
+      kind: String(override.kind || 'name'),
+      slot,
+      qualifier,
+      canonical_value: value,
+      normalized_value: normalized,
+      normalized_values: [normalized],
+      evidence: [String(override.note || '人工修正事实')],
+      chapter_node_ids: [],
+      values: [value],
+      conflict: false,
+      manually_overridden: true,
+    });
+  }
+  return [...byKey.values()];
+}
+
 function compactConflictFactsForPrompt(facts, maxChars) {
   const result = [];
   let used = 2;
@@ -595,11 +655,14 @@ async function extractFacts(aiService, context, checkpointTask, workspaceStore) 
   const chapterIds = new Set(chapterRecords(context).map((chapter) => chapter.node_id));
   const localFacts = buildLocalFactRecords(context, [...chapterIds]);
   const runId = String(context.checkRunId || context.check_run_id || `check-${context.contentHash || Date.now()}`);
-  const descriptors = sourceBatches.map((chapters, index) => ({ batchId: factRegistry.stableHash({ runId, index, chapters }).slice(0, 24), batchIndex: index, nodeIds: chapters.map((chapter) => chapter.node_id), inputHash: context.inputsHash, protocolHash: protocolInputsHash(context.inputsHash) }));
+  const protocolHash = context.protocolHash || protocolInputsHash(context.inputsHash);
+  context.checkRunId = runId;
+  const descriptors = sourceBatches.map((chapters, index) => ({ batchId: factRegistry.stableHash({ runId, index, chapters }).slice(0, 24), batchIndex: index, nodeIds: chapters.map((chapter) => chapter.node_id), contentHash: context.contentHash, inputHash: context.inputsHash, protocolHash }));
   const batchFactsHash = context.factsHash || factRegistry.factsHash(localFacts);
   const reusable = typeof workspaceStore?.getReusableHistoricalAdaptationContentCheckBatches === 'function'
-    ? new Map(workspaceStore.getReusableHistoricalAdaptationContentCheckBatches({ checkRunId: runId, inputHash: context.inputsHash, factsHash: batchFactsHash, protocolHash: protocolInputsHash(context.inputsHash) }).map((item) => [item.batch_id, item])) : new Map();
-  if (typeof workspaceStore?.createHistoricalAdaptationContentCheckBatches === 'function') workspaceStore.createHistoricalAdaptationContentCheckBatches({ checkRunId: runId, inputHash: context.inputsHash, factsHash: batchFactsHash, protocolHash: protocolInputsHash(context.inputsHash), batches: descriptors });
+    ? new Map(workspaceStore.getReusableHistoricalAdaptationContentCheckBatches({ checkRunId: runId, contentHash: context.contentHash, inputHash: context.inputsHash, factsHash: batchFactsHash, protocolHash }).map((item) => [item.batch_id, item])) : new Map();
+  if (typeof workspaceStore?.upsertHistoricalAdaptationContentCheckRun === 'function') workspaceStore.upsertHistoricalAdaptationContentCheckRun({ checkRunId: runId, contentHash: context.contentHash, inputHash: context.inputsHash, factsHash: batchFactsHash, protocolHash, expectedBatchCount: descriptors.length, expectedNodeIds: [...chapterIds] });
+  if (typeof workspaceStore?.createHistoricalAdaptationContentCheckBatches === 'function') workspaceStore.createHistoricalAdaptationContentCheckBatches({ checkRunId: runId, contentHash: context.contentHash, inputHash: context.inputsHash, factsHash: batchFactsHash, protocolHash, batches: descriptors });
   for (const [index, chapters] of sourceBatches.entries()) {
     const descriptor = descriptors[index];
     const cached = reusable.get(descriptor.batchId);
@@ -608,7 +671,7 @@ async function extractFacts(aiService, context, checkpointTask, workspaceStore) 
     else {
       try {
         const attemptCount = Number(cached?.attempt_count || 0) + 1;
-        if (typeof workspaceStore?.updateHistoricalAdaptationContentCheckBatch === 'function') workspaceStore.updateHistoricalAdaptationContentCheckBatch({ checkRunId: runId, batchId: descriptor.batchId, status: 'running', attemptCount, inputHash: context.inputsHash, factsHash: batchFactsHash, protocolHash: protocolInputsHash(context.inputsHash) });
+        if (typeof workspaceStore?.updateHistoricalAdaptationContentCheckBatch === 'function') workspaceStore.updateHistoricalAdaptationContentCheckBatch({ checkRunId: runId, batchId: descriptor.batchId, status: 'running', attemptCount, contentHash: context.contentHash, inputHash: context.inputsHash, factsHash: batchFactsHash, protocolHash });
         const validateBatch = (value, batchChapters = chapters) => {
           const parsed = parseJsonPayload(value);
           if (Array.isArray(parsed) && parsed.every((item) => item && typeof item === 'object' && item.fact_id)) return { facts: normalizeFactsResponse({ facts: parsed }), invalidCandidates: [] };
@@ -626,9 +689,10 @@ async function extractFacts(aiService, context, checkpointTask, workspaceStore) 
           }
           response = { facts: splitResponses.flatMap((item) => item.facts || []), invalidCandidates: splitResponses.flatMap((item) => item.invalidCandidates || []) };
         }
-        if (typeof workspaceStore?.saveHistoricalAdaptationContentCheckBatchResult === 'function') workspaceStore.saveHistoricalAdaptationContentCheckBatchResult({ checkRunId: runId, batchId: descriptor.batchId, status: 'success', result: response, attemptCount, inputHash: context.inputsHash, factsHash: batchFactsHash, protocolHash: protocolInputsHash(context.inputsHash), requestSummary: { node_ids: descriptor.nodeIds, redacted: true } });
+        if (typeof workspaceStore?.saveHistoricalAdaptationContentCheckBatchResult === 'function') workspaceStore.saveHistoricalAdaptationContentCheckBatchResult({ checkRunId: runId, batchId: descriptor.batchId, status: 'success', result: response, attemptCount, contentHash: context.contentHash, inputHash: context.inputsHash, factsHash: batchFactsHash, protocolHash, requestSummary: { node_ids: descriptor.nodeIds, redacted: true } });
       } catch (error) {
-        if (typeof workspaceStore?.saveHistoricalAdaptationContentCheckBatchResult === 'function') workspaceStore.saveHistoricalAdaptationContentCheckBatchResult({ checkRunId: runId, batchId: descriptor.batchId, status: 'failed-retryable', errorCode: error.code || error.error_code || 'batch-failed', errorMessage: error.message, requestSummary: { node_ids: descriptor.nodeIds, redacted: true } });
+        if (typeof workspaceStore?.saveHistoricalAdaptationContentCheckBatchResult === 'function') workspaceStore.saveHistoricalAdaptationContentCheckBatchResult({ checkRunId: runId, batchId: descriptor.batchId, status: 'failed-retryable', errorCode: error.code || error.error_code || 'batch-failed', errorMessage: error.message, contentHash: context.contentHash, inputHash: context.inputsHash, factsHash: batchFactsHash, protocolHash, requestSummary: { node_ids: descriptor.nodeIds, redacted: true } });
+        if (typeof workspaceStore?.upsertHistoricalAdaptationContentCheckRun === 'function') workspaceStore.upsertHistoricalAdaptationContentCheckRun({ checkRunId: runId, contentHash: context.contentHash, inputHash: context.inputsHash, factsHash: batchFactsHash, protocolHash, expectedBatchCount: descriptors.length, expectedNodeIds: [...chapterIds], status: 'error' });
         throw error;
       }
     }
@@ -649,7 +713,10 @@ async function extractFacts(aiService, context, checkpointTask, workspaceStore) 
   if (/(?:项目名称|名称\s*[:：]|公司名称|单位名称)/u.test(allText) && !normalized.some((fact) => fact.kind === 'name')) throw new Error('全文事实表缺少关键名称事实');
   const requiredKinds = [[/地点|位置|地址/u, 'location'], [/对象|用户|人员|受众/u, 'object'], [/工作量|数量|宗|人次|面积/u, 'workload'], [/工期|进度|节点|日期/u, 'schedule'], [/服务|范围|内容/u, 'service']];
   for (const [pattern, kind] of requiredKinds) if (pattern.test(allText) && !normalized.some((fact) => fact.kind === kind)) throw new Error(`全文事实表缺少${kind}事实`);
+  normalized = applyFactOverridesToFacts(normalized, context.factOverrides, context.inputsHash);
   normalized.invalidCandidates = invalidCandidates;
+  const finalFactsHash = factRegistry.factsHash(normalized);
+  if (typeof workspaceStore?.upsertHistoricalAdaptationContentCheckRun === 'function') workspaceStore.upsertHistoricalAdaptationContentCheckRun({ checkRunId: runId, contentHash: context.contentHash, inputHash: context.inputsHash, factsHash: finalFactsHash, protocolHash, expectedBatchCount: descriptors.length, expectedNodeIds: [...chapterIds], status: 'success' });
   return normalized;
 }
 
@@ -715,6 +782,9 @@ function checkpointPatch({ status = 'running', stage, findings = [], contentHash
 
 async function runHistoricalAdaptationContentCheckTask({ aiService, workspaceStore, checkpointTask }) {
   let context = workspaceStore.getHistoricalAdaptationContentCheckContext();
+  const cached = context.check;
+  const cachedFactsAvailable = cached?.status === 'success' && (typeof workspaceStore.getHistoricalAdaptationContentFacts !== 'function'
+    || workspaceStore.getHistoricalAdaptationContentFacts().ok === true);
   checkpointTask({ status: 'running', progress: 5, logs: ['开始检查正文迁移一致性。'] }, { historicalAdaptationContentCheck: checkpointPatch({}) });
   const deterministic = collectDeterministicFindings(context);
   let allFindings = deterministic;
@@ -725,11 +795,11 @@ async function runHistoricalAdaptationContentCheckTask({ aiService, workspaceSto
   let currentStage = 'facts';
   try {
     if (deterministic.some((finding) => finding.blocking)) {
-      checkpointTask({ status: 'success', progress: 100, logs: [`确定性预检发现 ${deterministic.length} 项阻断，未调用语义模型。`] }, { historicalAdaptationContentCheck: checkpointPatch({ status: 'success', stage: 'precheck', findings: deterministic, contentHash: context.contentHash, inputsHash: context.inputsHash, manualCount: deterministic.filter((finding) => finding.blocking).length }) });
+      const blockingCount = deterministic.filter((finding) => finding.blocking).length;
+      checkpointTask({ status: 'success', progress: 100, logs: [`确定性预检发现 ${blockingCount} 项阻断，尚未提取全文事实；处理后请重新运行一致性检查。`] }, { historicalAdaptationContentCheck: checkpointPatch({ status: 'success', stage: 'precheck', findings: deterministic, contentHash: context.contentHash, inputsHash: context.inputsHash, manualCount: blockingCount }) });
       return;
     }
-    const cached = context.check;
-    if (cached?.status === 'success' && cached.checked_content_hash === context.contentHash && cached.checked_inputs_hash === context.inputsHash
+    if (cachedFactsAvailable && cached.checked_content_hash === context.contentHash && cached.checked_inputs_hash === context.inputsHash
       && Boolean(cached.checked_facts_hash)
       && cached.checked_protocol_inputs_hash === protocolInputsHash(context.inputsHash)
       && cached.rule_engine_version === RULE_ENGINE_VERSION && cached.fact_schema_version === FACT_SCHEMA_VERSION && cached.repair_protocol_version === REPAIR_PROTOCOL_VERSION) {
@@ -759,6 +829,20 @@ async function runHistoricalAdaptationContentCheckTask({ aiService, workspaceSto
         facts.splice(0, facts.length, ...semanticResult.facts);
         facts.invalidCandidates = semanticResult.facts.invalidCandidates || facts.invalidCandidates;
         factsHash = factRegistry.factsHash(facts);
+      }
+      if (typeof workspaceStore?.upsertHistoricalAdaptationContentCheckRun === 'function' && context.checkRunId) {
+        const run = typeof workspaceStore?.getHistoricalAdaptationContentCheckRun === 'function'
+          ? workspaceStore.getHistoricalAdaptationContentCheckRun({ checkRunId: context.checkRunId }) : undefined;
+        workspaceStore.upsertHistoricalAdaptationContentCheckRun({
+          checkRunId: context.checkRunId,
+          contentHash: context.contentHash,
+          inputHash: context.inputsHash,
+          factsHash,
+          protocolHash: context.protocolHash || protocolInputsHash(context.inputsHash),
+          expectedBatchCount: run?.expected_batch_count,
+          expectedNodeIds: run?.expected_node_ids,
+          status: 'success',
+        });
       }
       allFindings = normalizeHistoricalAdaptationContentFindings([...currentDeterministic, ...semantic]);
       const blocking = semantic.filter((finding) => finding.blocking);

@@ -206,6 +206,27 @@ test('相同正文、输入和规则版本复用语义检查缓存', async () =>
   assert.equal(patches.at(-1).historicalAdaptationContentCheck.rule_engine_version, 4);
 });
 
+test('旧成功检查没有可用事实快照时重新提取事实', async () => {
+  const repair = require('./historicalAdaptationConsistencyRepair.cjs');
+  let calls = 0;
+  await runHistoricalAdaptationContentCheckTask({
+    aiService: { requestJson: async (request) => {
+      calls += 1;
+      return request.response_format?.json_schema?.name === 'historical_adaptation_facts' ? { facts: [] } : { findings: [] };
+    } },
+    workspaceStore: {
+      getHistoricalAdaptationContentFacts: () => ({ ok: false, code: 'unavailable' }),
+      getHistoricalAdaptationContentCheckContext: () => ({ contentHash: 'c', inputsHash: 'i',
+        check: { status: 'success', findings: [], checked_content_hash: 'c', checked_inputs_hash: 'i', checked_facts_hash: 'old-facts',
+          checked_protocol_inputs_hash: repair.stableHash({ inputsHash: 'i', rule_engine_version: 4, fact_schema_version: 1, repair_protocol_version: 1 }),
+          rule_engine_version: 4, fact_schema_version: 1, repair_protocol_version: 1 },
+        outlineData: { outline: [{ id: '1', title: '普通章节', content: '普通正文' }] }, items: [{ node_id: '1', status: 'success' }],
+      }),
+    }, checkpointTask() {},
+  });
+  assert.ok(calls > 0);
+});
+
 test('缺少事实哈希的 v4 成功缓存不得复用', async () => {
   let calls = 0;
   await runHistoricalAdaptationContentCheckTask({
@@ -272,17 +293,64 @@ test('已有 review 状态但正文仅含占位符时不再生成章节阻断项
   assert.deepEqual(findings.map(({ code, blocking }) => [code, blocking]), [['unresolved-placeholder', false]]);
 });
 
-test('人工确认的章节允许为空或保留历史残留，不再生成章节阻断项', () => {
+test('人工确认的空历史来源和空正文保留提示但不阻断', () => {
   const findings = collectDeterministicFindings({
     outlineData: { outline: [{ id: '1', title: '实施范围', content: '' }, { id: '2', title: '服务地点', content: '仍为五峰村。' }] },
     items: [
-      { node_id: '1', status: 'success', confirmed_at: '2026-10-07T00:00:00.000Z', residuals: [], blocked_terms: [] },
+      { node_id: '1', status: 'success', confirmed_at: '2026-10-07T00:00:00.000Z', source_section_id: 'section-1', residuals: [], blocked_terms: [] },
       { node_id: '2', status: 'success', confirmed_at: '2026-10-07T00:00:00.000Z', residuals: ['五峰村'], blocked_terms: ['五峰村'] },
     ],
+    sourceAvailability: [{ node_id: '1', available: false, error: '章节历史原文为空，请选择定向改写或人工补写' }],
     differences: [],
   });
 
-  assert.deepEqual(findings, []);
+  assert.deepEqual(findings.map(({ code, blocking }) => [code, blocking]), [['empty-source', false], ['empty-content', false]]);
+  assert.ok(findings.every((finding) => finding.severity !== 'P0'));
+});
+
+test('指纹异常说明具体变化并给出保留正文的处理方向', () => {
+  const findings = collectDeterministicFindings({
+    outlineData: { outline: [{ id: '1', title: '作业流程', content: '已写正文' }] },
+    items: [{ node_id: '1', status: 'success', plan_id: 'plan', rule_engine_version: 2, content_plan_version: 2,
+      source_version_hash: 'source-version', input_fingerprint: 'old-input', source_content_hash: 'source', migration_output_hash: 'old-output' }],
+    expectedItems: [{ node_id: '1', input_fingerprint: 'new-input', source_content_hash: 'source' }],
+  });
+  const finding = findings.find((item) => item.code === 'plan-stale');
+  assert.ok(finding);
+  assert.match(finding.message, /迁移输入已变化/);
+  assert.match(finding.evidence, /重新迁移|确认本章已处理/);
+  assert.doesNotMatch(finding.evidence, /old-input|old-output/);
+});
+
+test('预检阻断明确说明尚未提取全文事实', async () => {
+  const checkpoints = [];
+  await runHistoricalAdaptationContentCheckTask({
+    aiService: { requestJson: async () => { throw new Error('不应调用模型'); } },
+    workspaceStore: { getHistoricalAdaptationContentCheckContext: () => ({ contentHash: 'c', inputsHash: 'i',
+      outlineData: { outline: [{ id: '1', title: '空章', content: '' }] }, items: [{ node_id: '1', status: 'success' }],
+    }) }, checkpointTask: (...args) => checkpoints.push(args),
+  });
+  assert.match(checkpoints.at(-1)[0].logs.join(' '), /尚未提取全文事实/);
+});
+
+test('全文事实运行清单使用章节 ID 数组交给 Store', async () => {
+  let manifestWrites = 0;
+  await runHistoricalAdaptationContentCheckTask({
+    aiService: { requestJson: async (request) => request.response_format?.json_schema?.name === 'historical_adaptation_facts'
+      ? { facts: [] } : { findings: [] } },
+    workspaceStore: {
+      getHistoricalAdaptationContentCheckContext: () => ({ contentHash: 'c', inputsHash: 'i',
+        outlineData: { outline: [{ id: '1', title: '普通章节', content: '普通正文' }] },
+        items: [{ node_id: '1', status: 'success' }],
+      }),
+      upsertHistoricalAdaptationContentCheckRun: ({ expectedNodeIds }) => {
+        assert.deepEqual(expectedNodeIds, ['1']);
+        manifestWrites += 1;
+      },
+      getHistoricalAdaptationContentCheckRun: () => ({ expected_batch_count: 1, expected_node_ids: ['1'] }),
+    }, checkpointTask() {},
+  });
+  assert.ok(manifestWrites >= 2);
 });
 
 test('语义问题归一化为受控 finding schema', () => {

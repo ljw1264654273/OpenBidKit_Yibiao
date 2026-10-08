@@ -27,6 +27,7 @@ const initialState: TechnicalPlanState = {
   historicalAdaptationOutlineConfirmedAt: undefined,
   historicalAdaptationContentItems: [],
   historicalAdaptationContentConfirmedAt: undefined,
+  historicalAdaptationContentFactOverrides: [],
   historicalAdaptationContentCheck: { status: 'idle', findings: [], checked_content_hash: '', checked_inputs_hash: '' },
   historicalAdaptationReviewFindings: [],
   historicalAdaptationReviewConfirmedAt: undefined,

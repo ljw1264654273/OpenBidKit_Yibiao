@@ -5,7 +5,7 @@ import type { BidProject } from '../../bid-project/types';
 import ContentAiRewriteDrawer, { type ContentAiCandidate } from '../../technical-plan/components/ContentAiRewriteDrawer';
 import ContentAiRewriteMenu, { type ContentAiRewriteMode } from '../../technical-plan/components/ContentAiRewriteMenu';
 import { applyContentAiTextCandidate, createContentLengthEditSnapshot, validateContentAiEditSnapshot, type ContentAiEditSnapshot } from '../../technical-plan/services/contentAiEdit';
-import type { HistoricalAdaptationContentMode, HistoricalAdaptationSourceSection, TechnicalPlanState } from '../../technical-plan/types';
+import type { HistoricalAdaptationContentFactEntry, HistoricalAdaptationContentFactsSnapshot, HistoricalAdaptationContentMode, HistoricalAdaptationSourceSection, TechnicalPlanState } from '../../technical-plan/types';
 import { renderMarkdownHtml } from '../../../shared/markdown/renderMarkdownHtml';
 import { compareRenderedContent } from '../contentComparison';
 
@@ -26,7 +26,7 @@ interface LeafEntry {
   level: number;
 }
 
-type PendingNavigation = { type: 'chapter'; nodeId: string } | { type: 'back' };
+type PendingNavigation = { type: 'chapter'; nodeId: string; reveal?: boolean } | { type: 'back' };
 type ChapterMigration = { nodeId: string; mode: HistoricalAdaptationContentMode; instruction?: string };
 type ChapterFilter = 'all' | 'incomplete' | 'complete';
 
@@ -58,6 +58,8 @@ const checkStageLabels: Record<NonNullable<TechnicalPlanState['historicalAdaptat
   repair: '自动修复',
   recheck: '复查全文',
 };
+
+const missingFactsBridgeMessage = '当前客户端尚未加载全文事实修复接口。请完全退出并重新打开客户端（仅刷新页面或等待热更新不够），再打开本页面重试。';
 
 function flattenLeaves(items: OutlineItem[], parents: string[] = [], level = 0, result: LeafEntry[] = [], ancestorIds: string[] = []) {
   for (const item of items) {
@@ -98,6 +100,10 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onPre
   ), [state.historicalAdaptationContentItems]);
   const [selectedId, setSelectedId] = useState(leaves[0]?.item.id || '');
   const [chapterFilter, setChapterFilter] = useState<ChapterFilter>('all');
+  const [revealTarget, setRevealTarget] = useState<{ nodeId: string } | null>(null);
+  const workbenchRef = useRef<HTMLElement>(null);
+  const outlineListRef = useRef<HTMLDivElement>(null);
+  const outlineRowRefs = useRef(new Map<string, HTMLButtonElement>());
   const visibleLeaves = useMemo(() => leaves.filter((entry) => {
     if (chapterFilter === 'all') return true;
     const complete = itemByNode.get(entry.item.id)?.status === 'success';
@@ -126,6 +132,11 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onPre
   const [pendingNavigation, setPendingNavigation] = useState<PendingNavigation | null>(null);
   const [pendingManualOverwrite, setPendingManualOverwrite] = useState<ChapterMigration | null>(null);
   const [pendingPlaceholderConfirmation, setPendingPlaceholderConfirmation] = useState(false);
+  const [factsDialogOpen, setFactsDialogOpen] = useState(false);
+  const [factsLoading, setFactsLoading] = useState(false);
+  const [factsSaving, setFactsSaving] = useState(false);
+  const [factsSnapshot, setFactsSnapshot] = useState<HistoricalAdaptationContentFactsSnapshot | null>(null);
+  const [factDrafts, setFactDrafts] = useState<Record<string, string>>({});
   const strategyDefaults = useRef<{ nodeId?: string; mode: HistoricalAdaptationContentMode | ''; instruction: string }>({ mode: '', instruction: '' });
   const recommendationRequest = useRef('');
   const { showToast } = useToast();
@@ -142,6 +153,7 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onPre
     || selectedItem.residuals.length > 0
     || !draft.trim()
     || /【(?:待核实|待补充)】/u.test(draft)
+    || state.historicalAdaptationContentCheck.findings.some((finding) => (finding.code === 'plan-stale' || finding.code === 'source-stale') && finding.node_ids.includes(selectedItem.node_id))
   ));
   const strategyChanged = Boolean(selectedItem && (strategyMode !== effectiveMode(selectedItem)
     || (strategyMode === 'rewrite' && strategyInstruction.trim() !== effectiveInstruction(selectedItem).trim())));
@@ -161,6 +173,8 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onPre
   const check = state.historicalAdaptationContentCheck;
   const checkStage = state.historicalAdaptationContentCheck.stage;
   const checkBlockingCount = check.findings.filter((finding) => finding.blocking).length;
+  const blockerNodeIds = new Set(check.findings.filter((finding) => finding.blocking).flatMap((finding) => finding.node_ids));
+  const checkAdvisoryCount = check.findings.filter((finding) => !finding.blocking).length;
   const checkStageLabel = checkStage ? (checkStage === 'repair' ? `自动修复第 ${check.repair_round || 1} 轮` : checkStageLabels[checkStage]) : '';
   const autoRepairedCount = check.auto_repaired_count || 0;
   const manualCount = check.manual_count || 0;
@@ -261,14 +275,39 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onPre
 
   useEffect(() => () => onDirtyChange(false), [onDirtyChange]);
 
+  useEffect(() => {
+    if (!revealTarget || chapterFilter !== 'all') return;
+    const frame = requestAnimationFrame(() => {
+      const list = outlineListRef.current;
+      const row = outlineRowRefs.current.get(revealTarget.nodeId);
+      if (list && row) {
+        const listRect = list.getBoundingClientRect();
+        const rowRect = row.getBoundingClientRect();
+        list.scrollTop += rowRect.top - listRect.top - (listRect.height - rowRect.height) / 2;
+        workbenchRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      }
+      setRevealTarget(null);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [revealTarget, chapterFilter]);
+
   const continueNavigation = (navigation: PendingNavigation) => {
     setPendingNavigation(null);
-    if (navigation.type === 'chapter') setSelectedId(navigation.nodeId);
+    if (navigation.type === 'chapter') {
+      setSelectedId(navigation.nodeId);
+      if (navigation.reveal) {
+        setChapterFilter('all');
+        setRevealTarget({ nodeId: navigation.nodeId });
+      }
+    }
     else onBack();
   };
 
   const requestNavigation = (navigation: PendingNavigation) => {
-    if (navigation.type === 'chapter' && navigation.nodeId === selectedLeaf?.item.id) return;
+    if (navigation.type === 'chapter' && navigation.nodeId === selectedLeaf?.item.id) {
+      if (navigation.reveal) continueNavigation(navigation);
+      return;
+    }
     if (unsaved) {
       setPendingNavigation(navigation);
       return;
@@ -408,6 +447,69 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onPre
       showToast('一致性检查已在后台启动', 'success');
     } catch (error) {
       showToast(error instanceof Error ? error.message : '启动一致性检查失败', 'error');
+    }
+  };
+
+  const openFactsDialog = async () => {
+    setFactsDialogOpen(true);
+    setFactsLoading(true);
+    if (typeof window.yibiao.technicalPlan.getHistoricalAdaptationContentFacts !== 'function') {
+      setFactsSnapshot({ ok: false, code: 'unavailable', message: missingFactsBridgeMessage, contentHash: '', inputsHash: '', protocolHash: '', checkStatus: check.status, facts: [], overrides: [] });
+      showToast(missingFactsBridgeMessage, 'error');
+      setFactsLoading(false);
+      return;
+    }
+    try {
+      const snapshot = await window.yibiao.technicalPlan.getHistoricalAdaptationContentFacts({ projectId });
+      setFactsSnapshot(snapshot);
+      setFactDrafts(Object.fromEntries((snapshot.facts || []).map((fact) => [String(fact.fact_key || fact.fact_id || ''), fact.canonical_value || '']).filter(([key]) => key)));
+      if (!snapshot.ok) showToast(`${snapshot.message || '当前没有可用的全文事实快照'}${snapshot.code === 'stale' ? ' 请重新运行一致性检查。' : ''}`, 'info');
+    } catch (error) {
+      setFactsSnapshot({ ok: false, code: 'unavailable', message: error instanceof Error ? error.message : '全文事实读取失败', contentHash: '', inputsHash: '', protocolHash: '', checkStatus: check.status, facts: [], overrides: [] });
+      showToast('全文事实读取失败，请先运行一致性检查后重试', 'error');
+    } finally {
+      setFactsLoading(false);
+    }
+  };
+
+  const saveFactRepairs = async () => {
+    if (!factsSnapshot?.ok || factsSaving) return;
+    if (typeof window.yibiao.technicalPlan.saveHistoricalAdaptationContentFactOverrides !== 'function') {
+      showToast(missingFactsBridgeMessage, 'error');
+      return;
+    }
+    setFactsSaving(true);
+    try {
+      const priorOverrides = new Map(factsSnapshot.overrides.map((item) => [item.fact_key, item]));
+      const overrides = factsSnapshot.facts.map((fact) => {
+        const key = String(fact.fact_key || fact.fact_id || '').trim();
+        const canonicalValue = String(factDrafts[key] || '').trim();
+        const unchanged = canonicalValue === String(fact.canonical_value || '').trim();
+        if (unchanged && !priorOverrides.has(key)) return null;
+        if (unchanged && priorOverrides.has(key)) return null;
+        return { fact_key: key, canonical_value: canonicalValue, kind: fact.kind, basis: 'manual', note: '一致性检查事实弹窗人工修正' };
+      }).filter((item): item is NonNullable<typeof item> => Boolean(item?.fact_key));
+      const result = await window.yibiao.technicalPlan.saveHistoricalAdaptationContentFactOverrides({
+        projectId,
+        expectedContentHash: factsSnapshot.contentHash,
+        expectedInputsHash: factsSnapshot.inputsHash,
+        expectedProtocolHash: factsSnapshot.protocolHash,
+        overrides,
+      });
+      if (!result.ok) {
+        showToast(result.code === 'conflict' ? '正文或检查输入已变化，请重新读取全文事实后再保存。' : result.message, result.code === 'conflict' ? 'info' : 'error');
+        if (result.code === 'conflict') await openFactsDialog();
+        return;
+      }
+      const nextState = await window.yibiao.technicalPlan.loadState({ projectId });
+      onStateChange(nextState);
+      setFactsSnapshot({ ...factsSnapshot, ok: false, code: 'stale', message: '事实修正已保存，请重新运行一致性检查。', overrides: result.overrides, inputsHash: result.inputsHash });
+      showToast('事实修正已保存，正在重新运行一致性检查', 'success');
+      await window.yibiao.tasks.startHistoricalAdaptationContentCheck({ projectId });
+    } catch (error) {
+      showToast(error instanceof Error ? `保存事实修正失败：${error.message}` : '保存事实修正失败，请重试', 'error');
+    } finally {
+      setFactsSaving(false);
     }
   };
 
@@ -588,7 +690,7 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onPre
         <span><mark className="adaptation-content-diff-added">修改后 / 新增</mark>迁移后正文</span>
       </div>
 
-      <section className="historical-adaptation-content-workbench">
+      <section className="historical-adaptation-content-workbench" ref={workbenchRef}>
         <div className="adaptation-content-column is-outline">
           <header>
             <div className="adaptation-content-outline-heading"><strong>适配目录</strong><span>{chapterFilter === 'all' ? `${leaves.length} 章` : `${visibleLeaves.length} / ${leaves.length} 章`}</span></div>
@@ -598,12 +700,12 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onPre
               ))}
             </div>
           </header>
-          <div className="adaptation-content-outline-list">
+          <div className="adaptation-content-outline-list" ref={outlineListRef}>
             {!visibleLeaves.length ? <div className="adaptation-content-empty">{chapterFilter === 'incomplete' ? '没有未完成章节' : chapterFilter === 'complete' ? '暂无已完成章节' : '暂无正文章节'}</div> : null}
             {visibleLeaves.map((entry) => {
               const migration = itemByNode.get(entry.item.id);
               return (
-                <button type="button" key={entry.item.id} className={`${entry.item.id === selectedLeaf?.item.id ? 'is-selected' : ''}${migration?.status === 'success' ? ' is-confirmed' : ''}`} onClick={() => requestNavigation({ type: 'chapter', nodeId: entry.item.id })}>
+                <button type="button" key={entry.item.id} ref={(element) => { if (element) outlineRowRefs.current.set(entry.item.id, element); else outlineRowRefs.current.delete(entry.item.id); }} className={`${entry.item.id === selectedLeaf?.item.id ? 'is-selected' : ''}${migration?.status === 'success' ? ' is-confirmed' : ''}${blockerNodeIds.has(entry.item.id) ? ' has-check-blocker' : ''}`} onClick={() => requestNavigation({ type: 'chapter', nodeId: entry.item.id })}>
                   <span>{entry.item.id}</span>
                   <div><strong title={entry.path.join(' / ')}>{entry.item.title}</strong><small>{statusLabels[migration?.status || 'idle']}</small></div>
                 </button>
@@ -671,21 +773,59 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onPre
       <section className={`historical-adaptation-content-check${check.status === 'success' && !checkBlockingCount ? ' is-complete' : ''}`}>
         <header>
           <div><span className="section-kicker">一致性检查</span><strong>{checkStatusLabel}</strong>{checkStageLabel && !checkRunning ? <span>{checkStageLabel}</span> : null}<p>检查工作量、工期进度、跨章节冲突、历史残留与待核实占位符。</p></div>
-          <button type="button" className="secondary-action" disabled={running || !state.historicalAdaptationContentItems.length} onClick={() => { void runConsistencyCheck(); }}>运行一致性检查</button>
+          <div className="historical-adaptation-content-check-actions">
+            <button type="button" className="secondary-action" disabled={running || !state.historicalAdaptationContentItems.length} onClick={() => { void openFactsDialog(); }}>查看全文事实</button>
+            <button type="button" className="secondary-action" disabled={running || !state.historicalAdaptationContentItems.length} onClick={() => { void runConsistencyCheck(); }}>运行一致性检查</button>
+          </div>
         </header>
         {checkTask?.status === 'error' ? <div className="historical-adaptation-content-error">{checkTask?.error || check.error || '一致性检查任务失败，请重试。'}</div> : check.error ? <div className="historical-adaptation-content-error">{check.error}</div> : null}
+        {checkStage === 'precheck' && checkBlockingCount > 0 ? <p className="historical-adaptation-content-error">预检尚未通过，因此还没有提取全文事实。请按下方问题定位章节并处理，然后重新运行一致性检查。</p> : null}
         <div className="historical-adaptation-content-check-stats" aria-label="一致性检查结果统计">
           <span>自动修复成功 <strong>{autoRepairedCount}</strong></span>
           <span>仍有阻断 <strong>{checkBlockingCount}</strong></span>
+          <span>仅提示 <strong>{checkAdvisoryCount}</strong></span>
           <span>人工处理 <strong>{manualCount}</strong></span>
         </div>
-        {check.findings.length ? <div className="adaptation-content-check-findings">{check.findings.map((finding) => <button type="button" key={finding.id} onClick={() => finding.node_ids[0] && requestNavigation({ type: 'chapter', nodeId: finding.node_ids[0] })}><span>{finding.severity}{finding.blocking ? ' · 阻断' : ''}</span><strong>{finding.message}</strong>{finding.evidence ? <small>{finding.evidence}</small> : null}</button>)}</div> : null}
+        {check.findings.length ? <div className="adaptation-content-check-findings">{check.findings.map((finding) => <button type="button" key={finding.id} onClick={() => finding.node_ids[0] && requestNavigation({ type: 'chapter', nodeId: finding.node_ids[0], reveal: true })}><span>{finding.severity}{finding.blocking ? ' · 阻断' : ' · 提示'}</span><strong>{finding.message}</strong><div><small className="is-chapter-path">{finding.node_ids.length ? `对应章节：${finding.node_ids.map((nodeId) => {
+          const entry = leaves.find((leaf) => leaf.item.id === nodeId);
+          return entry ? `${nodeId} ${entry.path.join(' / ')}` : nodeId;
+        }).join('；')}` : '全局问题'}</small>{finding.evidence ? <small>{finding.evidence}</small> : null}</div></button>)}</div> : null}
       </section>
 
       <section className={`historical-adaptation-content-acceptance${stageConfirmed ? ' is-complete' : ''}`}>
         <div><strong>{stageConfirmed ? '正文迁移已按阶段确认' : hasPlaceholders ? '存在待核实或待补充内容' : '完成一致性检查后统一确认'}</strong><span>{stageConfirmed ? '审核导出已开放。' : hasPlaceholders ? `已发现 ${placeholderCount} 处待核实/待补充内容，允许导出 Word；导出 Word 后请人工处理。` : '无需逐章点击确认；系统会一次校验全部章节、检查快照和阻断问题。'}</span></div>
         {stageConfirmed ? <span>已确认</span> : <button type="button" className="primary-action" disabled={running || dirty || !state.historicalAdaptationContentItems.length} title={dirty ? '请先保存当前章节' : undefined} onClick={requestStageConfirmation}>{hasPlaceholders ? '确认保留并继续' : '确认本阶段'}</button>}
       </section>
+
+      <AppDialog
+        open={factsDialogOpen}
+        onOpenChange={(open) => { if (!factsSaving) setFactsDialogOpen(open); }}
+        kicker="一致性检查输入"
+        title="全文事实与证据"
+        description="核对提取值、冲突来源和原文证据。修正仅覆盖一致性检查的事实口径，不会修改章节正文或标书生成的全局事实。"
+        cardClassName="historical-adaptation-facts-dialog"
+        actions={<>
+          <button type="button" className="secondary-action" disabled={factsSaving || running} onClick={() => { setFactsDialogOpen(false); void runConsistencyCheck(); }}>重新运行一致性检查</button>
+          <button type="button" className="primary-action" disabled={!factsSnapshot?.ok || factsLoading || factsSaving || running} onClick={() => { void saveFactRepairs(); }}>{factsSaving ? '保存并检查中...' : '保存修正并重新检查'}</button>
+        </>}
+      >
+        <div className="historical-adaptation-facts-body">
+          {factsLoading ? <div className="adaptation-content-empty" role="status">正在读取全文事实...</div> : !factsSnapshot?.ok ? <div className="historical-adaptation-content-error">{factsSnapshot?.message || '尚无可用的全文事实快照。请先运行一致性检查，完成事实提取后再查看。'}</div> : !factsSnapshot.facts.length ? <div className="adaptation-content-empty">本次检查未提取到可展示的全文事实。可以重新运行检查以刷新快照。</div> : factsSnapshot.facts.map((fact: HistoricalAdaptationContentFactEntry, index) => {
+            const factKey = String(fact.fact_key || fact.fact_id || `fact-${index}`);
+            const overridden = factsSnapshot.overrides.some((item) => item.fact_key === factKey);
+            return <article className="historical-adaptation-fact" key={factKey}>
+              <header><div><strong>{factKey}</strong><span>{fact.kind || '未分类'}{fact.conflict ? ' · 存在冲突' : ''}{overridden ? ' · 已人工修正' : ''}</span></div></header>
+              <label>统一口径<input value={factDrafts[factKey] ?? fact.canonical_value} onChange={(event) => setFactDrafts((current) => ({ ...current, [factKey]: event.target.value }))} placeholder="输入确认后的事实值；清空后将移除人工修正" /></label>
+              {fact.values?.length ? <div className="historical-adaptation-fact-values"><strong>提取到的值</strong><span>{fact.values.join(' / ')}</span></div> : null}
+              <div className="historical-adaptation-fact-sources"><strong>来源章节</strong><div>{fact.chapter_node_ids.length ? fact.chapter_node_ids.map((nodeId) => {
+                const leaf = leaves.find((entry) => entry.item.id === nodeId);
+                return <button key={nodeId} type="button" className="text-button" onClick={() => { setFactsDialogOpen(false); requestNavigation({ type: 'chapter', nodeId }); }}>{leaf ? `${nodeId} ${leaf.item.title}` : nodeId} · 定位章节</button>;
+              }) : <span>未关联章节</span>}</div></div>
+              {fact.evidence.length ? <div className="historical-adaptation-fact-evidence"><strong>原文证据</strong>{fact.evidence.map((evidence, evidenceIndex) => <div className="markdown-viewer" key={`${factKey}-evidence-${evidenceIndex}`}><MarkdownRenderer allowRawHtml={false}>{evidence}</MarkdownRenderer></div>)}</div> : <p className="historical-adaptation-fact-no-evidence">当前快照未保存原文证据，可定位章节核对正文。</p>}
+            </article>;
+          })}
+        </div>
+      </AppDialog>
 
       <AppDialog open={Boolean(pendingNavigation)} onOpenChange={(open) => !open && setPendingNavigation(null)} kicker="未保存修改" title="当前章节有未保存修改" description="继续操作会放弃当前章节尚未保存的内容。" actions={<><button type="button" className="secondary-action" onClick={() => setPendingNavigation(null)}>继续编辑</button><button type="button" className="danger-action" onClick={() => pendingNavigation && continueNavigation(pendingNavigation)}>放弃修改并继续</button></>} />
       <AppDialog open={Boolean(pendingManualOverwrite)} onOpenChange={(open) => !open && setPendingManualOverwrite(null)} kicker="人工正文保护" title="覆盖人工正文" description="按所选方式迁移会覆盖当前章节已人工保存的正文。此操作仅影响当前章节。" actions={<><button type="button" className="secondary-action" onClick={() => setPendingManualOverwrite(null)}>取消</button><button type="button" className="danger-action" onClick={() => pendingManualOverwrite && void migrateChapter(pendingManualOverwrite, true)}>确认覆盖并迁移</button></>} />

@@ -124,6 +124,7 @@ CREATE TABLE IF NOT EXISTS historical_adaptation_content_check_batches (
   batch_id TEXT NOT NULL,
   batch_index INTEGER NOT NULL DEFAULT 0,
   node_ids_json TEXT NOT NULL DEFAULT '[]',
+  content_hash TEXT,
   input_hash TEXT,
   facts_hash TEXT,
   protocol_hash TEXT,
@@ -141,6 +142,23 @@ CREATE INDEX IF NOT EXISTS idx_historical_adaptation_content_check_batches_run_o
   ON historical_adaptation_content_check_batches(project_id, check_run_id, batch_index);
 CREATE INDEX IF NOT EXISTS idx_historical_adaptation_content_check_batches_status
   ON historical_adaptation_content_check_batches(project_id, status);
+
+CREATE TABLE IF NOT EXISTS historical_adaptation_content_check_runs (
+  project_id TEXT NOT NULL DEFAULT '',
+  check_run_id TEXT NOT NULL,
+  content_hash TEXT,
+  input_hash TEXT,
+  facts_hash TEXT,
+  protocol_hash TEXT,
+  expected_batch_count INTEGER NOT NULL DEFAULT 0,
+  expected_node_ids_json TEXT NOT NULL DEFAULT '[]',
+  status TEXT NOT NULL DEFAULT 'running',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (project_id, check_run_id)
+);
+CREATE INDEX IF NOT EXISTS idx_historical_adaptation_content_check_runs_latest
+  ON historical_adaptation_content_check_runs(project_id, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS technical_plan_meta (
   id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -209,6 +227,8 @@ CREATE TABLE IF NOT EXISTS technical_plan_meta (
   historical_adaptation_content_confirmed_at TEXT,
   -- v43 历史标书正文一致性检查结果、输入哈希及检查时间。
   historical_adaptation_content_check_json TEXT,
+  -- v46 历史标书一致性检查的项目级人工事实修正。
+  historical_adaptation_content_fact_overrides_json TEXT,
   -- v42 历史标书适配终审问题与人工验收状态。
   historical_adaptation_review_findings_json TEXT,
   historical_adaptation_review_confirmed_at TEXT,
