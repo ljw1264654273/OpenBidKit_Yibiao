@@ -536,6 +536,34 @@ function buildLocalFactSummary(context, chapters = [], { facts = [], conflictOnl
   return result;
 }
 
+function extractDeterministicAmountFacts(chapters = [], inputHash = '') {
+  const candidates = [];
+  const occurrenceByNode = new Map();
+  for (const chapter of Array.isArray(chapters) ? chapters : []) {
+    const nodeId = text(chapter?.node_id || chapter?.nodeId);
+    if (!nodeId) continue;
+    const content = String(chapter?.content || '');
+    const pattern = /(?:￥\s*[\d,.]+|\$\s*[\d,.]+|\d[\d,.]*\s*(?:万元|万|元))/gu;
+    let match;
+    while ((match = pattern.exec(content))) {
+      const occurrence = (occurrenceByNode.get(nodeId) || 0) + 1;
+      occurrenceByNode.set(nodeId, occurrence);
+      const start = Math.max(0, match.index - 80);
+      const end = Math.min(content.length, match.index + match[0].length + 100);
+      const evidence = content.slice(start, end).replace(/\s+/gu, ' ').trim();
+      candidates.push({
+        kind: 'amount',
+        slot: 'budget',
+        qualifier: `正文金额-${nodeId}-${occurrence}`,
+        value: match[0].trim(),
+        evidence: evidence || match[0].trim(),
+        node_id: nodeId,
+      });
+    }
+  }
+  return factRegistry.mergeFacts(candidates, { inputHash });
+}
+
 function compactConflictFactsForPrompt(facts, maxChars) {
   const result = [];
   let used = 2;
@@ -614,6 +642,9 @@ async function extractFacts(aiService, context, checkpointTask, workspaceStore) 
     : [...normalizeFactsResponse({ facts }), ...localNormalized];
   const allText = `${sourceBatches.flat().map((chapter) => chapter.content).join('\n')}\n${typeof context?.baseline === 'string' ? context.baseline : JSON.stringify(context?.baseline || {})}`;
   for (const fact of normalized) if (fact.chapter_node_ids.some((nodeId) => !chapterIds.has(nodeId))) throw new Error('全文事实表包含未知章节');
+  if (/(?:￥|\$|\d[\d,.]*\s*(?:万元|万|元))/u.test(allText) && !normalized.some((fact) => fact.kind === 'amount')) {
+    normalized = [...normalized, ...extractDeterministicAmountFacts(sourceBatches.flat(), context.inputsHash)];
+  }
   if (/(?:￥|\$|\d[\d,.]*\s*(?:万元|万|元))/u.test(allText) && !normalized.some((fact) => fact.kind === 'amount')) throw new Error('全文事实表缺少金额事实');
   if (/(?:项目名称|名称\s*[:：]|公司名称|单位名称)/u.test(allText) && !normalized.some((fact) => fact.kind === 'name')) throw new Error('全文事实表缺少关键名称事实');
   const requiredKinds = [[/地点|位置|地址/u, 'location'], [/对象|用户|人员|受众/u, 'object'], [/工作量|数量|宗|人次|面积/u, 'workload'], [/工期|进度|节点|日期/u, 'schedule'], [/服务|范围|内容/u, 'service']];
@@ -785,6 +816,7 @@ module.exports = {
   validateFactResolutions,
   collectDeterministicFindings,
   normalizeFactsResponse,
+  extractDeterministicAmountFacts,
   normalizeHistoricalAdaptationContentFindings,
   runHistoricalAdaptationContentCheckTask,
 };
