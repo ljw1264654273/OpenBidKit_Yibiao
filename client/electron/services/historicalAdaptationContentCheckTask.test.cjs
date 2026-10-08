@@ -39,6 +39,7 @@ const {
   normalizeCandidateFactsResponse,
   validateFactResolutions,
   collectDeterministicFindings,
+  extractDeterministicAmountFacts,
   normalizeHistoricalAdaptationContentFindings,
   runHistoricalAdaptationContentCheckTask,
 } = require('./historicalAdaptationContentCheckTask.cjs');
@@ -319,6 +320,32 @@ test('无事实响应在正文包含关键口径时转人工', async () => {
     workspaceStore: { getHistoricalAdaptationContentCheckContext: () => ({ contentHash: 'c', inputsHash: 'i', outlineData: { outline: [{ id: '1', title: '地点', content: '服务地点为新地点。' }] }, items: [{ node_id: '1', status: 'success' }] }) },
     checkpointTask: () => {},
   }), /缺少.*事实/);
+});
+
+test('模型未返回金额事实时从正文金额建立确定性事实并继续检查', async () => {
+  const checkpoints = [];
+  await runHistoricalAdaptationContentCheckTask({
+    aiService: { requestJson: async (request) => request.response_format?.json_schema?.name === 'historical_adaptation_facts' ? { facts: [] } : { findings: [] } },
+    workspaceStore: { getHistoricalAdaptationContentCheckContext: () => ({
+      contentHash: 'amount-content', inputsHash: 'amount-inputs',
+      outlineData: { outline: [{ id: '1', title: '报价说明', content: '本项目合同金额为100万元。' }] },
+      items: [{ node_id: '1', status: 'success' }],
+    }) },
+    checkpointTask: (...args) => checkpoints.push(args),
+  });
+  const final = checkpoints.at(-1);
+  assert.equal(final[0].status, 'success');
+  assert.equal(final[1].historicalAdaptationContentCheck.status, 'success');
+  assert.equal(final[1].historicalAdaptationContentCheck.findings.some((finding) => finding.code === 'manual-review-required'), false);
+});
+
+test('同一长章节分片中的不同金额保持独立事实', () => {
+  const facts = extractDeterministicAmountFacts([
+    { node_id: '1', content: '项目预算为100万元。' },
+    { node_id: '1', content: '其中设备投入50万元。' },
+  ], 'amount-inputs');
+  assert.equal(facts.length, 2);
+  assert.ok(facts.every((fact) => fact.conflict === false));
 });
 
 test('一致性检查合并本地和语义问题并保存最新哈希', async () => {
