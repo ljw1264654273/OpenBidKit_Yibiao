@@ -1,13 +1,11 @@
 const crypto = require('node:crypto');
 const { CONTENT_RULE_ENGINE_VERSION, CONTENT_PLAN_VERSION, getEffectiveMode } = require('./historicalAdaptationContentTask.cjs');
+const { RULE_ENGINE_VERSION, FACT_SCHEMA_VERSION, REPAIR_PROTOCOL_VERSION } = require('./historicalAdaptationContentCheckProtocol.cjs');
 
 const SEMANTIC_CATEGORIES = ['workload', 'schedule', 'service-content', 'cross-chapter'];
 const CATEGORIES = new Set(['residual', ...SEMANTIC_CATEGORIES, 'placeholder', 'empty', 'task']);
 const SEMANTIC_BATCH_CHARS = 24000;
 const SEVERITIES = new Set(['P0', 'P1', 'P2']);
-const RULE_ENGINE_VERSION = 5;
-const FACT_SCHEMA_VERSION = 2;
-const REPAIR_PROTOCOL_VERSION = 1;
 const repairContract = require('./historicalAdaptationConsistencyRepair.cjs');
 const factRegistry = require('./historicalAdaptationFactRegistry.cjs');
 const optimization = require('./historicalAdaptationContentCheckOptimization.cjs');

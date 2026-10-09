@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
+const { RULE_ENGINE_VERSION, FACT_SCHEMA_VERSION, REPAIR_PROTOCOL_VERSION } = require('./historicalAdaptationContentCheckProtocol.cjs');
 
 function withStore(outline, originalPlan, assertions) {
   const { createSqliteDatabase } = require('./sqliteDatabase.cjs');
@@ -36,7 +37,10 @@ function withStore(outline, originalPlan, assertions) {
 function saveCurrentCheck(store) {
   const context = store.getHistoricalAdaptationContentCheckContext();
   store.updateTechnicalPlan({ historicalAdaptationContentCheck: { status: 'success', findings: [],
-    checked_content_hash: context.contentHash, checked_inputs_hash: context.inputsHash, rule_engine_version: 3 } });
+    checked_content_hash: context.contentHash, checked_inputs_hash: context.inputsHash,
+    checked_facts_hash: 'test-facts-hash', checked_protocol_inputs_hash: context.protocolHash,
+    rule_engine_version: RULE_ENGINE_VERSION, fact_schema_version: FACT_SCHEMA_VERSION,
+    repair_protocol_version: REPAIR_PROTOCOL_VERSION } });
 }
 
 function runAssertions() {
@@ -63,7 +67,8 @@ function runAssertions() {
       const item = store.prepareHistoricalAdaptationContentPlan().historicalAdaptationContentItems[0];
       store.saveHistoricalAdaptationChapterContent({ nodeId: '1', content: '已人工核实的正文。' });
       saveCurrentCheck(store);
-      assert.equal(store.getHistoricalAdaptationContentReadiness().ready, true);
+      const initialReadiness = store.getHistoricalAdaptationContentReadiness();
+      assert.equal(initialReadiness.ready, true, JSON.stringify(initialReadiness.findings));
       const reference = db.prepare('SELECT relative_path FROM technical_plan_historical_source_versions WHERE source_hash = ?').get(item.source_version_hash);
       const archivePath = path.join(directory, 'workspace', reference.relative_path);
       if (damage === 'corrupt-file') fs.writeFileSync(archivePath, '损坏的来源档案', 'utf8');

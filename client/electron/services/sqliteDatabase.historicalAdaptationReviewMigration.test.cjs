@@ -33,7 +33,7 @@ function runAssertions() {
     database.close();
 
     database = createSqliteDatabase(app);
-    assert.equal(schemaVersion, 45);
+    assert.equal(database.db.pragma('user_version', { simple: true }), schemaVersion);
     for (const tableName of ['technical_plan_meta', projectMeta]) {
       const columns = new Set(database.db.prepare(`PRAGMA table_info(${quoteIdentifier(tableName)})`).all().map((row) => row.name));
       assert.equal(columns.has('historical_adaptation_review_findings_json'), true);

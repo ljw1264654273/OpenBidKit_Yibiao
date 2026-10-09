@@ -34,6 +34,11 @@ const { buildIllustrationBlock, replaceIllustrationBlock } = require('./contentI
 const { normalizeHistoricalAdaptationDifferences } = require('./historicalAdaptationDifferenceTask.cjs');
 const { normalizeHistoricalAdaptationOutlineChanges } = require('./historicalAdaptationOutlineTask.cjs');
 const {
+  RULE_ENGINE_VERSION: HISTORICAL_ADAPTATION_RULE_ENGINE_VERSION,
+  FACT_SCHEMA_VERSION: HISTORICAL_ADAPTATION_FACT_SCHEMA_VERSION,
+  REPAIR_PROTOCOL_VERSION: HISTORICAL_ADAPTATION_REPAIR_PROTOCOL_VERSION,
+} = require('./historicalAdaptationContentCheckProtocol.cjs');
+const {
   assertContentPrerequisites,
   buildHistoricalContentItems,
   getEffectiveMode,
@@ -55,9 +60,6 @@ const bidTemplateSourceRelativePath = path.join('technical-plan', 'bid-template-
 const bidTemplateFieldsRelativePath = path.join('technical-plan', 'bid-template-fields.json').replace(/\\/g, '/');
 const originalPlanMarkdownRelativePath = path.join('technical-plan', 'original-plan.md').replace(/\\/g, '/');
 const originalOutlineRuntimeFileName = 'original-outline-runtime.json';
-const HISTORICAL_ADAPTATION_RULE_ENGINE_VERSION = 5;
-const HISTORICAL_ADAPTATION_FACT_SCHEMA_VERSION = 2;
-const HISTORICAL_ADAPTATION_REPAIR_PROTOCOL_VERSION = 1;
 const defaultOutlineWordControlOptions = Object.freeze({
   enabled: false,
   minimumWords: 550000,
