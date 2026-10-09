@@ -4079,6 +4079,8 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
         manual_mode: targetMode,
         manual_instruction: manualInstruction,
         status: current.status === 'idle' ? 'idle' : 'stale',
+        error: undefined,
+        error_code: undefined,
         updated_at: timestamp,
       });
       staleHistoricalAdaptationContentCheck();

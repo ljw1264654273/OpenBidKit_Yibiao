@@ -1,4 +1,5 @@
 const crypto = require('node:crypto');
+const { CONTENT_RULE_ENGINE_VERSION, CONTENT_PLAN_VERSION, getEffectiveMode } = require('./historicalAdaptationContentTask.cjs');
 
 const SEMANTIC_CATEGORIES = ['workload', 'schedule', 'service-content', 'cross-chapter'];
 const CATEGORIES = new Set(['residual', ...SEMANTIC_CATEGORIES, 'placeholder', 'empty', 'task']);
@@ -200,6 +201,16 @@ function isSemanticReviewCandidate(item, content) {
     && ((item.residuals || []).length > 0 || /【(?:待核实|待补充)】/u.test(content));
 }
 
+function isRetainedMigrationDraft(item, content) {
+  return item?.status === 'review' && item.content_origin === 'migrated'
+    && Boolean(item.error && item.migration_output_hash && item.source_content_hash && content.trim());
+}
+
+function blocksSemanticPrecheck(finding) {
+  // 已落库的完整历史底稿仍需处理，但允许全文语义复核发现旧事实并检查其他章节。
+  return finding.blocking && finding.code !== 'migration-needs-review';
+}
+
 function collectDeterministicFindings({ outlineData, items, expectedItems, sourceAvailability }) {
   const leaves = flattenLeaves(outlineData?.outline || []);
   const byId = new Map((Array.isArray(items) ? items : []).map((item) => [text(item?.node_id), item]));
@@ -228,12 +239,12 @@ function collectDeterministicFindings({ outlineData, items, expectedItems, sourc
     }
     if (expectedById && item?.content_origin !== 'manual') {
       const expected = expectedById.get(leaf.nodeId);
-      const mode = require('./historicalAdaptationContentTask.cjs').getEffectiveMode(item);
+      const mode = getEffectiveMode(item);
       const outputHash = crypto.createHash('sha256').update(JSON.stringify([
         item?.source_hash, item?.input_fingerprint, mode, item?.manual_instruction, leaf.content,
       ]), 'utf8').digest('hex');
       const reason = !expected || !item?.plan_id ? '迁移方案未建立或已失效'
-        : item?.rule_engine_version !== 2 || item?.content_plan_version !== 2 ? '迁移规则版本已变化'
+        : item?.rule_engine_version !== CONTENT_RULE_ENGINE_VERSION || item?.content_plan_version !== CONTENT_PLAN_VERSION ? '迁移规则版本已变化'
           : !item?.source_version_hash || item?.source_content_hash !== expected.source_content_hash ? '历史来源已变化'
             : item?.input_fingerprint !== expected.input_fingerprint ? '迁移输入已变化'
               : item?.migration_output_hash !== outputHash ? '迁移后正文与记录不一致' : '';
@@ -245,7 +256,10 @@ function collectDeterministicFindings({ outlineData, items, expectedItems, sourc
     if (!leaf.content.trim()) {
       findings.push(makeBlockingFinding({ code: 'empty-content', category: 'empty', nodeId: leaf.nodeId, message: '章节正文为空', evidence: leaf.path.join(' / ') }));
     }
-    if (!item || (item.status !== 'success' && !isSemanticReviewCandidate(item, leaf.content))) {
+    if (isRetainedMigrationDraft(item, leaf.content)) {
+      findings.push(makeBlockingFinding({ code: 'migration-needs-review', category: 'task', nodeId: leaf.nodeId,
+        message: '段落改写未完成，已保留历史正文待复核', evidence: item.error }));
+    } else if (!item || (item.status !== 'success' && !isSemanticReviewCandidate(item, leaf.content))) {
       findings.push(makeBlockingFinding({ code: 'chapter-not-ready', category: 'task', nodeId: leaf.nodeId, message: '章节迁移尚未成功完成', evidence: item?.error || item?.status || '缺少迁移记录' }));
     }
     if (placeholders.length) {
@@ -1044,7 +1058,7 @@ async function runHistoricalAdaptationContentCheckTask({ aiService, workspaceSto
   let factsHash;
   let currentStage = 'facts';
   try {
-    if (deterministic.some((finding) => finding.blocking)) {
+    if (deterministic.some(blocksSemanticPrecheck)) {
       const blockingCount = deterministic.filter((finding) => finding.blocking).length;
       checkpointTask({ status: 'success', progress: 100, logs: [`确定性预检发现 ${blockingCount} 项阻断，尚未提取全文事实；处理后请重新运行一致性检查。`] }, { historicalAdaptationContentCheck: checkpointPatch({ status: 'success', stage: 'precheck', findings: deterministic, contentHash: context.contentHash, inputsHash: context.inputsHash, manualCount: blockingCount }) });
       return;
@@ -1061,7 +1075,7 @@ async function runHistoricalAdaptationContentCheckTask({ aiService, workspaceSto
       let currentDeterministic = deterministic;
       if (round > 0) {
         currentDeterministic = collectDeterministicFindings(context);
-        if (currentDeterministic.some((finding) => finding.blocking)) {
+        if (currentDeterministic.some(blocksSemanticPrecheck)) {
           allFindings = normalizeHistoricalAdaptationContentFindings([...currentDeterministic]);
           const message = '复查发现正文结构性问题';
           checkpointTask({ status: 'error', progress: 100, error: message, logs: [message] }, { historicalAdaptationContentCheck: checkpointPatch({ status: 'error', stage: 'recheck', findings: allFindings, contentHash: context.contentHash, inputsHash: context.inputsHash, factsHash, autoRepairedCount, manualCount: currentDeterministic.filter((finding) => finding.blocking).length, repairRound, error: message }) });
@@ -1097,12 +1111,13 @@ async function runHistoricalAdaptationContentCheckTask({ aiService, workspaceSto
       }
       allFindings = normalizeHistoricalAdaptationContentFindings([...currentDeterministic, ...semantic]);
       const blocking = semantic.filter((finding) => finding.blocking);
+      manualCount = currentDeterministic.filter((finding) => finding.code === 'migration-needs-review').length;
       if (!blocking.length) {
         checkpointTask({ status: 'success', progress: 100, error: undefined, logs: [`一致性检查完成，共发现 ${allFindings.length} 项问题。`] }, { historicalAdaptationContentCheck: checkpointPatch({ status: 'success', stage: round ? 'recheck' : 'semantic', findings: allFindings, contentHash: context.contentHash, inputsHash: context.inputsHash, factsHash, autoRepairedCount, manualCount, repairRound }) });
         return;
       }
       if (round >= 2 || typeof workspaceStore.applyHistoricalAdaptationConsistencyRepairs !== 'function') {
-        manualCount = blocking.length;
+        manualCount += blocking.length;
         const message = '仍存在需要人工处理的一致性问题';
         checkpointTask({ status: 'error', progress: 100, error: message, logs: ['自动修复轮次已用尽，保留人工处理问题。'] }, { historicalAdaptationContentCheck: checkpointPatch({ status: 'error', stage: 'recheck', findings: allFindings, contentHash: context.contentHash, inputsHash: context.inputsHash, factsHash, autoRepairedCount, manualCount, repairRound, error: message }) });
         return;

@@ -40,14 +40,27 @@ function markdownProtectedRanges(source) {
   return ranges;
 }
 
-function applyAuthorizedLocalEdits(sourceContent, rules, modelEdits = []) {
+function applyAuthorizedLocalEdits(sourceContent, rules, modelEdits = [], { baseline = '' } = {}) {
   const source = String(sourceContent || '');
   const contentHash = sourceHash(source);
   const protectedRanges = markdownProtectedRanges(source);
   const edits = [];
   const errors = [];
   const fragmentRules = [];
-  for (const rule of rules || []) {
+  const paragraphs = new Map();
+  const executionRules = (rules || []).flatMap((rule) => {
+    const ordinaryRanges = [];
+    for (const range of rule.authorizedRanges || []) {
+      if (!range.paragraphRewrite) { ordinaryRanges.push(range); continue; }
+      const id = `paragraph:${range.startOffset}:${range.endOffset}`;
+      paragraphs.set(id, { ...rule, id, targetAction: 'rewrite-fragment', paragraphRewrite: true,
+        authorizedRanges: [range], oldValues: range.oldValues || rule.oldValues || [],
+        targetRequirement: (range.targetRequirements || [rule.targetRequirement]).join('\n') });
+    }
+    return ordinaryRanges.length || !rule.authorizedRanges?.length ? [{ ...rule, authorizedRanges: ordinaryRanges }] : [];
+  });
+  executionRules.push(...paragraphs.values());
+  for (const rule of executionRules) {
     if (rule.targetAction === 'rewrite-fragment') fragmentRules.push(rule);
     if (!['replace', 'remove', 'rewrite-fragment'].includes(rule.targetAction)) continue;
     if (!rule.authorizedRanges?.length) errors.push(`non-local-edit: ${rule.id} 缺少授权范围`);
@@ -74,6 +87,7 @@ function applyAuthorizedLocalEdits(sourceContent, rules, modelEdits = []) {
   if (fragmentRules.length && !modelEdits?.length) errors.push('invalid-edit-structure: 返回结果必须包含非空 edits 数组');
   let editedLength = 0;
   const covered = new Set();
+  const modelRanges = [];
   for (const edit of modelEdits || []) {
     const oldText = edit?.old_text ?? edit?.oldText;
     const newText = edit?.new_text ?? edit?.newText;
@@ -81,13 +95,49 @@ function applyAuthorizedLocalEdits(sourceContent, rules, modelEdits = []) {
       errors.push('invalid-edit-structure: edit 必须包含字符串 old_text 和 new_text');
       continue;
     }
-    const start = source.indexOf(oldText);
+    const explicitStart = edit?.start_offset ?? edit?.startOffset;
+    const start = Number.isInteger(explicitStart) ? explicitStart : source.indexOf(oldText);
     if (start < 0) { errors.push('old-text-not-found: Could not find oldText in content'); continue; }
-    if (source.indexOf(oldText, start + 1) >= 0) { errors.push('old-text-ambiguous: old_text 多处命中，必须唯一'); continue; }
+    if (source.slice(start, start + oldText.length) !== oldText) { errors.push('source-stale: 编辑偏移与原文不匹配'); continue; }
+    if (!Number.isInteger(explicitStart) && source.indexOf(oldText, start + 1) >= 0) { errors.push('old-text-ambiguous: old_text 多处命中，必须唯一'); continue; }
     const end = start + oldText.length;
+    if (modelRanges.some((range) => start < range.end && end > range.start)) {
+      errors.push(`invalid-edit-structure: edit ranges overlap: ${start}-${end}`);
+      continue;
+    }
+    modelRanges.push({ start, end });
     const rule = fragmentRules.find((candidate) => candidate.authorizedRanges?.some((range) => start >= range.startOffset && end <= range.endOffset));
     if (!rule) { errors.push('non-local-edit: 编辑超出授权片段'); continue; }
     if (oldText === newText) { errors.push('no-effective-change: 新旧片段相同'); continue; }
+    if (rule.paragraphRewrite) {
+      const range = rule.authorizedRanges[0];
+      if (start !== range.startOffset || end !== range.endOffset || !newText.trim()
+        || /\r?\n[ \t]*\r?\n/u.test(newText) || hasProtectedMarkdown(newText)
+        || protectedRanges.some((item) => start < item.end && end > item.start)) {
+        errors.push('non-local-edit: 必须重写授权的完整单一段落，不得跨 Markdown 边界');
+        continue;
+      }
+      const residuals = (rule.oldValues || []).filter((value) => newText.includes(value));
+      if (residuals.length) { errors.push(`residual-old-value: ${residuals.join('、')} 仍在改写段落中`); continue; }
+      const basis = `${baseline}\n${rule.targetRequirement}`;
+      const beforeFacts = factTokens(oldText);
+      const requirementKinds = new Set(factTokens(rule.targetRequirement).map(factKind));
+      const populationFacts = [...oldText.matchAll(/(?:人口|居民|村民|常住|户籍)[^。；！？\n]{0,20}?(\d+(?:\.\d+)?\s*人)/gu)].map((match) => match[1]);
+      const unsupported = factTokens(newText).filter((token) => {
+        if (basis.includes(token)) return false;
+        if (factKind(token) === 'workload' && requirementKinds.has('workload')) return true;
+        if (beforeFacts.includes(token) && !populationFacts.includes(token)
+          && (factKind(token) !== 'location' || /(?:农村|乡村)$/u.test(token))) return false;
+        if (factKind(token) !== 'location') return true;
+        // 中文地点提取可能携带“项目位于”等前缀；只接受基线明确出现的完整地点后缀。
+        return !Array.from({ length: token.length }, (_, index) => token.slice(index))
+          .some((suffix) => /^[\p{Script=Han}]{2,}(?:街道|社区|乡镇|村|镇)$/u.test(suffix) && basis.includes(suffix));
+      });
+      if (unsupported.length) { errors.push(`protected-fact-changed: 招标依据未包含新事实：${unsupported.join('、')}`); continue; }
+      covered.add(rule.id);
+      edits.push({ start, end, newText });
+      continue;
+    }
     if (oldText.length / source.length > 0.2 || hasProtectedMarkdown(newText)
       || protectedRanges.some((range) => start < range.end && end > range.start)) {
       errors.push('non-local-edit: 不得替换完整来源或整章，单项范围超过20%或跨 Markdown 保护边界');

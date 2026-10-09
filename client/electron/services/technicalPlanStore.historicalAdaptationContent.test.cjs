@@ -79,10 +79,15 @@ function runAssertions() {
     assert.equal(state.historicalAdaptationContentItems[0].content_origin, 'manual');
     assert.equal(state.historicalAdaptationContentCheck.status, 'stale');
 
+    store.updateTechnicalPlan({ historicalAdaptationContentItem: {
+      ...state.historicalAdaptationContentItems[0], error: 'edit ranges overlap: 16-35 and 22-28', error_code: 'invalid-edit-structure',
+    } });
     state = store.saveHistoricalAdaptationContentStrategy({ nodeId: '1', mode: 'rewrite', instruction: '突出新项目执行要求' });
     assert.equal(state.historicalAdaptationContentItems[0].manual_mode, 'rewrite');
     assert.equal(state.historicalAdaptationContentItems[0].manual_instruction, '突出新项目执行要求');
     assert.equal(state.historicalAdaptationContentItems[0].status, 'stale');
+    assert.equal(state.historicalAdaptationContentItems[0].error, undefined);
+    assert.equal(state.historicalAdaptationContentItems[0].error_code, undefined);
     for (const mode of ['supplement', 'review']) {
       assert.throws(() => store.saveHistoricalAdaptationContentStrategy({ nodeId: '1', mode }), /有效的正文迁移方式/);
     }

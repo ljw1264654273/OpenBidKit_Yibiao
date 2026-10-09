@@ -144,6 +144,66 @@ async function runAssertions() {
     assert.equal(store.getHistoricalAdaptationContentReadiness().ready, false);
     assert.throws(() => store.runHistoricalAdaptationReview(), /正文迁移|一致性检查/);
 
+    // 整段迁移的新版本必须进入真实语义检查；失败底稿不能阻断其他章节检查。
+    for (const failRewrite of [false, true]) {
+      store.clearTechnicalPlan();
+      const oldParagraph = '五峰村行政归属为木渎镇，人口1000人，调查965宗。采用现场核查和质量复核。';
+      fs.writeFileSync(path.join(sourceDir, 'original-plan.md'), `# 项目概况\n${oldParagraph}\n\n# 服务保障\n保留质量保障措施。`, 'utf8');
+      fs.writeFileSync(path.join(sourceDir, 'tender.md'), '横泾街道调查3082宗，采用现场核查和质量复核。', 'utf8');
+      database.db.prepare('UPDATE technical_plan_meta SET original_plan_markdown_path = ?, tender_markdown_path = ? WHERE id = 1')
+        .run('technical-plan/original-plan.md', 'technical-plan/tender.md');
+      store.updateTechnicalPlan({
+        outlineData: { outline: [{ id: 'paragraph-1', title: '项目概况', content: '' }, { id: 'paragraph-2', title: '服务保障', content: '' }] },
+        historicalAdaptationContentItems: [],
+        historicalAdaptationDifferenceConfirmedAt: '2026-10-09T00:00:00.000Z',
+        historicalAdaptationOutlineConfirmedAt: '2026-10-09T00:00:00.000Z',
+        historicalAdaptationOutlineChanges: [{ id: 'paragraph-location', change_type: 'renamed',
+          original_path: '项目概况', target_node_id: 'paragraph-1', target_title: '项目概况', difference_ids: ['location'] },
+          { id: 'paragraph-retained', change_type: 'retained', original_path: '服务保障', target_node_id: 'paragraph-2', target_title: '服务保障', difference_ids: [] }],
+        historicalAdaptationDifferences: [{ id: 'location', difference_schema_version: 2, decision: 'confirmed',
+          category: '名称地点替换', priority: 'high', title: '地点变更', content_change_scope: 'location-target',
+          old_content_evidence: ['五峰村'], target_action: 'replace', auto_apply_policy: 'must-replace',
+          evidence_kind: 'exact-value', confidence: 'high', historical_location: '项目概况', historical_excerpt: '五峰村',
+          replacements: [{ old_value: '五峰村', new_value: '横泾街道' }],
+          action: '删除旧行政和人口，按招标文件重写完整段落', tender_requirement: '横泾街道调查3082宗。' }],
+        bidAnalysisTasks: Object.fromEntries(getBidAnalysisTasks('full').map(({ id, label }) =>
+          [id, { id, label, status: 'success', content: '横泾街道调查3082宗，采用现场核查和质量复核。' }])),
+      });
+      store.prepareHistoricalAdaptationContentPlan();
+      const result = await runHistoricalAdaptationContentTask({ workspaceStore: store, checkpointTask, updateTask() {},
+        aiService: { requestJson: async () => {
+          if (failRewrite) throw new Error('模拟段落改写失败');
+          return { content: '横泾街道调查3082宗。采用现场核查和质量复核。' };
+        } } });
+      assert.equal(result.needsConsistencyCheck, true, JSON.stringify(store.loadTechnicalPlan().historicalAdaptationContentItems));
+      const migrated = store.loadTechnicalPlan();
+      const firstItem = migrated.historicalAdaptationContentItems.find((item) => item.node_id === 'paragraph-1');
+      assert.equal(firstItem.rule_engine_version, 3);
+      assert.equal(firstItem.status, failRewrite ? 'review' : 'success');
+      const checkRequests = [];
+      await runHistoricalAdaptationContentCheckTask({ workspaceStore: store, checkpointTask,
+        aiService: { requestJson: async (request) => {
+          checkRequests.push(request);
+          return request.response_format.json_schema.name === 'historical_adaptation_facts'
+            ? { candidates: [] } : { findings: [], resolutions: [] };
+        } } });
+      const checked = store.loadTechnicalPlan();
+      assert.equal(checked.historicalAdaptationContentCheck.stage, 'semantic');
+      assert.equal(checked.historicalAdaptationContentCheck.findings.some((finding) => finding.code === 'plan-stale'), false);
+      const semanticRequests = checkRequests.filter((request) => request.response_format.json_schema.name === 'historical_adaptation_content_check');
+      assert.ok(semanticRequests.length);
+      const prompts = semanticRequests.map((request) => request.messages[0].content).join('\n');
+      assert.match(prompts, /paragraph-1/);
+      assert.match(prompts, /paragraph-2/);
+      if (failRewrite) {
+        assert.equal(checked.outlineData.outline[0].content, oldParagraph);
+        assert.match(checked.historicalAdaptationContentItems.find((item) => item.node_id === 'paragraph-1').error, /模拟段落改写失败/);
+        assert.ok(checked.historicalAdaptationContentCheck.findings.some((finding) => finding.code === 'migration-needs-review' && finding.blocking));
+        assert.equal(checked.historicalAdaptationContentCheck.manual_count, 1);
+        assert.equal(store.getHistoricalAdaptationContentReadiness().ready, false);
+      } else assert.equal(store.getHistoricalAdaptationContentReadiness().ready, true);
+    }
+
     const { createBidProjectStore } = require('./bidProjectStore.cjs');
     const projectIds = ['cache-project-甲', 'cache-project-乙'];
     const makeStore = (projectId) => createTechnicalPlanStore({

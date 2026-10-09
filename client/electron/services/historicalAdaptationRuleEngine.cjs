@@ -26,19 +26,33 @@ function buildHistoricalAdaptationRules(differences) {
       && (evidenceKind !== 'locked-range' || !oldContentEvidence.length || replacements.length)) continue;
     if (targetAction === 'review' && (evidenceKind !== 'contextual' || replacements.length)) continue;
     if (!['replace', 'remove', 'rewrite-fragment', 'review'].includes(targetAction)) continue;
+    const instruction = [difference.action, difference.note].map(text).join('\n');
+    const nestedEvidence = replacements.some((item, index) => replacements.some((other, otherIndex) =>
+      index !== otherIndex && item.oldValue !== other.oldValue && item.oldValue.includes(other.oldValue)));
+    const semanticInstruction = /重写|重新编写|重新撰写|按[^\n。；]*(?:实际|情况)[^\n。；]*编写|删除[^\n]*(?:地理|行政|人口|概况)/u.test(instruction);
+    const paragraphRewrite = targetAction === 'replace' && (semanticInstruction || nestedEvidence)
+      || targetAction === 'rewrite-fragment' && /完整段落|整段|(?:地理|行政|人口|概况)/u.test(instruction) && semanticInstruction;
     rules.push({
       id: text(difference.id), differenceId: text(difference.id),
       scope: text(difference.content_change_scope),
       policy: targetAction === 'replace' ? 'must-replace' : 'contextual-review',
+      paragraphRewrite,
       evidenceKind, confidence,
       oldValues: [...new Set(replacements.map((item) => item.oldValue))],
       oldContentEvidence,
       replacements,
       authorizedRanges: [],
-      targetAction,
+      targetAction: paragraphRewrite ? 'rewrite-fragment' : targetAction,
       targetRequirement: text(difference.tender_requirement),
       evidence: text(difference.historical_excerpt),
     });
+  }
+  const mappedRules = rules.filter((rule) => rule.policy === 'must-replace');
+  for (const rule of mappedRules) {
+    if (!mappedRules.some((other) => other !== rule && rule.oldValues.some((value) =>
+      other.oldValues.some((otherValue) => value !== otherValue && (value.includes(otherValue) || otherValue.includes(value)))))) continue;
+    rule.paragraphRewrite = true;
+    rule.targetAction = 'rewrite-fragment';
   }
   return rules;
 }

@@ -322,7 +322,7 @@ test('人工确认的空历史来源和空正文保留提示但不阻断', () =>
 test('指纹异常说明具体变化并给出保留正文的处理方向', () => {
   const findings = collectDeterministicFindings({
     outlineData: { outline: [{ id: '1', title: '作业流程', content: '已写正文' }] },
-    items: [{ node_id: '1', status: 'success', plan_id: 'plan', rule_engine_version: 2, content_plan_version: 2,
+    items: [{ node_id: '1', status: 'success', plan_id: 'plan', rule_engine_version: 3, content_plan_version: 3,
       source_version_hash: 'source-version', input_fingerprint: 'old-input', source_content_hash: 'source', migration_output_hash: 'old-output' }],
     expectedItems: [{ node_id: '1', input_fingerprint: 'new-input', source_content_hash: 'source' }],
   });

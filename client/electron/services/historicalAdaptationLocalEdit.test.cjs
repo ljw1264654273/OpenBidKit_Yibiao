@@ -2,6 +2,18 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 const { applyAuthorizedLocalEdits } = require('./historicalAdaptationLocalEdit.cjs');
 
+test('地区段落不得沿用招标依据未支持的旧行政归属及人口', () => {
+  const source = '五峰村情况。行政归属为木渎镇。人口1000人，工作量965宗。';
+  const rule = { id: 'place', targetAction: 'rewrite-fragment', paragraphRewrite: true,
+    oldValues: ['五峰村', '965宗'], targetRequirement: '横泾街道3082宗',
+    authorizedRanges: [{ startOffset: 0, endOffset: source.length, oldValue: source, paragraphRewrite: true }],
+  };
+  const result = applyAuthorizedLocalEdits(source, [rule], [{ old_text: source,
+    new_text: '横泾街道情况。行政归属为木渎镇。人口1000人，工作量3082宗。' }]);
+  assert.equal(result.changed, false);
+  assert.match(result.errors.join('；'), /protected-fact-changed/);
+});
+
 test('精确旧值全部 occurrence 原子替换，无关短语逐字保留', () => {
   const source = '五峰村与五峰村。开展农村服务，村辖区不变。';
   const rules = [{ id: 'place', targetAction: 'replace', replacements: [{ oldValue: '五峰村', newValue: '横泾街道' }],
@@ -27,6 +39,56 @@ function lockedRule(source, evidence, fields = {}) {
     oldContentEvidence: [evidence],
     authorizedRanges: [{ startOffset: start, endOffset: start + evidence.length, oldValue: evidence }], ...fields };
 }
+
+function paragraphRule(source, fields = {}) {
+  return { ...lockedRule(source, source), paragraphRewrite: true,
+    authorizedRanges: [{ startOffset: 0, endOffset: source.length, oldValue: source, paragraphRewrite: true,
+      oldValues: ['五峰村', '965宗'], targetRequirements: ['横泾街道约3082宗，其中已调查2862宗、未调查220宗'] }], ...fields };
+}
+
+test('完整短章段落按招标事实重写，允许改变多个地区描述和数量', () => {
+  const source = '五峰村由旧合作社组织，人口1000人，工作量965宗。';
+  const next = '横泾街道约3082宗，其中已调查2862宗、未调查220宗。';
+  const result = applyAuthorizedLocalEdits(source, [paragraphRule(source)], [{ old_text: source, new_text: next }]);
+  assert.equal(result.content, next);
+  assert.deepEqual(result.errors, []);
+});
+
+test('段落已要求按招标工作量重写时拒绝沿用未被招标支持的旧宗数', () => {
+  const source = '五峰村情况。工作量965宗，保留调查方法。';
+  const next = '横泾街道情况。工作量965宗，保留调查方法。';
+  const rule = paragraphRule(source, { authorizedRanges: [{ startOffset: 0, endOffset: source.length,
+    oldValue: source, paragraphRewrite: true, oldValues: [],
+    targetRequirements: ['横泾街道工作量约3082宗'] }] });
+  const result = applyAuthorizedLocalEdits(source, [rule], [{ old_text: source, new_text: next }]);
+  assert.equal(result.content, source);
+  assert.match(result.errors.join('；'), /protected-fact-changed.*965宗/);
+});
+
+test('段落重写拒绝残留旧事实、模型补造数量、跨段落和部分编辑', () => {
+  const source = '五峰村工作量965宗。';
+  for (const next of ['五峰村工作量3082宗。', '横泾街道工作量9999宗。', '横泾街道。\n\n另一个段落。']) {
+    const result = applyAuthorizedLocalEdits(source, [paragraphRule(source)], [{ old_text: source, new_text: next }]);
+    assert.equal(result.content, source);
+    assert.ok(result.errors.length);
+  }
+  const partial = applyAuthorizedLocalEdits(source, [paragraphRule(source)], [{ old_text: '五峰村', new_text: '横泾街道' }]);
+  assert.equal(partial.content, source);
+  assert.ok(partial.errors.length);
+});
+
+test('完整段落的重复原文按已知偏移应用，重叠模型编辑原子拒绝', () => {
+  const paragraph = '五峰村工作量965宗。';
+  const source = `${paragraph}\n\n${paragraph}`;
+  const ranges = [0, paragraph.length + 2].map((startOffset) => ({ ...paragraphRule(paragraph).authorizedRanges[0],
+    startOffset, endOffset: startOffset + paragraph.length }));
+  const rule = paragraphRule(source, { authorizedRanges: ranges });
+  const edits = ranges.map((range) => ({ old_text: paragraph, new_text: '横泾街道工作量3082宗。', start_offset: range.startOffset }));
+  assert.equal(applyAuthorizedLocalEdits(source, [rule], edits).content, '横泾街道工作量3082宗。\n\n横泾街道工作量3082宗。');
+  const overlap = applyAuthorizedLocalEdits(source, [rule], [...edits, edits[0]]);
+  assert.equal(overlap.content, source);
+  assert.match(overlap.errors.join(';'), /overlap/);
+});
 
 test('模型只可改锁定片段，片段外小范围润色也原子拒绝', () => {
   const source = '原服务流程。保留既有工作方法。' + '保留保障措施。'.repeat(12);

@@ -16,7 +16,7 @@ async function waitUntil(predicate, attempts = 40) {
   assert.fail('等待异步任务状态超时');
 }
 
-function makeHarness({ projectType = 'historical-bid-adaptation', initialState = {}, holdOutline = false, holdContent = false, holdContentAfterChapter = false, holdContentCheck = false, terminalContentStatus } = {}) {
+function makeHarness({ projectType = 'historical-bid-adaptation', initialState = {}, holdOutline = false, holdContent = false, holdContentAfterChapter = false, holdContentCheck = false, terminalContentStatus, needsConsistencyCheck = false, contentItemStatus = 'success' } = {}) {
   let state = {
     workflowKind: 'existing-plan-expansion',
     bidAnalysisTasks: completeBaseline,
@@ -164,14 +164,14 @@ function makeHarness({ projectType = 'historical-bid-adaptation', initialState =
           if (runnerCalls.content.length === 1) {
             checkpointTask({ status: terminalContentStatus, progress: 100, logs: [] });
             await holdRun(taskControl);
-            return;
+            return { needsConsistencyCheck };
           }
           await holdRun(taskControl);
         }
         if (holdContent && runnerCalls.content.length === 1) await holdRun(taskControl);
         checkpointTask({ status: holdContentAfterChapter ? 'running' : 'success', progress: 100, logs: [] }, {
           historicalAdaptationContentItem: {
-            node_id: '1', source_path: '适配目录', mode: 'direct', status: 'success', reason: '直接迁移',
+            node_id: '1', source_path: '适配目录', mode: 'direct', status: contentItemStatus, reason: '直接迁移',
             difference_ids: [], source_excerpt: '历史正文', blocked_terms: [], residuals: [],
           },
           contentGenerationItem: { nodeId: '1', section: { status: 'success', content: '迁移正文' } },
@@ -183,6 +183,7 @@ function makeHarness({ projectType = 'historical-bid-adaptation', initialState =
           await holdRun(taskControl);
           checkpointTask({ status: 'success', progress: 100 });
         }
+        return { needsConsistencyCheck };
       },
       historicalAdaptationContentCheck: async ({ payload, checkpointTask, taskControl }) => {
         runnerCalls.contentCheck.push({ ...payload, checkCache: state.historicalAdaptationContentCheck });
@@ -424,6 +425,31 @@ test('重试正文调用同一 Runner 且明确设置 retry，不重建方案', 
   await waitUntil(() => harness.service.getActiveTasks().length === 0);
   assert.equal(harness.runnerCalls.content[0].retry, true);
   assert.equal(harness.preparations.length, 0);
+});
+
+for (const contentItemStatus of ['success', 'review']) {
+  test(`段落重写 ${contentItemStatus} 底稿在正文 runner 释放后自动复核`, async () => {
+    const harness = makeHarness({ needsConsistencyCheck: true, holdContentAfterChapter: true, contentItemStatus });
+    harness.service.startHistoricalAdaptationContent({ projectId: 'historical-project' });
+    await waitUntil(() => harness.heldRuns.length === 1);
+    assert.equal(harness.runnerCalls.contentCheck.length, 0);
+    assert.equal(harness.getState().outlineData.outline[0].content, '迁移正文');
+    harness.heldRuns[0].release();
+    await waitUntil(() => harness.runnerCalls.contentCheck.length === 1 && harness.service.getActiveTasks().length === 0);
+    assert.equal(harness.runnerCalls.contentCheck[0].projectId, 'historical-project');
+  });
+}
+
+test('正文取消后不启动自动一致性复核', async () => {
+  const harness = makeHarness({ needsConsistencyCheck: true, holdContentAfterChapter: true });
+  harness.service.startHistoricalAdaptationContent({ projectId: 'historical-project' });
+  await waitUntil(() => harness.heldRuns.length === 1);
+  const cancellation = harness.service.cancelProjectTasks('historical-project');
+  await waitUntil(() => harness.heldRuns[0].signal.aborted);
+  harness.heldRuns[0].release();
+  await cancellation;
+  await waitUntil(() => harness.service.getActiveTasks().length === 0);
+  assert.equal(harness.runnerCalls.contentCheck.length, 0);
 });
 
 for (const terminalContentStatus of ['success', 'error']) {

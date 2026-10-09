@@ -1231,6 +1231,7 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
     const runGate = shouldQueue
       ? new Promise((resolve) => technicalPlanQueue.push({ taskKey, resolve }))
       : Promise.resolve();
+    let runnerResult;
     runGate.then(() => {
       if (taskControl.cancelled || closed) return;
       taskControl.queued = false;
@@ -1268,11 +1269,16 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
         },
       );
       return runner({ aiService: runnerAiService, agentService: runnerAgentService, ordinaryAgentService: runnerOrdinaryAgentService, workspaceStore: runnerWorkspaceStore, technicalPlanCheckService, knowledgeBaseService, knowledgeReferenceService, knowledgeSession: taskControl.knowledgeSession, openXmlHelperService, updateTask, checkpointTask, payload: scopedPayload, taskControl, previousState });
+    }).then((result) => {
+      runnerResult = result;
     }).catch((error) => {
       if (!taskControl.signal.aborted) {
         checkpointTask({ status: 'error', error: error.message || '任务执行失败' });
       }
     }).finally(() => {
+      const scheduleHistoricalContentCheck = !closed && type === 'historical-adaptation-content'
+        && currentTask.status === 'success' && !taskControl.signal.aborted
+        && runnerResult?.needsConsistencyCheck === true && activeTasks.get(taskKey) === currentTask;
       const scheduleVariantAfterContent = !closed && type === 'content-generation'
         && currentTask.status === 'success'
         && Boolean(bidProjectManager?.getProject?.(projectId)?.derivedFromProjectId)
@@ -1314,6 +1320,17 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
       }
       resolveSettled();
       drainTechnicalPlanQueue();
+      if (scheduleHistoricalContentCheck) {
+        queueMicrotask(() => {
+          if (closed || taskControl.signal.aborted || hasActiveTask('historical-adaptation-content', projectId)
+            || hasActiveTask('historical-adaptation-content-check', projectId)) return;
+          try {
+            startHistoricalAdaptationContentCheck({ projectId });
+          } catch (error) {
+            console.warn('[task-service] 自动启动历史正文一致性复核失败', error);
+          }
+        });
+      }
       if (scheduleVariantAfterContent) {
         queueMicrotask(() => {
           if (closed) return;
@@ -1327,6 +1344,22 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
     });
 
     return snapshotTask(currentTask);
+  }
+
+  function startHistoricalAdaptationContentCheck(payload) {
+    const projectId = getProjectId(payload);
+    const project = bidProjectManager?.getProject?.(projectId);
+    if (project?.projectType !== 'historical-bid-adaptation') throw new Error('当前项目不是历史标书适配项目');
+    const store = getTechnicalPlanStore(projectId);
+    const state = store.loadTechnicalPlan() || {};
+    if (!Array.isArray(state.historicalAdaptationContentItems) || !state.historicalAdaptationContentItems.length) {
+      throw new Error('请先建立并执行正文迁移方案');
+    }
+    return startManagedTask(
+      'historical-adaptation-content-check', payload,
+      taskRunners.historicalAdaptationContentCheck || runHistoricalAdaptationContentCheckTask,
+      { historicalAdaptationContentConfirmedAt: undefined },
+    );
   }
 
   // 取消技术方案任务并等待退出，避免清空下游后旧任务继续提交 checkpoint。
@@ -2138,24 +2171,7 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
     retryHistoricalAdaptationContent(payload) {
       return this.startHistoricalAdaptationContent({ ...payload, retry: true });
     },
-    startHistoricalAdaptationContentCheck(payload) {
-      const projectId = getProjectId(payload);
-      const project = bidProjectManager?.getProject?.(projectId);
-      if (project?.projectType !== 'historical-bid-adaptation') throw new Error('当前项目不是历史标书适配项目');
-      const store = getTechnicalPlanStore(projectId);
-      const state = store.loadTechnicalPlan() || {};
-      if (!Array.isArray(state.historicalAdaptationContentItems) || !state.historicalAdaptationContentItems.length) {
-        throw new Error('请先建立并执行正文迁移方案');
-      }
-      return startManagedTask(
-        'historical-adaptation-content-check',
-        payload,
-        taskRunners.historicalAdaptationContentCheck || runHistoricalAdaptationContentCheckTask,
-        {
-          historicalAdaptationContentConfirmedAt: undefined,
-        },
-      );
-    },
+    startHistoricalAdaptationContentCheck,
     startOutlineGeneration(payload) {
       const outlineMode = payload?.outline_mode === 'standalone-technical'
         ? 'standalone-technical'

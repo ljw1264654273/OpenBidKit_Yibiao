@@ -103,10 +103,55 @@ function findAllValueRanges(section, value) {
 
 function bindRulesToSourceRanges(index, sourcePath, rules) {
   const section = locateHistoricalSection(index, sourcePath);
-  return (rules || []).map((rule) => {
-    const values = rule.targetAction === 'replace' ? rule.oldValues : rule.oldContentEvidence;
+  const boundRules = (rules || []).map((rule) => {
+    const values = rule.paragraphRewrite ? [...(rule.oldValues || []), ...(rule.oldContentEvidence || [])]
+      : rule.targetAction === 'replace' ? rule.oldValues : rule.oldContentEvidence;
     const authorizedRanges = section.reliable ? (values || []).flatMap((value) => findAllValueRanges(section, value).map((range) => ({ ...range, oldValue: value }))) : [];
     return { ...rule, authorizedRanges, policy: section.reliable ? rule.policy : 'contextual-review' };
+  });
+  if (!section.reliable) return boundRules;
+  const paragraphs = [];
+  // 空行分段；标题、表格和围栏是边界，不把结构化 Markdown 授权给段落改写。
+  let start = null;
+  let end = 0;
+  let fence = null;
+  const flush = () => {
+    if (start !== null) paragraphs.push({ startOffset: start, endOffset: end });
+    start = null;
+  };
+  for (const match of section.content.matchAll(/^.*(?:\r?\n|$)/gmu)) {
+    if (!match[0]) continue;
+    const line = match[0].replace(/\r?\n$/u, '');
+    const marker = /^ {0,3}(`{3,}|~{3,})(.*)$/u.exec(line);
+    if (fence) {
+      if (marker && marker[1][0] === fence[0] && marker[1].length >= fence.length && !marker[2].trim()) fence = null;
+      continue;
+    }
+    if (marker) { flush(); fence = marker[1]; continue; }
+    if (!line.trim() || /^\s*(?:#{1,6}\s|\||<|!\[)/u.test(line)) { flush(); continue; }
+    if (start === null) start = match.index;
+    end = match.index + line.length;
+  }
+  flush();
+  const affected = paragraphs.filter((paragraph) => boundRules.some((rule) => (rule.paragraphRewrite
+    || rule.targetAction === 'replace' && rule.scope === 'location-target'
+      && /地理|行政|人口|地形|地貌|区位|辖区/u.test(section.content.slice(paragraph.startOffset, paragraph.endOffset)))
+    && rule.authorizedRanges.some((range) => range.startOffset >= paragraph.startOffset && range.endOffset <= paragraph.endOffset)))
+    .map((paragraph) => {
+      const related = boundRules.filter((rule) => rule.targetAction !== 'review' && rule.authorizedRanges.some((range) =>
+        range.startOffset >= paragraph.startOffset && range.endOffset <= paragraph.endOffset));
+      return { ...paragraph, oldValue: section.content.slice(paragraph.startOffset, paragraph.endOffset),
+        paragraphRewrite: true, differenceIds: related.map((rule) => rule.differenceId || rule.id),
+        oldValues: [...new Set(related.flatMap((rule) => rule.oldValues || []))],
+        targetRequirements: related.map((rule) => rule.targetRequirement).filter(Boolean),
+        sourceVersionHash: section.sourceVersionHash, sectionId: section.id, contentHash: section.contentHash };
+    });
+  return boundRules.map((rule) => {
+    if (rule.targetAction === 'review') return rule;
+    const ranges = rule.authorizedRanges.map((range) => affected.find((paragraph) =>
+      range.startOffset >= paragraph.startOffset && range.endOffset <= paragraph.endOffset) || range)
+      .filter((range) => !rule.paragraphRewrite || range.paragraphRewrite);
+    return { ...rule, authorizedRanges: [...new Map(ranges.map((range) => [`${range.startOffset}:${range.endOffset}`, range])).values()] };
   });
 }
 

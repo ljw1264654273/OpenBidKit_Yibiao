@@ -238,6 +238,145 @@ function useLockedFragment(state, evidence = '五峰村') {
   return state;
 }
 
+function semanticState() {
+  const state = baseState();
+  state.historicalAdaptationDifferences[0].action = '删除旧地理概况和人口，按横泾街道实际情况重写完整段落';
+  state.historicalAdaptationDifferences.push({ ...state.historicalAdaptationDifferences[0], id: 'quantity',
+    action: '更新工作量', content_change_scope: 'workload', historical_excerpt: '965宗',
+    tender_requirement: '约3082宗，其中已调查2862宗、未调查220宗',
+    replacements: [{ old_value: '965宗', new_value: '3082宗' }], old_content_evidence: ['965宗'] });
+  return state;
+}
+
+test('完整段落重写读取招标原文中的实际数量，分析摘要只用于定位', async () => {
+  const state = semanticState();
+  state.historicalAdaptationDifferences = [state.historicalAdaptationDifferences[0]];
+  const originalPlan = '# 项目概况\n五峰村人口1000人，原工作量965宗。采用现场调查。\n# 服务保障\n保障正文。';
+  const tender = '横泾街道调查3082宗，其中已调查2862宗，未调查220宗。';
+  const content = '横泾街道调查3082宗，其中已调查2862宗，未调查220宗。采用现场调查。';
+  const requests = [], patches = [];
+  await runHistoricalAdaptationContentTask({
+    aiService: { requestJson: async (request) => { requests.push(request); return { content }; } },
+    workspaceStore: { loadTechnicalPlan: () => state, readOriginalPlanMarkdown: () => originalPlan, readTenderMarkdown: () => tender },
+    updateTask() {}, checkpointTask: (_task, patch) => { if (patch) patches.push(patch); },
+  });
+  assert.match(requests[0].messages[0].content, /招标原文（事实标准）/);
+  assert.ok(requests[0].messages[0].content.includes(tender));
+  assert.equal(patches.find((patch) => patch.contentGenerationItem?.nodeId === '1').contentGenerationItem.section.content, content);
+});
+
+test('地区与同段工作量只请求一次完整段落重写并请求一致性复核', async () => {
+  const state = semanticState();
+  const paragraph = '五峰村地理概况及人口1000人，工作量965宗。保留调查与质量控制方法。';
+  const next = '横泾街道约3082宗，其中已调查2862宗、未调查220宗。保留调查与质量控制方法。';
+  const originalPlan = `# 项目概况\n${paragraph}\n# 服务保障\n保障正文。`;
+  const requests = [], patches = [];
+  const result = await runHistoricalAdaptationContentTask({
+    aiService: { requestJson: async (request) => { requests.push(request); return { content: next }; } },
+    workspaceStore: { loadTechnicalPlan: () => state, readOriginalPlanMarkdown: () => originalPlan },
+    updateTask() {}, checkpointTask: (_task, patch) => { if (patch) patches.push(patch); },
+  });
+  assert.equal(requests.length, 1);
+  assert.match(requests[0].messages[0].content, /招标基线/);
+  assert.match(requests[0].messages[0].content, /不得.*补造|不得.*虚构/);
+  assert.match(requests[0].messages[0].content, /1000人/);
+  assert.equal(patches.find((patch) => patch.contentGenerationItem?.nodeId === '1').contentGenerationItem.section.content, next);
+  assert.equal(result.needsConsistencyCheck, true);
+});
+
+test('段落重写失败保留底稿且继续其他章节并请求复核', async () => {
+  const state = semanticState();
+  const paragraph = '五峰村工作量965宗。';
+  const originalPlan = `# 项目概况\n${paragraph}\n# 服务保障\n保障正文。`;
+  const patches = [];
+  const result = await runHistoricalAdaptationContentTask({
+    aiService: { requestJson: async () => ({ edits: [
+      { old_text: paragraph, new_text: '横泾街道3082宗。' }, { old_text: '五峰村', new_text: '横泾街道' },
+    ] }) },
+    workspaceStore: { loadTechnicalPlan: () => state, readOriginalPlanMarkdown: () => originalPlan },
+    updateTask() {}, checkpointTask: (_task, patch) => { if (patch) patches.push(patch); },
+  });
+  const failed = patches.findLast((patch) => patch.historicalAdaptationContentItem?.node_id === '1');
+  assert.equal(failed.historicalAdaptationContentItem.status, 'review');
+  assert.match(failed.historicalAdaptationContentItem.error, /overlap/);
+  assert.equal(failed.contentGenerationItem.section.content, paragraph);
+  assert.equal(patches.some((patch) => patch.contentGenerationItem?.nodeId === '2'), true);
+  assert.equal(result.needsConsistencyCheck, true);
+});
+
+test('规则升级使旧自动结果过期但不覆盖已人工确认的AI正文', async () => {
+  const state = semanticState();
+  const originalPlan = '# 项目概况\n五峰村965宗。\n# 服务保障\n保障正文。';
+  const previous = buildHistoricalContentItems({ state, originalPlan });
+  state.historicalAdaptationContentItems = previous.map((item) => ({ ...item, rule_engine_version: 2,
+    input_fingerprint: 'old-version', status: 'success', content_origin: 'local-rewrite',
+    ...(item.node_id === '1' ? { confirmed_at: '2026-10-01' } : {}) }));
+  const planned = buildHistoricalContentItems({ state, originalPlan });
+  assert.equal(planned[0].rule_engine_version, 3);
+  assert.equal(planned[0].confirmed_at, '2026-10-01');
+  const patches = [];
+  await runHistoricalAdaptationContentTask({ aiService: {}, payload: { forceAll: true },
+    workspaceStore: { loadTechnicalPlan: () => state, readOriginalPlanMarkdown: () => originalPlan },
+    updateTask() {}, checkpointTask: (_task, patch) => { if (patch) patches.push(patch); } });
+  assert.equal(patches.some((patch) => patch.contentGenerationItem?.nodeId === '1'), false);
+});
+
+test('重复的受影响段落按偏移各重写一次，段外数量仍精确替换', async () => {
+  const state = semanticState();
+  const paragraph = '五峰村965宗。保留调查方法。';
+  const originalPlan = `# 项目概况\n${paragraph}\n\n${paragraph}\n\n独立清单965宗。\n# 服务保障\n保障正文。`;
+  const requests = [], patches = [];
+  await runHistoricalAdaptationContentTask({
+    aiService: { requestJson: async (request) => { requests.push(request); return { content: '横泾街道3082宗。保留调查方法。' }; } },
+    workspaceStore: { loadTechnicalPlan: () => state, readOriginalPlanMarkdown: () => originalPlan },
+    updateTask() {}, checkpointTask: (_task, patch) => { if (patch) patches.push(patch); },
+  });
+  assert.equal(requests.length, 2);
+  const output = patches.find((patch) => patch.contentGenerationItem?.nodeId === '1');
+  assert.equal(output.contentGenerationItem.section.content,
+    '横泾街道3082宗。保留调查方法。\n\n横泾街道3082宗。保留调查方法。\n\n独立清单3082宗。');
+});
+
+for (const lockedRange of [false, true]) {
+  test(`${lockedRange ? '明确完整段落的locked-range' : '只有地点映射但来源含旧地理概况'}按招标基线重写整段`, async () => {
+    const state = lockedRange ? useLockedFragment(baseState()) : baseState();
+    if (lockedRange) state.historicalAdaptationDifferences[0].action = '按横泾街道实际情况重写完整段落';
+    const source = '五峰村地理概况：行政归属木渎镇，人口1000人。保留调查方法。';
+    const originalPlan = `# 项目概况\n${source}\n# 服务保障\n保障正文。`;
+    const patches = [], requests = [];
+    const result = await runHistoricalAdaptationContentTask({
+      aiService: { requestJson: async (request) => { requests.push(request); return { content: '横泾街道项目。保留调查方法。' }; } },
+      workspaceStore: { loadTechnicalPlan: () => state, readOriginalPlanMarkdown: () => originalPlan },
+      updateTask() {}, checkpointTask: (_task, patch) => { if (patch) patches.push(patch); },
+    });
+    assert.equal(requests.length, 1);
+    assert.equal(patches.find((patch) => patch.contentGenerationItem?.nodeId === '1').contentGenerationItem.section.content,
+      '横泾街道项目。保留调查方法。');
+    assert.equal(result.needsConsistencyCheck, true);
+  });
+}
+
+test('已确认AI正文单章显式覆盖才重写并清除确认时间', async () => {
+  const state = semanticState();
+  const originalPlan = '# 项目概况\n五峰村965宗。\n# 服务保障\n保障正文。';
+  state.historicalAdaptationContentItems = buildHistoricalContentItems({ state, originalPlan }).map((item) => ({
+    ...item, status: 'success', content_origin: 'local-rewrite', confirmed_at: '2026-10-01',
+  }));
+  const options = {
+    aiService: { requestJson: async () => ({ content: '横泾街道3082宗。' }) },
+    workspaceStore: { loadTechnicalPlan: () => state, readOriginalPlanMarkdown: () => originalPlan },
+    updateTask() {}, checkpointTask() {}, payload: { nodeId: '1' },
+  };
+  await assert.rejects(runHistoricalAdaptationContentTask(options), /确认覆盖/);
+  const patches = [];
+  await runHistoricalAdaptationContentTask({ ...options, payload: { nodeId: '1', forceOverwriteManual: true },
+    checkpointTask: (_task, patch) => { if (patch) patches.push(patch); } });
+  const output = patches.find((patch) => patch.contentGenerationItem?.nodeId === '1');
+  assert.equal(output.contentGenerationItem.section.content, '横泾街道3082宗。');
+  assert.equal(output.historicalAdaptationContentItem.confirmed_at, undefined);
+  assert.equal(patches.some((patch) => patch.contentGenerationItem?.nodeId === '2'), false);
+});
+
 test('重建同一输入保留待执行状态、计划 ID 和成功结果指纹', () => {
   const state = baseState();
   const originalPlan = '# 项目概况\n五峰村正文。\n# 服务保障\n保障正文。';

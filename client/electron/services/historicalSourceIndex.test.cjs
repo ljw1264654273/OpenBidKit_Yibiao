@@ -56,3 +56,30 @@ test('无源证据或歧义来源的规则只能复核', () => {
   assert.equal(bindRulesToSourceRanges(index, '项目概况', [rule])[0].policy, 'contextual-review');
   assert.deepEqual(bindRulesToSourceRanges(index, '服务方案 / 项目概况', [rule])[0].authorizedRanges, []);
 });
+
+test('嵌套证据及同段数量归并成完整段落，段外数量继续精确替换', () => {
+  const paragraph = '苏州市吴中区木渎镇五峰村股份经济合作社服务木渎镇五峰村，工作量965宗。';
+  const index = buildHistoricalSourceIndex(`# 总则\n${paragraph}\n\n独立清单965宗。`);
+  const rules = [
+    { id: 'place', differenceId: 'place', targetAction: 'rewrite-fragment', paragraphRewrite: true,
+      oldValues: ['五峰村', '木渎镇五峰村'], oldContentEvidence: ['五峰村'], replacements: [], targetRequirement: '横泾街道' },
+    { id: 'quantity', differenceId: 'quantity', targetAction: 'replace', oldValues: ['965宗'],
+      replacements: [{ oldValue: '965宗', newValue: '3082宗' }], targetRequirement: '3082宗' },
+  ];
+  const bound = bindRulesToSourceRanges(index, '总则', rules);
+  assert.equal(bound[0].authorizedRanges.length, 1);
+  assert.equal(bound[0].authorizedRanges[0].oldValue, paragraph);
+  assert.deepEqual(bound[0].authorizedRanges[0].differenceIds, ['place', 'quantity']);
+  assert.equal(bound[1].authorizedRanges[0].oldValue, paragraph);
+  assert.equal(bound[1].authorizedRanges[1].oldValue, '965宗');
+  assert.equal(bound[1].authorizedRanges[1].paragraphRewrite, undefined);
+});
+
+test('语义证据逐段绑定并保留重复段落的不同偏移', () => {
+  const index = buildHistoricalSourceIndex('# 总则\n五峰村情况。\n\n五峰村情况。');
+  const [rule] = bindRulesToSourceRanges(index, '总则', [{ id: 'place', differenceId: 'place',
+    targetAction: 'rewrite-fragment', paragraphRewrite: true, oldValues: ['五峰村'], oldContentEvidence: ['五峰村'] }]);
+  assert.equal(rule.authorizedRanges.length, 2);
+  assert.deepEqual(rule.authorizedRanges.map((range) => range.oldValue), ['五峰村情况。', '五峰村情况。']);
+  assert.notEqual(rule.authorizedRanges[0].startOffset, rule.authorizedRanges[1].startOffset);
+});
