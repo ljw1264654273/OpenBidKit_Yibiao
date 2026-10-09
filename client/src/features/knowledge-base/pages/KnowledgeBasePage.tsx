@@ -1053,7 +1053,7 @@ function KnowledgeBasePage({ knowledgeBaseId, onSectionChange }: KnowledgeBasePa
       <div className="page-stack knowledge-page" data-knowledge-base-id={knowledgeBaseId}>
         <section className="knowledge-workspace-bar knowledge-category-header">
         <div className="knowledge-breadcrumb">
-          <button type="button" className="knowledge-category-back" onClick={() => onSectionChange('bid-knowledge-base')}>本地知识库</button>
+          <button type="button" className="knowledge-category-back" onClick={() => onSectionChange('bid-knowledge-base')}>返回知识库目录</button>
           <strong>{category.label}</strong>
           <small>{activeFolder ? `当前文件夹：${activeFolder.name} · ` : ''}{index.folders.length} 个文件夹 / {index.documents.length} 个文档</small>
         </div>

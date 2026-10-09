@@ -26,25 +26,29 @@
 }
 
 .knowledge-category-back {
-  padding: 0;
-  color: var(--yb-text-muted);
+  display: inline-flex;
+  min-height: var(--yb-control-height);
+  align-items: center;
+  padding: 6px 10px;
+  color: var(--yb-primary);
   font: inherit;
-  font-size: 13px;
-  background: transparent;
-  border: 0;
+  font-size: var(--yb-font-size-control);
+  background: #fff;
+  border: 1px solid var(--yb-border-soft);
+  border-radius: var(--yb-radius-sm);
   cursor: pointer;
+  white-space: nowrap;
 }
 
 .knowledge-category-back:hover {
-  color: var(--yb-primary);
-  text-decoration: underline;
-  text-underline-offset: 3px;
+  background: #f8fafc;
+  border-color: rgba(33, 116, 253, 0.3);
 }
 
 .knowledge-category-back:focus-visible {
   border-radius: var(--yb-radius-sm);
   outline: 2px solid var(--yb-primary);
-  outline-offset: 3px;
+  outline-offset: 2px;
 }
 
 .knowledge-category-header .knowledge-breadcrumb strong {
