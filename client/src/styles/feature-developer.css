@@ -1285,6 +1285,7 @@ body.agent-monitor-root #root {
 .agent-monitor-tabs .document-switch-tabs {
   padding: 3px;
   box-shadow: none;
+  border-radius: var(--yb-radius-pill);
 }
 
 .agent-monitor-tabs .document-switch-tab {
@@ -1292,6 +1293,7 @@ body.agent-monitor-root #root {
   min-height: 34px;
   padding: 7px 14px;
   font-size: 12px;
+  border-radius: var(--yb-radius-pill);
 }
 
 .agent-monitor-tabs .agent-monitor-follow {

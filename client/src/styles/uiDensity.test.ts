@@ -49,6 +49,7 @@ test('主要业务页面采用统一的页面标题与工作区操作密度', ()
 test('技术方案与可研工作台共享紧凑面板、页签、弹窗和空态基线', () => {
   const technical = readStyle('feature-technical-plan.css');
   const feasibility = readStyle('feature-feasibility-report.css');
+  const developer = readStyle('feature-developer.css');
 
   assert.match(technical, /\.technical-workbench\s*\{[^}]*height:\s*100%;[^}]*min-height:\s*0;[^}]*overflow:\s*hidden/s);
   assert.match(technical, /\.technical-step-module\s*\{[^}]*overflow:\s*hidden;[^}]*background:\s*var\(--yb-surface\);[^}]*border-radius:\s*8px;/s);
@@ -63,10 +64,18 @@ test('技术方案与可研工作台共享紧凑面板、页签、弹窗和空�
   assert.match(technical, /\.content-generation-config-card\s*\{[^}]*gap:\s*12px;[^}]*padding:\s*16px;[^}]*border-radius:\s*8px/s);
   assert.match(technical, /\.bid-analysis-config-card,[\s\S]*?\.export-template-select-dialog\s*\{[^}]*gap:\s*12px;[^}]*padding:\s*16px;[^}]*border-radius:\s*8px/s);
   assert.match(technical, /\.global-facts-empty-list\s*\{[^}]*padding:\s*14px;[^}]*background:\s*#fff;[^}]*border-radius:\s*6px/s);
-  assert.match(feasibility, /\.feasibility-form-grid input,[\s\S]*?\.feasibility-export-options input\s*\{[^}]*border-radius:\s*(?:6px|var\(--yb-radius-md\))/s);
+  assert.match(technical, /\.content-mermaid-review-card\s*\{[^}]*border-radius:\s*8px/s);
+  assert.match(technical, /\.content-ai-rewrite-drawer\s*\{[^}]*border-radius:\s*8px/s);
+  assert.match(technical, /\.export-progress-card\s*\{[^}]*border-radius:\s*8px/s);
+  assert.match(technical, /\.bid-section-selector-card\s*\{[^}]*border-radius:\s*8px/s);
+  assert.match(technical, /\.outline-selection-dialog\s*\{[^}]*border-radius:\s*8px/s);
+  assert.match(technical, /\.outline-knowledge-empty\s*\{[^}]*border-radius:\s*6px/s);
+  assert.match(feasibility, /\.feasibility-form-grid input,[\s\S]*?\.feasibility-export-options input\s*\{[^}]*border-radius:\s*6px/s);
   assert.match(feasibility, /\.feasibility-project-form\s*\{[^}]*gap:\s*12px;[^}]*padding:\s*16px 18px/s);
   assert.match(feasibility, /\.feasibility-project-form h3\s*\{[^}]*font-size:\s*20px/s);
   assert.match(feasibility, /\.feasibility-export-options\s*\{[^}]*gap:\s*10px 12px;[^}]*padding:\s*10px 12px;[^}]*border-radius:\s*(?:8px|var\(--yb-radius-lg\))/s);
+  assert.match(developer, /\.agent-monitor-tabs \.document-switch-tabs\s*\{[^}]*border-radius:\s*var\(--yb-radius-pill\)/s);
+  assert.match(developer, /\.agent-monitor-tabs \.document-switch-tab\s*\{[^}]*border-radius:\s*var\(--yb-radius-pill\)/s);
 });
 
 test('独立页签、图标按钮和表单控件沿用统一紧凑密度', () => {

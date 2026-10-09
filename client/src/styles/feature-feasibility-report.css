@@ -52,7 +52,7 @@
   color: var(--yb-text);
   background: #ffffff;
   border: 1px solid var(--yb-border);
-  border-radius: var(--yb-radius-md);
+  border-radius: 6px;
 }
 
 .feasibility-form-grid textarea {
@@ -105,7 +105,7 @@
   padding: 10px 12px;
   background: rgba(248, 250, 253, 0.82);
   border: 1px solid var(--yb-border-soft);
-  border-radius: var(--yb-radius-lg);
+  border-radius: 8px;
 }
 
 .feasibility-export-options label {
