@@ -70,6 +70,7 @@ test('技术方案与可研工作台共享紧凑面板、页签、弹窗和空�
   assert.match(technical, /\.bid-section-selector-card\s*\{[^}]*border-radius:\s*8px/s);
   assert.match(technical, /\.outline-selection-dialog\s*\{[^}]*border-radius:\s*8px/s);
   assert.match(technical, /\.outline-knowledge-empty\s*\{[^}]*border-radius:\s*6px/s);
+  assert.match(technical, /\.word-control-result-section\s*\{[^}]*border-radius:\s*(?:8px|var\(--yb-radius-lg\))/s);
   assert.match(feasibility, /\.feasibility-form-grid input,[\s\S]*?\.feasibility-export-options input\s*\{[^}]*border-radius:\s*6px/s);
   assert.match(feasibility, /\.feasibility-project-form\s*\{[^}]*gap:\s*12px;[^}]*padding:\s*16px 18px/s);
   assert.match(feasibility, /\.feasibility-project-form h3\s*\{[^}]*font-size:\s*20px/s);

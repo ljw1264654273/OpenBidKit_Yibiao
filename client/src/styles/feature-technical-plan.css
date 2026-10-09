@@ -3719,7 +3719,7 @@
   padding: 11px 12px;
   background: rgba(248, 250, 253, 0.86);
   border: 1px solid var(--yb-border-soft);
-  border-radius: 13px;
+  border-radius: var(--yb-radius-lg);
 }
 
 .word-control-result-section span {
