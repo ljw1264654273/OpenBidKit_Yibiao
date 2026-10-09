@@ -19,6 +19,7 @@ import SettingsPage from '../features/settings/pages/SettingsPage';
 import TechnicalPlanHome from '../features/technical-plan/pages/TechnicalPlanHome';
 import FeasibilityReportHome from '../features/feasibility-report/pages/FeasibilityReportHome';
 import BidProjectWorkspacePage from '../features/bid-project/pages/BidProjectWorkspacePage';
+import BidProjectCreatePage from '../features/bid-project/pages/BidProjectCreatePage';
 import ExpansionProjectCreatePage from '../features/bid-project/pages/ExpansionProjectCreatePage';
 import HistoricalBidAdaptationPage from '../features/historical-bid-adaptation/pages/HistoricalBidAdaptationPage';
 import type { BidProject } from '../features/bid-project/types';
@@ -71,6 +72,8 @@ function AppRouter({
   switch (normalizedSection) {
     case 'bid-projects':
       return <BidProjectWorkspacePage onSectionChange={onSectionChange} onProjectOpen={onProjectOpen} />;
+    case 'new-bid':
+      return <BidProjectCreatePage onBack={() => onSectionChange('bid-projects')} onProjectOpen={onProjectOpen} />;
     case 'technical-plan':
       return <TechnicalPlanHome workflowKind="technical-plan" projectId={activeProjectId || undefined} registerLeaveGuard={registerLeaveGuard} onSectionChange={onSectionChange} />;
     case 'existing-plan-expansion':

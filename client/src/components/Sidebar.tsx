@@ -14,6 +14,8 @@ interface SidebarProps {
 const navigationIcons: Record<SectionId, ComponentType<SVGProps<SVGSVGElement>>> = {
   'bid-generation': BidGenerationIcon,
   'bid-projects': BriefcaseIcon,
+  'new-bid': DocumentIcon,
+  'bid-knowledge-base': ArchiveIcon,
   'technical-plan': DocumentIcon,
   'existing-plan-expansion': DocumentIcon,
   'technical-plan-check': BidCheckIcon,
@@ -48,7 +50,6 @@ const navigationIcons: Record<SectionId, ComponentType<SVGProps<SVGSVGElement>>>
   settings: GearIcon,
 };
 
-const USER_GUIDE_URL = 'https://wiki.agnet.top/';
 const SIDEBAR_COLLAPSED_STORAGE_KEY = 'yibiao.sidebar.collapsed';
 
 function readSidebarCollapsedPreference() {
@@ -146,17 +147,6 @@ function Sidebar({ activeSection, developerMode, onSectionChange }: SidebarProps
   );
 }
 
-async function openExternalUrl(url: string) {
-  if (!url) return;
-
-  if (window.yibiao?.openExternal) {
-    await window.yibiao.openExternal(url);
-    return;
-  }
-
-  window.open(url, '_blank', 'noopener,noreferrer');
-}
-
 function renderSettingsButton(activeSection: SectionId, onSectionChange: (section: SectionId) => void) {
   const isActive = activeSection === 'settings';
 
@@ -183,8 +173,9 @@ function renderUserGuideButton() {
     <button
       type="button"
       className="settings-trigger sidebar-footer-shortcut"
-      onClick={() => void openExternalUrl(USER_GUIDE_URL)}
+      disabled
       aria-label="使用文档"
+      title="文档入口暂不可用"
     >
       <span className="nav-icon" aria-hidden="true">
         <BookIcon />

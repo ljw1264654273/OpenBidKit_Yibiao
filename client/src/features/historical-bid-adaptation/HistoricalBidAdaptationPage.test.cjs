@@ -15,9 +15,9 @@ test('历史标书适配以独立一级菜单进入独立页面', () => {
   const menu = readFileSync(menuPath, 'utf8');
   const analytics = readFileSync(analyticsPath, 'utf8');
 
-  assert.match(menu, /id:\s*'historical-bid-adaptation'[\s\S]*label:\s*'历史标书适配'/);
+  assert.match(menu, /id:\s*'historical-bid-adaptation'[\s\S]*label:\s*'以标写标'/);
   assert.match(router, /case\s+'historical-bid-adaptation'/);
-  assert.match(analytics, /'historical-bid-adaptation':\s*'历史标书适配'/);
+  assert.match(analytics, /'historical-bid-adaptation':\s*'以标写标'/);
 });
 
 test('页面展示六阶段且新项目只开放上传材料', () => {

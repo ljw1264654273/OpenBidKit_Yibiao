@@ -18,22 +18,22 @@ const knowledgeBaseDescriptionLabels = {
 export const appMenuItems: AppMenuItem[] = [
   {
     id: 'bid-projects',
-    label: '我的标书',
+    label: '标书目录',
     description: '管理本机上的多份标书、生成状态和同源查重',
   },
   {
+    id: 'new-bid',
+    label: '新建标书',
+    description: '导入招标文件并创建标书项目',
+  },
+  {
     id: 'existing-plan-expansion',
-    label: '已有方案扩写',
+    label: '方案扩写',
     description: '解决人写技术方案太薄的问题，上传写好的方案，进行优化和扩充，遵从原方案真实可落地，又能扩写出厚厚的标书',
   },
   {
-    id: 'technical-plan-check',
-    label: '技术方案检查',
-    description: '检查投标技术方案的响应性与内部质量，生成检查记录',
-  },
-  {
     id: 'historical-bid-adaptation',
-    label: '历史标书适配',
+    label: '以标写标',
     description: '依据新招标文件迁移历史标书，先确认差异规则，再逐步完成适配改写',
   },
   {
@@ -55,21 +55,29 @@ export const appMenuItems: AppMenuItem[] = [
       },
     ],
   },
-  ...KNOWLEDGE_BASE_CATALOG.map((item): AppMenuItem => ({
-    id: item.navigationId,
-    label: item.label,
-    description: `管理${knowledgeBaseDescriptionLabels[item.id]}资料、文件夹和可复用知识条目`,
-  })),
   {
-    id: 'remote-knowledge-base',
-    label: '远程知识库',
-    description: '浏览和选择在线远程知识库内容',
+    id: 'bid-knowledge-base',
+    label: '标书知识库',
+    description: '按资料类型管理可复用的标书知识',
+    children: [
+      ...KNOWLEDGE_BASE_CATALOG.map((item) => ({
+        id: item.navigationId,
+        label: item.label,
+        description: `管理${knowledgeBaseDescriptionLabels[item.id]}资料、文件夹和可复用知识条目`,
+        icon: 'document' as const,
+      })),
+      {
+        id: 'remote-knowledge-base' as const,
+        label: '远程知识库',
+        description: '浏览和选择在线远程知识库内容',
+        icon: 'document' as const,
+      },
+    ],
   },
   {
-    id: 'image-knowledge-base',
-    label: '图片知识库',
-    description: '管理图片素材、图示和视觉参考资料',
-    notice: underDevelopmentNotice,
+    id: 'technical-plan-check',
+    label: '技术方案检查',
+    description: '检查投标技术方案的响应性与内部质量，生成检查记录',
   },
   {
     id: 'bid-check',

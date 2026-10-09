@@ -3,6 +3,7 @@ import { AppDialog, EmptyState, useToast } from '../../../shared/ui';
 import type { SectionId } from '../../../shared/types/navigation';
 import type { TaskEventTask } from '../../../shared/types/ipc';
 import { bidProjectStorage } from '../services/bidProjectStorage';
+import { createBidProjectFromTenderFiles } from '../services/createBidProjectFromTenderFiles';
 import { filterBidProjects, getBidProjectCounts, paginateBidProjects } from '../services/bidProjectList';
 import type { BidContentDuplicateResult, BidProject, BidProjectDuplicateSummary, BidProjectStatus } from '../types';
 import BidProjectCompareBar from '../components/BidProjectCompareBar';
@@ -135,29 +136,7 @@ function BidProjectWorkspacePage({ onSectionChange, onProjectOpen }: BidProjectW
     }
   };
 
-  const createProject = async () => {
-    try {
-      const selected = await window.yibiao?.file.selectDuplicateCheckFiles({ multiple: true });
-      const filePaths = selected?.files?.map((file) => file.file_path).filter(Boolean) || [];
-      if (!filePaths.length) return;
-      const preview = await bidProjectStorage.prepareImport(filePaths);
-      if (!preview.success || !preview.token) throw new Error(preview.message || '准备招标文件失败');
-      if (preview.matches?.length) {
-        showToast(
-          `检测到这份招标文件已有 ${preview.matches.length} 份同源标书，本次将继续创建第 ${Math.max(...preview.matches.map((item) => item.sourceSequence || 1)) + 1} 份。`,
-          'info',
-          { duration: 5000 },
-        );
-      }
-      const project = await window.yibiao!.bidProject.confirmImport(preview.token, {
-        projectName: preview.fileName || '未命名标书',
-        projectType: 'technical-plan',
-      });
-      await openProject(project);
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : '新建标书失败', 'error');
-    }
-  };
+  const createProject = () => createBidProjectFromTenderFiles({ showToast, onProjectOpen: openProject });
 
   const runCompare = async (pair: [BidProject, BidProject], sensitivity = compareSensitivity) => {
     const requestId = compareRequestRef.current + 1;
@@ -350,8 +329,8 @@ function BidProjectWorkspacePage({ onSectionChange, onProjectOpen }: BidProjectW
     <div className="bid-project-page">
       <header className="bid-project-page-head">
         <div>
-          <span className="section-kicker">我的标书</span>
-          <h1>我的标书</h1>
+          <span className="section-kicker">标书目录</span>
+          <h1>标书目录</h1>
           <p>管理本机上的多份标书，随时继续编辑、查重或导出。</p>
         </div>
         <button type="button" className="primary-action" onClick={() => { void createProject(); }}>＋ 新建标书</button>
