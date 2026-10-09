@@ -137,8 +137,12 @@ function normalizeHistoricalAdaptationDifferences(value, previousDifferences = [
     }
     const previousHasV2Contract = Number(previous?.difference_schema_version) === 2;
     const invalidLockedRangeScope = item.target_action !== 'replace' && item.content_change_scope !== 'none';
-    if (invalidLockedRangeScope && item.decision === 'confirmed') item.decision = 'pending';
-    if (item.target_action !== 'replace') item.content_change_scope = 'none';
+    const invalidConfirmedContract = item.decision === 'confirmed' && !hasStructuredDifferenceContract(item);
+    if ((invalidLockedRangeScope || invalidConfirmedContract) && item.decision === 'confirmed') item.decision = 'pending';
+    if (item.target_action !== 'replace') {
+      item.content_change_scope = 'none';
+      item.replacements = [];
+    }
     if (item.decision === 'confirmed' && !(rawHasV2Contract || previousHasV2Contract && hasStructuredDifferenceContract(item))) {
       item.decision = 'pending';
       item.content_change_scope = 'none';

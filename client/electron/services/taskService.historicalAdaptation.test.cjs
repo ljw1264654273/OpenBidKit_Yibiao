@@ -621,6 +621,22 @@ test('启动恢复将未完成的正文迁移及运行中章节标记为可重�
   assert.equal(harness.updates.some((patch) => Object.hasOwn(patch, 'historicalAdaptationContentItems')), false);
 });
 
+test('重新迁移单章保留上一轮一致性问题和统计，等待手动重查', async () => {
+  const previousCheck = { status: 'success', stage: 'semantic', auto_repaired_count: 2, manual_count: 2, repair_round: 1,
+    findings: [
+      { id: 'first', blocking: true, node_ids: ['1'], message: '第一章阻断' },
+      { id: 'second', blocking: true, node_ids: ['2'], message: '第二章阻断' },
+    ] };
+  const harness = makeHarness({ initialState: {
+    historicalAdaptationContentItems: [{ node_id: '1', recommended_mode: 'direct', status: 'success' }],
+    historicalAdaptationContentCheck: previousCheck,
+  } });
+  harness.service.startHistoricalAdaptationContent({ projectId: 'historical-project', nodeId: '1' });
+  await waitUntil(() => harness.runnerCalls.content.length === 1 && harness.service.getActiveTasks().length === 0);
+  assert.deepEqual(harness.getState().historicalAdaptationContentCheck, { ...previousCheck, status: 'stale' });
+  assert.equal(harness.runnerCalls.contentCheck.length, 0);
+});
+
 test('正文一致性检查按项目启动并回传检查快照', async () => {
   const cachedCheck = { status: 'success', findings: [], checked_content_hash: 'existing-content-hash' };
   const harness = makeHarness({ initialState: {

@@ -142,7 +142,7 @@ function runAssertions() {
     store.updateTechnicalPlan({ historicalAdaptationContentCheck: { status: 'success', findings: [],
       checked_content_hash: factContext.contentHash, checked_inputs_hash: factContext.inputsHash,
       checked_facts_hash: finalFactsHash, checked_protocol_inputs_hash: factContext.protocolHash,
-      rule_engine_version: 4, fact_schema_version: 2, repair_protocol_version: 1 } });
+      rule_engine_version: 5, fact_schema_version: 2, repair_protocol_version: 1 } });
     const snapshot = store.getHistoricalAdaptationContentFacts();
     assert.equal(snapshot.ok, true, snapshot.message);
     assert.equal(snapshot.facts[0]?.canonical_value, '甲项目');

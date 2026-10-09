@@ -50,8 +50,8 @@ async function runAssertions() {
     assert.equal(store.getHistoricalAdaptationContentFacts().ok, true);
 
     store.updateTechnicalPlan({ outlineData: { outline: [{ id: 'chapter-1', title: '概况', content: '项目名称：' }] } });
-    task.aiService.requestJson = async (request) => request.response_format?.json_schema?.name === 'historical_adaptation_facts' ? { facts: [] } : { findings: [] };
-    await assert.rejects(runHistoricalAdaptationContentCheckTask(task), /缺少关键名称事实/);
+    task.aiService.requestJson = async () => { throw new Error('模拟模型连接失败'); };
+    await assert.rejects(runHistoricalAdaptationContentCheckTask(task), /模型连接失败/);
     const failedSnapshot = store.getHistoricalAdaptationContentFacts();
     assert.equal(failedSnapshot.ok, false);
     const saved = store.saveHistoricalAdaptationContentFactOverrides({
@@ -62,11 +62,87 @@ async function runAssertions() {
     });
     assert.equal(saved.ok, true, saved.message);
     assert.equal(store.getHistoricalAdaptationContentFacts().overrides[0].canonical_value, '人工确认项目');
+    task.aiService.requestJson = async (request) => request.response_format?.json_schema?.name === 'historical_adaptation_facts' ? { facts: [] } : { findings: [] };
     await runHistoricalAdaptationContentCheckTask(task);
     const repairedSnapshot = store.getHistoricalAdaptationContentFacts();
     assert.equal(repairedSnapshot.ok, true, repairedSnapshot.message);
     assert.equal(repairedSnapshot.facts.find((fact) => fact.fact_key === 'name:project_name:项目名称')?.canonical_value, '人工确认项目');
     assert.equal(store.loadTechnicalPlan().historicalAdaptationContentCheck.status, 'success');
+
+    // 使用真实迁移与 SQLite 修复事务，覆盖协议哈希、来源指纹和终审放行的完整链路。
+    store.clearTechnicalPlan();
+    const sourceDir = path.join(userDataPath, 'workspace', 'technical-plan');
+    fs.mkdirSync(sourceDir, { recursive: true });
+    const construction = '本工程竣工后提高城市功能。';
+    const normalText = '合同约定服务五峰村。保留正常的技术措施和质量管理。';
+    fs.writeFileSync(path.join(sourceDir, 'original-plan.md'), `# 实施方案\n${construction}${normalText}`, 'utf8');
+    fs.writeFileSync(path.join(sourceDir, 'tender.md'), '本项目为地籍调查和测绘服务，合同约定服务五峰村。', 'utf8');
+    database.db.prepare('UPDATE technical_plan_meta SET original_plan_markdown_path = ?, tender_markdown_path = ? WHERE id = 1')
+      .run('technical-plan/original-plan.md', 'technical-plan/tender.md');
+    const { getBidAnalysisTasks } = require('./bidAnalysisTask.cjs');
+    const { runHistoricalAdaptationContentTask } = require('./historicalAdaptationContentTask.cjs');
+    store.updateTechnicalPlan({
+      outlineData: { outline: [{ id: 'semantic-1', title: '实施方案', content: '' }] },
+      historicalAdaptationDifferenceConfirmedAt: '2026-10-08T00:00:00.000Z',
+      historicalAdaptationOutlineConfirmedAt: '2026-10-08T00:00:00.000Z',
+      historicalAdaptationDifferences: [],
+      bidAnalysisTasks: Object.fromEntries(getBidAnalysisTasks('full').map(({ id, label }) =>
+        [id, { id, label, status: 'success', content: '本项目为地籍调查和测绘服务。' }])),
+    });
+    store.prepareHistoricalAdaptationContentPlan();
+    const checkpointTask = (_task, patch) => store.updateTechnicalPlan(patch);
+    await runHistoricalAdaptationContentTask({ workspaceStore: store, checkpointTask, updateTask() {},
+      aiService: { requestJson: async () => { throw new Error('直接迁移不应调用模型'); } } });
+    assert.equal(store.loadTechnicalPlan().outlineData.outline[0].content, construction + normalText);
+    let repairRequests = 0;
+    await runHistoricalAdaptationContentCheckTask({ workspaceStore: store, checkpointTask,
+      aiService: { requestJson: async (request) => {
+        const name = request.response_format.json_schema.name;
+        if (name === 'historical_adaptation_facts') return { candidates: [] };
+        if (name === 'historical_adaptation_content_check') return { findings:
+          store.loadTechnicalPlan().outlineData.outline[0].content.includes(construction) ? [{
+            code: 'construction', category: 'service-content', severity: 'P0', blocking: true,
+            node_ids: ['semantic-1'], message: '施工项目承诺与测绘服务矛盾',
+            evidence: `${construction}；招标原文要求地籍调查和测绘服务。`,
+          }] : [], resolutions: [] };
+        repairRequests++;
+        const prompt = request.messages[0].content;
+        const facts = JSON.parse(prompt.split('统一事实表：')[1].split('\n语义问题：')[0]);
+        const [chapter] = JSON.parse(prompt.split('当前章节：')[1].split('\nexpected_content_hash=')[0]);
+        const context = store.getHistoricalAdaptationContentCheckContext();
+        return { repair_groups: [{ group_id: 'semantic-repair', fact_id: facts[0].fact_id,
+          confidence: 'high', rationale: '依据招标原文修正施工残留',
+          expected_content_hash: context.contentHash, expected_inputs_hash: context.inputsHash,
+          expected_facts_hash: prompt.split('expected_facts_hash=')[1],
+          chapters: [{ node_id: chapter.node_id, expected_node_content_hash: chapter.expected_node_content_hash,
+            expected_item_fingerprint: chapter.item_fingerprint, old_text: construction,
+            new_text: '本项目完成地籍调查和测绘服务。', evidence: ['招标原文：地籍调查和测绘服务。'] }] }] };
+      } } });
+    const semanticState = store.loadTechnicalPlan();
+    assert.equal(repairRequests, 1);
+    assert.equal(semanticState.outlineData.outline[0].content, '本项目完成地籍调查和测绘服务。' + normalText);
+    assert.equal(semanticState.historicalAdaptationContentItems[0].content_origin, 'ai-repair');
+    assert.equal(semanticState.historicalAdaptationContentCheck.status, 'success');
+    assert.equal(semanticState.historicalAdaptationContentCheck.auto_repaired_count, 1);
+    assert.equal(store.getHistoricalAdaptationContentFacts().ok, true);
+    assert.equal(store.getHistoricalAdaptationContentReadiness().ready, true, JSON.stringify(store.getHistoricalAdaptationContentReadiness()));
+    store.confirmHistoricalAdaptationContent();
+    assert.equal(store.runHistoricalAdaptationReview().historicalAdaptationReviewFindings.some((finding) => finding.severity === 'P0'), false);
+
+    // 模型结合招标文件放行旧地名；验收和终审不能再按字面残留阻断。
+    store.updateTechnicalPlan({
+      historicalAdaptationContentItems: [{ ...semanticState.historicalAdaptationContentItems[0],
+        status: 'review', residuals: ['五峰村'], blocked_terms: ['五峰村'] }],
+    });
+    await runHistoricalAdaptationContentCheckTask({ workspaceStore: store, checkpointTask,
+      aiService: { requestJson: async (request) => request.response_format.json_schema.name === 'historical_adaptation_facts'
+        ? { candidates: [] } : { findings: [], resolutions: [] } } });
+    assert.equal(store.getHistoricalAdaptationContentReadiness().ready, true, JSON.stringify(store.getHistoricalAdaptationContentReadiness()));
+    store.confirmHistoricalAdaptationContent();
+    assert.equal(store.runHistoricalAdaptationReview().historicalAdaptationReviewFindings.some((finding) => finding.severity === 'P0'), false);
+    store.saveHistoricalAdaptationChapterContent({ nodeId: 'semantic-1', content: '服务范围变更。' });
+    assert.equal(store.getHistoricalAdaptationContentReadiness().ready, false);
+    assert.throws(() => store.runHistoricalAdaptationReview(), /正文迁移|一致性检查/);
 
     const { createBidProjectStore } = require('./bidProjectStore.cjs');
     const projectIds = ['cache-project-甲', 'cache-project-乙'];

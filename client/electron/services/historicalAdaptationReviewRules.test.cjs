@@ -48,6 +48,20 @@ test('人工确认的章节不再重复产生正文阻断问题', () => {
   assert.deepEqual(reviewHistoricalAdaptationContent(input), []);
 });
 
+test('当前语义检查已通过时，终审不重复拦截字面历史候选', () => {
+  const input = fixture();
+  input.semanticCheckPassed = true;
+  input.outline[0].content = '合同约定服务五峰村。';
+  Object.assign(input.contentItems[0], { status: 'review', residuals: ['五峰村'] });
+  Object.assign(input.differences[0], { difference_schema_version: 2, target_action: 'replace',
+    evidence_kind: 'exact-value', confidence: 'high', replacements: [{ old_value: '五峰村', new_value: '横泾街道' }],
+    tender_requirement: '横泾街道' });
+  assert.deepEqual(reviewHistoricalAdaptationContent(input), []);
+
+  input.contentItems[0].error = '迁移失败';
+  assert.ok(reviewHistoricalAdaptationContent(input).some((finding) => finding.code === 'chapter-not-ready'));
+});
+
 test('does not require legacy per-chapter confirmed_at when content is successful', () => {
   const input = fixture();
   input.contentItems[0].confirmed_at = undefined;

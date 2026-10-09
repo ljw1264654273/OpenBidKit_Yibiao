@@ -1,10 +1,11 @@
 const { stableHash } = require('./historicalAdaptationFactRegistry.cjs');
 
-const OPTIMIZATION_VERSION = 1;
+const OPTIMIZATION_VERSION = 2;
 
 function chapterCacheKey(context, chapter, summary) {
   return stableHash({ version: OPTIMIZATION_VERSION, chapter, summary,
     baseline: context.baseline, baselineFacts: context.baselineFacts,
+    tenderMarkdown: context.tenderMarkdown, originalPlanMarkdown: context.originalPlanMarkdown,
     globalFacts: context.globalFacts, differences: context.differences,
     deterministicFacts: context.deterministicFacts });
 }

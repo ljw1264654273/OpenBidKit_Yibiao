@@ -149,7 +149,7 @@ test('删除章节后不把旧缓存候选带入当前事实表', async () => {
   assert.ok(facts.every((fact) => fact.canonical_value !== '乙方制图'));
 });
 
-test('改写章与直迁章冲突仍阻断，复用候选保留逐章原值和证据', async () => {
+test('改写章与直迁章文字差异不阻断，复用候选保留逐章原值和证据', async () => {
   const f = fixture();
   const original = f.task.aiService.requestJson;
   f.task.aiService.requestJson = async (request) => {
@@ -158,15 +158,16 @@ test('改写章与直迁章冲突仍阻断，复用候选保留逐章原值和�
     return response;
   };
   await runHistoricalAdaptationContentCheckTask(f.task);
-  assert.equal(f.checkpoints.at(-1).task.status, 'error');
+  assert.equal(f.checkpoints.at(-1).task.status, 'success');
   f.requests.length = 0;
   f.context.inputsHash = 'rerun';
   await runHistoricalAdaptationContentCheckTask(f.task);
   assert.equal(factRequests(f.requests).length, 0);
-  const conflict = f.checkpoints.at(-1).patch.historicalAdaptationContentCheck.findings.find((finding) => finding.code === 'fact-conflict');
-  assert.deepEqual(conflict.node_ids.sort(), ['1', '2']);
-  assert.match(conflict.evidence, /甲方测绘/);
-  assert.match(conflict.evidence, /乙方制图/);
+  assert.equal(f.checkpoints.at(-1).patch.historicalAdaptationContentCheck.findings.length, 0);
+  const conflict = f.batches.filter((batch) => batch.inputHash === 'rerun' && batch.result).flatMap((batch) => batch.result.facts).find((fact) => fact.conflict);
+  assert.deepEqual(conflict.chapter_node_ids.sort(), ['1', '2']);
+  assert.match(conflict.evidence.join('；'), /甲方测绘/);
+  assert.match(conflict.evidence.join('；'), /乙方制图/);
   const raw = [...f.cache.entries()].filter(([key]) => key.startsWith('facts:')).flatMap(([, value]) => value.candidates);
   assert.deepEqual(raw.map((candidate) => candidate.value), ['甲方测绘', '乙方制图']);
 });
@@ -193,10 +194,10 @@ test('未知章节归属候选不进入章节缓存，下次仍需提取', async
     if (response.candidates) response.candidates[0].node_id = 'unknown';
     return response;
   };
-  await runHistoricalAdaptationContentCheckTask(f.task);
+  await assert.rejects(runHistoricalAdaptationContentCheckTask(f.task), /章节归属/);
   assert.equal([...f.cache.keys()].filter((key) => key.startsWith('facts:')).length, 0);
   f.requests.length = 0;
-  await runHistoricalAdaptationContentCheckTask(f.task);
+  await assert.rejects(runHistoricalAdaptationContentCheckTask(f.task), /章节归属/);
   assert.equal(factRequests(f.requests).length, 1);
   assert.equal(f.checkpoints.at(-1).task.status, 'error');
 });
@@ -216,7 +217,7 @@ test('跨章节归属不明确的候选兼容检查但不进入章节缓存', as
   assert.equal([...f.cache.keys()].filter((key) => key.startsWith('facts:')).length, 0);
 });
 
-test('缓存语义响应每次仍校验裁决依据，非法裁决持续阻断', async () => {
+test('无依据的单值裁决不改事实，也不生成伪内容阻断', async () => {
   const f = fixture();
   const original = f.task.aiService.requestJson;
   f.task.aiService.requestJson = async (request) => request.response_format.json_schema.name === 'historical_adaptation_facts'
@@ -226,8 +227,9 @@ test('缓存语义响应每次仍校验裁决依据，非法裁决持续阻断',
   f.requests.length = 0;
   await runHistoricalAdaptationContentCheckTask(f.task);
   assert.equal(f.requests.length, 0);
-  assert.equal(f.checkpoints.at(-1).task.status, 'error');
-  assert.ok(f.checkpoints.at(-1).patch.historicalAdaptationContentCheck.findings.some((finding) => finding.code === 'invalid-resolution' && finding.blocking));
+  assert.equal(f.checkpoints.at(-1).task.status, 'success');
+  assert.deepEqual(f.checkpoints.at(-1).patch.historicalAdaptationContentCheck.findings, []);
+  assert.equal(f.batches.filter((batch) => batch.result).at(-1).result.facts[0].canonical_value, '甲方测绘');
 });
 
 test('单章修复后只提取修复章，完整检查进度不回退', async () => {

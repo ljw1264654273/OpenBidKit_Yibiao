@@ -109,6 +109,30 @@ test('服务内容差异保留完整旧内容证据和明确目标动作', () =>
   assert.deepEqual(difference.old_content_evidence, ['登记发证', '完成数据建库、登记发证及成果移交。']);
 });
 
+test('待确认的局部重写差异会清除不适用的替换映射', () => {
+  const [difference] = normalizeHistoricalAdaptationDifferences({ differences: [{
+    id: 'rewrite-with-mapping',
+    category: '其他人工判断',
+    priority: 'high',
+    title: '服务内容局部重写',
+    historical_location: '服务内容',
+    historical_excerpt: '旧服务事项',
+    tender_requirement: '按招标基线调整服务表述',
+    action: '仅局部重写锁定片段',
+    decision: 'pending',
+    content_change_scope: 'none',
+    difference_schema_version: 2,
+    replacements: [{ old_value: '旧表述', new_value: '新表述' }],
+    target_action: 'rewrite-fragment',
+    evidence_kind: 'locked-range',
+    confidence: 'high',
+    old_content_evidence: ['旧服务事项'],
+  }] });
+
+  assert.equal(difference.target_action, 'rewrite-fragment');
+  assert.deepEqual(difference.replacements, []);
+});
+
 test('v2 可执行差异缺少结构化映射时不能保持已确认', () => {
   const [difference] = normalizeHistoricalAdaptationDifferences({ differences: [{
     id: 'incomplete-replace', category: '名称地点替换', priority: 'high', title: '地点替换',

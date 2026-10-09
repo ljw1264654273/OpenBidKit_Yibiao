@@ -2117,6 +2117,7 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
       if (!state.historicalAdaptationOutlineConfirmedAt) throw new Error('请先确认适配目录');
       if (!state.outlineData?.outline?.length) throw new Error('当前没有可迁移正文的适配目录');
       if (!String(store.readOriginalPlanMarkdown?.() || '').trim()) throw new Error('未找到历史标书原文，请重新上传材料');
+      const previousCheck = state.historicalAdaptationContentCheck || { findings: [] };
       const nodeId = String(payload?.nodeId || '').trim();
       const selectedItem = (state.historicalAdaptationContentItems || []).find((item) => item.node_id === nodeId);
       if (selectedItem?.content_origin === 'manual' && payload?.forceOverwriteManual !== true) {
@@ -2128,7 +2129,7 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
         taskRunners.historicalAdaptationContent || runHistoricalAdaptationContentTask,
         {
           historicalAdaptationContentConfirmedAt: undefined,
-          historicalAdaptationContentCheck: { status: 'stale', findings: [] },
+          historicalAdaptationContentCheck: { ...previousCheck, status: 'stale' },
           historicalAdaptationReviewFindings: [],
           historicalAdaptationReviewConfirmedAt: undefined,
         },

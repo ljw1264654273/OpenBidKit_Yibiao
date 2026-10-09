@@ -54,12 +54,14 @@ function validateRepairGroup(group, context = {}) {
   if (!validGroupShape(group)) return { ok: false, reason: 'repair-group-schema-invalid' };
   if (group.confidence !== 'high') return { ok: false, reason: 'confidence-not-high' };
   const fact = findFact(group, context);
+  const semantic = context.semanticRepairFactIds?.has(group.fact_id) === true;
   if (!fact || !validFact(fact)) return { ok: false, reason: 'fact-schema-invalid' };
   if (fact.conflict) return { ok: false, reason: 'fact-conflict' };
   const expectedNodes = [...new Set(fact.chapter_node_ids.map(String))].sort();
-  if (new Set(group.chapters.map((chapter) => String(chapter.node_id))).size !== group.chapters.length) return { ok: false, reason: 'duplicate-node' };
+  if (!semantic && new Set(group.chapters.map((chapter) => String(chapter.node_id))).size !== group.chapters.length) return { ok: false, reason: 'duplicate-node' };
   const actualNodes = [...new Set(group.chapters.map((chapter) => String(chapter.node_id)))].sort();
-  if (expectedNodes.length !== actualNodes.length || expectedNodes.some((node, i) => node !== actualNodes[i])) return { ok: false, reason: 'chapter-coverage-incomplete' };
+  if (semantic ? actualNodes.some((node) => !expectedNodes.includes(node))
+    : expectedNodes.length !== actualNodes.length || expectedNodes.some((node, i) => node !== actualNodes[i])) return { ok: false, reason: 'chapter-coverage-incomplete' };
   const contentHash = context.expectedContentHash ?? context.contentHash ?? context.expected_content_hash;
   const inputsHash = context.expectedInputsHash ?? context.inputsHash ?? context.expected_inputs_hash;
   const factsHash = context.expectedFactsHash ?? context.factsHash ?? context.expected_facts_hash;
@@ -73,11 +75,12 @@ function validateRepairGroup(group, context = {}) {
     const chapter = byId.get(String(edit.node_id));
     if (!chapter) return { ok: false, reason: 'chapter-not-found' };
     if (chapter.content_origin === 'manual') return { ok: false, reason: 'manual-source' };
+    if (chapter.confirmed_at) return { ok: false, reason: 'confirmed-source' };
     if (typeof chapter.item_fingerprint !== 'string' || !chapter.item_fingerprint || edit.expected_item_fingerprint !== chapter.item_fingerprint) return { ok: false, reason: 'item-fingerprint-mismatch' };
     if (edit.expected_node_content_hash !== hashContent(chapter.content)) return { ok: false, reason: 'node-content-hash-mismatch' };
   }
   const values = group.chapters.map((edit) => edit.new_text);
-  if (new Set(values).size !== 1) return { ok: false, reason: 'cross-chapter-value-mismatch' };
+  if (!semantic && new Set(values).size !== 1) return { ok: false, reason: 'cross-chapter-value-mismatch' };
   return { ok: true, fact, chapters: byId };
 }
 
@@ -119,9 +122,11 @@ function applyRepairGroup(group, context = {}) {
     const first = content.indexOf(edit.old_text);
     if (first < 0 || content.indexOf(edit.old_text, first + edit.old_text.length) >= 0) return { ok: false, reason: 'old-text-ambiguous' };
     if (intersectsProtected(content, first, first + edit.old_text.length) || /```/.test(edit.old_text) || /```/.test(edit.new_text)) return { ok: false, reason: 'markdown-protected' };
-    const allowed = allowedTokens(fact, context);
-    if (!/remove/i.test(edit.new_text) && !edit.new_text.includes(fact.canonical_value)) return { ok: false, reason: 'fact-token-not-allowed' };
-    if (introducedTokens(edit.old_text, edit.new_text).some((token) => !allowed.has(token))) return { ok: false, reason: 'fact-token-not-allowed' };
+    if (!context.semanticRepairFactIds?.has(group.fact_id)) {
+      const allowed = allowedTokens(fact, context);
+      if (!/remove/i.test(edit.new_text) && !edit.new_text.includes(fact.canonical_value)) return { ok: false, reason: 'fact-token-not-allowed' };
+      if (introducedTokens(edit.old_text, edit.new_text).some((token) => !allowed.has(token))) return { ok: false, reason: 'fact-token-not-allowed' };
+    }
     const newContent = content.slice(0, first) + edit.new_text + content.slice(first + edit.old_text.length);
     output.push({ node_id: edit.node_id, content: newContent, new_content: newContent, old_content: content });
   }

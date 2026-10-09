@@ -717,7 +717,7 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onPre
     ? checkStageLabel || '检查中'
     : check.status === 'success'
       ? checkBlockingCount ? `${checkBlockingCount} 个阻断问题` : '检查通过'
-      : check.status === 'stale' ? '结果已失效' : check.status === 'error' ? '检查失败' : '尚未检查';
+      : check.status === 'stale' ? (check.findings.length ? '待重新检查（保留上一轮问题）' : '结果已失效') : check.status === 'error' ? '检查失败' : '尚未检查';
 
   return (
     <div className="historical-adaptation-content-page">

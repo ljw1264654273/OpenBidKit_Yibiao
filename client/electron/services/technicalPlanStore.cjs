@@ -55,7 +55,7 @@ const bidTemplateSourceRelativePath = path.join('technical-plan', 'bid-template-
 const bidTemplateFieldsRelativePath = path.join('technical-plan', 'bid-template-fields.json').replace(/\\/g, '/');
 const originalPlanMarkdownRelativePath = path.join('technical-plan', 'original-plan.md').replace(/\\/g, '/');
 const originalOutlineRuntimeFileName = 'original-outline-runtime.json';
-const HISTORICAL_ADAPTATION_RULE_ENGINE_VERSION = 4;
+const HISTORICAL_ADAPTATION_RULE_ENGINE_VERSION = 5;
 const HISTORICAL_ADAPTATION_FACT_SCHEMA_VERSION = 2;
 const HISTORICAL_ADAPTATION_REPAIR_PROTOCOL_VERSION = 1;
 const defaultOutlineWordControlOptions = Object.freeze({
@@ -3588,14 +3588,19 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     return loadTechnicalPlan();
   }
 
-  function staleHistoricalAdaptationContentCheck() {
-    // 批次结果与汇总检查快照使用同一输入指纹；正文、基线或全局事实变化时一并失效。
+  function staleHistoricalAdaptationContentCheck({ preserveFindings = true } = {}) {
+    // 输入变化后，旧结果不能用于放行，但要保留给用户逐项定位处理；新一轮检查才替换它。
     db.prepare(`UPDATE historical_adaptation_content_check_batches
       SET status = 'stale', error_code = 'stale-input', error_message = '一致性检查输入已变化', updated_at = ?
       WHERE project_id = ? AND status <> 'stale'`).run(now(), contentCheckBatchProjectId);
+    const previousCheck = normalizeHistoricalAdaptationContentCheck(safeJsonParse(readMetaRow().historical_adaptation_content_check_json, null));
     updateMeta({
       historical_adaptation_content_confirmed_at: null,
-      historical_adaptation_content_check_json: jsonOrNull({ status: 'stale', findings: [] }),
+      historical_adaptation_content_check_json: jsonOrNull({
+        ...previousCheck,
+        status: 'stale',
+        findings: preserveFindings ? previousCheck.findings : [],
+      }),
       historical_adaptation_review_findings_json: null,
       historical_adaptation_review_confirmed_at: null,
     });
@@ -3899,8 +3904,8 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     };
     const originalPlan = readOriginalPlanMarkdown();
     const sourceAvailability = items.map((item) => {
-      const { available, error } = getHistoricalAdaptationSourceSection({ nodeId: item.node_id });
-      return { node_id: item.node_id, available, error };
+      const { available, error, content } = getHistoricalAdaptationSourceSection({ nodeId: item.node_id });
+      return { node_id: item.node_id, available, error, content };
     });
     const expectedItems = originalPlan ? buildHistoricalContentItems({
       state: { outlineData, historicalAdaptationContentItems: items, historicalAdaptationDifferences: inputSnapshot.differences,
@@ -4152,6 +4157,7 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     expectedInputsHash,
     expectedFactsHash,
     repairs,
+    repairMode,
   } = {}) {
     const requestedContentHash = String(expectedContentHash || '');
     const requestedInputsHash = String(expectedInputsHash || '');
@@ -4177,12 +4183,7 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       const currentCheck = normalizeHistoricalAdaptationContentCheck(
         safeJsonParse(meta.historical_adaptation_content_check_json, null),
       );
-      const expectedProtocolInputsHash = stableHash(JSON.stringify({
-        inputsHash: requestedInputsHash,
-        rule_engine_version: HISTORICAL_ADAPTATION_RULE_ENGINE_VERSION,
-        fact_schema_version: HISTORICAL_ADAPTATION_FACT_SCHEMA_VERSION,
-        repair_protocol_version: HISTORICAL_ADAPTATION_REPAIR_PROTOCOL_VERSION,
-      }));
+      const expectedProtocolInputsHash = historicalAdaptationProtocolHash(requestedInputsHash);
       if (currentCheck.checked_content_hash !== requestedContentHash) throw new Error('check content hash mismatch');
       if (currentCheck.checked_inputs_hash !== requestedInputsHash) throw new Error('check input hash mismatch');
       if (currentCheck.checked_protocol_inputs_hash !== expectedProtocolInputsHash) throw new Error('check protocol inputs hash mismatch');
@@ -4239,7 +4240,7 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
           if (nodeEdits.some((candidate) => first < candidate.end && first + oldText.length > candidate.start)) {
             throw new Error('overlapping edit range');
           }
-          if (newValues.size && !newValues.has(newText)) throw new Error('fact coverage value mismatch');
+          if (repairMode !== 'semantic' && newValues.size && !newValues.has(newText)) throw new Error('fact coverage value mismatch');
           newValues.add(newText);
           nodeEdits.push({ start: first, end: first + oldText.length, oldText, newText, item, originalContent: currentContent });
           editsByNode.set(nodeId, nodeEdits);
@@ -4312,7 +4313,7 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
         error: undefined,
       });
       updateMeta({ historical_adaptation_content_confirmed_at: null });
-      staleHistoricalAdaptationContentCheck();
+      staleHistoricalAdaptationContentCheck({ preserveFindings: true });
     });
     transaction();
     return loadTechnicalPlan();
@@ -4332,30 +4333,10 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
   function getHistoricalAdaptationContentReadiness() {
     const context = getHistoricalAdaptationContentCheckContext();
     const leaves = collectLeafItems(context.outlineData?.outline || []);
-    const byId = new Map(context.items.map((item) => [item.node_id, item]));
     const manuallyConfirmedNodeIds = new Set(context.items.filter((item) => item?.confirmed_at).map((item) => item.node_id));
     const findings = [];
     findings.push(...require('./historicalAdaptationContentCheckTask.cjs').collectDeterministicFindings(context));
-    for (const leaf of leaves) {
-      const nodeId = String(leaf.id || '');
-      const item = byId.get(nodeId);
-      if (item?.confirmed_at) continue;
-      const hasAllowedPlaceholderReview = item?.status === 'review'
-        && /【(?:待核实|待补充)】/u.test(String(leaf.content || ''))
-        && !(item.residuals || []).length;
-      if (!item || (item.status !== 'success' && !hasAllowedPlaceholderReview) || !String(leaf.content || '').trim() || item.residuals.length) {
-        findings.push({
-          id: `chapter-${nodeId}`,
-          code: 'chapter-not-ready',
-          category: !String(leaf.content || '').trim() ? 'empty' : 'task',
-          severity: 'P0',
-          blocking: true,
-          node_ids: [nodeId],
-          message: '章节正文尚未成功完成迁移或仍需复核',
-          evidence: item?.error || item?.residuals?.join('、') || '',
-        });
-      }
-    }
+    // 结构状态复用任务预检；历史字面候选由下方最新语义快照裁决，不重复阻断。
     const activeTask = db.prepare("SELECT type FROM technical_plan_tasks WHERE type IN ('historical-adaptation-content', 'historical-adaptation-content-check') AND status IN ('queued', 'running', 'pausing', 'paused') LIMIT 1").get();
     if (activeTask) findings.push({ id: 'active-task', code: 'active-task', category: 'task', severity: 'P0', blocking: true, node_ids: [], message: '正文迁移或一致性检查任务仍在运行', evidence: activeTask.type });
     const check = normalizeHistoricalAdaptationContentCheck(safeJsonParse(readMetaRow().historical_adaptation_content_check_json, null));
@@ -4363,12 +4344,7 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       && check.checked_content_hash === context.contentHash
       && check.checked_inputs_hash === context.inputsHash
       && check.checked_facts_hash
-      && check.checked_protocol_inputs_hash === stableHash(JSON.stringify({
-        inputsHash: context.inputsHash,
-        rule_engine_version: HISTORICAL_ADAPTATION_RULE_ENGINE_VERSION,
-        fact_schema_version: HISTORICAL_ADAPTATION_FACT_SCHEMA_VERSION,
-        repair_protocol_version: HISTORICAL_ADAPTATION_REPAIR_PROTOCOL_VERSION,
-      }))
+      && check.checked_protocol_inputs_hash === historicalAdaptationProtocolHash(context.inputsHash)
       && check.rule_engine_version === HISTORICAL_ADAPTATION_RULE_ENGINE_VERSION
       && check.fact_schema_version === HISTORICAL_ADAPTATION_FACT_SCHEMA_VERSION
       && check.repair_protocol_version === HISTORICAL_ADAPTATION_REPAIR_PROTOCOL_VERSION;
@@ -4404,6 +4380,7 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
         outline: loadOutlineData(meta)?.outline || [],
         contentItems: readHistoricalContentItems(),
         differences: readHistoricalAdaptationDifferences(meta.historical_adaptation_differences_json),
+        semanticCheckPassed: true,
       }, safeJsonParse(meta.historical_adaptation_review_findings_json, []));
       updateMeta({
         historical_adaptation_review_findings_json: JSON.stringify(findings),

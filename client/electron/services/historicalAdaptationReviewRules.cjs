@@ -39,7 +39,7 @@ function addFinding(findings, code, severity, node, evidence, title, message) {
   });
 }
 
-function reviewHistoricalAdaptationContent({ outline, contentItems, differences }, previousFindings = []) {
+function reviewHistoricalAdaptationContent({ outline, contentItems, differences, semanticCheckPassed = false }, previousFindings = []) {
   const leaves = flattenLeaves(outline);
   const itemsById = new Map((contentItems || []).map((item) => [item.node_id, item]));
   const findings = [];
@@ -54,17 +54,20 @@ function reviewHistoricalAdaptationContent({ outline, contentItems, differences 
     if (item?.confirmed_at) continue;
     const hasPlaceholder = placeholders.some((placeholder) => content.includes(placeholder));
     const placeholderOnlyReview = item?.status === 'review' && hasPlaceholder && !(item.residuals || []).length;
+    const semanticReviewPassed = semanticCheckPassed
+      && require('./historicalAdaptationContentCheckTask.cjs').isSemanticReviewCandidate(item, content);
     if (!item) {
       addFinding(findings, 'chapter-record-missing', 'P0', node, node.path.join(' / '), '缺少迁移记录', '该章节没有正文迁移来源与确认记录。');
     }
     if (!content.trim()) {
       addFinding(findings, 'chapter-empty', 'P0', node, node.path.join(' / '), '章节正文为空', '该章节没有可导出的正文。');
     }
-    if (item && item.status !== 'success' && !placeholderOnlyReview) {
+    if (item && item.status !== 'success' && !placeholderOnlyReview && !semanticReviewPassed) {
       addFinding(findings, 'chapter-not-ready', 'P0', node, item.error || item.status, '章节迁移未完成', '环节五的章节迁移状态不是 success。');
     }
 
-    const blockedTerms = [...new Set([...(item?.blocked_terms || []), ...(item?.residuals || []), ...globalTerms])]
+    // Store 仅在当前正文、输入与协议的模型检查通过并验收后传入此标志。
+    const blockedTerms = semanticCheckPassed ? [] : [...new Set([...(item?.blocked_terms || []), ...(item?.residuals || []), ...globalTerms])]
       .filter((term) => String(term || '').trim())
       .filter((term) => content.includes(term));
     if (blockedTerms.length) {

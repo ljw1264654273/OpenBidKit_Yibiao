@@ -9,9 +9,10 @@ const crypto = require('node:crypto');
 function protocolInputsHash(inputsHash) {
   return crypto.createHash('sha256').update(JSON.stringify({
     inputsHash,
-    rule_engine_version: 4,
+    rule_engine_version: 5,
     fact_schema_version: 2,
     repair_protocol_version: 1,
+    optimization_version: 2,
   }), 'utf8').digest('hex');
 }
 
@@ -20,7 +21,7 @@ function currentCheck(context, factsHash = 'facts-v1') {
     status: 'success', stage: 'semantic', findings: [],
     checked_content_hash: context.contentHash, checked_inputs_hash: context.inputsHash,
     checked_facts_hash: factsHash, checked_protocol_inputs_hash: protocolInputsHash(context.inputsHash),
-    rule_engine_version: 4, fact_schema_version: 2, repair_protocol_version: 1,
+    rule_engine_version: 5, fact_schema_version: 2, repair_protocol_version: 1,
     auto_repaired_count: 0, manual_count: 0, repair_round: 0,
   };
 }
@@ -100,14 +101,68 @@ function runAssertions() {
     });
     const readiness = store.getHistoricalAdaptationContentReadiness();
     assert.equal(readiness.ready, true);
+    store.saveHistoricalAdaptationChapterContent({ nodeId: '1', content: '服务地点仍为五峰村。' });
+    assert.equal(store.getHistoricalAdaptationContentReadiness().ready, false, 'literal candidates require a current model check');
+    const residualContext = store.getHistoricalAdaptationContentCheckContext();
+    store.updateTechnicalPlan({ historicalAdaptationContentCheck: currentCheck(residualContext) });
+    assert.equal(store.getHistoricalAdaptationContentReadiness().ready, true, 'model-cleared literal candidates must not block acceptance');
+    store.saveHistoricalAdaptationChapterContent({ nodeId: '1', content: '服务地点为横泾街道。' });
+    store.updateTechnicalPlan({ historicalAdaptationContentCheck: currentCheck(store.getHistoricalAdaptationContentCheckContext()) });
     const manualItem = store.loadTechnicalPlan().historicalAdaptationContentItems[0];
+    const beforeChapterConfirmationScenario = store.loadTechnicalPlan();
     state = store.confirmHistoricalAdaptationContentItem({ nodeId: '1' });
     assert.equal(state.historicalAdaptationContentCheck.status, 'stale', 'chapter confirmation must invalidate the prior check result');
-    store.updateTechnicalPlan({ historicalAdaptationContentItem: manualItem, historicalAdaptationContentCheck: currentCheck(context) });
+
+    store.updateTechnicalPlan({
+      outlineData: { outline: [
+        { id: '1', title: '项目概况', content: '服务地点为横泾街道。' },
+        { id: '2', title: '实施方案', content: '实施方案正文。' },
+      ] },
+      historicalAdaptationContentItems: [
+        { ...manualItem, node_id: '1', confirmed_at: undefined, status: 'success' },
+        { ...manualItem, node_id: '2', confirmed_at: undefined, status: 'success' },
+      ],
+      historicalAdaptationContentCheck: {
+        ...currentCheck(store.getHistoricalAdaptationContentCheckContext()),
+        findings: [
+          { id: 'finding-1', code: 'chapter-not-ready', category: 'task', severity: 'P0', blocking: true, node_ids: ['1'], message: '第一章问题', evidence: '第一章' },
+          { id: 'finding-2', code: 'chapter-not-ready', category: 'task', severity: 'P0', blocking: true, node_ids: ['2'], message: '第二章问题', evidence: '第二章' },
+        ],
+      },
+    });
+    state = store.confirmHistoricalAdaptationContentItem({ nodeId: '1' });
+    assert.equal(state.historicalAdaptationContentCheck.findings.length, 2, '确认单章不能清空其他章节的一致性问题');
+    assert.equal(state.historicalAdaptationContentCheck.findings.some((finding) => finding.node_ids.includes('2')), true);
+    const previousCheck = state.historicalAdaptationContentCheck;
+    state = store.saveHistoricalAdaptationChapterContent({ nodeId: '1', content: '第一章已人工修正。' });
+    assert.deepEqual(state.historicalAdaptationContentCheck, { ...previousCheck, status: 'stale' }, '修改第一章只标记待重查，保留整轮问题和统计');
+    assert.equal(store.getHistoricalAdaptationContentReadiness().ready, false, '保留的问题列表不能作为最新检查通过依据');
+    assert.throws(() => store.confirmHistoricalAdaptationContent(), /检查|阻断|问题/);
+    state = store.saveHistoricalAdaptationChapterContent({ nodeId: '2', content: '第二章已人工修正。' });
+    assert.deepEqual(state.historicalAdaptationContentCheck, { ...previousCheck, status: 'stale' }, '连续修正第二章仍保留全部问题');
+    assert.equal(store.loadTechnicalPlan().outlineData.outline[1].content, '第二章已人工修正。');
+    assert.deepEqual(store.loadTechnicalPlan().historicalAdaptationContentCheck, { ...previousCheck, status: 'stale' }, '重新读取 SQLite 后仍保留问题');
+    const beforeFactEdit = store.getHistoricalAdaptationContentCheckContext();
+    store.saveHistoricalAdaptationContentFactOverrides({
+      expectedContentHash: beforeFactEdit.contentHash, expectedInputsHash: beforeFactEdit.inputsHash,
+      expectedProtocolHash: beforeFactEdit.protocolHash,
+      overrides: [{ fact_key: 'name:project_name:项目名称', kind: 'name', canonical_value: '人工确认项目' }],
+    });
+    assert.deepEqual(store.loadTechnicalPlan().historicalAdaptationContentCheck, { ...previousCheck, status: 'stale' }, '保存事实修正不能清空问题');
+    state = store.saveHistoricalAdaptationContentStrategy({ nodeId: '1', mode: 'rewrite', instruction: '修正第一章' });
+    assert.deepEqual(state.historicalAdaptationContentCheck, { ...previousCheck, status: 'stale' }, '修改单章迁移方式不能清空问题');
+    store.updateTechnicalPlan({
+      outlineData: beforeChapterConfirmationScenario.outlineData,
+      historicalAdaptationContentItems: beforeChapterConfirmationScenario.historicalAdaptationContentItems,
+    });
+    const restoredContext = store.getHistoricalAdaptationContentCheckContext();
+    store.updateTechnicalPlan({ historicalAdaptationContentItem: manualItem, historicalAdaptationContentCheck: currentCheck(restoredContext) });
     store.updateTechnicalPlan({ historicalAdaptationContentItem: { ...manualItem, content_origin: 'migrated' } });
     assert.equal(store.getHistoricalAdaptationContentReadiness().ready, false,
       'old automatic success without a current source/plan/output fingerprint cannot pass readiness');
     store.updateTechnicalPlan({ historicalAdaptationContentItem: manualItem });
+    const finalContext = store.getHistoricalAdaptationContentCheckContext();
+    store.updateTechnicalPlan({ historicalAdaptationContentCheck: currentCheck(finalContext) });
     state = store.confirmHistoricalAdaptationContent();
     assert.equal(Boolean(state.historicalAdaptationContentConfirmedAt), true);
     assert.equal(state.historicalAdaptationContentItems[0].confirmed_at, undefined);
@@ -194,7 +249,7 @@ function runAssertions() {
     assert.equal(rebuilt.historicalAdaptationContentItems[0].plan_id, prepared.historicalAdaptationContentItems[0].plan_id,
       'same inputs must preserve the plan identity');
     assert.equal(rebuilt.historicalAdaptationContentCheck.status, 'success', 'unchanged plan must preserve check cache');
-    assert.equal(rebuilt.historicalAdaptationContentCheck.rule_engine_version, 4);
+    assert.equal(rebuilt.historicalAdaptationContentCheck.rule_engine_version, 5);
     const sourceItem = rebuilt.historicalAdaptationContentItems[0];
     store.updateTechnicalPlan({ historicalAdaptationContentItem: { ...sourceItem, source_locator: 'display path changed' } });
     assert.equal(store.getHistoricalAdaptationSourceSection({ nodeId: '1' }).content, '五峰村原项目概况。',
