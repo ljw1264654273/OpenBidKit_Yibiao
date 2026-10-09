@@ -437,7 +437,7 @@
   color: var(--yb-primary);
   background: linear-gradient(150deg, rgba(33, 116, 253, 0.12), rgba(91, 84, 211, 0.08));
   border: 1px solid rgba(33, 116, 253, 0.12);
-  border-radius: 13px;
+  border-radius: var(--yb-radius-lg);
   transition: transform var(--yb-duration-fast) ease;
 }
 

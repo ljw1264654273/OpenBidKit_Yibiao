@@ -63,3 +63,38 @@ test('独立页签、图标按钮和表单控件沿用统一紧凑密度', () =>
   assert.match(knowledge, /\.knowledge-analysis-command input\s*\{[^}]*height:\s*var\(--yb-control-height\)/s);
   assert.match(expansion, /\.expansion-create-head h1\s*\{\s*font-size:\s*24px;/s);
 });
+
+test('共享表面使用批准的紧凑圆角阶梯', () => {
+  const tokens = readStyle('tokens.css');
+  const shared = readStyle('shared-components.css');
+  const dialog = readStyle('shared-dialog.css');
+  const appShellDialogs = readStyle('app-shell-dialogs.css');
+  const upload = readStyle('shared-upload.css');
+  const markdown = readStyle('shared-markdown.css');
+
+  assert.match(tokens, /--yb-radius-sm:\s*4px/);
+  assert.match(tokens, /--yb-radius-md:\s*6px/);
+  assert.match(tokens, /--yb-radius-lg:\s*8px/);
+  assert.match(tokens, /--yb-radius-xl:\s*8px/);
+  assert.match(tokens, /--yb-radius-pill:\s*999px/);
+
+  assert.match(shared, /\.panel,[\s\S]*?\.empty-panel\s*\{[^}]*border-radius:\s*var\(--yb-radius-xl\)/s);
+  assert.match(shared, /\.primary-action,[\s\S]*?\.danger-action\s*\{[^}]*border-radius:\s*var\(--yb-radius-sm\)/s);
+  assert.match(dialog, /\.content-regenerate-card textarea\s*\{[^}]*border-radius:\s*var\(--yb-radius-sm\)/s);
+  assert.match(dialog, /\.app-dialog-card,[\s\S]*?\.content-regenerate-card\s*\{[^}]*border-radius:\s*var\(--yb-radius-xl\)/s);
+  assert.match(appShellDialogs, /\.license-status-card\s*\{[^}]*border-radius:\s*var\(--yb-radius-xl\)/s);
+  assert.match(appShellDialogs, /\.offline-license-code-field textarea\s*\{[^}]*border-radius:\s*var\(--yb-radius-md\)/s);
+  assert.match(upload, /\.upload-board\s*\{[^}]*border-radius:\s*var\(--yb-radius-xl\)/s);
+  assert.match(markdown, /\.markdown-viewer \.markdown-table-scroll\s*\{[^}]*border-radius:\s*var\(--yb-radius-md\)/s);
+  assert.match(markdown, /\.mermaid-preview-card\s*\{[^}]*border-radius:\s*var\(--yb-radius-lg\)/s);
+});
+
+test('共享圆角基线为开发者与测试页保留原有半径', () => {
+  const tokens = readStyle('tokens.css');
+  assert.match(tokens, /\.developer-test-page,[\s\S]*?\.developer-multimodal-test-page,[\s\S]*?\.developer-expansion-replace-test-page,[\s\S]*?\.developer-secondary-demo-page,[\s\S]*?html\.token-stats-transparent-root,[\s\S]*?html\.agent-monitor-root\s*\{[^}]*--yb-radius-sm:\s*8px[^}]*--yb-radius-md:\s*12px[^}]*--yb-radius-lg:\s*16px[^}]*--yb-radius-xl:\s*24px/s);
+  assert.doesNotMatch(readStyle('shared-components.css'), /\.developer-[\w-]*\s*\{/);
+  assert.doesNotMatch(readStyle('shared-dialog.css'), /\.developer-[\w-]*\s*\{/);
+  assert.doesNotMatch(readStyle('app-shell-dialogs.css'), /\.developer-[\w-]*\s*\{/);
+  assert.doesNotMatch(readStyle('shared-upload.css'), /\.developer-[\w-]*\s*\{/);
+  assert.doesNotMatch(readStyle('shared-markdown.css'), /\.developer-[\w-]*\s*\{/);
+});

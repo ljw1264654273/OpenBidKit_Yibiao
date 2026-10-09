@@ -33,11 +33,11 @@
   --yb-danger-soft: #fdeeeb;
   --yb-danger-border: #f3c8c0;
 
-  /* 圆角阶梯：胶囊用 pill，卡片用 xl，面板内容块用 lg/md，小控件用 sm */
-  --yb-radius-sm: 8px;
-  --yb-radius-md: 12px;
-  --yb-radius-lg: 16px;
-  --yb-radius-xl: 24px;
+  /* 圆角阶梯：小控件 4px、常规控件 6px、共享表面最高 8px。 */
+  --yb-radius-sm: 4px;
+  --yb-radius-md: 6px;
+  --yb-radius-lg: 8px;
+  --yb-radius-xl: 8px;
   --yb-radius-pill: 999px;
 
   /* 分层阴影体系：由弱到强，元素层级越高、越需要强调，阴影越重 */
@@ -67,6 +67,19 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* Developer/test pages keep their established visual treatment outside the product baseline. */
+.developer-test-page,
+.developer-multimodal-test-page,
+.developer-expansion-replace-test-page,
+.developer-secondary-demo-page,
+html.token-stats-transparent-root,
+html.agent-monitor-root {
+  --yb-radius-sm: 8px;
+  --yb-radius-md: 12px;
+  --yb-radius-lg: 16px;
+  --yb-radius-xl: 24px;
 }
 
 * {
