@@ -96,6 +96,32 @@ test('独立页签、图标按钮和表单控件沿用统一紧凑密度', () =>
   assert.match(expansion, /\.expansion-create-head h1\s*\{\s*font-size:\s*24px;/s);
 });
 
+test('设置页表面、页签与表单控件对齐紧凑基线', () => {
+  const settings = readStyle('feature-settings.css');
+  const appShellDialogs = readStyle('app-shell-dialogs.css');
+
+  assert.match(settings, /\.settings-page-section\s*\{[^}]*background:\s*#fff;[^}]*border-radius:\s*var\(--yb-radius-xl\);[^}]*box-shadow:\s*none;/s);
+  assert.match(settings, /\.settings-tab-shell\s*\{[^}]*border-radius:\s*var\(--yb-radius-lg\);[^}]*box-shadow:\s*none;/s);
+  assert.match(settings, /\.settings-tab\s*\{[^}]*min-height:\s*var\(--yb-control-height\)[^}]*border-radius:\s*var\(--yb-radius-md\)/s);
+  assert.match(settings, /\.settings-row input,[\s\S]*?\.settings-row \.settings-readonly-value\s*\{[^}]*min-height:\s*var\(--yb-control-height\)[^}]*border-radius:\s*var\(--yb-radius-md\)/s);
+  assert.match(settings, /\.input-with-action\s*\{[^}]*min-height:\s*var\(--yb-control-height\)/s);
+  assert.match(settings, /\.export-bullet-option\s*\{[^}]*border-radius:\s*var\(--yb-radius-sm\)/s);
+  assert.match(settings, /\.about-update-card,[\s\S]*?\.about-info-card\s*\{[^}]*background:\s*#fff;[^}]*border-radius:\s*var\(--yb-radius-lg\);[^}]*box-shadow:\s*none;/s);
+  assert.match(settings, /\.privacy-statement\s*\{[^}]*background:\s*#fff;[^}]*border-radius:\s*var\(--yb-radius-lg\);[^}]*box-shadow:\s*none;/s);
+  assert.match(settings, /\.parser-help-note\s*\{[^}]*border-radius:\s*var\(--yb-radius-md\)/s);
+  assert.match(settings, /\.parser-help-table-wrap\s*\{[^}]*border-radius:\s*var\(--yb-radius-md\)/s);
+  assert.match(appShellDialogs, /\.license-status-card\s*\{[^}]*border-radius:\s*var\(--yb-radius-xl\)/s);
+  assert.match(appShellDialogs, /\.offline-license-code-field textarea\s*\{[^}]*border-radius:\s*var\(--yb-radius-md\)/s);
+});
+
+test('共享弹窗正文表单与卡片沿用各自的圆角阶梯', () => {
+  const dialog = readStyle('shared-dialog.css');
+
+  assert.match(dialog, /\.content-regenerate-card textarea\s*\{[^}]*border-radius:\s*var\(--yb-radius-sm\)/s);
+  assert.match(dialog, /\.app-dialog-card,[\s\S]*?\.content-regenerate-card\s*\{[^}]*border-radius:\s*var\(--yb-radius-xl\)/s);
+  assert.match(dialog, /\.agent-question-copy\s*\{[^}]*border-radius:\s*0 var\(--yb-radius-md\) var\(--yb-radius-md\) 0/s);
+});
+
 test('共享表面使用批准的紧凑圆角阶梯', () => {
   const tokens = readStyle('tokens.css');
   const shared = readStyle('shared-components.css');
