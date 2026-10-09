@@ -111,3 +111,24 @@ test('知识库页面、空态和弹窗沿用新建标书的克制表面与紧�
   assert.match(knowledge, /\.knowledge-source-dialog-card\s*\{[^}]*border-radius:\s*8px/s);
   assert.match(knowledge, /\.knowledge-create-folder-form input,[\s\S]*?\.knowledge-create-folder-form select\s*\{[^}]*border-radius:\s*(?:6px|var\(--yb-radius-md\))/s);
 });
+
+test('标书项目、方案扩写与历史适配页面采用统一内容表面和流程控件圆角', () => {
+  const bidProject = readStyle('feature-bid-project.css');
+  const expansion = readStyle('feature-bid-project-expansion.css');
+  const adaptation = readStyle('feature-historical-bid-adaptation.css');
+
+  assert.match(bidProject, /\.bid-project-page\s*\{[^}]*padding:\s*28px 36px 30px;[^}]*background:\s*var\(--yb-page-bg/s);
+  assert.match(bidProject, /\.bid-project-summary-card\s*\{[^}]*border-radius:\s*8px;[^}]*background:\s*#fff;[^}]*box-shadow:\s*none;/s);
+  assert.match(bidProject, /\.bid-project-list-panel\s*\{[^}]*border-radius:\s*8px;[^}]*background:\s*#fff;[^}]*box-shadow:\s*none;/s);
+  assert.match(bidProject, /\.bid-project-toolbar input,[\s\S]*?\.app-dialog-input\s*\{[^}]*min-height:\s*var\(--yb-control-height\)[^}]*border-radius:\s*var\(--yb-radius-md\)/s);
+
+  assert.match(expansion, /\.expansion-create-page\s*\{[^}]*padding:\s*28px 36px 30px;[^}]*background:\s*var\(--yb-page-bg/s);
+  assert.match(expansion, /\.expansion-create-preview\s*\{[^}]*background:\s*#fff;[^}]*border-radius:\s*8px;[^}]*box-shadow:\s*none;/s);
+  assert.match(expansion, /\.expansion-create-submit input\s*\{[^}]*min-height:\s*var\(--yb-control-height\)[^}]*border-radius:\s*var\(--yb-radius-md\)/s);
+
+  assert.match(adaptation, /\.historical-adaptation-page\s*\{[^}]*background:\s*var\(--yb-page-bg/s);
+  assert.match(adaptation, /\.historical-adaptation-stage\s*\{[^}]*border-radius:\s*var\(--yb-radius-md\)/s);
+  assert.match(adaptation, /\.historical-adaptation-review-workbench\s*\{[^}]*background:\s*#fff;[^}]*border-radius:\s*8px;[^}]*box-shadow:\s*none;/s);
+  assert.match(adaptation, /\.historical-adaptation-fact\s*\{[^}]*border-radius:\s*8px;[^}]*background:\s*#fff;/s);
+  assert.match(adaptation, /\.historical-adaptation-fact input, \.historical-adaptation-fact select\s*\{[^}]*border-radius:\s*var\(--yb-radius-md\)/s);
+});
