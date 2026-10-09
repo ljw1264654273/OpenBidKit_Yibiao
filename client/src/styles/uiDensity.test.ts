@@ -98,3 +98,15 @@ test('共享圆角基线为开发者与测试页保留原有半径', () => {
   assert.doesNotMatch(readStyle('shared-upload.css'), /\.developer-[\w-]*\s*\{/);
   assert.doesNotMatch(readStyle('shared-markdown.css'), /\.developer-[\w-]*\s*\{/);
 });
+
+test('知识库页面、空态和弹窗沿用新建标书的克制表面与紧凑圆角', () => {
+  const knowledge = readStyle('feature-knowledge-base.css');
+
+  assert.match(knowledge, /\.knowledge-workspace-bar\s*\{[^}]*background:\s*#fff;[^}]*border:\s*1px solid var\(--yb-border-soft\);[^}]*border-radius:\s*8px;[^}]*box-shadow:\s*none;/s);
+  assert.match(knowledge, /\.remote-knowledge-page-panel\s*\{[^}]*background:\s*#fff;[^}]*border-radius:\s*8px;[^}]*box-shadow:\s*none;/s);
+  assert.match(knowledge, /\.knowledge-folder-panel,[\s\S]*?\.knowledge-document-panel,[\s\S]*?\.knowledge-preview-panel\s*\{[^}]*background:\s*#fff;[^}]*border-radius:\s*8px;[^}]*box-shadow:\s*none;/s);
+  assert.match(knowledge, /\.knowledge-viewer-panel\s*\{[^}]*background:\s*#fff;[^}]*border-radius:\s*8px;[^}]*box-shadow:\s*none;/s);
+  assert.match(knowledge, /\.knowledge-empty-box\s*\{[^}]*background:\s*#fff;[^}]*border-radius:\s*6px/s);
+  assert.match(knowledge, /\.knowledge-source-dialog-card\s*\{[^}]*border-radius:\s*8px/s);
+  assert.match(knowledge, /\.knowledge-create-folder-form input,[\s\S]*?\.knowledge-create-folder-form select\s*\{[^}]*border-radius:\s*(?:6px|var\(--yb-radius-md\))/s);
+});

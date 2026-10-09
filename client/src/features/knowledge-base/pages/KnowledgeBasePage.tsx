@@ -2,6 +2,7 @@ import { Profiler, startTransition, useEffect, useLayoutEffect, useMemo, useRef,
 import * as Dialog from '@radix-ui/react-dialog';
 import { trackPageView } from '../../../shared/analytics/analytics';
 import { AppDialog, InlineSpinner, isLibreOfficeRequiredMessage, MarkdownFullscreenViewer, MarkdownRenderer, ProgressBar, useDocumentParseNotice, useToast } from '../../../shared/ui';
+import type { SectionId } from '../../../shared/types/navigation';
 import { KNOWLEDGE_BASE_CATALOG, getKnowledgeBaseCatalogItem, type KnowledgeBaseId } from '../knowledgeBaseCatalog';
 import { formatFolderRegion, getCityOptions, provinceOptions, selectProvince } from '../regionOptions';
 import type { KnowledgeAnalysisSnapshot, KnowledgeBaseEvent, KnowledgeBaseIndex, KnowledgeDocument, KnowledgeItem } from '../types';
@@ -333,9 +334,10 @@ function isPreviousDocumentInCategory(
 
 interface KnowledgeBasePageProps {
   knowledgeBaseId: KnowledgeBaseId;
+  onSectionChange: (section: SectionId) => void;
 }
 
-function KnowledgeBasePage({ knowledgeBaseId }: KnowledgeBasePageProps) {
+function KnowledgeBasePage({ knowledgeBaseId, onSectionChange }: KnowledgeBasePageProps) {
   const category = getKnowledgeBaseCatalogItem(knowledgeBaseId) || {
     id: knowledgeBaseId,
     label: '知识库',
@@ -1051,7 +1053,7 @@ function KnowledgeBasePage({ knowledgeBaseId }: KnowledgeBasePageProps) {
       <div className="page-stack knowledge-page" data-knowledge-base-id={knowledgeBaseId}>
         <section className="knowledge-workspace-bar knowledge-category-header">
         <div className="knowledge-breadcrumb">
-          <span>本地知识库</span>
+          <button type="button" className="knowledge-category-back" onClick={() => onSectionChange('bid-knowledge-base')}>本地知识库</button>
           <strong>{category.label}</strong>
           <small>{activeFolder ? `当前文件夹：${activeFolder.name} · ` : ''}{index.folders.length} 个文件夹 / {index.documents.length} 个文档</small>
         </div>

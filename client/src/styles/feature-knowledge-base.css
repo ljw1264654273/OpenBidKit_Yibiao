@@ -11,10 +11,10 @@
   justify-content: space-between;
   gap: 16px;
   padding: 12px 14px;
-  background: rgba(255, 255, 255, 0.88);
+  background: #fff;
   border: 1px solid var(--yb-border-soft);
-  border-radius: var(--yb-radius-lg);
-  box-shadow: 0 10px 28px rgba(33, 116, 253, 0.08);
+  border-radius: 8px;
+  box-shadow: none;
 }
 
 .knowledge-category-header {
@@ -25,12 +25,34 @@
   flex-wrap: wrap;
 }
 
+.knowledge-category-back {
+  padding: 0;
+  color: var(--yb-text-muted);
+  font: inherit;
+  font-size: 13px;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.knowledge-category-back:hover {
+  color: var(--yb-primary);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.knowledge-category-back:focus-visible {
+  border-radius: var(--yb-radius-sm);
+  outline: 2px solid var(--yb-primary);
+  outline-offset: 3px;
+}
+
 .knowledge-category-header .knowledge-breadcrumb strong {
   color: var(--yb-primary-deep);
 }
 
 .knowledge-category-list {
-  background: rgba(248, 250, 252, 0.42);
+  background: #fff;
 }
 
 .remote-knowledge-page {
@@ -42,10 +64,10 @@
   flex: 1 1 0;
   min-height: 0;
   overflow: hidden;
-  background: rgba(255, 255, 255, 0.86);
+  background: #fff;
   border: 1px solid var(--yb-border-soft);
-  border-radius: var(--yb-radius-lg);
-  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.06);
+  border-radius: 8px;
+  box-shadow: none;
 }
 
 .remote-knowledge-page-panel .remote-knowledge-picker {
@@ -131,10 +153,10 @@
   width: min(560px, 100%);
   padding: 28px;
   text-align: center;
-  background: rgba(255, 255, 255, 0.9);
+  background: #fff;
   border: 1px solid var(--yb-border-soft);
-  border-radius: var(--yb-radius-lg);
-  box-shadow: var(--yb-shadow-sm);
+  border-radius: 8px;
+  box-shadow: none;
 }
 
 .knowledge-placeholder-panel h2 {
@@ -180,9 +202,8 @@
 
 .knowledge-toolbar-actions .secondary-action.is-active {
   color: #ffffff;
-  background: linear-gradient(135deg, var(--yb-primary), var(--yb-violet));
-  border-color: transparent;
-  box-shadow: 0 10px 24px rgba(33, 116, 253, 0.16);
+  background: var(--yb-primary);
+  border-color: var(--yb-primary);
 }
 
 .knowledge-create-folder-dialog {
@@ -243,10 +264,10 @@
 .knowledge-preview-panel {
   display: grid;
   min-height: 0;
-  background: rgba(255, 255, 255, 0.86);
+  background: #fff;
   border: 1px solid var(--yb-border-soft);
-  border-radius: var(--yb-radius-lg);
-  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.06);
+  border-radius: 8px;
+  box-shadow: none;
 }
 
 .knowledge-folder-panel,
@@ -297,9 +318,9 @@
   width: 100%;
   padding: 11px;
   text-align: left;
-  background: var(--yb-bg);
+  background: #fff;
   border: 1px solid var(--yb-border-soft);
-  border-radius: var(--yb-radius-md);
+  border-radius: 6px;
   cursor: pointer;
   transition: background var(--yb-duration-fast) ease, border-color var(--yb-duration-fast) ease, box-shadow var(--yb-duration-fast) ease, color var(--yb-duration-fast) ease, transform var(--yb-duration-fast) ease;
 }
@@ -452,8 +473,7 @@
 }
 
 .knowledge-document-card,
-.knowledge-item-card,
-.knowledge-empty-box {
+.knowledge-item-card {
   position: relative;
   display: grid;
   align-content: start;
@@ -464,6 +484,11 @@
   border-radius: var(--yb-radius-md);
   transition: background var(--yb-duration-fast) ease, border-color var(--yb-duration-fast) ease,
     box-shadow var(--yb-duration-fast) ease;
+}
+
+.knowledge-empty-box {
+  background: #fff;
+  border-radius: 6px;
 }
 
 /* 空态内的引导按钮不占满整行 */
@@ -646,8 +671,7 @@
   position: fixed;
   inset: 0;
   z-index: 120;
-  background: rgba(9, 16, 28, 0.52);
-  backdrop-filter: blur(8px);
+  background: rgba(15, 23, 42, 0.42);
 }
 
 .knowledge-source-dialog-card {
@@ -659,7 +683,7 @@
   height: min(820px, calc(100vh - 48px));
   background: #ffffff;
   border: 1px solid rgba(228, 233, 240, 0.9);
-  border-radius: var(--yb-radius-xl);
+  border-radius: 8px;
   box-shadow: 0 28px 80px rgba(0, 0, 0, 0.26);
   transform: translate(-50%, -50%);
 }
@@ -780,10 +804,10 @@
   min-height: 0;
   flex: 1 1 0;
   overflow: hidden;
-  background: rgba(255, 255, 255, 0.86);
+  background: #fff;
   border: 1px solid var(--yb-border-soft);
-  border-radius: var(--yb-radius-lg);
-  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.06);
+  border-radius: 8px;
+  box-shadow: none;
 }
 
 .knowledge-viewer-item-list {

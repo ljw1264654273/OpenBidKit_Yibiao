@@ -66,7 +66,7 @@ function AppRouter({
 
   const knowledgeBaseId = getKnowledgeBaseIdByNavigationId(normalizedSection);
   if (knowledgeBaseId) {
-    return <KnowledgeBasePage knowledgeBaseId={knowledgeBaseId} />;
+    return <KnowledgeBasePage knowledgeBaseId={knowledgeBaseId} onSectionChange={onSectionChange} />;
   }
 
   switch (normalizedSection) {
