@@ -86,7 +86,7 @@ test('独立页签、图标按钮和表单控件沿用统一紧凑密度', () =>
   const knowledge = readStyle('feature-knowledge-base.css');
   const expansion = readStyle('feature-bid-project-expansion.css');
 
-  assert.match(shared, /\.secondary-menu-row\s*\{[^}]*min-height:\s*72px[^}]*padding:\s*14px 18px/s);
+  assert.match(shared, /\.secondary-menu-row\s*\{[^}]*min-height:\s*var\(--yb-control-height\)[^}]*padding:\s*10px 14px/s);
   assert.match(settings, /\.settings-tab\s*\{[^}]*min-height:\s*var\(--yb-control-height\)[^}]*padding:\s*6px 14px[^}]*font-size:\s*var\(--yb-font-size-control\)/s);
   assert.match(settings, /\.export-bullet-option\s*\{[^}]*width:\s*36px[^}]*height:\s*36px/s);
   assert.match(rejection, /\.rejection-check-result-tab\s*\{[^}]*min-height:\s*68px[^}]*padding:\s*12px 16px/s);
@@ -163,4 +163,23 @@ test('标书项目、方案扩写与历史适配页面采用统一内容表面�
   assert.match(adaptation, /\.historical-adaptation-review-workbench\s*\{[^}]*background:\s*#fff;[^}]*border-radius:\s*8px;[^}]*box-shadow:\s*none;/s);
   assert.match(adaptation, /\.historical-adaptation-fact\s*\{[^}]*border-radius:\s*8px;[^}]*background:\s*#fff;/s);
   assert.match(adaptation, /\.historical-adaptation-fact input, \.historical-adaptation-fact select\s*\{[^}]*border-radius:\s*var\(--yb-radius-md\)/s);
+});
+
+test('检查、模板、商务标和二级菜单页面对齐新建标书表面与控件密度', () => {
+  const duplicate = readStyle('feature-duplicate-check.css');
+  const rejection = readStyle('feature-rejection-check.css');
+  const technicalCheck = readStyle('feature-technical-plan-check.css');
+  const exportFormat = readStyle('feature-export-format.css');
+  const shared = readStyle('shared-components.css');
+
+  assert.match(duplicate, /\.duplicate-guide-panel\s*\{[^}]*background:\s*#fff;[^}]*border:\s*1px solid var\(--yb-border-soft\);[^}]*border-radius:\s*8px;[^}]*box-shadow:\s*none;/s);
+  assert.match(duplicate, /\.duplicate-analysis-panel\s*\{[^}]*background:\s*#fff;[^}]*border:\s*1px solid var\(--yb-border-soft\);[^}]*border-radius:\s*8px;[^}]*box-shadow:\s*none;/s);
+  assert.match(rejection, /\.rejection-reader-card,[\s\S]*?\.rejection-result-command-bar\s*\{[^}]*background:\s*#fff;[^}]*border:\s*1px solid var\(--yb-border-soft\);[^}]*border-radius:\s*8px;[^}]*box-shadow:\s*none;/s);
+  assert.match(technicalCheck, /\.technical-plan-check-page \.floating-toolbar-button\s*\{[^}]*min-height:\s*var\(--yb-control-height\)[^}]*border-radius:\s*var\(--yb-radius-md\)/s);
+  assert.match(exportFormat, /\.template-library-panel,[\s\S]*?\.template-library-preview-shell\s*\{[^}]*background:\s*#fff;[^}]*border:\s*1px solid var\(--yb-border-soft\);[^}]*border-radius:\s*8px;[^}]*box-shadow:\s*none;/s);
+  assert.match(exportFormat, /\.template-library-action\s*\{[^}]*min-height:\s*var\(--yb-control-height\)[^}]*border-radius:\s*var\(--yb-radius-md\)/s);
+  assert.match(shared, /\.business-bid-demo \.demo-hero-card\s*\{[^}]*background:\s*#fff;[^}]*border-radius:\s*8px;[^}]*box-shadow:\s*none;/s);
+  assert.match(shared, /\.secondary-menu-list-panel\s*\{[^}]*background:\s*#fff;[^}]*border:\s*1px solid var\(--yb-border-soft\);[^}]*border-radius:\s*8px;[^}]*box-shadow:\s*none;/s);
+  assert.match(shared, /\.secondary-menu-list-head\s*\{[^}]*background:\s*#fff;[^}]*border-radius:\s*8px;/s);
+  assert.match(shared, /\.secondary-menu-row\s*\{[^}]*min-height:\s*var\(--yb-control-height\)[^}]*padding:\s*10px 14px;[^}]*border-radius:\s*0;/s);
 });

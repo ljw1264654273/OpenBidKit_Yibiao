@@ -14,10 +14,10 @@
 /* Step01 上传区已迁移到共享 shared-upload.css（shared/ui/UploadBoard.tsx） */
 .rejection-reader-card,
 .rejection-result-command-bar {
-  background: rgba(255, 255, 255, 0.94);
-  border: 1px solid rgba(228, 233, 240, 0.88);
-  border-radius: var(--yb-radius-xl);
-  box-shadow: var(--yb-shadow);
+  background: #fff;
+  border: 1px solid var(--yb-border-soft);
+  border-radius: 8px;
+  box-shadow: none;
 }
 
 .rejection-bid-file-list {
@@ -88,9 +88,7 @@
   align-items: center;
   gap: 14px;
   padding: 16px 18px;
-  background:
-    radial-gradient(circle at 90% 8%, rgba(91, 84, 211, 0.12), transparent 28%),
-    rgba(255, 255, 255, 0.94);
+  background: #fff;
 }
 
 .rejection-result-command-bar strong {
@@ -113,7 +111,7 @@
   padding: 10px 14px;
   background: rgba(248, 250, 253, 0.78);
   border: 1px solid var(--yb-border-soft);
-  border-radius: var(--yb-radius-lg);
+  border-radius: var(--yb-radius-md);
   transition: background var(--yb-duration-fast) ease, border-color var(--yb-duration-fast) ease, box-shadow var(--yb-duration-fast) ease, color var(--yb-duration-fast) ease, transform var(--yb-duration-fast) ease;
 }
 
@@ -172,10 +170,10 @@
   grid-template-rows: auto auto minmax(0, 1fr);
   gap: 14px;
   padding: 18px;
-  background: rgba(255, 255, 255, 0.94);
-  border: 1px solid rgba(228, 233, 240, 0.88);
-  border-radius: var(--yb-radius-xl);
-  box-shadow: var(--yb-shadow);
+  background: #fff;
+  border: 1px solid var(--yb-border-soft);
+  border-radius: 8px;
+  box-shadow: none;
 }
 
 .rejection-check-result-title {
@@ -194,7 +192,7 @@
   grid-template-columns: repeat(3, minmax(0, 1fr));
   background: #ffffff;
   border: 1px solid rgba(27, 50, 92, 0.14);
-  border-radius: var(--yb-radius-xl);
+  border-radius: var(--yb-radius-md);
 }
 
 .rejection-check-result-tab {
