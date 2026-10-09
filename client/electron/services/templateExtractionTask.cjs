@@ -1,7 +1,3 @@
-const {
-  TEMPLATE_EXTRACTION_AGENT_TASK_KEY,
-} = require('./outlineGenerationAgentV2Config.cjs');
-
 const TEMPLATE_FIELDS_OUTPUT_FILE = 'bid-template-fields.json';
 const TEMPLATE_OUTLINE_INPUT_FILE = '已确认一级目录.json';
 
@@ -49,6 +45,7 @@ async function runTemplateExtractionTask({
   workspaceStore,
   openXmlHelperService,
   taskId,
+  agentTaskKey,
   outline,
   signal,
   onActivity,
@@ -70,7 +67,7 @@ async function runTemplateExtractionTask({
     }],
     signal,
     persistent_task: {
-      task_key: TEMPLATE_EXTRACTION_AGENT_TASK_KEY,
+      task_key: agentTaskKey,
       mode: 'resume',
     },
     initial_stage: 'template-extraction',
@@ -97,7 +94,7 @@ async function runTemplateExtractionTask({
   });
 
   const payload = JSON.parse(String(result.output_content || '').trim());
-  agentService.updatePersistentTask(TEMPLATE_EXTRACTION_AGENT_TASK_KEY, {
+  agentService.updatePersistentTask(agentTaskKey, {
     status: 'success',
     phase: 'completed',
     agent_connection: 'idle',

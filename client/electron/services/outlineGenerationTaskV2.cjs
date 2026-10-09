@@ -2090,6 +2090,7 @@ async function runOutlineGenerationTaskV2({ aiService, agentService, ordinaryAge
         workspaceStore,
         openXmlHelperService,
         taskId: templateTaskId,
+        agentTaskKey: templateExtractionAgentTaskKey,
         outline: lockedRoots,
         signal: parallelSignal,
         onActivity: publishTemplateAgentActivity,

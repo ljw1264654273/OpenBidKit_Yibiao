@@ -1,6 +1,16 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const Ajv = require('ajv');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const {
+  createPersistentAgentTask,
+  loadPersistentAgentTask,
+  updatePersistentAgentTask,
+} = require('./pi/piPersistentTaskStore.cjs');
+const { getProjectAgentTaskKey } = require('./agentTaskKeys.cjs');
+const { TEMPLATE_EXTRACTION_AGENT_TASK_KEY } = require('./outlineGenerationAgentV2Config.cjs');
 
 const {
   OUTLINE_JSON_SCHEMA,
@@ -1879,6 +1889,112 @@ test('original-only 真实目录任务不调用远程检索，也不注入远程
   assert.equal(finalTaskPatch.stats.score_coverage_map.records[0].source_location_status, 'located');
   assert.equal(finalTaskPatch.stats.score_coverage_map.records[0].source_anchor.match_start, '# 招标原文\n\n'.length);
 });
+
+for (const payload of [{ projectId: 'expansion-project-a' }, { project_id: 'expansion-project-b' }, {}]) {
+  test(`开发者模式扩写目录的模版任务在创建、恢复和完成时使用同一项目标识 ${JSON.stringify(payload)}`, async (t) => {
+    const userData = fs.mkdtempSync(path.join(os.tmpdir(), '易标-模版任务-'));
+    t.after(() => fs.rmSync(userData, { recursive: true, force: true }));
+    const app = { getPath: () => userData };
+    const taskId = 'outline-template-regression';
+    const templateTaskKey = getProjectAgentTaskKey(
+      TEMPLATE_EXTRACTION_AGENT_TASK_KEY, payload.projectId || payload.project_id,
+    );
+    const root = {
+      id: '1', title: '原方案一级', description: '原方案编写范围',
+      attr: '技术', content_mode: 'ai-generate',
+    };
+    let bidTemplateExists = false;
+    let savedOutlineData = null;
+    let currentTask = { task_id: taskId, stats: {}, logs: [] };
+    const checkpointTask = (patch, data) => {
+      currentTask = { ...currentTask, ...patch };
+      if (data?.outlineData) savedOutlineData = data.outlineData;
+      return { task: currentTask };
+    };
+    const updatePersistentTask = (key, patch) => updatePersistentAgentTask(app, key, patch);
+    const workspaceStore = {
+      loadTechnicalPlan: () => ({
+        workflowKind: 'existing-plan-expansion',
+        originalPlanFile: { fileName: '原方案.docx' },
+        outlineExpansionMode: 'original-only',
+      }),
+      readOriginalPlanMarkdown: () => '# 原方案一级',
+      listTenderSourceDocxRelativePaths: () => ['tender-originals/招标原件.docx'],
+      hasBidTemplate: () => bidTemplateExists,
+      clearBidTemplate: () => { bidTemplateExists = false; },
+      resolveTenderSourceDocxPath: (hint) => hint,
+      getBidTemplateSourcePath: () => path.join(userData, 'bid-template-source.docx'),
+      getBidTemplateSourceRelativePath: () => 'bid-template-source.docx',
+      getBidTemplatePath: () => path.join(userData, 'bid-template.docx'),
+      getBidTemplateRelativePath: () => 'bid-template.docx',
+      getBidTemplateFieldsPath: () => path.join(userData, 'bid-template-fields.json'),
+      getBidTemplateFieldsRelativePath: () => 'bid-template-fields.json',
+    };
+    const agentService = {
+      updatePersistentTask,
+      async runTask(input) {
+        if (input.persistent_task.mode === 'create') {
+          createPersistentAgentTask(app, input.persistent_task.task_key, {
+            run_id: input.task_id, session_file: 'outline-session.jsonl',
+          });
+          return { output_content: JSON.stringify({ outline: [root] }) };
+        }
+        return completeScoreDrivenAgentRun(input, root);
+      },
+    };
+    const ordinaryAgentService = {
+      updatePersistentTask,
+      async forkPersistentTask(sourceKey, targetKey, state) {
+        assert.ok(loadPersistentAgentTask(app, sourceKey));
+        createPersistentAgentTask(app, targetKey, { ...state, session_file: 'template-session.jsonl' });
+      },
+      async runTask(input) {
+        // 保留真实持久任务读取与更新，只替代模型和 Open XML 执行。
+        const persistentTask = loadPersistentAgentTask(app, input.persistent_task.task_key);
+        if (!persistentTask) throw new Error('持久 Agent 任务不存在，请重新执行当前业务任务');
+        assert.equal(input.persistent_task.mode, 'resume');
+        assert.equal(persistentTask.state.run_id, input.task_id);
+        const confirmedOutline = JSON.parse(input.files.find((file) => file.path === '已确认一级目录.json').content);
+        assert.equal(confirmedOutline.outline[0].title, root.title);
+        bidTemplateExists = true;
+        const result = {
+          task_id: input.task_id, session_id: 'template-session',
+          output_content: JSON.stringify({ version: 1, fields: [{ name: '投标人名称', fill_by: 'manual' }] }),
+        };
+        input.validateOutput(result);
+        return result;
+      },
+    };
+
+    await runOutlineGenerationTaskV2({
+      aiService: { isDeveloperMode: () => true },
+      agentService,
+      ordinaryAgentService,
+      workspaceStore,
+      knowledgeBaseService: {},
+      openXmlHelperService: {},
+      updateTask: (patch) => { currentTask = { ...currentTask, ...patch }; return currentTask; },
+      checkpointTask,
+      taskControl: {
+        signal: new AbortController().signal,
+        waitForOutlineSelection: async () => ({ items: [root], selectedIds: ['1'] }),
+      },
+      payload,
+    });
+
+    assert.equal(currentTask.status, 'success');
+    assert.ok(savedOutlineData);
+    assert.equal(bidTemplateExists, true);
+    assert.equal(currentTask.stats.template_agent.task_key, templateTaskKey);
+    assert.equal(currentTask.stats.template_agent.field_count, 1);
+    const templateTask = loadPersistentAgentTask(app, templateTaskKey);
+    assert.equal(templateTask.state.status, 'success');
+    assert.equal(templateTask.state.phase, 'completed');
+    if (payload.projectId || payload.project_id) {
+      assert.equal(loadPersistentAgentTask(app, TEMPLATE_EXTRACTION_AGENT_TASK_KEY), null);
+    }
+  });
+}
 
 test('每小节字数为 0 时按 1500 字内部兜底估算目标叶子数', async () => {
   const root = { id: '1', title: '原方案一级', attr: '技术' };
