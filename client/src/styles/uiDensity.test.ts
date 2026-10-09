@@ -171,6 +171,7 @@ test('检查、模板、商务标和二级菜单页面对齐新建标书表面�
   const technicalCheck = readStyle('feature-technical-plan-check.css');
   const exportFormat = readStyle('feature-export-format.css');
   const shared = readStyle('shared-components.css');
+  const developer = readStyle('feature-developer.css');
 
   assert.match(duplicate, /\.duplicate-guide-panel\s*\{[^}]*background:\s*#fff;[^}]*border:\s*1px solid var\(--yb-border-soft\);[^}]*border-radius:\s*8px;[^}]*box-shadow:\s*none;/s);
   assert.match(duplicate, /\.duplicate-analysis-panel\s*\{[^}]*background:\s*#fff;[^}]*border:\s*1px solid var\(--yb-border-soft\);[^}]*border-radius:\s*8px;[^}]*box-shadow:\s*none;/s);
@@ -178,7 +179,8 @@ test('检查、模板、商务标和二级菜单页面对齐新建标书表面�
   assert.match(technicalCheck, /\.technical-plan-check-page \.floating-toolbar-button\s*\{[^}]*min-height:\s*var\(--yb-control-height\)[^}]*border-radius:\s*var\(--yb-radius-md\)/s);
   assert.match(exportFormat, /\.template-library-panel,[\s\S]*?\.template-library-preview-shell\s*\{[^}]*background:\s*#fff;[^}]*border:\s*1px solid var\(--yb-border-soft\);[^}]*border-radius:\s*8px;[^}]*box-shadow:\s*none;/s);
   assert.match(exportFormat, /\.template-library-action\s*\{[^}]*min-height:\s*var\(--yb-control-height\)[^}]*border-radius:\s*var\(--yb-radius-md\)/s);
-  assert.match(shared, /\.business-bid-demo \.demo-hero-card\s*\{[^}]*background:\s*#fff;[^}]*border-radius:\s*8px;[^}]*box-shadow:\s*none;/s);
+  assert.match(developer, /\.business-bid-demo \.demo-hero-card\s*\{[^}]*background:\s*#fff;[^}]*border-radius:\s*8px;[^}]*box-shadow:\s*none;/s);
+  assert.doesNotMatch(developer, /\.business-bid-demo \.demo-hero-card\s*\{[^}]*background:\s*(?:radial-gradient|linear-gradient)/s);
   assert.match(shared, /\.secondary-menu-list-panel\s*\{[^}]*background:\s*#fff;[^}]*border:\s*1px solid var\(--yb-border-soft\);[^}]*border-radius:\s*8px;[^}]*box-shadow:\s*none;/s);
   assert.match(shared, /\.secondary-menu-list-head\s*\{[^}]*background:\s*#fff;[^}]*border-radius:\s*8px;/s);
   assert.match(shared, /\.secondary-menu-row\s*\{[^}]*min-height:\s*var\(--yb-control-height\)[^}]*padding:\s*10px 14px;[^}]*border-radius:\s*0;/s);

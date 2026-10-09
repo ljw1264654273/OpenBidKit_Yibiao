@@ -521,13 +521,6 @@
 }
 
 /* Business Bid demo uses the same restrained surfaces as New Bid. */
-.business-bid-demo .demo-hero-card {
-  background: #fff;
-  border: 1px solid var(--yb-border-soft);
-  border-radius: 8px;
-  box-shadow: none;
-}
-
 .business-bid-demo .demo-panel,
 .business-bid-demo .demo-preview-card {
   background: #fff;
