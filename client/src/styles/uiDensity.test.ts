@@ -36,14 +36,37 @@ test('主要业务页面采用统一的页面标题与工作区操作密度', ()
   const exportFormat = readStyle('feature-export-format.css');
   const knowledge = readStyle('feature-knowledge-base.css');
 
-  assert.match(technical, /\.global-facts-reader-head\s*\{[^}]*padding:\s*16px 18px/s);
-  assert.match(technical, /\.global-facts-reader-head strong\s*\{[^}]*font-size:\s*20px/s);
+  assert.match(technical, /\.global-facts-reader-head\s*\{[^}]*padding:\s*12px 14px/s);
+  assert.match(technical, /\.global-facts-reader-head strong\s*\{[^}]*font-size:\s*16px/s);
   assert.match(technical, /\.global-facts-reader-actions\s*\{[^}]*gap:\s*6px/s);
-  assert.match(technical, /\.content-reader-head\s*\{[^}]*padding:\s*16px 18px/s);
-  assert.match(technical, /\.content-reader-head strong\s*\{[^}]*font-size:\s*20px/s);
+  assert.match(technical, /\.content-reader-head\s*\{[^}]*padding:\s*12px 14px/s);
+  assert.match(technical, /\.content-reader-head strong\s*\{[^}]*font-size:\s*16px/s);
   assert.match(bidProject, /\.bid-project-page-head h1\s*\{[^}]*font-size:\s*24px/s);
   assert.match(exportFormat, /\.export-format-header h2\s*\{[^}]*font-size:\s*22px/s);
   assert.match(knowledge, /\.knowledge-breadcrumb strong\s*\{[^}]*font-size:\s*16px/s);
+});
+
+test('技术方案与可研工作台共享紧凑面板、页签、弹窗和空态基线', () => {
+  const technical = readStyle('feature-technical-plan.css');
+  const feasibility = readStyle('feature-feasibility-report.css');
+
+  assert.match(technical, /\.technical-workbench\s*\{[^}]*height:\s*100%;[^}]*min-height:\s*0;[^}]*overflow:\s*hidden/s);
+  assert.match(technical, /\.technical-step-module\s*\{[^}]*overflow:\s*hidden;[^}]*background:\s*var\(--yb-surface\);[^}]*border-radius:\s*8px;/s);
+  assert.match(technical, /\.analysis-import-card,[\s\S]*?\.analysis-markdown-card\s*\{[^}]*background:\s*#fff;[^}]*border:\s*1px solid var\(--yb-border-soft\);[^}]*border-radius:\s*8px;[^}]*box-shadow:\s*none;/s);
+  assert.match(technical, /\.bid-analysis-command-bar,[\s\S]*?\.content-generation-workspace\s*\{[^}]*background:\s*#fff;[^}]*border:\s*1px solid var\(--yb-border-soft\);[^}]*border-radius:\s*8px;[^}]*box-shadow:\s*none;/s);
+  assert.match(technical, /\.global-facts-reader-head\s*\{[^}]*padding:\s*12px 14px/s);
+  assert.match(technical, /\.content-reader-head\s*\{[^}]*padding:\s*12px 14px/s);
+  assert.match(technical, /\.document-switch-tabs\s*\{[^}]*border-radius:\s*6px;[^}]*box-shadow:\s*none;/s);
+  assert.match(technical, /\.document-switch-tab\s*\{[^}]*min-height:\s*34px[^}]*border-radius:\s*4px/s);
+  assert.match(technical, /\.document-switch-tab\.is-active\s*\{[^}]*background:\s*var\(--yb-primary\);[^}]*box-shadow:\s*none;/s);
+  assert.match(technical, /\.global-facts-config-card\s*\{[^}]*gap:\s*12px;[^}]*padding:\s*16px;[^}]*border-radius:\s*8px;[^}]*box-shadow:\s*var\(--yb-shadow-modal\)/s);
+  assert.match(technical, /\.content-generation-config-card\s*\{[^}]*gap:\s*12px;[^}]*padding:\s*16px;[^}]*border-radius:\s*8px/s);
+  assert.match(technical, /\.bid-analysis-config-card,[\s\S]*?\.export-template-select-dialog\s*\{[^}]*gap:\s*12px;[^}]*padding:\s*16px;[^}]*border-radius:\s*8px/s);
+  assert.match(technical, /\.global-facts-empty-list\s*\{[^}]*padding:\s*14px;[^}]*background:\s*#fff;[^}]*border-radius:\s*6px/s);
+  assert.match(feasibility, /\.feasibility-form-grid input,[\s\S]*?\.feasibility-export-options input\s*\{[^}]*border-radius:\s*(?:6px|var\(--yb-radius-md\))/s);
+  assert.match(feasibility, /\.feasibility-project-form\s*\{[^}]*gap:\s*12px;[^}]*padding:\s*16px 18px/s);
+  assert.match(feasibility, /\.feasibility-project-form h3\s*\{[^}]*font-size:\s*20px/s);
+  assert.match(feasibility, /\.feasibility-export-options\s*\{[^}]*gap:\s*10px 12px;[^}]*padding:\s*10px 12px;[^}]*border-radius:\s*(?:8px|var\(--yb-radius-lg\))/s);
 });
 
 test('独立页签、图标按钮和表单控件沿用统一紧凑密度', () => {
