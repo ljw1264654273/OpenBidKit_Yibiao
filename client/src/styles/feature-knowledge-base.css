@@ -487,8 +487,16 @@
 }
 
 .knowledge-empty-box {
+  position: relative;
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  padding: 14px;
   background: #fff;
+  border: 1px solid var(--yb-border-soft);
   border-radius: 6px;
+  transition: background var(--yb-duration-fast) ease, border-color var(--yb-duration-fast) ease,
+    box-shadow var(--yb-duration-fast) ease;
 }
 
 /* 空态内的引导按钮不占满整行 */
