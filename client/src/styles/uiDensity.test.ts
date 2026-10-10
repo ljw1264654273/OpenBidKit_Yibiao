@@ -52,6 +52,7 @@ test('技术方案与可研工作台共享紧凑面板、页签、弹窗和空�
   const developer = readStyle('feature-developer.css');
 
   assert.match(technical, /\.technical-workbench\s*\{[^}]*height:\s*100%;[^}]*min-height:\s*0;[^}]*overflow:\s*hidden/s);
+  assert.match(technical, /\.technical-workbench-global-scroll\s*\{[^}]*overflow-x:\s*hidden;[^}]*overflow-y:\s*auto;/s);
   assert.match(technical, /\.technical-step-module\s*\{[^}]*overflow:\s*hidden;[^}]*background:\s*var\(--yb-surface\);[^}]*border-radius:\s*8px;/s);
   assert.match(technical, /\.analysis-import-card,[\s\S]*?\.analysis-markdown-card\s*\{[^}]*background:\s*#fff;[^}]*border:\s*1px solid var\(--yb-border-soft\);[^}]*border-radius:\s*8px;[^}]*box-shadow:\s*none;/s);
   assert.match(technical, /\.bid-analysis-command-bar,[\s\S]*?\.content-generation-workspace\s*\{[^}]*background:\s*#fff;[^}]*border:\s*1px solid var\(--yb-border-soft\);[^}]*border-radius:\s*8px;[^}]*box-shadow:\s*none;/s);

@@ -475,6 +475,10 @@
   padding: 14px 24px;
 }
 
+.content-shell:has(.technical-workbench-global-scroll) {
+  padding: 0;
+}
+
 .content-shell:has(.settings-page) {
   align-items: flex-start;
   overflow-x: hidden;

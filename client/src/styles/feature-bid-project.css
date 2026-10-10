@@ -798,3 +798,52 @@
   .bid-project-match-action-row { display: grid; grid-template-columns: 1fr; }
   .bid-project-match-action-row button { width: 100%; }
 }
+
+/* 新建标书上下文保持标题在左、返回入口在右，旧流程栏样式不变。 */
+.technical-workbench-global-scroll .bid-project-context-bar {
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px 20px;
+  min-height: auto;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+
+.technical-workbench-global-scroll .bid-project-context-main {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.technical-workbench-global-scroll .bid-project-context-main .section-kicker {
+  color: var(--yb-text-soft);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+}
+
+.technical-workbench-global-scroll .bid-project-context-main > strong {
+  overflow-wrap: anywhere;
+  color: var(--yb-text);
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.technical-workbench-global-scroll .bid-project-context-meta {
+  color: var(--yb-text-soft);
+  justify-content: flex-start;
+  font-size: 12px;
+  white-space: normal;
+}
+
+.technical-workbench-global-scroll .bid-project-context-back {
+  grid-column: auto;
+  justify-self: end;
+  align-self: start;
+  color: var(--yb-text-soft);
+}
+
+.technical-workbench-global-scroll .bid-project-context-back:hover {
+  color: var(--yb-primary);
+}

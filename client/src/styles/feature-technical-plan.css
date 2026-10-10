@@ -8143,3 +8143,208 @@
   .quick-config-table-options { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .quick-config-image-options { grid-template-columns: 1fr; }
 }
+
+/* 新建标书使用页面内全局滚动，旧工作台继续保持独立工作区布局。 */
+.technical-workbench-global-scroll {
+  display: flex;
+  gap: 20px;
+  min-width: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+.technical-workbench-global-scroll > :where(.bid-project-context-bar, .remote-knowledge-task-action, .technical-step-module, .technical-plan-stage-footer) {
+  flex: 0 0 auto;
+  margin-inline: 36px;
+}
+
+.technical-workbench-global-scroll > .remote-knowledge-task-action {
+  align-self: flex-start;
+}
+
+.technical-workbench-global-scroll .technical-plan-stage-panel {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  flex: 0 0 auto;
+  min-width: 0;
+  padding: 16px 36px;
+  background: var(--yb-surface);
+  border-bottom: 1px solid var(--yb-border);
+}
+
+.technical-workbench-global-scroll .technical-plan-stages {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  min-width: 0;
+}
+
+.technical-workbench-global-scroll .technical-plan-stage {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-areas: "index title" "index state";
+  align-items: center;
+  gap: 3px 10px;
+  min-width: 0;
+  min-height: 68px;
+  padding: 10px 12px;
+  color: var(--yb-text-soft);
+  text-align: left;
+  background: var(--yb-bg);
+  border: 1px solid var(--yb-border);
+  border-radius: var(--yb-radius-lg);
+  font: inherit;
+}
+
+.technical-workbench-global-scroll .technical-plan-stage > span {
+  grid-area: index;
+  font-size: 20px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.technical-workbench-global-scroll .technical-plan-stage > strong {
+  grid-area: title;
+  color: var(--yb-text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.technical-workbench-global-scroll .technical-plan-stage > small {
+  grid-area: state;
+  color: inherit;
+  font-size: 11px;
+}
+
+.technical-workbench-global-scroll .technical-plan-stage.is-complete {
+  color: var(--yb-success-deep);
+  background: var(--yb-success-soft);
+  border-color: var(--yb-success-border);
+}
+
+.technical-workbench-global-scroll .technical-plan-stage.is-current {
+  color: var(--yb-primary-deep);
+  background: color-mix(in srgb, var(--yb-primary) 8%, var(--yb-surface));
+  border-color: var(--yb-primary);
+}
+
+.technical-workbench-global-scroll .technical-plan-stage.is-current > strong {
+  color: var(--yb-primary-deep);
+}
+
+.technical-workbench-global-scroll .technical-plan-stage.is-available {
+  color: var(--yb-text-soft);
+  background: var(--yb-surface);
+}
+
+.technical-workbench-global-scroll .technical-plan-stage.is-locked {
+  color: var(--yb-text-muted);
+  cursor: default;
+}
+
+.technical-workbench-global-scroll .technical-plan-stage.is-locked > strong {
+  color: var(--yb-text-muted);
+}
+
+.technical-workbench-global-scroll .technical-plan-stage:hover:not(:disabled) {
+  border-color: var(--yb-primary);
+}
+
+.technical-workbench-global-scroll .technical-plan-stage:active:not(:disabled) {
+  border-color: var(--yb-primary-deep);
+}
+
+.technical-workbench-global-scroll .technical-step-module {
+  display: block;
+  min-height: auto;
+  flex: 0 0 auto;
+  overflow: visible;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+
+.technical-workbench-global-scroll .technical-step-navigation {
+  display: none;
+}
+
+.technical-workbench-global-scroll .technical-step-content {
+  height: auto;
+  min-height: auto;
+  overflow: visible;
+  padding: 0;
+}
+
+.technical-workbench-global-scroll .technical-step-content > .plan-step-body,
+.technical-workbench-global-scroll .technical-step-content > .document-analysis-page {
+  height: auto;
+  min-height: auto;
+  overflow: visible;
+  grid-template-rows: none;
+  align-content: start;
+}
+
+.technical-workbench-global-scroll .technical-step-content > .plan-step-body:not(.document-analysis-page):not(.bid-analysis-page):not(.outline-generation-page):not(.content-generation-page):not(.feasibility-materials-page) {
+  grid-template-rows: none;
+}
+
+/* global-scroll workspaces */
+
+.technical-workbench-global-scroll .technical-plan-stage-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
+  padding: 16px 20px;
+  background: var(--yb-surface);
+  border: 1px solid var(--yb-border-soft);
+  border-left: 3px solid var(--yb-success);
+  border-radius: var(--yb-radius-lg);
+}
+
+.technical-workbench-global-scroll .technical-plan-stage-footer > div {
+  min-width: 0;
+}
+
+.technical-workbench-global-scroll .technical-plan-stage-footer strong {
+  color: var(--yb-text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.technical-workbench-global-scroll .technical-plan-stage-footer p {
+  margin: 4px 0 0;
+  color: var(--yb-text-soft);
+  font-size: 12px;
+}
+
+.technical-workbench-global-scroll .technical-plan-stage-footer > .primary-action {
+  flex: 0 0 auto;
+}
+
+/* global-scroll responsive */
+@media (max-width: 900px) {
+  .technical-workbench-global-scroll > :where(.bid-project-context-bar, .remote-knowledge-task-action, .technical-step-module, .technical-plan-stage-footer) {
+    margin-inline: 18px;
+  }
+
+  .technical-workbench-global-scroll .technical-plan-stage-panel {
+    padding: 12px 18px;
+  }
+
+  .technical-workbench-global-scroll .technical-plan-stages {
+    grid-template-columns: repeat(5, minmax(138px, 1fr));
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+
+  .technical-workbench-global-scroll .technical-plan-stage-footer {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 12px;
+    padding: 14px 16px;
+  }
+}

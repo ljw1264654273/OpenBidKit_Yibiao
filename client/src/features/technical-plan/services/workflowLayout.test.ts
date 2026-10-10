@@ -942,3 +942,48 @@ test('步骤底部只保留一个与业务状态绑定的主动作', () => {
   assert.match(source, /disabled=\{disabled\}/);
   assert.equal((source.match(/<button/g) || []).length, 1);
 });
+
+test('新建标书只在页面根滚动并取消壳层内边距', () => {
+  const css = readFileSync(new URL('../../../styles/feature-technical-plan.css', import.meta.url), 'utf8');
+  const shellCss = readFileSync(new URL('../../../styles/layout-app-shell.css', import.meta.url), 'utf8');
+
+  assert.match(css, /\.technical-workbench-global-scroll\s*\{[^}]*display:\s*flex;[^}]*overflow-x:\s*hidden;[^}]*overflow-y:\s*auto;[^}]*scrollbar-gutter:\s*stable;/s);
+  assert.match(css, /\.technical-workbench-global-scroll > :where\([^)]*\.bid-project-context-bar[^)]*\.remote-knowledge-task-action[^)]*\.technical-step-module[^)]*\.technical-plan-stage-footer[^)]*\)\s*\{[^}]*flex:\s*0 0 auto;[^}]*margin-inline:\s*36px;/s);
+  assert.match(shellCss, /\.content-shell:has\(\.technical-workbench-global-scroll\)\s*\{[^}]*padding:\s*0;/s);
+  assert.ok(shellCss.indexOf('.content-shell:has(.technical-workbench-global-scroll)') > shellCss.indexOf('.content-shell:has(.technical-workbench)'));
+});
+
+test('新建标书五步流程条在根滚动时保持吸顶并使用文本状态', () => {
+  const css = readFileSync(new URL('../../../styles/feature-technical-plan.css', import.meta.url), 'utf8');
+
+  assert.match(css, /\.technical-workbench-global-scroll \.technical-plan-stage-panel\s*\{[^}]*position:\s*sticky;[^}]*top:\s*0;[^}]*z-index:\s*\d+;[^}]*flex:\s*0 0 auto;[^}]*background:\s*var\(--yb-surface\);[^}]*border-bottom:/s);
+  assert.match(css, /\.technical-workbench-global-scroll \.technical-plan-stages\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*repeat\(5, minmax\(0, 1fr\)\);/s);
+  for (const state of ['complete', 'current', 'available', 'locked']) {
+    assert.match(css, new RegExp(`\\.technical-workbench-global-scroll \\.technical-plan-stage\\.is-${state}\\s*\\{[^}]*color:\\s*var\\(--yb-`, 's'));
+  }
+  assert.match(css, /\.technical-workbench-global-scroll \.technical-plan-stage\s*\{[^}]*border-radius:\s*var\(--yb-radius-lg\);/s);
+});
+
+test('新建标书模块和步骤页面回归自然高度并保留工作区滚动边界', () => {
+  const css = readFileSync(new URL('../../../styles/feature-technical-plan.css', import.meta.url), 'utf8');
+
+  assert.match(css, /\.technical-workbench-global-scroll \.technical-step-module\s*\{[^}]*display:\s*block;[^}]*min-height:\s*auto;[^}]*flex:\s*0 0 auto;[^}]*overflow:\s*visible;[^}]*background:\s*transparent;[^}]*border:\s*0;/s);
+  const naturalRoots = css.slice(css.indexOf('.technical-workbench-global-scroll .technical-step-content {'), css.indexOf('/* global-scroll workspaces */'));
+  assert.match(naturalRoots, /\.technical-step-content\s*\{[^}]*height:\s*auto;[^}]*min-height:\s*auto;[^}]*overflow:\s*visible;/s);
+  assert.match(naturalRoots, /\.technical-step-content > \.plan-step-body,[\s\S]*\.technical-step-content > \.document-analysis-page\s*\{[^}]*height:\s*auto;[^}]*min-height:\s*auto;[^}]*overflow:\s*visible;/s);
+  assert.match(css, /\.technical-workbench-global-scroll \.technical-step-navigation\s*\{[^}]*display:\s*none;/s);
+});
+
+test('新建标书上下文与底部主操作使用正文流布局', () => {
+  const css = readFileSync(new URL('../../../styles/feature-technical-plan.css', import.meta.url), 'utf8');
+  const projectCss = readFileSync(new URL('../../../styles/feature-bid-project.css', import.meta.url), 'utf8');
+
+  assert.match(projectCss, /\.technical-workbench-global-scroll \.bid-project-context-bar\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) auto;/s);
+  assert.match(projectCss, /\.technical-workbench-global-scroll \.bid-project-context-main\s*\{[^}]*display:\s*grid;/s);
+  assert.match(projectCss, /\.technical-workbench-global-scroll \.bid-project-context-meta\s*\{[^}]*color:\s*var\(--yb-text-soft\);/s);
+  assert.match(css, /\.technical-workbench-global-scroll \.technical-plan-stage-footer\s*\{[^}]*display:\s*flex;[^}]*justify-content:\s*space-between;[^}]*margin-bottom:\s*24px;[^}]*background:\s*var\(--yb-surface\);[^}]*border-left:\s*3px solid var\(--yb-success\);/s);
+  const responsive = css.slice(css.indexOf('/* global-scroll responsive */'));
+  assert.match(responsive, /@media\s*\(max-width:\s*900px\)[\s\S]*\.technical-plan-stages\s*\{[^}]*grid-template-columns:\s*repeat\(5, minmax\(138px, 1fr\)\);[^}]*overflow-x:\s*auto;/s);
+  assert.match(responsive, /margin-inline:\s*18px;/);
+  assert.match(responsive, /\.technical-plan-stage-footer\s*\{[^}]*align-items:\s*stretch;[^}]*flex-direction:\s*column;/s);
+});
