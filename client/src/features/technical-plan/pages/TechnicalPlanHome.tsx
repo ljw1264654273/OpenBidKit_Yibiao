@@ -293,7 +293,8 @@ function hasTechnicalPlanDownstreamData(state: TechnicalPlanState) {
 function TechnicalPlanHome({ workflowKind, projectId, registerLeaveGuard, onSectionChange, onCreateFromTenderFiles }: TechnicalPlanHomeProps) {
   const isNewProject = Boolean(onCreateFromTenderFiles);
   const { hydrated, state, setState } = useTechnicalPlanWorkflow(projectId, isNewProject);
-  const useGlobalScrollLayout = workflowKind === 'technical-plan' && state.step !== 'expand';
+  const useGlobalScrollLayout = state.step !== 'expand';
+  const workflowTitle = workflowKind === 'existing-plan-expansion' ? '方案扩写' : '新建标书';
   const pageScrollRef = useRef<HTMLDivElement | null>(null);
   const { showToast } = useToast();
   const [tenderMarkdown, setTenderMarkdown] = useState('');
@@ -1300,8 +1301,8 @@ function TechnicalPlanHome({ workflowKind, projectId, registerLeaveGuard, onSect
           )}
           <header className="bid-project-context-bar">
             <div className="bid-project-context-main">
-              <span className="section-kicker">新建标书 · {currentStage?.label}</span>
-              <strong>{bidProject?.projectName || '新建标书'}</strong>
+              <span className="section-kicker">{workflowTitle} · {currentStage?.label}</span>
+              <strong>{bidProject?.projectName || workflowTitle}</strong>
               {projectId ? <span className="bid-project-context-meta">同源第 {bidProject?.sourceSequence || 1} 份</span> : null}
             </div>
             <button type="button" className="text-button bid-project-context-back" onClick={() => onSectionChange?.('bid-projects')}>

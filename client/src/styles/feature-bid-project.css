@@ -799,7 +799,7 @@
   .bid-project-match-action-row button { width: 100%; }
 }
 
-/* 新建标书上下文保持标题在左、返回入口在右，旧流程栏样式不变。 */
+/* 新建标书和方案扩写共用左侧标题、右侧返回入口的上下文布局。 */
 .technical-workbench-global-scroll .bid-project-context-bar {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 12px 20px;

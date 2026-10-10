@@ -607,7 +607,7 @@ test('仅非全局滚动工作流的项目状态栏保留通用流程导航', ()
   assert.doesNotMatch(home, /technical-plan-reset/);
 });
 
-test('已有方案扩写保留紧凑模块和顶部状态导航', () => {
+test('扩写改写占位页保留紧凑模块和顶部状态导航', () => {
   const home = readFileSync(new URL('../pages/TechnicalPlanHome.tsx', import.meta.url), 'utf8');
   const documentAnalysis = readFileSync(new URL('../pages/DocumentAnalysisPage.tsx', import.meta.url), 'utf8');
   const css = readFileSync(new URL('../../../styles/feature-bid-project.css', import.meta.url), 'utf8');
@@ -634,10 +634,9 @@ test('已有方案扩写保留紧凑模块和顶部状态导航', () => {
   assert.match(shellCss, /\.content-shell:has\(\.technical-workbench\)\s*\{[^}]*padding:\s*14px 24px;/s);
 });
 
-test('新建标书五步接入统一流程卡和业务动作并重置页面根滚动', () => {
+test('新建标书和方案扩写五步共用流程卡和业务动作并重置页面根滚动', () => {
   const home = readFileSync(new URL('../pages/TechnicalPlanHome.tsx', import.meta.url), 'utf8');
 
-  assert.match(home, /workflowKind === 'technical-plan'/);
   assert.match(home, /TechnicalPlanStageNavigation/);
   assert.match(home, /TechnicalPlanStageFooter/);
   assert.match(home, /technical-workbench-global-scroll/);
@@ -646,7 +645,10 @@ test('新建标书五步接入统一流程卡和业务动作并重置页面根�
   assert.match(home, /navigationActions\.map/);
   assert.match(home, /!useGlobalScrollLayout[\s\S]*navigationActions/);
   assert.match(home, /!targetStage\?\.accessible/);
-  assert.match(home, /workflowKind === 'technical-plan' && state\.step !== 'expand'/);
+  assert.match(home, /const useGlobalScrollLayout = state\.step !== 'expand';/);
+  assert.match(home, /const workflowTitle = workflowKind === 'existing-plan-expansion' \? '方案扩写' : '新建标书';/);
+  assert.match(home, /\{workflowTitle\} · \{currentStage\?\.label\}/);
+  assert.match(home, /bidProject\?\.projectName \|\| workflowTitle/);
 });
 
 test('新建标书页脚的提示和标题复用阶段模型的前置阻塞原因', () => {

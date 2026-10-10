@@ -8144,7 +8144,7 @@
   .quick-config-image-options { grid-template-columns: 1fr; }
 }
 
-/* 新建标书使用页面内全局滚动，旧工作台继续保持独立工作区布局。 */
+/* 新建标书和方案扩写五步共用页面内全局滚动，扩写改写占位页保留原布局。 */
 .technical-workbench-global-scroll {
   --technical-stage-workspace-height: clamp(620px, calc(100dvh - 260px), 820px);
   display: flex;
