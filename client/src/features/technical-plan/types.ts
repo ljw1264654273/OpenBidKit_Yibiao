@@ -383,6 +383,9 @@ export interface HistoricalAdaptationContentReadiness {
   blockingCount: number;
   firstNodeId?: string;
   findings: HistoricalAdaptationContentCheckFinding[];
+  checkSnapshotValid?: boolean;
+  checkBlockingCount?: number;
+  checkRisk?: boolean;
 }
 
 export interface HistoricalAdaptationReviewFinding {

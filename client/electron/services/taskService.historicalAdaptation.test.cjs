@@ -428,15 +428,15 @@ test('重试正文调用同一 Runner 且明确设置 retry，不重建方案', 
 });
 
 for (const contentItemStatus of ['success', 'review']) {
-  test(`段落重写 ${contentItemStatus} 底稿在正文 runner 释放后自动复核`, async () => {
+  test(`段落重写 ${contentItemStatus} 底稿在正文 runner 释放后不自动复核`, async () => {
     const harness = makeHarness({ needsConsistencyCheck: true, holdContentAfterChapter: true, contentItemStatus });
     harness.service.startHistoricalAdaptationContent({ projectId: 'historical-project' });
     await waitUntil(() => harness.heldRuns.length === 1);
     assert.equal(harness.runnerCalls.contentCheck.length, 0);
     assert.equal(harness.getState().outlineData.outline[0].content, '迁移正文');
     harness.heldRuns[0].release();
-    await waitUntil(() => harness.runnerCalls.contentCheck.length === 1 && harness.service.getActiveTasks().length === 0);
-    assert.equal(harness.runnerCalls.contentCheck[0].projectId, 'historical-project');
+    await waitUntil(() => harness.service.getActiveTasks().length === 0);
+    assert.equal(harness.runnerCalls.contentCheck.length, 0);
   });
 }
 

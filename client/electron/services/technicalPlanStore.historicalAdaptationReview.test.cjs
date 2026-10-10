@@ -52,7 +52,7 @@ function runAssertions() {
       historicalAdaptationContentConfirmedAt: '2026-10-01T00:00:00.000Z',
     });
 
-    assert.throws(() => store.runHistoricalAdaptationReview(), /一致性检查/);
+    assert.doesNotThrow(() => store.runHistoricalAdaptationReview(), '未运行一致性检查也可以进入环节六终审');
     const checkContext = store.getHistoricalAdaptationContentCheckContext();
     store.updateTechnicalPlan({
       historicalAdaptationContentCheck: {
@@ -69,7 +69,7 @@ function runAssertions() {
       },
     });
 
-    assert.throws(() => store.runHistoricalAdaptationReview(), /阻断/, 'a forged successful check cannot bypass deterministic blockers');
+    assert.doesNotThrow(() => store.runHistoricalAdaptationReview(), '一致性检查快照无效不应阻断终审启动');
     store.saveHistoricalAdaptationChapterContent({ nodeId: '1', content: '本项目实施方案已明确。' });
     const validContext = store.getHistoricalAdaptationContentCheckContext();
     store.updateTechnicalPlan({ historicalAdaptationContentCheck: currentCheck(validContext) });

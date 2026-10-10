@@ -1276,9 +1276,6 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
         checkpointTask({ status: 'error', error: error.message || '任务执行失败' });
       }
     }).finally(() => {
-      const scheduleHistoricalContentCheck = !closed && type === 'historical-adaptation-content'
-        && currentTask.status === 'success' && !taskControl.signal.aborted
-        && runnerResult?.needsConsistencyCheck === true && activeTasks.get(taskKey) === currentTask;
       const scheduleVariantAfterContent = !closed && type === 'content-generation'
         && currentTask.status === 'success'
         && Boolean(bidProjectManager?.getProject?.(projectId)?.derivedFromProjectId)
@@ -1320,17 +1317,6 @@ function createTaskService({ aiService, agentService, autoConfirmationService, t
       }
       resolveSettled();
       drainTechnicalPlanQueue();
-      if (scheduleHistoricalContentCheck) {
-        queueMicrotask(() => {
-          if (closed || taskControl.signal.aborted || hasActiveTask('historical-adaptation-content', projectId)
-            || hasActiveTask('historical-adaptation-content-check', projectId)) return;
-          try {
-            startHistoricalAdaptationContentCheck({ projectId });
-          } catch (error) {
-            console.warn('[task-service] 自动启动历史正文一致性复核失败', error);
-          }
-        });
-      }
       if (scheduleVariantAfterContent) {
         queueMicrotask(() => {
           if (closed) return;

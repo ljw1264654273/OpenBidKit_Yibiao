@@ -358,7 +358,7 @@
   line-height: 1.65;
   background: rgba(33, 116, 253, 0.055);
   border-left: 3px solid rgba(33, 116, 253, 0.62);
-  border-radius: 0 var(--yb-radius-md) var(--yb-radius-md) 0;
+  border-radius: 0 var(--yb-radius-lg) var(--yb-radius-lg) 0;
   text-wrap: pretty;
 }
 

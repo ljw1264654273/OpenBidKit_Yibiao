@@ -57,6 +57,16 @@ test('无源证据或歧义来源的规则只能复核', () => {
   assert.deepEqual(bindRulesToSourceRanges(index, '服务方案 / 项目概况', [rule])[0].authorizedRanges, []);
 });
 
+test('地点精确替换不会因段落出现地理或人口词而升级整段改写', () => {
+  const index = buildHistoricalSourceIndex('# 项目概况\n五峰村地理概况及人口信息。保留原有流程。');
+  const rule = { id: 'place', differenceId: 'place', targetAction: 'replace', scope: 'location-target',
+    policy: 'must-replace', oldValues: ['五峰村'], replacements: [{ oldValue: '五峰村', newValue: '横泾街道' }] };
+  const [bound] = bindRulesToSourceRanges(index, '项目概况', [rule]);
+  assert.equal(bound.authorizedRanges.length, 1);
+  assert.equal(bound.authorizedRanges[0].oldValue, '五峰村');
+  assert.equal(bound.authorizedRanges[0].paragraphRewrite, undefined);
+});
+
 test('嵌套证据及同段数量归并成完整段落，段外数量继续精确替换', () => {
   const paragraph = '苏州市吴中区木渎镇五峰村股份经济合作社服务木渎镇五峰村，工作量965宗。';
   const index = buildHistoricalSourceIndex(`# 总则\n${paragraph}\n\n独立清单965宗。`);

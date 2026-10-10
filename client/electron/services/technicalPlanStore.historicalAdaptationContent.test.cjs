@@ -100,14 +100,23 @@ function runAssertions() {
       checked_protocol_inputs_hash: protocolInputsHash(context.inputsHash),
       rule_engine_version: 3, fact_schema_version: 1, repair_protocol_version: 1,
     } });
-    assert.equal(store.getHistoricalAdaptationContentReadiness().ready, false, 'v3 cache must be stale');
+    {
+      const staleReadiness = store.getHistoricalAdaptationContentReadiness();
+      assert.equal(staleReadiness.ready, true, '过期一致性检查不应阻断正文迁移确认');
+      assert.equal(staleReadiness.checkSnapshotValid, false);
+      assert.equal(staleReadiness.checkRisk, true);
+    }
     store.updateTechnicalPlan({
       historicalAdaptationContentCheck: { ...currentCheck(context), checked_at: '2026-10-01T10:00:00.000Z' },
     });
     const readiness = store.getHistoricalAdaptationContentReadiness();
     assert.equal(readiness.ready, true);
     store.saveHistoricalAdaptationChapterContent({ nodeId: '1', content: '服务地点仍为五峰村。' });
-    assert.equal(store.getHistoricalAdaptationContentReadiness().ready, false, 'literal candidates require a current model check');
+    {
+      const staleReadiness = store.getHistoricalAdaptationContentReadiness();
+      assert.equal(staleReadiness.ready, true, '正文迁移确认不应被过期检查阻断');
+      assert.equal(staleReadiness.checkRisk, true);
+    }
     const residualContext = store.getHistoricalAdaptationContentCheckContext();
     store.updateTechnicalPlan({ historicalAdaptationContentCheck: currentCheck(residualContext) });
     assert.equal(store.getHistoricalAdaptationContentReadiness().ready, true, 'model-cleared literal candidates must not block acceptance');
@@ -141,8 +150,13 @@ function runAssertions() {
     const previousCheck = state.historicalAdaptationContentCheck;
     state = store.saveHistoricalAdaptationChapterContent({ nodeId: '1', content: '第一章已人工修正。' });
     assert.deepEqual(state.historicalAdaptationContentCheck, { ...previousCheck, status: 'stale' }, '修改第一章只标记待重查，保留整轮问题和统计');
-    assert.equal(store.getHistoricalAdaptationContentReadiness().ready, false, '保留的问题列表不能作为最新检查通过依据');
-    assert.throws(() => store.confirmHistoricalAdaptationContent(), /检查|阻断|问题/);
+    {
+      const riskReadiness = store.getHistoricalAdaptationContentReadiness();
+      assert.equal(riskReadiness.ready, true, '一致性问题只提示，不阻断正文迁移确认');
+      assert.equal(riskReadiness.checkRisk, true);
+      assert.equal(riskReadiness.checkBlockingCount, 0, '正文变更后旧检查快照已过期，旧 findings 不参与当前门禁');
+    }
+    assert.doesNotThrow(() => store.confirmHistoricalAdaptationContent());
     state = store.saveHistoricalAdaptationChapterContent({ nodeId: '2', content: '第二章已人工修正。' });
     assert.deepEqual(state.historicalAdaptationContentCheck, { ...previousCheck, status: 'stale' }, '连续修正第二章仍保留全部问题');
     assert.equal(store.loadTechnicalPlan().outlineData.outline[1].content, '第二章已人工修正。');
@@ -163,8 +177,8 @@ function runAssertions() {
     const restoredContext = store.getHistoricalAdaptationContentCheckContext();
     store.updateTechnicalPlan({ historicalAdaptationContentItem: manualItem, historicalAdaptationContentCheck: currentCheck(restoredContext) });
     store.updateTechnicalPlan({ historicalAdaptationContentItem: { ...manualItem, content_origin: 'migrated' } });
-    assert.equal(store.getHistoricalAdaptationContentReadiness().ready, false,
-      'old automatic success without a current source/plan/output fingerprint cannot pass readiness');
+    assert.equal(store.getHistoricalAdaptationContentReadiness().ready, true,
+      '旧迁移记录只要正文本身无确定性问题即可确认，检查风险单独提示');
     store.updateTechnicalPlan({ historicalAdaptationContentItem: manualItem });
     const finalContext = store.getHistoricalAdaptationContentCheckContext();
     store.updateTechnicalPlan({ historicalAdaptationContentCheck: currentCheck(finalContext) });

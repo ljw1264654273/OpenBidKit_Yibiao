@@ -133,9 +133,7 @@ function bindRulesToSourceRanges(index, sourcePath, rules) {
     end = match.index + line.length;
   }
   flush();
-  const affected = paragraphs.filter((paragraph) => boundRules.some((rule) => (rule.paragraphRewrite
-    || rule.targetAction === 'replace' && rule.scope === 'location-target'
-      && /地理|行政|人口|地形|地貌|区位|辖区/u.test(section.content.slice(paragraph.startOffset, paragraph.endOffset)))
+  const affected = paragraphs.filter((paragraph) => boundRules.some((rule) => rule.paragraphRewrite
     && rule.authorizedRanges.some((range) => range.startOffset >= paragraph.startOffset && range.endOffset <= paragraph.endOffset)))
     .map((paragraph) => {
       const related = boundRules.filter((rule) => rule.targetAction !== 'review' && rule.authorizedRanges.some((range) =>

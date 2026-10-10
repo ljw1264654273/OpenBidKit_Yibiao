@@ -141,8 +141,13 @@ async function runAssertions() {
     store.confirmHistoricalAdaptationContent();
     assert.equal(store.runHistoricalAdaptationReview().historicalAdaptationReviewFindings.some((finding) => finding.severity === 'P0'), false);
     store.saveHistoricalAdaptationChapterContent({ nodeId: 'semantic-1', content: '服务范围变更。' });
-    assert.equal(store.getHistoricalAdaptationContentReadiness().ready, false);
-    assert.throws(() => store.runHistoricalAdaptationReview(), /正文迁移|一致性检查/);
+    {
+      const changedReadiness = store.getHistoricalAdaptationContentReadiness();
+      assert.equal(changedReadiness.ready, true, '正文修改后可进入环节六，由一致性检查提示风险');
+      assert.equal(changedReadiness.checkRisk, true);
+    }
+    store.confirmHistoricalAdaptationContent();
+    assert.doesNotThrow(() => store.runHistoricalAdaptationReview(), '终审不应被一致性检查或章节提示阻断');
 
     // 整段迁移的新版本必须进入真实语义检查；失败底稿不能阻断其他章节检查。
     for (const failRewrite of [false, true]) {

@@ -414,6 +414,18 @@ test('正文首次生成直接启动，仅完整正文重新生成时请求覆�
   assert.match(pageSource, /确认覆盖并重新生成/);
 });
 
+test('目录生成主按钮复用第一步已保存配置直接启动', () => {
+  const pageSource = readFileSync(new URL('../pages/OutlineEditPage.tsx', import.meta.url), 'utf8');
+  const generateStart = pageSource.indexOf('const generateOutline = async');
+  const generateEnd = pageSource.indexOf('const confirmOutlineSelection', generateStart);
+  const generateSource = pageSource.slice(generateStart, generateEnd);
+
+  assert.equal(pageSource.match(/onClick=\{openGenerationDialog\}/g)?.length, 1);
+  assert.match(pageSource, /className="primary-action" onClick=\{\(\) => \{ void generateOutline\('saved'\); \}\}/);
+  assert.match(generateSource, /optionsSource: 'draft' \| 'saved'/);
+  assert.match(generateSource, /optionsSource === 'saved'[\s\S]*referenceKnowledgeDocumentIds[\s\S]*remoteKnowledgeScopes[\s\S]*outlineWordControlOptions[\s\S]*outlineMinimumDepth/);
+});
+
 test('正文未生成时禁止导出空目录，并复用统一 Word 导出弹窗', () => {
   const homeSource = readFileSync(new URL('../pages/TechnicalPlanHome.tsx', import.meta.url), 'utf8');
   const dialogSource = readFileSync(new URL('../../export-format/components/WordExportDialog.tsx', import.meta.url), 'utf8');
@@ -728,7 +740,7 @@ test('STEP 03 配置同一目录最低层级并提示配置快照失配', () => 
   assert.match(page, /outlineMinimumDepth !== outlineMinimumDepthSnapshot/);
   assert.match(page, /目录层级设置已修改，需要重新生成目录后才能生效/);
   assert.match(page, /minimumDepth: draftMinimumDepth/);
-  assert.match(page, /minimum_outline_depth: draftMinimumDepth/);
+  assert.match(page, /minimum_outline_depth: selectedMinimumDepth/);
 });
 
 test('扩写步骤只优化真实占位状态而不伪造业务控件', () => {

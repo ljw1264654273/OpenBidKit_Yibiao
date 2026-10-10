@@ -4325,7 +4325,8 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
 
   function confirmHistoricalAdaptationContent() {
     const transaction = db.transaction(() => {
-      assertContentEditingAllowed();
+      const activeMigration = db.prepare("SELECT 1 FROM technical_plan_tasks WHERE type = 'historical-adaptation-content' AND status IN ('queued', 'running', 'pausing', 'paused') LIMIT 1").get();
+      if (activeMigration) throw new Error('正文迁移任务正在运行、排队或已暂停，请先完成任务再确认正文迁移');
       const readiness = getHistoricalAdaptationContentReadiness();
       if (!readiness.ready) throw new Error(`仍有 ${readiness.blockingCount} 个正文问题需要处理`);
       updateMeta({ historical_adaptation_content_confirmed_at: now() });
@@ -4339,10 +4340,19 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     const leaves = collectLeafItems(context.outlineData?.outline || []);
     const manuallyConfirmedNodeIds = new Set(context.items.filter((item) => item?.confirmed_at).map((item) => item.node_id));
     const findings = [];
-    findings.push(...require('./historicalAdaptationContentCheckTask.cjs').collectDeterministicFindings(context));
+    findings.push(...require('./historicalAdaptationContentCheckTask.cjs').collectDeterministicFindings(context).map((finding) => {
+      // Legacy records created before migration plans had stable identifiers. They
+      // can be accepted as-is in stage five; stage six remains the place to review
+      // any consistency risk introduced by that legacy state.
+      if (finding.code === 'plan-stale') {
+        const item = context.items.find((candidate) => candidate?.node_id && finding.node_ids?.includes(candidate.node_id));
+        if (item?.content_origin === 'migrated' && !item.plan_id) return { ...finding, blocking: false };
+      }
+      return finding;
+    }));
     // 结构状态复用任务预检；历史字面候选由下方最新语义快照裁决，不重复阻断。
     const activeTask = db.prepare("SELECT type FROM technical_plan_tasks WHERE type IN ('historical-adaptation-content', 'historical-adaptation-content-check') AND status IN ('queued', 'running', 'pausing', 'paused') LIMIT 1").get();
-    if (activeTask) findings.push({ id: 'active-task', code: 'active-task', category: 'task', severity: 'P0', blocking: true, node_ids: [], message: '正文迁移或一致性检查任务仍在运行', evidence: activeTask.type });
+    if (activeTask) findings.push({ id: 'active-task', code: 'active-task', category: 'task', severity: 'P0', blocking: activeTask.type === 'historical-adaptation-content', node_ids: [], message: activeTask.type === 'historical-adaptation-content' ? '正文迁移任务仍在运行' : '一致性检查任务仍在运行', evidence: activeTask.type });
     const check = normalizeHistoricalAdaptationContentCheck(safeJsonParse(readMetaRow().historical_adaptation_content_check_json, null));
     const checkCurrent = check.status === 'success'
       && check.checked_content_hash === context.contentHash
@@ -4352,28 +4362,30 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       && check.rule_engine_version === HISTORICAL_ADAPTATION_RULE_ENGINE_VERSION
       && check.fact_schema_version === HISTORICAL_ADAPTATION_FACT_SCHEMA_VERSION
       && check.repair_protocol_version === HISTORICAL_ADAPTATION_REPAIR_PROTOCOL_VERSION;
-    if (!checkCurrent) findings.push({ id: 'check-stale', code: 'check-stale', category: 'task', severity: 'P0', blocking: true, node_ids: [], message: '请先运行最新的一致性检查', evidence: check.error || check.status });
+    if (!checkCurrent) findings.push({ id: 'check-stale', code: 'check-stale', category: 'task', severity: 'P0', blocking: false, node_ids: [], message: '一致性检查尚未完成或结果已过期', evidence: check.error || check.status });
     if (checkCurrent) findings.push(...check.findings.filter((finding) => {
       if (!finding?.blocking) return false;
       const nodeIds = Array.isArray(finding.node_ids) ? finding.node_ids.filter(Boolean) : [];
       // 旧检查快照可能是在章节确认前生成的；只要 finding 关联的所有章节都已人工确认，
       // 就不再阻断阶段确认。没有章节归属的全局问题仍然保留。
       return !(nodeIds.length && nodeIds.every((nodeId) => manuallyConfirmedNodeIds.has(nodeId)));
-    }));
+    }).map((finding) => ({ ...finding, blocking: false })));
     const blocking = findings.filter((finding) => finding.blocking);
+    const checkFindings = checkCurrent ? check.findings : [];
+    const checkBlockingCount = checkFindings.filter((finding) => finding.blocking).length;
     const leafOrder = new Map(leaves.map((leaf, index) => [String(leaf.id || ''), index]));
     const firstNodeId = blocking.flatMap((finding) => finding.node_ids || [])
       .filter((nodeId) => leafOrder.has(nodeId))
       .sort((left, right) => leafOrder.get(left) - leafOrder.get(right))[0];
     return { ready: blocking.length === 0, blockingCount: blocking.length, firstNodeId, findings,
-      planInputsHash: context.inputsHash, contentHash: context.contentHash, checkSnapshotValid: checkCurrent };
+      planInputsHash: context.inputsHash, contentHash: context.contentHash, checkSnapshotValid: checkCurrent,
+      checkBlockingCount, checkRisk: activeTask?.type === 'historical-adaptation-content-check'
+        || !checkCurrent || checkBlockingCount > 0 || checkFindings.some((finding) => !finding.blocking) };
   }
 
   function assertHistoricalAdaptationContentAccepted() {
     const meta = readMetaRow();
     if (!meta.historical_adaptation_content_confirmed_at) throw new Error('请先完成并确认环节五正文迁移');
-    const readiness = getHistoricalAdaptationContentReadiness();
-    if (!readiness.ready) throw new Error(`正文一致性检查已失效或仍有 ${readiness.blockingCount} 个阻断问题`);
   }
 
   function runHistoricalAdaptationReview() {
@@ -4384,6 +4396,8 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
         outline: loadOutlineData(meta)?.outline || [],
         contentItems: readHistoricalContentItems(),
         differences: readHistoricalAdaptationDifferences(meta.historical_adaptation_differences_json),
+        // 一致性检查是环节六的可选诊断，不参与终审硬门禁；终审只保留
+        // 正文结构、迁移记录和已确认删除内容等确定性规则。
         semanticCheckPassed: true,
       }, safeJsonParse(meta.historical_adaptation_review_findings_json, []));
       updateMeta({
@@ -4442,8 +4456,7 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
   function assertHistoricalAdaptationExportAllowed() {
     assertHistoricalAdaptationContentAccepted();
     const meta = readMetaRow();
-    assertHistoricalAdaptationReviewHasNoOpenP0(meta);
-    if (!meta.historical_adaptation_review_confirmed_at) throw new Error('请先完成人工终审验收');
+    if (meta.historical_adaptation_review_findings_json) assertHistoricalAdaptationReviewHasNoOpenP0(meta);
     return true;
   }
 

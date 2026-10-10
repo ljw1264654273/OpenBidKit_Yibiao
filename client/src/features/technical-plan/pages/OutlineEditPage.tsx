@@ -932,10 +932,10 @@ function OutlineEditPage({
     strictSectionWords: draftStrictSectionWords,
   });
 
-  const ensureRemoteScopesFresh = async () => {
-    if (!draftRemoteKnowledgeScopes.length) return true;
+  const ensureRemoteScopesFresh = async (scopes = draftRemoteKnowledgeScopes) => {
+    if (!scopes.length) return true;
     const fingerprint = await window.yibiao?.remoteKnowledge.getEndpointFingerprint() || '';
-    if (draftRemoteKnowledgeScopes.some((scope) => isRemoteScopeStale(scope, fingerprint))) {
+    if (scopes.some((scope) => isRemoteScopeStale(scope, fingerprint))) {
       showToast('远程知识库选择已过期，请切换到远程知识库并重新选择', 'info');
       return false;
     }
@@ -976,10 +976,11 @@ function OutlineEditPage({
     }
   };
 
-  const generateOutline = async () => {
+  const generateOutline = async (optionsSource: 'draft' | 'saved' = 'draft') => {
     const lockMessage = getMutationLockMessage();
     if (lockMessage) {
-      throw new Error(lockMessage);
+      showToast(lockMessage, 'info');
+      return;
     }
     if (!projectOverview) {
       showToast('请先完成招标文件解析', 'info');
@@ -987,31 +988,39 @@ function OutlineEditPage({
     }
 
     try {
-      if (!await ensureRemoteScopesFresh()) return;
-      const wordControlOptions = getNormalizedWordControlOptions();
+      const savedOptions = optionsSource === 'saved';
+      const selectedKnowledgeDocumentIds = savedOptions ? referenceKnowledgeDocumentIds : draftKnowledgeDocumentIds;
+      const selectedRemoteKnowledgeScopes = savedOptions ? remoteKnowledgeScopes : draftRemoteKnowledgeScopes;
+      const wordControlOptions = savedOptions ? outlineWordControlOptions : getNormalizedWordControlOptions();
+      const selectedMinimumDepth = savedOptions ? outlineMinimumDepth : draftMinimumDepth;
+      if (!await ensureRemoteScopesFresh(selectedRemoteKnowledgeScopes)) return;
       const startedNow = Date.now();
       setStartingOutline(true);
       setLocalStartAt(startedNow);
       setNowTick(startedNow);
-      const nextOutlineMode: OutlineMode = isExpansionWorkflow ? 'aligned' : draftOutlineMode;
-      const nextOutlineExpansionMode = isExpansionWorkflow ? draftOutlineExpansionMode : 'ai-complement';
-      await onOutlineConfigChange({
-        referenceKnowledgeDocumentIds: draftKnowledgeDocumentIds,
-        remoteKnowledgeScopes: draftRemoteKnowledgeScopes,
-        outlineMode: nextOutlineMode,
-        outlineExpansionMode: nextOutlineExpansionMode,
-        wordControlOptions,
-        minimumDepth: draftMinimumDepth,
-      });
+      const nextOutlineMode: OutlineMode = isExpansionWorkflow ? 'aligned' : savedOptions ? outlineMode : draftOutlineMode;
+      const nextOutlineExpansionMode = isExpansionWorkflow
+        ? savedOptions ? outlineExpansionMode : draftOutlineExpansionMode
+        : 'ai-complement';
+      if (!savedOptions) {
+        await onOutlineConfigChange({
+          referenceKnowledgeDocumentIds: selectedKnowledgeDocumentIds,
+          remoteKnowledgeScopes: selectedRemoteKnowledgeScopes,
+          outlineMode: nextOutlineMode,
+          outlineExpansionMode: nextOutlineExpansionMode,
+          wordControlOptions,
+          minimumDepth: selectedMinimumDepth,
+        });
+      }
       setGenerationDialogOpen(false);
       await window.yibiao?.tasks.startOutlineGeneration({
         projectId,
-        reference_knowledge_document_ids: draftKnowledgeDocumentIds,
-        remote_knowledge_scopes: draftRemoteKnowledgeScopes,
+        reference_knowledge_document_ids: selectedKnowledgeDocumentIds,
+        remote_knowledge_scopes: selectedRemoteKnowledgeScopes,
         outline_mode: nextOutlineMode,
         outline_expansion_mode: nextOutlineExpansionMode,
         word_control_options: wordControlOptions,
-        minimum_outline_depth: draftMinimumDepth,
+        minimum_outline_depth: selectedMinimumDepth,
       });
       trackConfigUsage({
         outline_mode: isExpansionWorkflow ? nextOutlineExpansionMode : nextOutlineMode,
@@ -1020,7 +1029,7 @@ function OutlineEditPage({
         maximum_words: wordControlOptions.maximumWords,
         section_words: wordControlOptions.sectionWords,
         strict_section_words: wordControlOptions.strictSectionWords,
-        minimum_outline_depth: draftMinimumDepth,
+        minimum_outline_depth: selectedMinimumDepth,
       });
       showToast('目录生成任务已在后台启动', 'success');
     } catch (error) {
@@ -2144,7 +2153,7 @@ function OutlineEditPage({
               <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.05.05a2 2 0 0 1-2.83 2.83l-.05-.05a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.04 1.56V21a2 2 0 0 1-4 0v-.08a1.7 1.7 0 0 0-1.04-1.56 1.7 1.7 0 0 0-1.87.34l-.05.05a2 2 0 0 1-2.83-2.83l.05-.05A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1.04H3a2 2 0 0 1 0-4h.08A1.7 1.7 0 0 0 4.6 8.93a1.7 1.7 0 0 0-.34-1.87l-.05-.05a2 2 0 0 1 2.83-2.83l.05.05a1.7 1.7 0 0 0 1.87.34A1.7 1.7 0 0 0 10 3.01V3a2 2 0 0 1 4 0v.08a1.7 1.7 0 0 0 1.04 1.56 1.7 1.7 0 0 0 1.87-.34l.05-.05a2 2 0 0 1 2.83 2.83l-.05.05a1.7 1.7 0 0 0-.34 1.87 1.7 1.7 0 0 0 1.56 1.04H21a2 2 0 0 1 0 4h-.08A1.7 1.7 0 0 0 19.4 15Z" />
             </svg>
           </button>
-          <button type="button" className="primary-action" onClick={openGenerationDialog} disabled={outlineConfigLocked || generating || sorting || contentMutationLocked || savingNodeKnowledge || !projectOverview}>
+          <button type="button" className="primary-action" onClick={() => { void generateOutline('saved'); }} disabled={outlineConfigLocked || generating || sorting || contentMutationLocked || savingNodeKnowledge || !projectOverview}>
             {generating ? 'AI 正在生成目录' : outlineData ? '重新生成目录' : '生成目录'}
           </button>
         </div>
@@ -2773,7 +2782,7 @@ function OutlineEditPage({
               <button type="button" className="secondary-action" onClick={() => { void saveOutlineConfig(); }} disabled={outlineConfigLocked || generating || contentMutationLocked || savingOutlineConfig}>
                 {savingOutlineConfig ? '正在保存...' : '保存配置'}
               </button>
-              <button type="button" className="primary-action" onClick={generateOutline} disabled={outlineConfigLocked || generating || contentMutationLocked || savingNodeKnowledge || savingOutlineConfig || !projectOverview}>
+              <button type="button" className="primary-action" onClick={() => { void generateOutline(); }} disabled={outlineConfigLocked || generating || contentMutationLocked || savingNodeKnowledge || savingOutlineConfig || !projectOverview}>
                 {outlineData ? '重新生成目录' : '开始生成'}
               </button>
             </div>

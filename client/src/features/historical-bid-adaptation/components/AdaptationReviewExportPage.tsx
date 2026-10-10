@@ -23,6 +23,7 @@ function AdaptationReviewExportPage({ projectId, project, state, onStateChange, 
   const [resolutionNote, setResolutionNote] = useState('');
   const [saving, setSaving] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  const [pendingExportWarning, setPendingExportWarning] = useState(false);
   const [pendingAcceptance, setPendingAcceptance] = useState(false);
   const { showToast } = useToast();
   const findings = state.historicalAdaptationReviewFindings || [];
@@ -40,6 +41,25 @@ function AdaptationReviewExportPage({ projectId, project, state, onStateChange, 
   const placeholderFindings = findings.filter((finding) => finding.code === 'placeholder' || /【(?:待核实|待补充)】/u.test(finding.evidence));
   const contentCheck = state.historicalAdaptationContentCheck;
   const contentCheckBlocking = contentCheck.findings.filter((finding) => finding.blocking).length;
+  const contentCheckRunning = ['queued', 'running', 'pausing', 'paused'].includes(state.historicalAdaptationContentCheckTask?.status || '');
+
+  const runContentCheck = async () => {
+    try {
+      await window.yibiao!.tasks.startHistoricalAdaptationContentCheck({ projectId });
+      showToast('一致性检查已在后台启动', 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '启动一致性检查失败', 'error');
+    }
+  };
+
+  const requestExport = () => {
+    const risk = contentCheck.status !== 'success' || contentCheckBlocking > 0 || contentCheck.findings.length > 0;
+    if (risk) {
+      setPendingExportWarning(true);
+      return;
+    }
+    setExportOpen(true);
+  };
 
   const acceptFinding = async (resolution: 'resolved' | 'ignored') => {
     if (!selected || !resolutionNote.trim()) {
@@ -128,12 +148,23 @@ function AdaptationReviewExportPage({ projectId, project, state, onStateChange, 
 
       <section className={`historical-adaptation-review-check-summary${contentCheck.status === 'success' && contentCheckBlocking === 0 ? ' is-complete' : ''}`}>
         <div>
-          <span className="section-kicker">环节五一致性检查</span>
-          <strong>{contentCheck.status === 'success' ? contentCheckBlocking ? `${contentCheckBlocking} 项阻断` : '检查通过' : contentCheck.status === 'stale' ? '检查结果已失效' : contentCheck.status === 'error' ? '检查失败' : '尚未完成检查'}</strong>
-          <p>{contentCheck.checked_at ? `检查时间：${new Date(contentCheck.checked_at).toLocaleString('zh-CN')}` : '需回到正文迁移环节运行最新检查。'}</p>
+          <span className="section-kicker">正文一致性检查（可选）</span>
+          <strong>{contentCheck.status === 'success' ? contentCheckBlocking ? `${contentCheckBlocking} 项问题` : '检查通过' : contentCheck.status === 'stale' ? '检查结果已失效' : contentCheck.status === 'error' ? '检查失败' : '尚未运行检查'}</strong>
+          <p>{contentCheck.checked_at ? `检查时间：${new Date(contentCheck.checked_at).toLocaleString('zh-CN')}` : '检查结果仅供人工参考，不影响终审或导出。'}</p>
         </div>
-        <span>{contentCheck.findings.length} 项检查结果</span>
+        <div className="historical-adaptation-review-check-actions">
+          <span>{contentCheck.findings.length} 项检查结果</span>
+          <button type="button" className="secondary-action" disabled={saving || contentCheckRunning} onClick={() => { void runContentCheck(); }}>{contentCheckRunning ? '检查中...' : contentCheck.status === 'success' ? '重新运行检查' : '运行一致性检查'}</button>
+        </div>
       </section>
+
+      {contentCheck.findings.length ? <section className="historical-adaptation-review-content-findings" aria-label="正文一致性检查结果">
+        {contentCheck.findings.map((finding) => <article key={finding.id}>
+          <span>{finding.severity}{finding.blocking ? ' · 问题' : ' · 提示'}</span>
+          <strong>{finding.message}</strong>
+          {finding.evidence ? <p>{finding.evidence}</p> : null}
+        </article>)}
+      </section> : null}
 
       <section className="historical-adaptation-review-workbench">
         <aside className="adaptation-review-list-column">
@@ -194,7 +225,7 @@ function AdaptationReviewExportPage({ projectId, project, state, onStateChange, 
           <span>{reviewConfirmed ? placeholderFindings.length ? '已确认。仍有待核实/待补充内容，请在导出的 Word 中人工处理。' : '内容变更会使本次验收失效。' : openP0 ? `还有 ${openP0} 项 P0 未标记为已整改。` : placeholderFindings.length ? `检测到 ${placeholderFindings.length} 项待核实/待补充内容，允许导出 Word，导出后请人工处理。` : '自动检查仅提供风险线索，需由投标负责人完成人工验收。'}</span></div>
         <div>
           <button type="button" className="secondary-action" disabled={!findings.length || openP0 > 0 || saving || reviewConfirmed} onClick={() => setPendingAcceptance(true)}>确认终审</button>
-          <button type="button" className="primary-action" disabled={!reviewConfirmed || openP0 > 0} onClick={() => setExportOpen(true)}>导出 Word</button>
+          <button type="button" className="primary-action" disabled={openP0 > 0} onClick={requestExport}>导出 Word</button>
         </div>
       </section>
 
@@ -210,6 +241,17 @@ function AdaptationReviewExportPage({ projectId, project, state, onStateChange, 
             <button type="button" className="primary-action" disabled={saving || openP0 > 0} onClick={() => { void confirmReview(); }}>确认验收</button>
           </>
         )}
+      />
+      <AppDialog
+        open={pendingExportWarning}
+        onOpenChange={(open) => !open && setPendingExportWarning(false)}
+        kicker="导出提示"
+        title="当前正文一致性检查未完成"
+        description={contentCheck.status === 'success' && contentCheckBlocking ? `检查发现 ${contentCheckBlocking} 项问题。导出不会被阻止，请确认已了解风险并继续。` : '当前未运行最新一致性检查或检查结果已过期。导出不会被阻止，请确认已了解风险并继续。'}
+        actions={<>
+          <button type="button" className="secondary-action" onClick={() => setPendingExportWarning(false)}>返回检查</button>
+          <button type="button" className="primary-action" onClick={() => { setPendingExportWarning(false); setExportOpen(true); }}>确认并导出</button>
+        </>}
       />
       <WordExportDialog
         open={exportOpen}

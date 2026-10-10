@@ -337,10 +337,24 @@ test('重复的受影响段落按偏移各重写一次，段外数量仍精确�
     '横泾街道3082宗。保留调查方法。\n\n横泾街道3082宗。保留调查方法。\n\n独立清单3082宗。');
 });
 
-for (const lockedRange of [false, true]) {
-  test(`${lockedRange ? '明确完整段落的locked-range' : '只有地点映射但来源含旧地理概况'}按招标基线重写整段`, async () => {
-    const state = lockedRange ? useLockedFragment(baseState()) : baseState();
-    if (lockedRange) state.historicalAdaptationDifferences[0].action = '按横泾街道实际情况重写完整段落';
+test('只有地点映射但来源含旧地理概况时仍直接迁移并精确替换', async () => {
+    const state = baseState();
+    const source = '五峰村地理概况：行政归属木渎镇，人口1000人。保留调查方法。';
+    const originalPlan = `# 项目概况\n${source}\n# 服务保障\n保障正文。`;
+    const patches = [], requests = [];
+    await runHistoricalAdaptationContentTask({
+      aiService: { requestJson: async (request) => { requests.push(request); return { content: '不应调用 AI。' }; } },
+      workspaceStore: { loadTechnicalPlan: () => state, readOriginalPlanMarkdown: () => originalPlan },
+      updateTask() {}, checkpointTask: (_task, patch) => { if (patch) patches.push(patch); },
+    });
+    assert.equal(requests.length, 0);
+    assert.equal(patches.find((patch) => patch.contentGenerationItem?.nodeId === '1').contentGenerationItem.section.content,
+      '横泾街道地理概况：行政归属木渎镇，人口1000人。保留调查方法。');
+  });
+
+test('明确完整段落的locked-range按招标基线重写整段', async () => {
+    const state = useLockedFragment(baseState());
+    state.historicalAdaptationDifferences[0].action = '按横泾街道实际情况重写完整段落';
     const source = '五峰村地理概况：行政归属木渎镇，人口1000人。保留调查方法。';
     const originalPlan = `# 项目概况\n${source}\n# 服务保障\n保障正文。`;
     const patches = [], requests = [];
@@ -354,7 +368,6 @@ for (const lockedRange of [false, true]) {
       '横泾街道项目。保留调查方法。');
     assert.equal(result.needsConsistencyCheck, true);
   });
-}
 
 test('已确认AI正文单章显式覆盖才重写并清除确认时间', async () => {
   const state = semanticState();

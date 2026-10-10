@@ -196,11 +196,7 @@ function AdaptationProjectWorkspace({
   const contentRunning = state.historicalAdaptationContentTask?.status === 'queued'
     || state.historicalAdaptationContentTask?.status === 'running'
     || state.historicalAdaptationContentTask?.status === 'pausing'
-    || state.historicalAdaptationContentTask?.status === 'paused'
-    || state.historicalAdaptationContentCheckTask?.status === 'queued'
-    || state.historicalAdaptationContentCheckTask?.status === 'running'
-    || state.historicalAdaptationContentCheckTask?.status === 'pausing'
-    || state.historicalAdaptationContentCheckTask?.status === 'paused';
+    || state.historicalAdaptationContentTask?.status === 'paused';
 
   return (
     <div className="historical-adaptation-page">
@@ -375,7 +371,7 @@ function StageNavigation({
               ? '核对并确认适配目录后开放正文迁移'
               : contentComplete
                 ? reviewComplete ? '终审已确认，可以导出 Word' : '完成终审并处理 P0 阻断项后进行人工验收'
-                : '完成正文迁移与一致性检查后统一确认本阶段'}</p>
+                : '完成正文迁移后确认本阶段；一致性检查可在审核导出环节按需运行'}</p>
     </section>
   );
 }

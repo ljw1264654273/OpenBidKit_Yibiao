@@ -115,12 +115,12 @@ test('设置页表面、页签与表单控件对齐紧凑基线', () => {
   assert.match(appShellDialogs, /\.offline-license-code-field textarea\s*\{[^}]*border-radius:\s*var\(--yb-radius-md\)/s);
 });
 
-test('共享弹窗正文表单与卡片沿用各自的圆角阶梯', () => {
+test('共享弹窗表单控件保持控件圆角而弹窗卡片保持面板圆角', () => {
   const dialog = readStyle('shared-dialog.css');
 
   assert.match(dialog, /\.content-regenerate-card textarea\s*\{[^}]*border-radius:\s*var\(--yb-radius-sm\)/s);
   assert.match(dialog, /\.app-dialog-card,[\s\S]*?\.content-regenerate-card\s*\{[^}]*border-radius:\s*var\(--yb-radius-xl\)/s);
-  assert.match(dialog, /\.agent-question-copy\s*\{[^}]*border-radius:\s*0 var\(--yb-radius-md\) var\(--yb-radius-md\) 0/s);
+  assert.match(dialog, /\.agent-question-copy\s*\{[^}]*border-radius:\s*0 var\(--yb-radius-lg\) var\(--yb-radius-lg\) 0/s);
 });
 
 test('共享表面使用批准的紧凑圆角阶梯', () => {
