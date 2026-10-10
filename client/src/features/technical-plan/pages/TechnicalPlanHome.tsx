@@ -5,6 +5,8 @@ import BidAnalysisPage from './BidAnalysisPage';
 import OutlineEditPage from './OutlineEditPage';
 import GlobalFactsPage from './GlobalFactsPage';
 import ContentEditPage from './ContentEditPage';
+import TechnicalPlanStageNavigation from '../components/TechnicalPlanStageNavigation';
+import TechnicalPlanStageFooter from '../components/TechnicalPlanStageFooter';
 import WordExportDialog from '../../export-format/components/WordExportDialog';
 import { useTechnicalPlanWorkflow } from '../hooks/useTechnicalPlanWorkflow';
 import { bidAnalysisTasks, getBidAnalysisTasks, isMissingBidAnalysisResult } from '../services/bidAnalysisWorkflow';
@@ -20,6 +22,8 @@ import { countReadableWords } from '../../../shared/utils/wordCount';
 import { hasGeneratedContent } from '../../export-format/services/wordExportUi';
 import { getQuickConfigMissingItems, isQuickConfigComplete, isValidCustomPageCount, resolvePageLadderKey } from '../services/quickConfig';
 import { isOutlineConfigLocked } from '../services/outlineMinimumDepth';
+import { buildTechnicalPlanStageModels } from '../services/technicalPlanStepNavigation';
+import type { TechnicalPlanStageCompletion } from '../services/technicalPlanStepNavigation';
 import type { BidProject } from '../../bid-project/types';
 
 interface TechnicalPlanHomeProps {
@@ -289,6 +293,8 @@ function hasTechnicalPlanDownstreamData(state: TechnicalPlanState) {
 function TechnicalPlanHome({ workflowKind, projectId, registerLeaveGuard, onSectionChange, onCreateFromTenderFiles }: TechnicalPlanHomeProps) {
   const isNewProject = Boolean(onCreateFromTenderFiles);
   const { hydrated, state, setState } = useTechnicalPlanWorkflow(projectId, isNewProject);
+  const useGlobalScrollLayout = workflowKind === 'technical-plan' && state.step !== 'expand';
+  const pageScrollRef = useRef<HTMLDivElement | null>(null);
   const { showToast } = useToast();
   const [tenderMarkdown, setTenderMarkdown] = useState('');
   const [tenderMarkdownLoading, setTenderMarkdownLoading] = useState(false);
@@ -355,6 +361,44 @@ function TechnicalPlanHome({ workflowKind, projectId, registerLeaveGuard, onSect
   const isContentPaused = contentTaskStatus === 'paused';
   const hasDownstreamData = hasTechnicalPlanDownstreamData(state);
   const requiresOriginalPlan = workflowKind === 'existing-plan-expansion';
+  const isGlobalFactsReadyForContent = globalFactsReady && !globalFactsHasPlaceholder && !isGlobalFactsAdjusting;
+  const stageCompletion: TechnicalPlanStageCompletion = {
+    'document-analysis': Boolean(state.tenderFile)
+      && (!requiresOriginalPlan || Boolean(state.originalPlanFile))
+      && quickConfigComplete,
+    'bid-analysis': bidAnalysisReady,
+    'outline-generation': Boolean(state.outlineData && state.outlineWordControlSnapshot && state.outlineMinimumDepthSnapshot !== undefined),
+    'global-facts': isGlobalFactsReadyForContent,
+    'content-edit': Boolean(state.outlineData && hasGeneratedContent(state.outlineData.outline || [])),
+  };
+  const currentStatusLabel = (() => {
+    const currentTasks = state.step === 'document-analysis'
+      ? [state.bidSectionExtractionTask]
+      : state.step === 'bid-analysis'
+        ? [state.bidSectionExtractionTask, state.bidAnalysisTask]
+        : state.step === 'outline-generation'
+          ? [state.outlineGenerationTask, state.outlineAdjustmentTask]
+          : state.step === 'global-facts'
+            ? [state.globalFactsTask, state.globalFactsAdjustmentTask]
+            : state.step === 'content-edit'
+              ? [state.contentGenerationTask]
+              : [];
+    const adjustmentTask = state.step === 'outline-generation'
+      ? state.outlineAdjustmentTask
+      : state.step === 'global-facts' ? state.globalFactsAdjustmentTask : undefined;
+    if (adjustmentTask?.status === 'running' || adjustmentTask?.status === 'pausing') return '调整中';
+    if (currentTasks.some((task) => task?.status === 'running' || task?.status === 'pausing')) {
+      return state.step === 'document-analysis' || state.step === 'bid-analysis' ? '解析中' : '生成中';
+    }
+    if (currentTasks.some((task) => task?.status === 'paused')) return '已暂停';
+    return state.step !== 'expand' && stageCompletion[state.step] ? '待验收' : undefined;
+  })();
+  const stageModels = useGlobalScrollLayout ? buildTechnicalPlanStageModels({
+    currentStep: state.step,
+    completed: stageCompletion,
+    currentStatusLabel,
+  }) : [];
+  const currentStage = stageModels.find((stage) => stage.key === state.step);
   const isNextDisabled = activeIndex >= steps.length - 1
     || (state.step === 'document-analysis' && (!state.tenderFile || (requiresOriginalPlan && !state.originalPlanFile) || !quickConfigComplete))
     || (state.step === 'bid-analysis' && !bidAnalysisReady)
@@ -417,6 +461,11 @@ function TechnicalPlanHome({ workflowKind, projectId, registerLeaveGuard, onSect
     sortLeaveResolverRef.current = null;
     setSortLeaveDialogOpen(false);
   };
+
+  useEffect(() => {
+    if (!useGlobalScrollLayout) return;
+    pageScrollRef.current?.scrollTo({ top: 0, behavior: 'auto' });
+  }, [state.step, useGlobalScrollLayout]);
 
   useEffect(() => {
     let cancelled = false;
@@ -505,6 +554,11 @@ function TechnicalPlanHome({ workflowKind, projectId, registerLeaveGuard, onSect
   }, [confirmSortLeaveOnly, registerLeaveGuard]);
 
   const switchStep = async (step: TechnicalPlanStep) => {
+    const targetStage = stageModels.find((stage) => stage.key === step);
+    if (useGlobalScrollLayout && step !== 'expand' && !targetStage?.accessible) {
+      showToast(`请先完成前置步骤后再进入${targetStage?.label || stepLabels[step]}`, 'info');
+      return;
+    }
     if (step === state.step) {
       return;
     }
@@ -1027,55 +1081,37 @@ function TechnicalPlanHome({ workflowKind, projectId, registerLeaveGuard, onSect
     ? [homeAction, previousStepAction, exportWordAction]
     : [homeAction, previousStepAction, nextStepAction];
 
-  return (
-    <div className="page-stack technical-workbench">
-      <header className="bid-project-context-bar">
-        <button type="button" className="text-button bid-project-context-back" onClick={() => onSectionChange?.('bid-projects')}>
-          返回项目列表
-        </button>
-        <div className="bid-project-context-meta">
-          {projectId ? <span>同源第 {bidProject?.sourceSequence || 1} 份</span> : null}
-        </div>
-        <div className="bid-project-context-actions" role="group" aria-label="流程导航">
-          {navigationActions.map((action) => (
-            <button
-              type="button"
-              key={action.id}
-              className={`bid-project-context-action is-${action.variant || 'secondary'}`}
-              onClick={action.onClick}
-              disabled={action.disabled}
-              title={action.tooltip}
-              aria-label={action.label}
-            >
-              <span className="bid-project-context-action-icon" aria-hidden="true">{action.icon}</span>
-              <span>{action.label}</span>
-            </button>
-          ))}
-        </div>
-      </header>
-      {[state.outlineGenerationTask, state.globalFactsTask, state.contentGenerationTask].some((task) => task?.remote_knowledge_action_required) && (
-        <button type="button" className="secondary-action remote-knowledge-task-action" onClick={showRemoteKnowledgeDecision}>处理远程知识异常</button>
-      )}
-      <section className="technical-step-module" aria-label="技术方案流程">
-        <nav className="technical-step-navigation" aria-label="流程步骤">
-          {statusSteps.map((step, index) => {
-            const isCurrent = index === statusActiveIndex;
-            const isComplete = index < statusActiveIndex;
-            return (
-              <button
-                type="button"
-                key={step.key}
-                className={`technical-step-navigation-item${isCurrent ? ' is-current' : ''}${isComplete ? ' is-complete' : ''}`}
-                onClick={() => { void switchStep(step.key); }}
-                aria-current={isCurrent ? 'step' : undefined}
-              >
-                <span className="technical-step-navigation-index">{String(index + 1).padStart(2, '0')}</span>
-                <span className="technical-step-navigation-label">{step.label}</span>
-              </button>
-            );
-          })}
-        </nav>
-        <div className="technical-step-content">
+  const stageFooterAction = currentStage?.key === 'content-edit'
+    ? {
+      label: isExporting ? '导出中...' : '导出 Word',
+      onAction: () => setExportDialogOpen(true),
+      disabled: Boolean(exportWordAction.disabled),
+      tooltip: exportWordAction.tooltip || '',
+    }
+    : currentStage ? {
+      label: {
+        'document-analysis': '进入文件解析',
+        'bid-analysis': '确认解析结果，进入目录生成',
+        'outline-generation': '确认目录，进入事实设定',
+        'global-facts': '确认事实设定，进入正文生成',
+      }[currentStage.key],
+      onAction: () => { void goToOffset(1); },
+      disabled: !currentStage.canProceed,
+      tooltip: nextTooltip,
+    } : null;
+  const stageFooterCopy = currentStage?.key === 'content-edit'
+    ? {
+      title: currentStage.canProceed ? '正文可导出' : '请先生成正文',
+      description: exportWordAction.tooltip || '',
+    }
+    : currentStage ? {
+      title: currentStage.canProceed ? '当前步骤已具备进入下一环节的条件' : '完成当前步骤后继续',
+      description: currentStage.canProceed ? `${currentStage.label}已完成，请确认后继续。` : nextTooltip,
+    } : null;
+  const remoteKnowledgeActionRequired = [state.outlineGenerationTask, state.globalFactsTask, state.contentGenerationTask]
+    .some((task) => task?.remote_knowledge_action_required);
+  const stepContent = (
+    <>
       {state.step === 'document-analysis' && (
         <DocumentAnalysisPage
           projectId={projectId}
@@ -1248,8 +1284,94 @@ function TechnicalPlanHome({ workflowKind, projectId, registerLeaveGuard, onSect
           </section>
         </div>
       )}
-        </div>
-      </section>
+    </>
+  );
+
+  return (
+    <div ref={pageScrollRef} className={`page-stack technical-workbench${useGlobalScrollLayout ? ' technical-workbench-global-scroll' : ''}`}>
+      {useGlobalScrollLayout && (
+        <>
+          <TechnicalPlanStageNavigation stages={stageModels} onStageChange={(step) => { void switchStep(step); }} />
+          {remoteKnowledgeActionRequired && (
+            <button type="button" className="secondary-action remote-knowledge-task-action" onClick={showRemoteKnowledgeDecision}>处理远程知识异常</button>
+          )}
+          <header className="bid-project-context-bar">
+            <div className="bid-project-context-main">
+              <span className="section-kicker">新建标书 · {currentStage?.label}</span>
+              <strong>{bidProject?.projectName || '新建标书'}</strong>
+              {projectId ? <span className="bid-project-context-meta">同源第 {bidProject?.sourceSequence || 1} 份</span> : null}
+            </div>
+            <button type="button" className="text-button bid-project-context-back" onClick={() => onSectionChange?.('bid-projects')}>
+              返回我的标书
+            </button>
+          </header>
+          <section className="technical-step-module" aria-label="技术方案流程">
+            <div className="technical-step-content">{stepContent}</div>
+          </section>
+          {stageFooterAction && stageFooterCopy && (
+            <TechnicalPlanStageFooter
+              title={stageFooterCopy.title}
+              description={stageFooterCopy.description}
+              actionLabel={stageFooterAction.label}
+              disabled={stageFooterAction.disabled}
+              tooltip={stageFooterAction.tooltip}
+              onAction={stageFooterAction.onAction}
+            />
+          )}
+        </>
+      )}
+      {!useGlobalScrollLayout && (
+        <>
+          <header className="bid-project-context-bar">
+            <button type="button" className="text-button bid-project-context-back" onClick={() => onSectionChange?.('bid-projects')}>
+              返回项目列表
+            </button>
+            <div className="bid-project-context-meta">
+              {projectId ? <span>同源第 {bidProject?.sourceSequence || 1} 份</span> : null}
+            </div>
+            <div className="bid-project-context-actions" role="group" aria-label="流程导航">
+              {navigationActions.map((action) => (
+                <button
+                  type="button"
+                  key={action.id}
+                  className={`bid-project-context-action is-${action.variant || 'secondary'}`}
+                  onClick={action.onClick}
+                  disabled={action.disabled}
+                  title={action.tooltip}
+                  aria-label={action.label}
+                >
+                  <span className="bid-project-context-action-icon" aria-hidden="true">{action.icon}</span>
+                  <span>{action.label}</span>
+                </button>
+              ))}
+            </div>
+          </header>
+          {remoteKnowledgeActionRequired && (
+            <button type="button" className="secondary-action remote-knowledge-task-action" onClick={showRemoteKnowledgeDecision}>处理远程知识异常</button>
+          )}
+          <section className="technical-step-module" aria-label="技术方案流程">
+            <nav className="technical-step-navigation" aria-label="流程步骤">
+              {statusSteps.map((step, index) => {
+                const isCurrent = index === statusActiveIndex;
+                const isComplete = index < statusActiveIndex;
+                return (
+                  <button
+                    type="button"
+                    key={step.key}
+                    className={`technical-step-navigation-item${isCurrent ? ' is-current' : ''}${isComplete ? ' is-complete' : ''}`}
+                    onClick={() => { void switchStep(step.key); }}
+                    aria-current={isCurrent ? 'step' : undefined}
+                  >
+                    <span className="technical-step-navigation-index">{String(index + 1).padStart(2, '0')}</span>
+                    <span className="technical-step-navigation-label">{step.label}</span>
+                  </button>
+                );
+              })}
+            </nav>
+            <div className="technical-step-content">{stepContent}</div>
+          </section>
+        </>
+      )}
 
       <AppDialog
         open={resetDialogOpen}

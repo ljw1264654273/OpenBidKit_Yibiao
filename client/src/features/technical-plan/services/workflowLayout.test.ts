@@ -589,11 +589,13 @@ test('STEP 01 下一步受快速配置完成状态控制', () => {
   assert.match(home, /showToast\('请输入大于 0 的整数页数', 'error'\)/);
 });
 
-test('项目状态栏承载流程导航且不再渲染底部悬浮工具条', () => {
+test('仅非全局滚动工作流的项目状态栏保留通用流程导航', () => {
   const home = readFileSync(new URL('../pages/TechnicalPlanHome.tsx', import.meta.url), 'utf8');
-  const contextBarStart = home.indexOf('<header className="bid-project-context-bar">');
+  const legacyLayoutStart = home.indexOf('{!useGlobalScrollLayout && (');
+  const contextBarStart = home.indexOf('<header className="bid-project-context-bar">', legacyLayoutStart);
   const contextBar = home.slice(contextBarStart, home.indexOf('</header>', contextBarStart));
 
+  assert.ok(legacyLayoutStart > -1, '旧通用导航只应保留在非全局滚动分支');
   assert.match(contextBar, /className="bid-project-context-actions"/);
   assert.match(contextBar, /navigationActions\.map/);
   assert.match(contextBar, /aria-label=\{action\.label\}/);
@@ -605,7 +607,7 @@ test('项目状态栏承载流程导航且不再渲染底部悬浮工具条', ()
   assert.doesNotMatch(home, /technical-plan-reset/);
 });
 
-test('五步流程统一收纳在一个紧凑模块中，顶部状态导航不再独立占位', () => {
+test('已有方案扩写保留紧凑模块和顶部状态导航', () => {
   const home = readFileSync(new URL('../pages/TechnicalPlanHome.tsx', import.meta.url), 'utf8');
   const documentAnalysis = readFileSync(new URL('../pages/DocumentAnalysisPage.tsx', import.meta.url), 'utf8');
   const css = readFileSync(new URL('../../../styles/feature-bid-project.css', import.meta.url), 'utf8');
@@ -613,7 +615,7 @@ test('五步流程统一收纳在一个紧凑模块中，顶部状态导航不�
   const shellCss = readFileSync(new URL('../../../styles/layout-app-shell.css', import.meta.url), 'utf8');
 
   assert.match(home, /const statusSteps = \[[\s\S]*选择标书[\s\S]*文件解析[\s\S]*目录生成[\s\S]*事实设定[\s\S]*生成正文[\s\S]*\]/);
-  assert.doesNotMatch(home, /className="bid-project-context-main"/);
+  assert.match(home, /!useGlobalScrollLayout[\s\S]*className="technical-step-navigation"/);
   assert.doesNotMatch(home, /className="bid-project-context-steps"/);
   assert.match(home, /className="technical-step-module"/);
   assert.match(home, /className="technical-step-navigation"/);
@@ -630,6 +632,38 @@ test('五步流程统一收纳在一个紧凑模块中，顶部状态导航不�
   assert.match(technicalCss, /\.technical-step-content > \.plan-step-body/);
   assert.match(technicalCss, /\.technical-document-upload-board \.upload-page-title\s*\{\s*display:\s*none;/s);
   assert.match(shellCss, /\.content-shell:has\(\.technical-workbench\)\s*\{[^}]*padding:\s*14px 24px;/s);
+});
+
+test('新建标书五步接入统一流程卡和业务动作并重置页面根滚动', () => {
+  const home = readFileSync(new URL('../pages/TechnicalPlanHome.tsx', import.meta.url), 'utf8');
+
+  assert.match(home, /workflowKind === 'technical-plan'/);
+  assert.match(home, /TechnicalPlanStageNavigation/);
+  assert.match(home, /TechnicalPlanStageFooter/);
+  assert.match(home, /technical-workbench-global-scroll/);
+  assert.match(home, /pageScrollRef/);
+  assert.match(home, /scrollTo\(\{ top: 0/);
+  assert.match(home, /navigationActions\.map/);
+  assert.match(home, /!useGlobalScrollLayout[\s\S]*navigationActions/);
+  assert.match(home, /!targetStage\?\.accessible/);
+  assert.match(home, /workflowKind === 'technical-plan' && state\.step !== 'expand'/);
+});
+
+test('新建标书全局滚动分支按流程卡、异常入口、上下文、步骤内容和业务动作排列', () => {
+  const home = readFileSync(new URL('../pages/TechnicalPlanHome.tsx', import.meta.url), 'utf8');
+  const globalBranchStart = home.indexOf('{useGlobalScrollLayout && (');
+  const legacyBranchStart = home.indexOf('{!useGlobalScrollLayout && (', globalBranchStart);
+  assert.ok(globalBranchStart > -1 && legacyBranchStart > globalBranchStart, '应显式隔离新旧布局分支');
+  const globalBranch = home.slice(globalBranchStart, legacyBranchStart);
+  const stageIndex = globalBranch.indexOf('<TechnicalPlanStageNavigation');
+  const exceptionIndex = globalBranch.indexOf('remote-knowledge-task-action');
+  const contextIndex = globalBranch.indexOf('bid-project-context-bar');
+  const moduleIndex = globalBranch.indexOf('technical-step-module');
+  const footerIndex = globalBranch.indexOf('<TechnicalPlanStageFooter');
+
+  assert.ok(stageIndex >= 0 && exceptionIndex > stageIndex && contextIndex > exceptionIndex
+    && moduleIndex > contextIndex && footerIndex > moduleIndex, '全局滚动分支应保持指定节点顺序');
+  assert.doesNotMatch(globalBranch, /navigationActions|technical-step-navigation/);
 });
 
 test('STEP 01 上传招标文件成功后重新展开快速配置', () => {
