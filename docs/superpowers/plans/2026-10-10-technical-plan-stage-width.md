@@ -12,10 +12,10 @@
 
 ## 文件结构
 
-- Modify: `client/src/features/technical-plan/services/workflowLayout.test.ts`：锁定共用背景、桌面六列密度和窄屏五列滚动。
+- Modify: `client/src/features/technical-plan/services/workflowLayout.test.ts`：锁定共用背景、桌面五等分样式和窄屏五列滚动。
 - Modify: `client/src/features/technical-plan/pages/TechnicalPlanHome.tsx`：移除不再需要的新建标书专属根类。
 - Modify: `client/src/styles/layout-app-shell.css`：让技术方案全局滚动页保留与参考页一致的 `28px 36px` 壳层内边距。
-- Modify: `client/src/styles/feature-technical-plan.css`：在共用作用域内设置浅色背景和六列步骤网格，移除失效的 `1560px` 规则。
+- Modify: `client/src/styles/feature-technical-plan.css`：在共用作用域内设置浅色背景、五等分步骤网格和参考页卡片样式，移除失效的 `1560px` 规则。
 
 ### Task 1: 锁定两个入口的共用视觉契约
 
