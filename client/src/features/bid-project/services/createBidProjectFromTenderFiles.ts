@@ -5,11 +5,12 @@ import { bidProjectStorage } from './bidProjectStorage';
 interface CreateBidProjectOptions {
   showToast: (message: string, type?: ToastType, options?: ToastOptions) => number;
   onProjectOpen: (project: BidProject) => Promise<void>;
+  filePaths?: string[];
 }
 
-export async function createBidProjectFromTenderFiles({ showToast, onProjectOpen }: CreateBidProjectOptions) {
+export async function createBidProjectFromTenderFiles({ showToast, onProjectOpen, filePaths: requestedFilePaths }: CreateBidProjectOptions) {
   try {
-    const selected = await window.yibiao?.file.selectDuplicateCheckFiles({ multiple: true });
+    const selected = await window.yibiao?.file.selectDuplicateCheckFiles({ multiple: true, filePaths: requestedFilePaths });
     const filePaths = selected?.files?.map((file) => file.file_path).filter(Boolean) || [];
     if (!filePaths.length) return;
     const preview = await bidProjectStorage.prepareImport(filePaths);

@@ -73,7 +73,7 @@ function AppRouter({
     case 'bid-projects':
       return <BidProjectWorkspacePage onSectionChange={onSectionChange} onProjectOpen={onProjectOpen} />;
     case 'new-bid':
-      return <BidProjectCreatePage onBack={() => onSectionChange('bid-projects')} onProjectOpen={onProjectOpen} />;
+      return <BidProjectCreatePage onSectionChange={onSectionChange} onProjectOpen={onProjectOpen} registerLeaveGuard={registerLeaveGuard} />;
     case 'technical-plan':
       return <TechnicalPlanHome workflowKind="technical-plan" projectId={activeProjectId || undefined} registerLeaveGuard={registerLeaveGuard} onSectionChange={onSectionChange} />;
     case 'existing-plan-expansion':

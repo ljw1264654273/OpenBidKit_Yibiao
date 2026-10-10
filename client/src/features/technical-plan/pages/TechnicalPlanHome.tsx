@@ -27,6 +27,7 @@ interface TechnicalPlanHomeProps {
   projectId?: string;
   registerLeaveGuard?: (guard: ((nextSection?: string) => Promise<boolean>) | null) => void;
   onSectionChange?: (section: SectionId) => void;
+  onCreateFromTenderFiles?: (filePaths?: string[]) => Promise<void>;
 }
 
 interface OutlineSortGuard {
@@ -285,8 +286,9 @@ function hasTechnicalPlanDownstreamData(state: TechnicalPlanState) {
     || hasTasks;
 }
 
-function TechnicalPlanHome({ workflowKind, projectId, registerLeaveGuard, onSectionChange }: TechnicalPlanHomeProps) {
-  const { hydrated, state, setState } = useTechnicalPlanWorkflow(projectId);
+function TechnicalPlanHome({ workflowKind, projectId, registerLeaveGuard, onSectionChange, onCreateFromTenderFiles }: TechnicalPlanHomeProps) {
+  const isNewProject = Boolean(onCreateFromTenderFiles);
+  const { hydrated, state, setState } = useTechnicalPlanWorkflow(projectId, isNewProject);
   const { showToast } = useToast();
   const [tenderMarkdown, setTenderMarkdown] = useState('');
   const [tenderMarkdownLoading, setTenderMarkdownLoading] = useState(false);
@@ -506,6 +508,10 @@ function TechnicalPlanHome({ workflowKind, projectId, registerLeaveGuard, onSect
     if (step === state.step) {
       return;
     }
+    if (isNewProject) {
+      showToast('上传完招标文件后才能进入下一步', 'info');
+      return;
+    }
     if (
       state.step === 'document-analysis'
       && step === 'bid-analysis'
@@ -555,7 +561,7 @@ function TechnicalPlanHome({ workflowKind, projectId, registerLeaveGuard, onSect
   };
 
   useEffect(() => {
-    if (!window.yibiao?.tasks) {
+    if (isNewProject || !window.yibiao?.tasks) {
       return;
     }
 
@@ -762,7 +768,7 @@ function TechnicalPlanHome({ workflowKind, projectId, registerLeaveGuard, onSect
     });
 
     return unsubscribe;
-  }, [projectId, setState, showToast]);
+  }, [isNewProject, projectId, setState, showToast]);
 
   const loadTenderMarkdown = useCallback(async (force = true) => {
     if (tenderFileVersion === null) {
@@ -1074,6 +1080,7 @@ function TechnicalPlanHome({ workflowKind, projectId, registerLeaveGuard, onSect
         <DocumentAnalysisPage
           projectId={projectId}
           workflowKind={workflowKind}
+          onCreateFromTenderFiles={onCreateFromTenderFiles}
           tenderFile={state.tenderFile}
           tenderFiles={state.tenderFiles || []}
           tenderMarkdown={tenderMarkdown}
@@ -1086,7 +1093,7 @@ function TechnicalPlanHome({ workflowKind, projectId, registerLeaveGuard, onSect
           bidSectionExtractionError={state.bidSectionExtractionError}
           outlineWordControlOptions={state.outlineWordControlOptions}
           outlineMinimumDepth={state.outlineMinimumDepth}
-          outlineConfigLocked={outlineConfigLocked}
+          outlineConfigLocked={isNewProject || outlineConfigLocked}
           contentGenerationOptions={state.contentGenerationOptions}
           referenceKnowledgeDocumentIds={state.referenceKnowledgeDocumentIds}
           remoteKnowledgeScopes={state.remoteKnowledgeScopes}

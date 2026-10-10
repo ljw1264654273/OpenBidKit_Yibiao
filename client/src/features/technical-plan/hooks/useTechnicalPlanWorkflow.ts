@@ -62,12 +62,17 @@ const initialState: TechnicalPlanState = {
   outlineData: null,
 };
 
-export function useTechnicalPlanWorkflow(projectId?: string) {
+export function useTechnicalPlanWorkflow(projectId?: string, isNewProject = false) {
   const [state, setState] = useState<TechnicalPlanState>(initialState);
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
     let mounted = true;
+    if (isNewProject) {
+      setState(initialState);
+      setHydrated(true);
+      return;
+    }
 
     const loadCache = async () => {
       try {
@@ -89,7 +94,7 @@ export function useTechnicalPlanWorkflow(projectId?: string) {
     return () => {
       mounted = false;
     };
-  }, [projectId]);
+  }, [projectId, isNewProject]);
 
   return {
     hydrated,

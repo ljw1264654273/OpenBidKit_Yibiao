@@ -3,7 +3,6 @@ import { AppDialog, EmptyState, useToast } from '../../../shared/ui';
 import type { SectionId } from '../../../shared/types/navigation';
 import type { TaskEventTask } from '../../../shared/types/ipc';
 import { bidProjectStorage } from '../services/bidProjectStorage';
-import { createBidProjectFromTenderFiles } from '../services/createBidProjectFromTenderFiles';
 import { filterBidProjects, getBidProjectCounts, paginateBidProjects } from '../services/bidProjectList';
 import type { BidContentDuplicateResult, BidProject, BidProjectDuplicateSummary, BidProjectStatus } from '../types';
 import BidProjectCompareBar from '../components/BidProjectCompareBar';
@@ -136,7 +135,7 @@ function BidProjectWorkspacePage({ onSectionChange, onProjectOpen }: BidProjectW
     }
   };
 
-  const createProject = () => createBidProjectFromTenderFiles({ showToast, onProjectOpen: openProject });
+  const createProject = () => onSectionChange('new-bid');
 
   const runCompare = async (pair: [BidProject, BidProject], sensitivity = compareSensitivity) => {
     const requestId = compareRequestRef.current + 1;

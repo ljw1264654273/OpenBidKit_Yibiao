@@ -72,6 +72,7 @@ function DocumentFilePill({ file, onRemove, removeDisabled = false }: { file: Te
 
 interface DocumentAnalysisPageProps {
   projectId?: string;
+  onCreateFromTenderFiles?: (filePaths?: string[]) => Promise<void>;
   workflowKind: TechnicalPlanWorkflowKind;
   tenderFile: TechnicalPlanTenderFile | null;
   tenderFiles: TechnicalPlanTenderSourceFile[];
@@ -150,6 +151,7 @@ function EditableLimit({ label, ariaLabel = label, value, disabled, onCommit }: 
 
 function DocumentAnalysisPage({
   projectId,
+  onCreateFromTenderFiles,
   workflowKind,
   tenderFile,
   tenderFiles,
@@ -228,7 +230,7 @@ function DocumentAnalysisPage({
   const pageLadderKey = useMemo(() => resolvePageLadderKey(outlineWordControlOptions), [outlineWordControlOptions]);
   const sectionExtractionRunning = bidSectionExtractionStatus === 'running';
   const contentTaskLocked = isQuickConfigLocked(contentTaskStatus);
-  const quickConfigOptionLocked = isQuickConfigOptionLocked(contentTaskStatus);
+  const quickConfigOptionLocked = Boolean(onCreateFromTenderFiles) || isQuickConfigOptionLocked(contentTaskStatus);
   const tenderDocumentVersion = tenderFile?.contentHash || tenderFile?.updatedAt || tenderFiles.map((file) => `${file.id}:${file.contentHash || file.updatedAt}`).join('|') || null;
 
   const requestResetConfirmation = (action: PendingResetAction) => {
@@ -594,6 +596,10 @@ function DocumentAnalysisPage({
     }
     try {
       setBusy('tender');
+      if (onCreateFromTenderFiles) {
+        await onCreateFromTenderFiles(filePaths);
+        return;
+      }
       const result = await window.yibiao?.technicalPlan.importTenderDocument({ projectId, filePaths });
 
       if (!result?.success) {
