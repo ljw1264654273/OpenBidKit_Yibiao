@@ -974,6 +974,45 @@ test('新建标书模块和步骤页面回归自然高度并保留工作区滚�
   assert.match(css, /\.technical-workbench-global-scroll \.technical-step-navigation\s*\{[^}]*display:\s*none;/s);
 });
 
+test('新建标书四个长内容工作区共享随视口变化的有界高度', () => {
+  const css = readFileSync(new URL('../../../styles/feature-technical-plan.css', import.meta.url), 'utf8');
+  const workspaceStart = css.indexOf('/* global-scroll workspaces */');
+  const workspaceEnd = css.indexOf('/* global-scroll responsive */');
+  assert.ok(workspaceStart >= 0 && workspaceEnd > workspaceStart, '工作区覆盖样式应位于全局滚动限定区间');
+  const workspaceCss = css.slice(workspaceStart, workspaceEnd);
+
+  assert.match(css, /\.technical-workbench-global-scroll\s*\{[^}]*--technical-stage-workspace-height:\s*clamp\(620px,\s*calc\(100dvh - 260px\),\s*820px\);/s);
+  assert.match(workspaceCss, /\.technical-workbench-global-scroll\s+:where\(\s*\.bid-analysis-workspace,\s*\.outline-workspace-shell,\s*\.global-facts-workspace,\s*\.content-generation-workspace\s*\)\s*\{[^}]*height:\s*var\(--technical-stage-workspace-height\);[^}]*min-height:\s*0;/s);
+});
+
+test('新建标书保留列表、原文和编辑预览的内部滚动边界', () => {
+  const css = readFileSync(new URL('../../../styles/feature-technical-plan.css', import.meta.url), 'utf8');
+  const markdownCss = readFileSync(new URL('../../../styles/shared-markdown.css', import.meta.url), 'utf8');
+
+  for (const className of ['bid-analysis-task-list', 'bid-analysis-output', 'bid-analysis-json-table-wrap', 'outline-tree-list', 'outline-source-panel-body', 'outline-detail-body', 'global-facts-list', 'global-facts-preview-pane', 'content-outline-list']) {
+    assert.match(css, new RegExp(`\\.${className}\\s*\\{[^}]*overflow:\\s*auto;`, 's'));
+  }
+  assert.match(css, /\.adaptive-workspace-shell\s*\{[^}]*grid-template-rows:\s*auto minmax\(0, 1fr\);[^}]*min-height:\s*0;[^}]*overflow:\s*hidden;/s);
+  assert.match(css, /\.outline-workspace-shell > \.outline-generation-workspace\s*\{[^}]*min-height:\s*0;[^}]*overflow:\s*hidden;/s);
+  assert.match(css, /\.global-facts-edit-pane\s*\{[^}]*grid-template-rows:\s*auto minmax\(0, 1fr\);[^}]*min-height:\s*0;[^}]*overflow:\s*hidden;/s);
+  assert.match(markdownCss, /\.markdown-editor\s*\{[^}]*grid-template-rows:\s*auto minmax\(0, 1fr\);[^}]*min-height:\s*0;[^}]*overflow:\s*hidden;/s);
+  assert.match(markdownCss, /\.markdown-viewer\s*\{[^}]*overflow:\s*auto;/s);
+});
+
+test('STEP 01 只通过全屏入口展示有界滚动的 Markdown 原文', () => {
+  const source = readFileSync(new URL('../pages/DocumentAnalysisPage.tsx', import.meta.url), 'utf8');
+  const viewerSource = readFileSync(new URL('../../../shared/ui/MarkdownFullscreenViewer.tsx', import.meta.url), 'utf8');
+  const markdownCss = readFileSync(new URL('../../../styles/shared-markdown.css', import.meta.url), 'utf8');
+
+  assert.match(source, /<MarkdownFullscreenViewer[^>]*fullscreenTriggerOnly[^>]*>[\s\S]*?<MarkdownRenderer>\{activeMarkdown\}<\/MarkdownRenderer>/);
+  assert.doesNotMatch(source, /technical-document-reader-card/);
+  assert.match(viewerSource, /!fullscreenTriggerOnly &&/);
+  assert.match(viewerSource, /<Dialog\.Portal>[\s\S]*className="markdown-fullscreen-content"/);
+  assert.match(markdownCss, /\.markdown-fullscreen-dialog,[\s\S]*?\.markdown-editor-fullscreen-dialog\s*\{[^}]*position:\s*fixed;[^}]*inset:\s*0;[^}]*min-height:\s*0;[^}]*overflow:\s*hidden;/s);
+  assert.match(markdownCss, /\.markdown-fullscreen-content\s*\{[^}]*min-height:\s*0;/s);
+  assert.match(markdownCss, /\.markdown-fullscreen-content > \.markdown-viewer,[\s\S]*?\.markdown-fullscreen-content > \.resource-detail-markdown\s*\{[^}]*height:\s*100%;[^}]*min-height:\s*0;[^}]*overflow:\s*auto;/s);
+});
+
 test('新建标书上下文与底部主操作使用正文流布局', () => {
   const css = readFileSync(new URL('../../../styles/feature-technical-plan.css', import.meta.url), 'utf8');
   const projectCss = readFileSync(new URL('../../../styles/feature-bid-project.css', import.meta.url), 'utf8');

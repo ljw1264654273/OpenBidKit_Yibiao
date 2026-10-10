@@ -8146,6 +8146,7 @@
 
 /* 新建标书使用页面内全局滚动，旧工作台继续保持独立工作区布局。 */
 .technical-workbench-global-scroll {
+  --technical-stage-workspace-height: clamp(620px, calc(100dvh - 260px), 820px);
   display: flex;
   gap: 20px;
   min-width: 0;
@@ -8291,6 +8292,10 @@
 }
 
 /* global-scroll workspaces */
+.technical-workbench-global-scroll :where(.bid-analysis-workspace, .outline-workspace-shell, .global-facts-workspace, .content-generation-workspace) {
+  height: var(--technical-stage-workspace-height);
+  min-height: 0;
+}
 
 .technical-workbench-global-scroll .technical-plan-stage-footer {
   display: flex;
