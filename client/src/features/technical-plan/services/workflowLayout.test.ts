@@ -892,3 +892,19 @@ test('技术方案工作台使用紧凑面板和小圆角控件', () => {
   assert.match(css, /\.technical-workbench\s+\.outline-command-summary\s*~\s*\.outline-command-actions\s+button\s*\{[^}]*border-radius:\s*var\(--technical-workbench-control-radius\)/s);
   assert.match(css, /\.technical-workbench\s+\.floating-toolbar,[\s\S]*\.technical-workbench\s+\.floating-toolbar-button\s*\{[^}]*border-radius:\s*var\(--yb-radius-pill\)/s);
 });
+
+test('技术方案流程卡展示编号、名称、状态并真实禁用未开放步骤', () => {
+  const source = componentSource('TechnicalPlanStageNavigation');
+  assert.match(source, /String\(index \+ 1\)\.padStart\(2, '0'\)/);
+  assert.match(source, /stage\.statusLabel/);
+  assert.match(source, /disabled=\{stage\.disabled\}/);
+  assert.match(source, /aria-current=\{stage\.state === 'current' \? 'step' : undefined\}/);
+});
+
+test('步骤底部只保留一个与业务状态绑定的主动作', () => {
+  const source = componentSource('TechnicalPlanStageFooter');
+  assert.match(source, /technical-plan-stage-footer/);
+  assert.match(source, /actionLabel/);
+  assert.match(source, /disabled=\{disabled\}/);
+  assert.equal((source.match(/<button/g) || []).length, 1);
+});
