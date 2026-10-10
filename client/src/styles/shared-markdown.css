@@ -87,7 +87,7 @@
   color: var(--yb-text-soft);
   background: rgba(33, 116, 253, 0.06);
   border-left: 4px solid var(--yb-primary);
-  border-radius: 0 14px 14px 0;
+  border-radius: 0 var(--yb-radius-lg) var(--yb-radius-lg) 0;
 }
 
 .markdown-viewer .markdown-table-scroll {

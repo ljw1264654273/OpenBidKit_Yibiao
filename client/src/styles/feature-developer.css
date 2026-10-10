@@ -589,9 +589,10 @@
 }
 
 .business-bid-demo .demo-hero-card {
-  background:
-    radial-gradient(circle at 88% 16%, rgba(91, 84, 211, 0.18), transparent 34%),
-    linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(245, 248, 255, 0.94));
+  background: #fff;
+  border: 1px solid var(--yb-border-soft);
+  border-radius: 8px;
+  box-shadow: none;
 }
 
 .demo-hero-copy {
@@ -1285,6 +1286,7 @@ body.agent-monitor-root #root {
 .agent-monitor-tabs .document-switch-tabs {
   padding: 3px;
   box-shadow: none;
+  border-radius: var(--yb-radius-pill);
 }
 
 .agent-monitor-tabs .document-switch-tab {
@@ -1292,6 +1294,7 @@ body.agent-monitor-root #root {
   min-height: 34px;
   padding: 7px 14px;
   font-size: 12px;
+  border-radius: var(--yb-radius-pill);
 }
 
 .agent-monitor-tabs .agent-monitor-follow {

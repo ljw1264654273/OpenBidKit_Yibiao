@@ -6,7 +6,7 @@
   min-height: 0;
   gap: 16px;
   overflow: auto;
-  padding: 24px 28px 30px;
+  padding: 28px 36px 30px;
   background: var(--yb-page-bg, #f7f9fc);
 }
 
@@ -55,6 +55,7 @@
   background: #fff;
   border: 1px solid var(--yb-border, #e4eaf1);
   border-radius: 8px;
+  box-shadow: none;
 }
 
 .expansion-create-preview-grid {
@@ -197,9 +198,11 @@
 
 .expansion-create-submit {
   align-items: flex-end;
-  padding: 18px 20px;
+  padding: 14px 16px;
   background: #fff;
-  border-top: 1px solid #dfe7f0;
+  border: 1px solid var(--yb-border-soft);
+  border-radius: 8px;
+  box-shadow: none;
 }
 
 .expansion-create-submit label {
@@ -212,12 +215,12 @@
 }
 
 .expansion-create-submit input {
-  min-height: 38px;
+  min-height: var(--yb-control-height);
   padding: 0 11px;
   color: #34465e;
   background: #fff;
   border: 1px solid #d7e1ec;
-  border-radius: 6px;
+  border-radius: var(--yb-radius-md);
   font: inherit;
   font-weight: 400;
 }

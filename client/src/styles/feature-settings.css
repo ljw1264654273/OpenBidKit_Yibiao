@@ -17,10 +17,10 @@
 }
 
 .settings-page-section {
-  background: rgba(255, 255, 255, 0.92);
-  border: 1px solid rgba(228, 233, 240, 0.88);
+  background: #fff;
+  border: 1px solid var(--yb-border-soft);
   border-radius: var(--yb-radius-xl);
-  box-shadow: var(--yb-shadow);
+  box-shadow: none;
 }
 
 /* [8701-8729] settings-tab-shell/settings-tab */
@@ -32,10 +32,10 @@
   gap: 6px;
   padding: 6px;
   overflow-x: auto;
-  background: rgba(255, 255, 255, 0.86);
-  border: 1px solid rgba(228, 233, 240, 0.8);
-  border-radius: var(--yb-radius-pill);
-  box-shadow: 0 18px 44px rgba(23, 32, 51, 0.05);
+  background: #fff;
+  border: 1px solid var(--yb-border-soft);
+  border-radius: var(--yb-radius-lg);
+  box-shadow: none;
 }
 
 .settings-tab {
@@ -47,7 +47,7 @@
   font-weight: 800;
   background: transparent;
   border: 0;
-  border-radius: var(--yb-radius-xl);
+  border-radius: var(--yb-radius-md);
   white-space: nowrap;
   transition: background var(--yb-duration-fast) ease, border-color var(--yb-duration-fast) ease, box-shadow var(--yb-duration-fast) ease, color var(--yb-duration-fast) ease, transform var(--yb-duration-fast) ease;
 }
@@ -144,7 +144,7 @@ fieldset.settings-list {
 .settings-row textarea,
 .settings-row .settings-readonly-value {
   width: 100%;
-  min-height: 36px;
+  min-height: var(--yb-control-height);
   padding: 8px 12px;
   color: var(--yb-text);
   font-size: 13px;
@@ -294,7 +294,7 @@ fieldset.settings-list {
   color: #111827;
   background: #f8fafc;
   border: 1px solid #b8c2d1;
-  border-radius: 2px;
+  border-radius: var(--yb-radius-sm);
   cursor: pointer;
   transition: border-color 0.16s ease, box-shadow 0.16s ease, background-color 0.16s ease;
 }
@@ -322,7 +322,7 @@ fieldset.settings-list {
 .input-with-action {
   display: grid;
   width: 100%;
-  min-height: 36px;
+  min-height: var(--yb-control-height);
   grid-template-columns: minmax(0, 1fr) auto;
   overflow: hidden;
   background: #eef3fa;
@@ -431,7 +431,7 @@ fieldset.settings-list {
 
 .inline-action {
   display: inline-flex;
-  min-height: 36px;
+  min-height: var(--yb-control-height);
   align-items: center;
   justify-content: center;
   gap: 6px;
@@ -1052,17 +1052,14 @@ fieldset.settings-list {
   padding: 18px;
   color: var(--yb-text);
   text-decoration: none;
-  background: var(--yb-bg);
+  background: #fff;
   border: 1px solid var(--yb-border-soft);
-  border-radius: var(--yb-radius-xl);
-  box-shadow: 0 12px 28px rgba(33, 116, 253, 0.06);
+  border-radius: var(--yb-radius-lg);
+  box-shadow: none;
 }
 
 .about-update-card {
   align-content: start;
-  background:
-    radial-gradient(circle at top right, rgba(33, 116, 253, 0.16), transparent 42%),
-    linear-gradient(135deg, #ffffff, #f7fbff);
 }
 
 .about-card-head,
@@ -1204,12 +1201,10 @@ fieldset.settings-list {
   margin: 0 24px 24px;
   padding: 18px;
   color: var(--yb-text-soft);
-  background:
-    radial-gradient(circle at top left, rgba(33, 116, 253, 0.14), transparent 36%),
-    linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(248, 251, 255, 0.92));
-  border: 1px solid rgba(33, 116, 253, 0.16);
+  background: #fff;
+  border: 1px solid var(--yb-border-soft);
   border-radius: var(--yb-radius-lg);
-  box-shadow: 0 12px 28px rgba(33, 116, 253, 0.07);
+  box-shadow: none;
 }
 
 .privacy-statement-head {

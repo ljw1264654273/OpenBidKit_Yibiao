@@ -181,9 +181,9 @@
 }
 
 .technical-plan-check-page .floating-toolbar-button {
-  min-height: 36px;
+  min-height: var(--yb-control-height);
   border: 1px solid var(--yb-border-soft);
-  border-radius: 6px;
+  border-radius: var(--yb-radius-md);
   background: var(--yb-surface, #ffffff);
   box-shadow: none;
   transition: none;

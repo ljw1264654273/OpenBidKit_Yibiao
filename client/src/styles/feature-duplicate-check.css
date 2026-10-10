@@ -13,10 +13,10 @@
 
 /* Step01 上传区已迁移到共享 shared-upload.css（shared/ui/UploadBoard.tsx） */
 .duplicate-guide-panel {
-  background: rgba(255, 255, 255, 0.94);
-  border: 1px solid rgba(228, 233, 240, 0.88);
-  border-radius: var(--yb-radius-xl);
-  box-shadow: var(--yb-shadow);
+  background: #fff;
+  border: 1px solid var(--yb-border-soft);
+  border-radius: 8px;
+  box-shadow: none;
 }
 
 .duplicate-guide-head {
@@ -67,7 +67,7 @@
   text-align: left;
   background: #ffffff;
   border: 1px solid var(--yb-border-soft);
-  border-radius: var(--yb-radius-lg);
+  border-radius: var(--yb-radius-md);
   cursor: pointer;
   transition: background var(--yb-duration-fast) ease, border-color var(--yb-duration-fast) ease, box-shadow var(--yb-duration-fast) ease, color var(--yb-duration-fast) ease, transform var(--yb-duration-fast) ease;
 }
@@ -130,9 +130,9 @@
 .duplicate-dimension-grid article {
   min-height: 122px;
   padding: 18px;
-  background: linear-gradient(180deg, #f8fafd, #ffffff);
+  background: #f8fafc;
   border: 1px solid var(--yb-border-soft);
-  border-radius: var(--yb-radius-xl);
+  border-radius: var(--yb-radius-md);
 }
 
 .duplicate-dimension-grid strong {
@@ -158,7 +158,7 @@
   padding: 14px 16px 14px 42px;
   background: rgba(248, 250, 253, 0.86);
   border: 1px solid var(--yb-border-soft);
-  border-radius: var(--yb-radius-lg);
+  border-radius: var(--yb-radius-md);
 }
 
 .duplicate-guide-list li::before {
@@ -180,10 +180,10 @@
   grid-template-rows: auto auto minmax(0, 1fr);
   gap: 14px;
   padding: 18px;
-  background: rgba(255, 255, 255, 0.94);
-  border: 1px solid rgba(228, 233, 240, 0.88);
-  border-radius: var(--yb-radius-xl);
-  box-shadow: var(--yb-shadow);
+  background: #fff;
+  border: 1px solid var(--yb-border-soft);
+  border-radius: 8px;
+  box-shadow: none;
 }
 
 .duplicate-page-title {
@@ -210,7 +210,7 @@
   grid-template-columns: repeat(4, minmax(0, 1fr));
   background: #ffffff;
   border: 1px solid rgba(27, 50, 92, 0.14);
-  border-radius: var(--yb-radius-xl);
+  border-radius: var(--yb-radius-md);
 }
 
 .duplicate-analysis-tab {
@@ -285,9 +285,9 @@
   justify-content: center;
   overflow: auto;
   padding: 34px;
-  background: linear-gradient(180deg, rgba(248, 250, 253, 0.88), rgba(255, 255, 255, 0.98));
+  background: #fff;
   border: 1px solid var(--yb-border-soft);
-  border-radius: var(--yb-radius-xl);
+  border-radius: var(--yb-radius-md);
 }
 
 .duplicate-analysis-content:has(.duplicate-metadata-panel),

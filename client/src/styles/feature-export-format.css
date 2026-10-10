@@ -1500,10 +1500,10 @@
 .template-library-preview-shell {
   min-width: 0;
   min-height: 0;
-  background: rgba(255, 255, 255, 0.94);
-  border: 1px solid rgba(228, 233, 240, 0.88);
-  border-radius: var(--yb-radius-xl);
-  box-shadow: var(--yb-shadow);
+  background: #fff;
+  border: 1px solid var(--yb-border-soft);
+  border-radius: 8px;
+  box-shadow: none;
 }
 
 .template-library-panel {
@@ -1533,11 +1533,11 @@
 }
 
 .template-library-action {
-  min-height: 34px;
+  min-height: var(--yb-control-height);
   padding: 8px 14px;
   font-size: 13px;
   line-height: 1.2;
-  border-radius: 8px;
+  border-radius: var(--yb-radius-md);
   white-space: nowrap;
 }
 
@@ -1593,7 +1593,7 @@
   padding: 12px;
   background: linear-gradient(135deg, rgba(248, 250, 253, 0.9), rgba(255, 255, 255, 0.98));
   border: 1px solid var(--yb-border-soft);
-  border-radius: var(--yb-radius-xl);
+  border-radius: var(--yb-radius-md);
   transition: background var(--yb-duration-fast) ease, border-color var(--yb-duration-fast) ease, box-shadow var(--yb-duration-fast) ease, color var(--yb-duration-fast) ease, transform var(--yb-duration-fast) ease;
 }
 
@@ -1685,7 +1685,7 @@
   text-align: center;
   background: rgba(248, 250, 253, 0.78);
   border: 1px dashed rgba(148, 163, 184, 0.45);
-  border-radius: var(--yb-radius-xl);
+  border-radius: var(--yb-radius-md);
 }
 
 .template-library-empty strong,
