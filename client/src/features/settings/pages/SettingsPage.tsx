@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
 import { trackConfigUsage } from '../../../shared/analytics/analytics';
-import { AppDialog, AppSwitch, DetailHelpLink, FloatingToolbar, InlineSpinner, InputWithAction, OfflineLicenseActivationDialog, useAutoAnswer, useToast } from '../../../shared/ui';
+import { AppDialog, AppSwitch, DetailHelpLink, FloatingToolbar, InlineSpinner, InputWithAction, useAutoAnswer, useToast } from '../../../shared/ui';
 import { showUpdateReadyToast } from '../../../shared/updateToast';
 import { consumePendingAppNavigation, onAppNavigation } from '../../../shared/navigation/appNavigation';
 import { formatRemoteKnowledgeConnectionError } from '../../../shared/remoteKnowledgeUi';
 import type { FloatingToolbarGroup } from '../../../shared/ui';
-import type { AgentModeScenariosConfig, AgentSelfCheckResult, AgentSelfCheckStepStatus, AiRequestMode, ClientConfig, ComponentsConfig, FileParserProvider, ImageModelConfig, ImageModelProfiles, ImageModelProvider, ImageModelRatio, ImageModelSize, ImageModelStatus, LicenseRuntimeStatus, TextModelConfig, TextModelProfiles, TextModelProvider, UpdateChannel } from '../../../shared/types';
+import type { AgentModeScenariosConfig, AgentSelfCheckResult, AgentSelfCheckStepStatus, AiRequestMode, ClientConfig, ComponentsConfig, FileParserProvider, ImageModelConfig, ImageModelProfiles, ImageModelProvider, ImageModelRatio, ImageModelSize, ImageModelStatus, TextModelConfig, TextModelProfiles, TextModelProvider, UpdateChannel } from '../../../shared/types';
 import type { SettingsPageState } from '../types';
 
 type SettingsTab = 'general' | 'text-model' | 'image-model' | 'remote-knowledge' | 'components' | 'agent' | 'about';
@@ -62,11 +62,6 @@ function normalizeAgentModeScenarios(value?: Partial<AgentModeScenariosConfig>):
       ? defaultAgentModeScenarios.existing_plan_expansion_original_outline_extraction
       : Boolean(value.existing_plan_expansion_original_outline_extraction),
   };
-}
-
-function getLicenseSourceLabel(status: LicenseRuntimeStatus | null) {
-  if (!status) return '读取中';
-  return status.sourceTrusted ? '官方发行版' : '不可信的客户端来源';
 }
 
 const textModelProviders: Array<{ value: TextModelProvider; label: string }> = [
@@ -669,8 +664,6 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
   const [updatePercent, setUpdatePercent] = useState(0);
   const [updateVersion, setUpdateVersion] = useState('');
   const [updateError, setUpdateError] = useState('');
-  const [licenseStatus, setLicenseStatus] = useState<LicenseRuntimeStatus | null>(null);
-  const [offlineLicenseDialogOpen, setOfflineLicenseDialogOpen] = useState(false);
   const [restoreRemoteKnowledgeDialogOpen, setRestoreRemoteKnowledgeDialogOpen] = useState(false);
   const [agentSelfCheckStatus, setAgentSelfCheckStatus] = useState<AgentSelfCheckUiStatus>('untested');
   const [agentSelfCheckResult, setAgentSelfCheckResult] = useState<AgentSelfCheckResult | null>(null);
@@ -682,7 +675,6 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
   useEffect(() => {
     void loadTextConfig();
     void window.yibiao?.getVersion().then(setAppVersion);
-    void window.yibiao?.license?.getStatus().then(setLicenseStatus).catch(() => setLicenseStatus(null));
 
     const unsubs: Array<() => void> = [];
     unsubs.push(
@@ -1701,7 +1693,6 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
     if (updateStatus === 'disabled') return '开发调试模式不执行客户端更新';
     return '可手动检查新版本';
   })();
-  const licenseSourceLabel = getLicenseSourceLabel(licenseStatus);
   const currentImageSizeOptions = getImageSizeOptions(state.imageModel.provider, state.imageModel.model_name);
   const currentImageSizeSupported = currentImageSizeOptions.some((option) => option.value === state.imageModel.image_size);
 
@@ -2583,42 +2574,6 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
                 {updateStatus === 'downloaded' ? '安装并重启' : updateBusy ? '检查中...' : '检查更新'}
               </button>
             </article>
-            <article className="about-info-card about-links-card">
-              <span>信息与授权</span>
-              <ul className="about-links-list">
-                <li className="about-links-item">
-                  <span className="about-links-label">GitHub 仓库</span>
-                  <a
-                    className="about-links-value is-link"
-                    href="https://github.com/FB208/OpenBidKit_Yibiao"
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    FB208/OpenBidKit_Yibiao
-                  </a>
-                </li>
-                <li className="about-links-item">
-                  <span className="about-links-label">使用文档</span>
-                  <a
-                    className="about-links-value is-link"
-                    href="https://wiki.agnet.top/"
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    wiki.agnet.top
-                  </a>
-                </li>
-                <li className="about-links-item">
-                  <span className="about-links-label">客户端授权状态</span>
-                  <span className={`about-links-value ${licenseStatus?.sourceTrusted ? 'is-trusted' : 'is-untrusted'}`}>
-                    {licenseSourceLabel}
-                  </span>
-                </li>
-              </ul>
-              <button type="button" className="about-links-activate" onClick={() => setOfflineLicenseDialogOpen(true)}>
-                离线激活授权
-              </button>
-            </article>
           </div>
           <div className="privacy-statement">
             <div className="privacy-statement-head">
@@ -2647,11 +2602,6 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
         </section>
       )}
       </div>
-      <OfflineLicenseActivationDialog
-        open={offlineLicenseDialogOpen}
-        onOpenChange={setOfflineLicenseDialogOpen}
-        onActivated={setLicenseStatus}
-      />
       <AppDialog
         open={restoreRemoteKnowledgeDialogOpen}
         onOpenChange={setRestoreRemoteKnowledgeDialogOpen}
