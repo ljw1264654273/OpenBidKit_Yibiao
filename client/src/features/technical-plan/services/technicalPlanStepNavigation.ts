@@ -20,6 +20,7 @@ export interface TechnicalPlanStageModel {
   complete: boolean;
   accessible: boolean;
   canProceed: boolean;
+  proceedBlockedReason?: string;
   disabled: boolean;
 }
 
@@ -28,7 +29,7 @@ export function buildTechnicalPlanStageModels(input: {
   completed: TechnicalPlanStageCompletion;
   currentStatusLabel?: string;
 }): TechnicalPlanStageModel[] {
-  return TECHNICAL_PLAN_STAGE_DEFINITIONS.map((definition, index) => {
+  const stages = TECHNICAL_PLAN_STAGE_DEFINITIONS.map((definition, index) => {
     const complete = input.completed[definition.key];
     const current = definition.key === input.currentStep;
     const prerequisitesComplete = TECHNICAL_PLAN_STAGE_DEFINITIONS
@@ -47,7 +48,6 @@ export function buildTechnicalPlanStageModels(input: {
       state,
       complete,
       accessible,
-      canProceed: complete,
       disabled: !accessible,
       statusLabel: current
         ? input.currentStatusLabel || (complete ? '待验收' : '进行中')
@@ -56,6 +56,19 @@ export function buildTechnicalPlanStageModels(input: {
           : accessible
             ? '可开始'
             : '待开放',
+    };
+  });
+
+  return stages.map((stage, index) => {
+    const nextStage = stages[index + 1];
+    const blockedByPrerequisites = stage.complete && nextStage && !nextStage.accessible;
+    return {
+      ...stage,
+      // 前四步确认后必须能进入下一阶段；第五步的完成字段仍用于正文导出。
+      canProceed: stage.complete && (!nextStage || nextStage.accessible),
+      proceedBlockedReason: blockedByPrerequisites
+        ? `前置步骤尚未完成：${stages.slice(0, index + 1).filter((previous) => !previous.complete).map((previous) => previous.label).join('、')}`
+        : undefined,
     };
   });
 }

@@ -649,6 +649,18 @@ test('新建标书五步接入统一流程卡和业务动作并重置页面根�
   assert.match(home, /workflowKind === 'technical-plan' && state\.step !== 'expand'/);
 });
 
+test('新建标书页脚的提示和标题复用阶段模型的前置阻塞原因', () => {
+  const home = readFileSync(new URL('../pages/TechnicalPlanHome.tsx', import.meta.url), 'utf8');
+  const tooltipSource = home.slice(home.indexOf('const nextTooltip ='), home.indexOf('const resolveSortLeave ='));
+  const footerSource = home.slice(home.indexOf('const stageFooterAction ='), home.indexOf('const remoteKnowledgeActionRequired ='));
+
+  assert.match(tooltipSource, /if \(currentStage\?\.proceedBlockedReason\)\s*\{\s*return currentStage\.proceedBlockedReason;/);
+  assert.match(footerSource, /disabled: !currentStage\.canProceed/);
+  assert.match(footerSource, /tooltip: nextTooltip/);
+  assert.match(footerSource, /title: currentStage\.proceedBlockedReason \|\|/);
+  assert.match(footerSource, /description: currentStage\.canProceed[^\n]*: nextTooltip/);
+});
+
 test('新建标书全局滚动分支按流程卡、异常入口、上下文、步骤内容和业务动作排列', () => {
   const home = readFileSync(new URL('../pages/TechnicalPlanHome.tsx', import.meta.url), 'utf8');
   const globalBranchStart = home.indexOf('{useGlobalScrollLayout && (');

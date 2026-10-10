@@ -405,6 +405,9 @@ function TechnicalPlanHome({ workflowKind, projectId, registerLeaveGuard, onSect
     || (state.step === 'outline-generation' && (!state.outlineData || !state.outlineWordControlSnapshot || state.outlineMinimumDepthSnapshot === undefined))
     || (state.step === 'global-facts' && (!globalFactsReady || isGlobalFactsAdjusting));
   const nextTooltip = (() => {
+    if (currentStage?.proceedBlockedReason) {
+      return currentStage.proceedBlockedReason;
+    }
     if (state.step === 'document-analysis' && !state.tenderFile) {
       return '上传完招标文件后才能进入下一步';
     }
@@ -1105,7 +1108,7 @@ function TechnicalPlanHome({ workflowKind, projectId, registerLeaveGuard, onSect
       description: exportWordAction.tooltip || '',
     }
     : currentStage ? {
-      title: currentStage.canProceed ? '当前步骤已具备进入下一环节的条件' : '完成当前步骤后继续',
+      title: currentStage.proceedBlockedReason || (currentStage.canProceed ? '当前步骤已具备进入下一环节的条件' : '完成当前步骤后继续'),
       description: currentStage.canProceed ? `${currentStage.label}已完成，请确认后继续。` : nextTooltip,
     } : null;
   const remoteKnowledgeActionRequired = [state.outlineGenerationTask, state.globalFactsTask, state.contentGenerationTask]
