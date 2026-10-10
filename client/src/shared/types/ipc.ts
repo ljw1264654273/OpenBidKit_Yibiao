@@ -766,7 +766,7 @@ export interface YibiaoBridge {
     saveHistoricalAdaptationDifferences: (payload: { projectId?: string; differences: HistoricalAdaptationDifference[] }) => Promise<TechnicalPlanState>;
     saveHistoricalAdaptationOutline: (payload: SaveHistoricalAdaptationOutlineRequest & { projectId?: string }) => Promise<TechnicalPlanState>;
     confirmHistoricalAdaptationOutline: (payload: { projectId?: string }) => Promise<TechnicalPlanState>;
-    prepareHistoricalAdaptationContentPlan: (payload: { projectId?: string; includeNodeId?: string; recommendationsOnly?: boolean }) => Promise<TechnicalPlanState>;
+    prepareHistoricalAdaptationContentPlan: (payload: { projectId?: string; includeNodeId?: string; recommendationsOnly?: boolean; directOnly?: boolean }) => Promise<TechnicalPlanState>;
     saveHistoricalAdaptationContentStrategy: (payload: { projectId?: string; nodeId: string; mode: HistoricalAdaptationContentMode; instruction?: string }) => Promise<TechnicalPlanState>;
     resetHistoricalAdaptationContentStrategies: (payload: { projectId?: string }) => Promise<TechnicalPlanState>;
     getHistoricalAdaptationContentReadiness: (payload: { projectId?: string }) => Promise<HistoricalAdaptationContentReadiness>;
@@ -864,7 +864,7 @@ export interface YibiaoBridge {
     startBidAnalysis: (payload: unknown) => Promise<unknown>;
     startHistoricalAdaptationDifference: (payload: { projectId: string }) => Promise<unknown>;
     startHistoricalAdaptationOutline: (payload: { projectId: string; projectName?: string }) => Promise<unknown>;
-    startHistoricalAdaptationContent: (payload: { projectId: string; nodeId?: string; forceOverwriteManual?: boolean; forceAll?: boolean }) => Promise<unknown>;
+    startHistoricalAdaptationContent: (payload: { projectId: string; nodeId?: string; forceOverwriteManual?: boolean; forceAll?: boolean; directOnly?: boolean }) => Promise<unknown>;
     retryHistoricalAdaptationContent: (payload: { projectId: string }) => Promise<TaskEventTask>;
     startHistoricalAdaptationContentCheck: (payload: { projectId: string }) => Promise<unknown>;
     startOutlineGeneration: (payload: StartOutlineGenerationPayload) => Promise<unknown>;

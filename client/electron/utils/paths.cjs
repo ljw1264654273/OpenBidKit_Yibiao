@@ -184,6 +184,11 @@ function getOpenXmlHelperDebugExecutablePath() {
   return path.join(__dirname, '..', '..', '..', 'openxmlhelper', 'src', 'OpenXmlHelper', 'bin', 'Debug', 'net10.0', fileName);
 }
 
+/** 开发编译后的助手 DLL；通过 dotnet 启动可复用当前命令行已发现的 SDK/Runtime。 */
+function getOpenXmlHelperDebugDllPath() {
+  return path.join(__dirname, '..', '..', '..', 'openxmlhelper', 'src', 'OpenXmlHelper', 'bin', 'Debug', 'net10.0', 'openxmlhelper.dll');
+}
+
 /** 安装包或本地 vendor 中的自包含助手目录。 */
 function getBundledOpenXmlHelperDir(app) {
   if (process.env.YIBIAO_OPENXML_HELPER_DIR) {
@@ -222,6 +227,7 @@ module.exports = {
   getKnowledgeBaseDir,
   getLicenseFilePath,
   getOpenXmlHelperDebugExecutablePath,
+  getOpenXmlHelperDebugDllPath,
   getOpenXmlHelperProjectPath,
   getOpenXmlJobDir,
   getOpenXmlJobsDir,

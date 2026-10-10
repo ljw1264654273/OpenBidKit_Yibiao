@@ -80,6 +80,28 @@ test('默认沿用历史原文时仍自动应用已确认的内容调整', async
   assert.equal(rewritten, '横泾街道原项目概况。');
 });
 
+test('directOnly 批量迁移只处理直接迁移章节并跳过局部改写', async () => {
+  const state = baseState();
+  const originalPlan = '# 项目概况\n五峰村原项目概况。\n\n# 服务保障\n保障正文。';
+  const planned = buildHistoricalContentItems({ state, originalPlan }).map(({ source_content: _sourceContent, ...item }) => item);
+  state.historicalAdaptationContentItems = planned.map((item) => item.node_id === '1'
+    ? { ...item, manual_mode: 'direct', manual_instruction: '' }
+    : { ...item, manual_mode: 'local-rewrite', manual_instruction: '' });
+  const requests = [];
+  const patches = [];
+  await runHistoricalAdaptationContentTask({
+    aiService: { requestJson: async (request) => { requests.push(request); return { edits: [] }; } },
+    workspaceStore: { loadTechnicalPlan: () => state, readOriginalPlanMarkdown: () => originalPlan },
+    payload: { directOnly: true },
+    updateTask() {},
+    checkpointTask: (_task, patch) => { if (patch) patches.push(patch); },
+  });
+  assert.equal(requests.length, 0);
+  assert.equal(patches.find((patch) => patch.contentGenerationItem?.nodeId === '1')?.contentGenerationItem.section.content,
+    '五峰村原项目概况。');
+  assert.equal(patches.some((patch) => patch.contentGenerationItem?.nodeId === '2'), false);
+});
+
 test('缺少复用决定时保留历史推荐模式，不推断复用字段', () => {
   const state = baseState();
   state.historicalAdaptationDifferences = [];

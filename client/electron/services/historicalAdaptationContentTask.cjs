@@ -505,7 +505,16 @@ async function runHistoricalAdaptationContentTask({ aiService, workspaceStore, u
     }
   }
   const recommendationNodeId = payload.recommendationsOnly === true ? text(payload.includeNodeId) : '';
-  const targetLeaves = payload.recommendationsOnly === true
+  const targetLeaves = payload.directOnly === true
+    ? leaves.filter((leaf) => {
+      const item = items.find((candidate) => candidate.node_id === leaf.nodeId);
+      return item
+        && getEffectiveMode(item) === 'direct'
+        && item.content_origin !== 'manual'
+        && !item.confirmed_at
+        && item.status !== 'success';
+    })
+    : payload.recommendationsOnly === true
     ? leaves.filter((leaf) => {
       const item = items.find((candidate) => candidate.node_id === leaf.nodeId);
       if (recommendationNodeId && leaf.nodeId !== recommendationNodeId) return false;

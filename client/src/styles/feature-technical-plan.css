@@ -8152,6 +8152,7 @@
   min-width: 0;
   overflow-x: hidden;
   overflow-y: auto;
+  background: var(--yb-page-bg, #f7f9fc);
   scrollbar-gutter: stable;
 }
 
@@ -8170,7 +8171,7 @@
   z-index: 10;
   flex: 0 0 auto;
   min-width: 0;
-  padding: 16px 36px;
+  padding: 16px 36px 12px;
   background: var(--yb-surface);
   border-bottom: 1px solid var(--yb-border);
 }
@@ -8183,61 +8184,67 @@
 }
 
 .technical-workbench-global-scroll .technical-plan-stage {
+  appearance: none;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
-  grid-template-areas: "index title" "index state";
-  align-items: center;
-  gap: 3px 10px;
+  align-content: center;
+  gap: 2px 8px;
   min-width: 0;
-  min-height: 68px;
-  padding: 10px 12px;
+  min-height: 54px;
+  padding: 8px 10px;
   color: var(--yb-text-soft);
   text-align: left;
-  background: var(--yb-bg);
-  border: 1px solid var(--yb-border);
-  border-radius: var(--yb-radius-lg);
+  background: #f1f4f8;
+  border: 1px solid #e0e6ed;
+  border-radius: var(--yb-radius-md);
   font: inherit;
 }
 
 .technical-workbench-global-scroll .technical-plan-stage > span {
-  grid-area: index;
-  font-size: 20px;
-  font-weight: 600;
+  grid-row: 1 / span 2;
+  font-size: 11px;
+  font-weight: 800;
   font-variant-numeric: tabular-nums;
 }
 
 .technical-workbench-global-scroll .technical-plan-stage > strong {
-  grid-area: title;
-  color: var(--yb-text);
+  overflow: hidden;
+  color: inherit;
   font-size: 13px;
   font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .technical-workbench-global-scroll .technical-plan-stage > small {
-  grid-area: state;
   color: inherit;
-  font-size: 11px;
+  font-size: 10px;
 }
 
 .technical-workbench-global-scroll .technical-plan-stage.is-complete {
   color: var(--yb-success-deep);
-  background: var(--yb-success-soft);
-  border-color: var(--yb-success-border);
+  background: #f0f8f4;
+  border-color: #bcdcca;
 }
 
 .technical-workbench-global-scroll .technical-plan-stage.is-current {
   color: var(--yb-primary-deep);
-  background: color-mix(in srgb, var(--yb-primary) 8%, var(--yb-surface));
-  border-color: var(--yb-primary);
+  background: #edf5ff;
+  border-color: #9fc2ee;
+  box-shadow: inset 0 3px 0 #216eea;
 }
 
 .technical-workbench-global-scroll .technical-plan-stage.is-current > strong {
   color: var(--yb-primary-deep);
 }
 
+.technical-workbench-global-scroll .technical-plan-stage.is-current > span {
+  color: #216eea;
+}
+
 .technical-workbench-global-scroll .technical-plan-stage.is-available {
   color: var(--yb-text-soft);
-  background: var(--yb-surface);
+  background: #f1f4f8;
 }
 
 .technical-workbench-global-scroll .technical-plan-stage.is-locked {
@@ -8337,7 +8344,7 @@
   }
 
   .technical-workbench-global-scroll .technical-plan-stage-panel {
-    padding: 12px 18px;
+    padding: 14px 18px 10px;
   }
 
   .technical-workbench-global-scroll .technical-plan-stages {

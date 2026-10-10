@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { compactLogError, createDeveloperLogger } = require('../utils/developerLog.cjs');
 const {
-  getOpenXmlHelperDebugExecutablePath,
+  getOpenXmlHelperDebugDllPath,
   getOpenXmlHelperProjectPath,
   getOpenXmlJobDir,
   getOpenXmlJobsDir,
@@ -15,6 +15,23 @@ const {
 const SIGNAL_VERSION = 1;
 const PING_TIMEOUT_MS = 15000;
 const JOB_ID_PATTERN = /^[A-Za-z0-9._-]+$/;
+
+function getOpenXmlHelperLaunch(app, workspace) {
+  if (app.isPackaged) {
+    const executablePath = getBundledOpenXmlHelperPath(app);
+    return {
+      command: executablePath,
+      args: ['--workspace', workspace],
+      artifactPath: executablePath,
+    };
+  }
+  const dllPath = getOpenXmlHelperDebugDllPath();
+  return {
+    command: 'dotnet',
+    args: [dllPath, '--workspace', workspace],
+    artifactPath: dllPath,
+  };
+}
 
 /** 生成任务编号：时间戳加短随机串。 */
 function createJobId() {
@@ -100,19 +117,11 @@ function createOpenXmlHelperService({ app, configStore } = {}) {
     const workspace = getWorkspaceDir(app);
     fs.mkdirSync(getOpenXmlJobsDir(app), { recursive: true });
 
-    let command;
-    let args;
-    if (app.isPackaged) {
-      command = getBundledOpenXmlHelperPath(app);
-      args = ['--workspace', workspace];
-    } else {
-      buildDebugHelper();
-      command = getOpenXmlHelperDebugExecutablePath();
-      args = ['--workspace', workspace];
-    }
+    if (!app.isPackaged) buildDebugHelper();
+    const { command, args, artifactPath } = getOpenXmlHelperLaunch(app, workspace);
 
-    if (!fs.existsSync(command)) {
-      throw new Error(`找不到 Open XML 助手：${command}`);
+    if (!fs.existsSync(artifactPath)) {
+      throw new Error(`找不到 Open XML 助手：${artifactPath}`);
     }
 
     const next = spawn(command, args, {
@@ -371,4 +380,5 @@ function createOpenXmlHelperService({ app, configStore } = {}) {
 
 module.exports = {
   createOpenXmlHelperService,
+  getOpenXmlHelperLaunch,
 };

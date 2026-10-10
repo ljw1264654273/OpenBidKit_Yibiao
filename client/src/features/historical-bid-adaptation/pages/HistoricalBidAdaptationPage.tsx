@@ -72,7 +72,7 @@ function AdaptationProjectWorkspace({
   const [pendingStage, setPendingStage] = useState<number | null>(null);
   const pendingContentPlanEvents = useRef<TaskEvent<TechnicalPlanState>[] | null>(null);
 
-  const prepareContentPlan = async (payload: { projectId: string; includeNodeId?: string; recommendationsOnly?: boolean }) => {
+  const prepareContentPlan = async (payload: { projectId: string; includeNodeId?: string; recommendationsOnly?: boolean; directOnly?: boolean }) => {
     pendingContentPlanEvents.current = [];
     try {
       const nextState = await window.yibiao.technicalPlan.prepareHistoricalAdaptationContentPlan(payload);

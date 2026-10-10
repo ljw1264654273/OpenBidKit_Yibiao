@@ -12,6 +12,7 @@ const {
   getTechnicalPlanTenderMarkdownPath,
   getTechnicalPlanTenderOriginalsDir,
   getGeneratedImagesDir,
+  getWorkspaceDir,
   getWorkspaceTrashDir,
   getBidProjectTechnicalPlanDir,
 } = require('../utils/paths.cjs');
@@ -1125,6 +1126,11 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     const value = String(relativeOrAbsolutePath || '').trim();
     if (!value) return tenderMarkdownPath;
     return path.isAbsolute(value) ? value : path.join(path.dirname(path.dirname(tenderMarkdownPath)), value);
+  }
+
+  /** Open XML 助手以全局 workspace 为根，项目内路径需补齐 bid-projects/<id> 前缀。 */
+  function toOpenXmlWorkspaceRelativePath(relativeOrAbsolutePath) {
+    return path.relative(getWorkspaceDir(app), resolveMarkdownPath(relativeOrAbsolutePath)).replace(/\\/g, '/');
   }
 
   function readTenderMarkdown() {
@@ -5124,16 +5130,17 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
     listTenderSourceDocxRelativePaths() {
       return loadTenderSourceFiles()
         .map((file) => String(file.sourceDocxPath || '').trim())
-        .filter((item) => item && fs.existsSync(resolveMarkdownPath(item)));
+        .filter((item) => item && fs.existsSync(resolveMarkdownPath(item)))
+        .map(toOpenXmlWorkspaceRelativePath);
     },
     getBidTemplateRelativePath() {
-      return bidTemplateRelativePath;
+      return toOpenXmlWorkspaceRelativePath(bidTemplateRelativePath);
     },
     getBidTemplateSourceRelativePath() {
-      return bidTemplateSourceRelativePath;
+      return toOpenXmlWorkspaceRelativePath(bidTemplateSourceRelativePath);
     },
     getBidTemplateFieldsRelativePath() {
-      return bidTemplateFieldsRelativePath;
+      return toOpenXmlWorkspaceRelativePath(bidTemplateFieldsRelativePath);
     },
     hasBidTemplate() {
       return fs.existsSync(bidTemplatePath) && fs.existsSync(bidTemplateFieldsPath);
@@ -5164,7 +5171,8 @@ function createTechnicalPlanStore({ app, db: rawDb, fileService, agentService, t
       const hint = String(sourceHint || '').trim().replace(/\\/g, '/').replace(/\/+$/, '');
       const sources = loadTenderSourceFiles()
         .map((file) => String(file.sourceDocxPath || '').trim())
-        .filter((item) => item && fs.existsSync(resolveMarkdownPath(item)));
+        .filter((item) => item && fs.existsSync(resolveMarkdownPath(item)))
+        .map(toOpenXmlWorkspaceRelativePath);
       if (!hint || hint === '招标原件') return sources;
       const fileName = path.posix.basename(hint);
       if (!fileName || fileName === '招标原件') return sources;

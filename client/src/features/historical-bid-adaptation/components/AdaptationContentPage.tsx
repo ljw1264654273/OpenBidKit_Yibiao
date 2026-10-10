@@ -14,7 +14,7 @@ interface AdaptationContentPageProps {
   project: BidProject | null;
   state: TechnicalPlanState;
   onStateChange: Dispatch<SetStateAction<TechnicalPlanState | null>>;
-  onPreparePlan: (payload: { projectId: string; includeNodeId?: string; recommendationsOnly?: boolean }) => Promise<TechnicalPlanState>;
+  onPreparePlan: (payload: { projectId: string; includeNodeId?: string; recommendationsOnly?: boolean; directOnly?: boolean }) => Promise<TechnicalPlanState>;
   onDirtyChange: (dirty: boolean) => void;
   onBack: () => void;
 }
@@ -105,6 +105,7 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onPre
   const [chapterConfirming, setChapterConfirming] = useState(false);
   const [strategySaving, setStrategySaving] = useState(false);
   const [preparing, setPreparing] = useState(false);
+  const [preparingDirectOnly, setPreparingDirectOnly] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const [sourceSection, setSourceSection] = useState<HistoricalAdaptationSourceSection | null>(null);
   const [sourceNodeId, setSourceNodeId] = useState('');
@@ -151,6 +152,10 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onPre
     && !strategyInstruction.trim()
     && isEmptyHistoricalSource(selectedItem, sourceSection, sourceNodeId);
   const retryCount = state.historicalAdaptationContentItems.filter((item) => ['idle', 'stale', 'error', 'running'].includes(item.status) && item.content_origin !== 'manual').length;
+  const directOnlyCount = leaves.filter((leaf) => {
+    const item = itemByNode.get(leaf.item.id);
+    return item && effectiveMode(item) === 'direct' && item.content_origin !== 'manual' && !item.confirmed_at && item.status !== 'success';
+  }).length;
   const successCount = state.historicalAdaptationContentItems.filter((item) => item.status === 'success').length;
   const reviewCount = state.historicalAdaptationContentItems.filter((item) => ['review', 'stale', 'error'].includes(item.status)).length;
   const stageConfirmed = Boolean(state.historicalAdaptationContentConfirmedAt);
@@ -291,7 +296,7 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onPre
     continueNavigation(navigation);
   };
 
-  const preparePlan = async () => {
+  const preparePlan = async ({ directOnly = false }: { directOnly?: boolean } = {}) => {
     if (running || saving) return;
     if (dirty) {
       showToast('当前章节有未保存修改，请先保存后再迁移', 'info');
@@ -306,6 +311,7 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onPre
       return;
     }
     setPreparing(true);
+    setPreparingDirectOnly(directOnly);
     try {
       if (strategyChanged && selectedItem && strategyMode) {
         if (strategyMode === 'rewrite' && !strategyInstruction.trim()) {
@@ -318,16 +324,19 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onPre
         });
         onStateChange(nextState);
       }
-      await onPreparePlan({ projectId, ...(strategyChanged && selectedItem ? { includeNodeId: selectedItem.node_id } : {}) });
+      await onPreparePlan({ projectId, ...(strategyChanged && selectedItem ? { includeNodeId: selectedItem.node_id } : {}), ...(directOnly ? { directOnly: true } : {}) });
       setView('preview');
-      showToast(selectedItem && !strategyMode
+      showToast(directOnly
+        ? '可直接迁移章节已开始处理；局部改写和定向改写章节保留待人工选择'
+        : selectedItem && !strategyMode
         ? '可迁移章节已启动；当前章节仍需选择迁移方式'
         : '迁移已启动；待处理章节将按推荐或当前选择的方式执行，人工正文保留', 'success');
     } catch (error) {
       const message = error instanceof Error ? error.message : '操作失败';
-      showToast(`建立/更新迁移失败：${message}`, 'error');
+      showToast(`${directOnly ? '仅迁移可直接章节' : '建立/更新迁移'}失败：${message}`, 'error');
     } finally {
       setPreparing(false);
+      setPreparingDirectOnly(false);
     }
   };
 
@@ -563,7 +572,8 @@ function AdaptationContentPage({ projectId, project, state, onStateChange, onPre
         </div>
         <div className="historical-adaptation-content-actions">
           <button type="button" className="secondary-action" onClick={() => requestNavigation({ type: 'back' })}>返回我的标书</button>
-          <button type="button" className="primary-action" disabled={running || saving || dirty} title={dirty ? '请先保存人工修改' : '应用当前选择，建立方案并迁移待处理章节；保留人工正文'} onClick={() => { void preparePlan(); }}>{preparing ? '建立迁移中...' : '建立/更新迁移'}</button>
+          <button type="button" className="primary-action" disabled={running || saving || dirty} title={dirty ? '请先保存人工修改' : '应用当前选择，建立方案并迁移待处理章节；保留人工正文'} onClick={() => { void preparePlan(); }}>{preparing && !preparingDirectOnly ? '建立迁移中...' : '建立/更新迁移'}</button>
+          <button type="button" className="secondary-action" disabled={running || saving || dirty || !directOnlyCount} title={dirty ? '请先保存人工修改' : '只迁移当前已选择直接迁移的章节，局部改写和定向改写章节保留待人工处理'} onClick={() => { void preparePlan({ directOnly: true }); }}>{preparingDirectOnly ? '直接章节迁移中...' : `仅迁移可直接章节${directOnlyCount ? `（${directOnlyCount}）` : ''}`}</button>
           <button type="button" className="secondary-action" disabled={running || saving || dirty || !retryCount} onClick={() => { void retryIncomplete(); }}>{retrying ? '重试启动中...' : '重试未完成章节'}</button>
           <button type="button" className="secondary-action" disabled={running || saving || dirty || !state.historicalAdaptationContentItems.length} title={dirty ? '请先保存人工修改' : '清除全部人工选择和改写要求，恢复默认规则；正文在执行迁移后更新，已保存的人工正文保留'} onClick={() => { void resetStrategies(); }}>恢复默认处理方式</button>
         </div>

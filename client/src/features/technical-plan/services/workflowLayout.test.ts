@@ -957,25 +957,31 @@ test('步骤底部只保留一个与业务状态绑定的主动作', () => {
   assert.equal((source.match(/<button/g) || []).length, 1);
 });
 
-test('新建标书只在页面根滚动并取消壳层内边距', () => {
+test('新建标书和方案扩写在页面根滚动并保留参考页壳层间距', () => {
   const css = readFileSync(new URL('../../../styles/feature-technical-plan.css', import.meta.url), 'utf8');
   const shellCss = readFileSync(new URL('../../../styles/layout-app-shell.css', import.meta.url), 'utf8');
 
   assert.match(css, /\.technical-workbench-global-scroll\s*\{[^}]*display:\s*flex;[^}]*overflow-x:\s*hidden;[^}]*overflow-y:\s*auto;[^}]*scrollbar-gutter:\s*stable;/s);
   assert.match(css, /\.technical-workbench-global-scroll > :where\([^)]*\.bid-project-context-bar[^)]*\.remote-knowledge-task-action[^)]*\.technical-step-module[^)]*\.technical-plan-stage-footer[^)]*\)\s*\{[^}]*flex:\s*0 0 auto;[^}]*margin-inline:\s*36px;/s);
-  assert.match(shellCss, /\.content-shell:has\(\.technical-workbench-global-scroll\)\s*\{[^}]*padding:\s*0;/s);
+  assert.match(shellCss, /\.content-shell:has\(\.technical-workbench-global-scroll\)\s*\{[^}]*padding:\s*28px 36px;/s);
   assert.ok(shellCss.indexOf('.content-shell:has(.technical-workbench-global-scroll)') > shellCss.indexOf('.content-shell:has(.technical-workbench)'));
 });
 
-test('新建标书五步流程条在根滚动时保持吸顶并使用文本状态', () => {
+test('新建标书和方案扩写共用以标写标样式的五等分流程条与页面背景', () => {
+  const home = readFileSync(new URL('../pages/TechnicalPlanHome.tsx', import.meta.url), 'utf8');
   const css = readFileSync(new URL('../../../styles/feature-technical-plan.css', import.meta.url), 'utf8');
 
-  assert.match(css, /\.technical-workbench-global-scroll \.technical-plan-stage-panel\s*\{[^}]*position:\s*sticky;[^}]*top:\s*0;[^}]*z-index:\s*\d+;[^}]*flex:\s*0 0 auto;[^}]*background:\s*var\(--yb-surface\);[^}]*border-bottom:/s);
+  assert.match(css, /\.technical-workbench-global-scroll\s*\{[^}]*background:\s*var\(--yb-page-bg,\s*#f7f9fc\);/s);
+  assert.match(css, /\.technical-workbench-global-scroll \.technical-plan-stage-panel\s*\{[^}]*position:\s*sticky;[^}]*top:\s*0;[^}]*z-index:\s*\d+;[^}]*flex:\s*0 0 auto;[^}]*padding:\s*16px 36px 12px;[^}]*background:\s*var\(--yb-surface\);[^}]*border-bottom:/s);
   assert.match(css, /\.technical-workbench-global-scroll \.technical-plan-stages\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*repeat\(5, minmax\(0, 1fr\)\);/s);
+  assert.doesNotMatch(home, /technical-workbench-new-bid/);
+  assert.doesNotMatch(css, /\.technical-workbench-new-bid \.technical-plan-stages/);
   for (const state of ['complete', 'current', 'available', 'locked']) {
     assert.match(css, new RegExp(`\\.technical-workbench-global-scroll \\.technical-plan-stage\\.is-${state}\\s*\\{[^}]*color:\\s*var\\(--yb-`, 's'));
   }
-  assert.match(css, /\.technical-workbench-global-scroll \.technical-plan-stage\s*\{[^}]*border-radius:\s*var\(--yb-radius-lg\);/s);
+  assert.match(css, /\.technical-workbench-global-scroll \.technical-plan-stage\s*\{[^}]*min-height:\s*54px;[^}]*padding:\s*8px 10px;[^}]*background:\s*#f1f4f8;[^}]*border-radius:\s*var\(--yb-radius-md\);/s);
+  assert.match(css, /\.technical-workbench-global-scroll \.technical-plan-stage > span\s*\{[^}]*grid-row:\s*1 \/ span 2;[^}]*font-size:\s*11px;[^}]*font-weight:\s*800;/s);
+  assert.match(css, /\.technical-workbench-global-scroll \.technical-plan-stage\.is-current\s*\{[^}]*background:\s*#edf5ff;[^}]*border-color:\s*#9fc2ee;[^}]*box-shadow:\s*inset 0 3px 0 #216eea;/s);
 });
 
 test('新建标书模块和步骤页面回归自然高度并保留工作区滚动边界', () => {
@@ -1037,6 +1043,7 @@ test('新建标书上下文与底部主操作使用正文流布局', () => {
   assert.match(css, /\.technical-workbench-global-scroll \.technical-plan-stage-footer\s*\{[^}]*display:\s*flex;[^}]*justify-content:\s*space-between;[^}]*margin-bottom:\s*24px;[^}]*background:\s*var\(--yb-surface\);[^}]*border-left:\s*3px solid var\(--yb-success\);/s);
   const responsive = css.slice(css.indexOf('/* global-scroll responsive */'));
   assert.match(responsive, /@media\s*\(max-width:\s*900px\)[\s\S]*\.technical-plan-stages\s*\{[^}]*grid-template-columns:\s*repeat\(5, minmax\(138px, 1fr\)\);[^}]*overflow-x:\s*auto;/s);
+  assert.match(responsive, /\.technical-workbench-global-scroll \.technical-plan-stage-panel\s*\{[^}]*padding:\s*14px 18px 10px;/s);
   assert.match(responsive, /margin-inline:\s*18px;/);
   assert.match(responsive, /\.technical-plan-stage-footer\s*\{[^}]*align-items:\s*stretch;[^}]*flex-direction:\s*column;/s);
 });

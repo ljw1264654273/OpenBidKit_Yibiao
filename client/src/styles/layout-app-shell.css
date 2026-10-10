@@ -476,7 +476,7 @@
 }
 
 .content-shell:has(.technical-workbench-global-scroll) {
-  padding: 0;
+  padding: 28px 36px;
 }
 
 .content-shell:has(.settings-page) {
